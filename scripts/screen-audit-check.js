@@ -1,0 +1,1582 @@
+const { createCharacter } = require("../js/storage");
+const { getUnlockedSpecies, reconcileSpeciesPopulations } = require("../js/animalWorld");
+
+const viewports = [
+  { name: "small", width: 320, height: 568 },
+  { name: "base", width: 375, height: 667 },
+  { name: "large", width: 430, height: 932 }
+];
+
+const allowedTypographySizes = new Set([8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 22, 24, 25, 28]);
+
+let activeViewport = viewports[1];
+const failures = [];
+
+function parseFontSize(font) {
+  const match = /(\d+(?:\.\d+)?)px/.exec(String(font || ""));
+  return match ? Number(match[1]) : 12;
+}
+
+function estimateTextWidth(text, size) {
+  return String(text || "").split("").reduce((sum, ch) => {
+    const code = ch.charCodeAt(0);
+    if (/\s/.test(ch)) return sum + size * 0.35;
+    return sum + (code > 255 ? size * 0.92 : size * 0.56);
+  }, 0);
+}
+
+function createAuditContext(audit) {
+  const gradient = { addColorStop() {} };
+  const base = {
+    tx: 0,
+    ty: 0,
+    font: "12px sans-serif",
+    textAlign: "left",
+    textBaseline: "alphabetic",
+    fillStyle: "#000",
+    strokeStyle: "#000",
+    lineWidth: 1,
+    globalAlpha: 1
+  };
+  const stack = [];
+  const ctx = {
+    canvas: { width: activeViewport.width, height: activeViewport.height },
+    save() { stack.push(Object.assign({}, base)); },
+    restore() {
+      const prev = stack.pop();
+      if (prev) Object.assign(base, prev);
+    },
+    scale() {},
+    translate(x, y) {
+      base.tx += x || 0;
+      base.ty += y || 0;
+    },
+    rotate() {},
+    clearRect() {},
+    fillRect() {},
+    strokeRect() {},
+    drawImage() {},
+    beginPath() {},
+    closePath() {},
+    rect() {},
+    clip() {},
+    moveTo() {},
+    lineTo() {},
+    quadraticCurveTo() {},
+    bezierCurveTo() {},
+    arc() {},
+    arcTo() {},
+    ellipse() {},
+    fill() {},
+    stroke() {},
+    setLineDash() {},
+    measureText(text) {
+      return { width: estimateTextWidth(text, parseFontSize(base.font)) };
+    },
+    fillText(text, x, y) {
+      const size = parseFontSize(base.font);
+      const value = String(text || "");
+      const width = estimateTextWidth(value, size);
+      const sx = (x || 0) + base.tx;
+      const sy = (y || 0) + base.ty;
+      let left = sx;
+      if (base.textAlign === "center") left = sx - width / 2;
+      if (base.textAlign === "right" || base.textAlign === "end") left = sx - width;
+      audit.texts.push({
+        text: value,
+        x: left,
+        y: sy - size,
+        w: width,
+        h: size + 3,
+        size,
+        align: base.textAlign,
+        phase: audit.phase,
+        screen: audit.screen,
+        viewport: audit.viewport.name
+      });
+    },
+    createLinearGradient() { return gradient; },
+    createRadialGradient() { return gradient; },
+    set fillStyle(value) { base.fillStyle = value; },
+    get fillStyle() { return base.fillStyle; },
+    set strokeStyle(value) { base.strokeStyle = value; },
+    get strokeStyle() { return base.strokeStyle; },
+    set lineWidth(value) { base.lineWidth = value; },
+    get lineWidth() { return base.lineWidth; },
+    set font(value) { base.font = value; },
+    get font() { return base.font; },
+    set textAlign(value) { base.textAlign = value; },
+    get textAlign() { return base.textAlign; },
+    set textBaseline(value) { base.textBaseline = value; },
+    get textBaseline() { return base.textBaseline; },
+    set globalAlpha(value) { base.globalAlpha = value; },
+    get globalAlpha() { return base.globalAlpha; }
+  };
+  return ctx;
+}
+
+global.wx = {
+  getSystemInfoSync() {
+    return { windowWidth: activeViewport.width, windowHeight: activeViewport.height, pixelRatio: 1 };
+  },
+  createCanvas() {
+    return {
+      width: activeViewport.width,
+      height: activeViewport.height,
+      getContext() {
+        return createAuditContext(currentAudit);
+      }
+    };
+  },
+  createImage() {
+    return {
+      loaded: true,
+      set src(value) {
+        this._src = value;
+        this.loaded = true;
+        if (this.onload) this.onload();
+      },
+      get src() {
+        return this._src;
+      }
+    };
+  },
+  getStorageSync() {
+    return null;
+  },
+  setStorageSync() {},
+  onTouchStart() {},
+  onTouchMove() {},
+  onTouchEnd() {},
+  onTouchCancel() {},
+  onKeyboardConfirm() {},
+  onAppHide() {},
+  onAppShow() {},
+  showToast() {}
+};
+
+let currentAudit = {
+  viewport: activeViewport,
+  screen: "boot",
+  phase: "screen",
+  buttons: [],
+  hits: [],
+  texts: []
+};
+
+const { Game } = require("../js/game");
+
+function newAudit(viewport, screen, phase = "screen") {
+  return {
+    viewport,
+    screen,
+    phase,
+    scrollY: 0,
+    maxScroll: 0,
+    buttons: [],
+    hits: [],
+    texts: []
+  };
+}
+
+function isFiniteRect(rect) {
+  return [rect.x, rect.y, rect.w, rect.h].every(Number.isFinite);
+}
+
+function rectVisible(rect, viewport) {
+  return rect.x + rect.w > 0 && rect.x < viewport.width && rect.y + rect.h > 0 && rect.y < viewport.height;
+}
+
+function rectOverlaps(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function installInstrumentation(game, audit) {
+  const originalAddHit = game.addHit.bind(game);
+  game.addHit = (x, y, w, h, onTap) => {
+    audit.hits.push({ x, y, w, h, phase: audit.phase, screen: audit.screen, viewport: audit.viewport.name });
+    return originalAddHit(x, y, w, h, onTap);
+  };
+
+  const originalButton = game.button.bind(game);
+  game.button = (ctx, x, y, w, h, label, fill, onTap, color, size) => {
+    audit.buttons.push({
+      type: "button",
+      label,
+      x,
+      y: y - game.scrollY,
+      w,
+      h,
+      phase: audit.phase,
+      screen: audit.screen,
+      viewport: audit.viewport.name
+    });
+    return originalButton(ctx, x, y, w, h, label, fill, onTap, color, size);
+  };
+
+  const originalModalButton = game.modalButton.bind(game);
+  game.modalButton = (ctx, x, y, w, h, label, fill, onTap, color, size) => {
+    audit.buttons.push({
+      type: "modalButton",
+      label,
+      x,
+      y,
+      w,
+      h,
+      phase: "modal",
+      screen: audit.screen,
+      viewport: audit.viewport.name
+    });
+    return originalModalButton(ctx, x, y, w, h, label, fill, onTap, color, size);
+  };
+
+  const wrapModalPhase = (name) => {
+    const original = game[name].bind(game);
+    game[name] = (...args) => {
+      const old = audit.phase;
+      audit.phase = "modal";
+      try {
+        return original(...args);
+      } finally {
+        audit.phase = old;
+      }
+    };
+  };
+  wrapModalPhase("drawPatrolTaskModal");
+  wrapModalPhase("drawInfoDetailModal");
+  wrapModalPhase("drawSettlementModal");
+  wrapModalPhase("drawChapterStoryModal");
+}
+
+function createGame(viewport) {
+  activeViewport = viewport;
+  currentAudit = newAudit(viewport, "boot");
+  const game = new Game();
+  if (game.stopLoop) game.stopLoop();
+  game.width = viewport.width;
+  game.height = viewport.height;
+  game.canvas.width = viewport.width;
+  game.canvas.height = viewport.height;
+  game.ctx = createAuditContext(currentAudit);
+  game.state = createCharacter(null, "保护区卫士");
+  game.selectedTarget = game.state.world.knownCharacters[0];
+  game.speakingAnimalId = game.selectedTarget.id;
+  game.selectedRegionId = game.defaultRegionId();
+  if (game.art && game.art.atlas) game.art.atlas.loaded = true;
+  if (game.art && game.art.map) game.art.map.loaded = true;
+  installInstrumentation(game, currentAudit);
+  return game;
+}
+
+function fail(context, message) {
+  failures.push(`${context}: ${message}`);
+  console.log(`FAIL: ${context}: ${message}`);
+}
+
+function checkText(audit, context) {
+  audit.texts.forEach((item) => {
+    if (!rectVisible(item, audit.viewport)) return;
+    const content = String(item.text || "").trim();
+    if (!allowedTypographySizes.has(item.size)) {
+      fail(context, `字号不在规范表 ${item.size}px: ${item.text}`);
+    }
+    if (item.size < 8) {
+      fail(context, `字号过小 ${item.size}px: ${item.text}`);
+    }
+    const tinyBadge = /^(?:[+\-]?\d+(?:\/\d+)?|Lv\.\d+|[A-S]|[!?…›✓×])$/.test(content);
+    const mapDecoration = item.phase !== "modal"
+      && (audit.screen === "home" || /^(?:漫流水线|集中水点)\d+$/.test(content))
+      && content.length <= 6;
+    if (item.size === 8 && !tinyBadge && !mapDecoration && content.length > 3) {
+      fail(context, `8px 仅限短徽标或地图装饰: ${item.text}`);
+    }
+    if (item.size === 9 && content.length > 14 && !/^[\d+\-→·/\s]+$/.test(content)) {
+      fail(context, `较长辅助文字低于 10px: ${item.text}`);
+    }
+    if (item.x < -6 || item.x + item.w > audit.viewport.width + 6) {
+      const decorative = item.size <= 9 && (audit.screen === "home" || item.text.length <= 3);
+      if (!decorative) fail(context, `文字越界: ${item.text}`);
+    }
+    if (/^[，。；：、）》】”’]+$/.test(String(item.text || "").trim())) {
+      fail(context, `标点被错误拆成独立一行: ${item.text}`);
+    }
+  });
+}
+
+function textOverlapCandidate(item, viewport) {
+  if (!rectVisible(item, viewport)) return false;
+  if (item.y >= viewport.height - 66) return false;
+  const text = String(item.text || "").trim();
+  if (!text || text === "›" || text === "…" || text === "+" || text === "-") return false;
+  if (item.size < 8.5 || item.w < 8 || item.h < 8) return false;
+  return true;
+}
+
+function textIntersection(a, b) {
+  const left = Math.max(a.x, b.x);
+  const right = Math.min(a.x + a.w, b.x + b.w);
+  const top = Math.max(a.y, b.y);
+  const bottom = Math.min(a.y + a.h, b.y + b.h);
+  return {
+    w: Math.max(0, right - left),
+    h: Math.max(0, bottom - top)
+  };
+}
+
+function checkTextOverlaps(audit, context, game) {
+  const texts = audit.texts.filter((item) => textOverlapCandidate(item, audit.viewport));
+  const homeDock = audit.screen === "home" && game && game.renderedHomeActionDock;
+  const dockLabels = homeDock
+    ? new Set([homeDock.title, homeDock.focus, homeDock.actionLabel, "新手下一步", "当前最重要"])
+    : new Set();
+  const prologueLine = audit.screen === "choose" && game && game.renderedPlayablePrologue
+    ? String(((game.renderedPlayablePrologue.dialogue || {}).line) || "")
+    : "";
+  for (let i = 0; i < texts.length; i += 1) {
+    const a = texts[i];
+    for (let j = i + 1; j < texts.length; j += 1) {
+      const b = texts[j];
+      if (a.phase !== b.phase) continue;
+      // The home action dock is an opaque floating layer over the live map.
+      // Map dialogue underneath it is intentionally occluded, so do not
+      // compare that hidden text with the dock's own title/action label.
+      if (homeDock && (dockLabels.has(a.text) || dockLabels.has(b.text))) continue;
+      // The live map is intentionally rendered behind an opaque cinematic
+      // prologue panel. Its simulated dialogue must not be compared with the
+      // foreground caption that visually covers it.
+      if (prologueLine && (prologueLine.includes(a.text) || prologueLine.includes(b.text))) continue;
+      const hit = textIntersection(a, b);
+      if (!hit.w || !hit.h) continue;
+      if (a.text === b.text && Math.abs(a.x - b.x) < 1 && Math.abs(a.y - b.y) < 1) continue;
+      const minW = Math.min(a.w, b.w);
+      const minH = Math.min(a.h, b.h);
+      const sameShortRow = Math.abs((a.y + a.h / 2) - (b.y + b.h / 2)) < 2 && (a.text.length <= 3 || b.text.length <= 3);
+      if (sameShortRow) continue;
+      if (hit.w > minW * 0.36 && hit.h > minH * 0.42) {
+        fail(context, `文字遮挡: "${a.text}"@${Math.round(a.x)},${Math.round(a.y)} / "${b.text}"@${Math.round(b.x)},${Math.round(b.y)} [${a.phase}]`);
+      }
+    }
+  }
+}
+
+function checkButtons(audit, game, context) {
+  const navTop = audit.viewport.height - game.navHeight();
+  const stableScroll = audit.scrollY < 1 || Math.abs(audit.scrollY - audit.maxScroll) < 1;
+  audit.buttons.forEach((button) => {
+    if (!isFiniteRect(button)) fail(context, `按钮坐标异常: ${button.label}`);
+    if (!rectVisible(button, audit.viewport)) return;
+    const smallMapControl = button.label === "+" || button.label === "-";
+    const minH = smallMapControl ? 20 : (button.type === "modalButton" ? 34 : 26);
+    if (button.h < minH) fail(context, `按钮过矮 ${button.h}px: ${button.label}`);
+    if (button.x < -1 || button.x + button.w > audit.viewport.width + 1) {
+      fail(context, `按钮横向越界: ${button.label}`);
+    }
+    const visibleAboveNav = navTop - button.y;
+    if (stableScroll && button.phase !== "modal" && visibleAboveNav >= 20 && button.y + button.h > navTop - 2) {
+      fail(context, `按钮压到底部导航: ${button.label}`);
+    }
+    if (button.phase === "modal" && button.y + button.h > audit.viewport.height - 10) {
+      fail(context, `弹窗按钮压屏幕底部: ${button.label}`);
+    }
+  });
+}
+
+function checkHits(audit, game, context) {
+  const navRect = { x: 0, y: audit.viewport.height - game.navHeight(), w: audit.viewport.width, h: game.navHeight() };
+  const stableScroll = audit.scrollY < 1 || Math.abs(audit.scrollY - audit.maxScroll) < 1;
+  audit.hits.forEach((hit) => {
+    if (!isFiniteRect(hit)) fail(context, "点击区坐标异常");
+    if (!rectVisible(hit, audit.viewport)) return;
+    const backdrop = hit.x <= 0 && hit.y <= 0 && hit.w >= audit.viewport.width && hit.h >= audit.viewport.height;
+    const navHit = hit.y >= navRect.y - 1 && hit.h >= game.navHeight() - 1;
+    if (backdrop || navHit) return;
+    if (hit.w < 20 || hit.h < 20) {
+      fail(context, `点击区过小 ${Math.round(hit.w)}x${Math.round(hit.h)}`);
+    }
+    const visibleAboveNav = navRect.y - hit.y;
+    if (stableScroll && hit.phase !== "modal" && hit.h <= 48 && visibleAboveNav >= 20 && rectOverlaps(hit, navRect)) {
+      fail(context, `普通点击区压到底部导航 ${Math.round(hit.x)},${Math.round(hit.y)},${Math.round(hit.w)}x${Math.round(hit.h)}`);
+    }
+  });
+}
+
+function runRenderAudit(game, viewport, screen, scrollY = 0, modalSetup = null) {
+  const audit = newAudit(viewport, screen);
+  currentAudit = audit;
+  game.ctx = createAuditContext(audit);
+  installInstrumentation(game, audit);
+  game.screen = screen;
+  game.scrollY = scrollY;
+  game.patrolTaskModal = null;
+  game.patrolOperationPlan = null;
+  game.renderedPatrolTask = null;
+  game.infoDetailModal = null;
+  game.settlementModal = null;
+  game.chapterStoryModal = null;
+  game.chapterStoryQueue = [];
+  if (modalSetup) modalSetup(game);
+  // Some setup helpers call render() themselves. Only audit the final state;
+  // otherwise pre-selection and post-selection text can be compared as if it
+  // occupied the same frame and create false overlap failures.
+  audit.buttons = [];
+  audit.hits = [];
+  audit.texts = [];
+  game.render();
+  audit.scrollY = game.scrollY;
+  audit.maxScroll = game.maxScroll();
+  const context = `${viewport.name}/${screen}/scroll:${Math.round(scrollY)}${modalSetup ? "/modal" : ""}`;
+  if (!Number.isFinite(game.contentHeight) || game.contentHeight <= 0) {
+    fail(context, "内容高度异常");
+  }
+  checkText(audit, context);
+  checkTextOverlaps(audit, context, game);
+  checkButtons(audit, game, context);
+  checkHits(audit, game, context);
+  const infoItems = (game.infoDetailModal && game.infoDetailModal.renderedInfoItems) || [];
+  const truncatedInfo = infoItems.filter((entry) => entry.layout && ((entry.layout.title && entry.layout.title.truncated) || (entry.layout.body && entry.layout.body.truncated)));
+  if (truncatedInfo.length) {
+    const detail = truncatedInfo.map((entry) => `${entry.item.tag || entry.item.title}[${Math.round(entry.w)}×${Math.round(entry.h)}:${entry.layout.title && entry.layout.title.truncated ? "标题" : ""}${entry.layout.body && entry.layout.body.truncated ? "正文" : ""}]`).join("、");
+    fail(context, `${(game.infoDetailModal && game.infoDetailModal.title) || "结果卡"}文字被截断: ${detail}`);
+  }
+  return audit;
+}
+
+function checkMetricDashboard(game, audit, context, expectedLabels) {
+  const modal = game.infoDetailModal || {};
+  const metrics = modal.renderedDashboardMetrics || [];
+  if (modal.layout !== "metricDashboard" || metrics.length !== expectedLabels.length) {
+    fail(context, `数据仪表盘缺失或数量错误: ${metrics.length}/${expectedLabels.length}`);
+    return;
+  }
+  expectedLabels.forEach((label) => {
+    if (!metrics.some((metric) => metric.label === label)) fail(context, `数据仪表盘缺少 ${label}`);
+  });
+  if (metrics.some((metric) => metric.valueSize < 14 || metric.w < 60 || metric.h < 78)) {
+    fail(context, "数据仪表盘主数字过小或卡片空间不足");
+  }
+  if (audit.texts.some((item) => /AI LIVE|开局一队狗|繁荣全靠你/.test(item.text))) {
+    fail(context, "高频详情仍出现元说明或旧英文标签");
+  }
+  const cards = modal.renderedInfoItems || [];
+  if (!cards.length || cards.some((entry) => entry.layout && ((entry.layout.title && entry.layout.title.truncated) || (entry.layout.body && entry.layout.body.truncated)))) {
+    fail(context, "数据仪表盘下方状态卡缺失或文字被截断");
+  }
+}
+
+function checkMapAnimalAction(game, audit, context) {
+  const modal = game.infoDetailModal || {};
+  const metrics = modal.renderedDashboardMetrics || [];
+  const actions = modal.renderedAnimalActions || [];
+  if (modal.kind !== "mapAnimalAction" || metrics.length !== 3 || actions.length !== 2) {
+    fail(context, `沙盘动物操作层缺失: ${modal.kind || "none"}/${metrics.length}/${actions.length}`);
+    return;
+  }
+  ["信任", "警惕", "健康"].forEach((label) => {
+    if (!metrics.some((metric) => metric.label === label)) fail(context, `动物关键数字缺少 ${label}`);
+  });
+  if (metrics.some((metric) => metric.valueSize < 18 || metric.w < 50 || metric.h < 44)) {
+    fail(context, "动物关键数字过小或卡片空间不足");
+  }
+  if (!modal.animal || !modal.quote || modal.quote.length > 80) {
+    fail(context, "动物大头像或短对白缺失");
+  }
+  if (actions.some((action) => action.h < 50 || action.w < 200 || !action.label || !action.value
+    || action.y < 0 || action.y + action.h > game.height)) {
+    fail(context, "动物操作按钮尺寸、结果数字或可视范围异常");
+  }
+  if (actions.some((action) => action.id.startsWith("patrol:"))
+    || !actions.some((action) => action.id.startsWith("care:"))
+    || !actions.some((action) => action.id === "explore:materials")) {
+    fail(context, "动物详情必须只保留关系互动和探索，不能直接执行巡护任务");
+  }
+  if (!modal.renderedLinkedPatrolTask || !modal.renderedLinkedPatrolTask.readOnly
+    || modal.renderedLinkedPatrolTask.trigger !== "sandbox-marker") {
+    fail(context, "动物发现没有形成只读沙盘任务提示");
+  }
+  const actionHits = audit.hits.filter((hit) => actions.some((action) => Math.abs(hit.x - action.x) < 1 && Math.abs(hit.y - action.y) < 1));
+  if (actionHits.length !== 2) fail(context, `两项动物操作点击区不完整: ${actionHits.length}/2`);
+}
+
+function checkAnimalComfort(game, audit, context, phase) {
+  const modal = game.infoDetailModal || {};
+  const rendered = modal.renderedComfort || {};
+  if (modal.kind !== "animalComfort" || rendered.phase !== phase) {
+    fail(context, `温柔互动过程缺失: ${modal.kind || "none"}/${rendered.phase || "none"}`);
+    return;
+  }
+  if ((modal.config?.steps || []).length !== 2 || (modal.config?.buttons || []).length !== 2) {
+    fail(context, "安抚流程不是固定的两张画面");
+  }
+  if ((rendered.portraitSize || 0) < 96 || !rendered.button || rendered.button.w < 140 || rendered.button.h < 40) {
+    fail(context, "安抚过程的动物主视觉或主操作按钮过小");
+  }
+  if (phase === "result" && (!Array.isArray(rendered.changes) || rendered.changes.length !== 3)) {
+    fail(context, "安抚完成后没有清楚展示三项结果变化");
+  }
+  if (!audit.texts.some((item) => /蹲下来|轻声安抚|它没有转身离开|它的耳朵放松/.test(item.text))) {
+    fail(context, "安抚过程缺少简短、温暖的动物反馈");
+  }
+}
+
+function checkPatrolTaskModal(game, audit, context, options = {}) {
+  const layout = game.renderedPatrolTask || {};
+  const header = layout.header || {};
+  const modalTexts = audit.texts.filter((item) => item.phase === "modal");
+  const maxHeight = options.maxHeight || 380;
+  if (!layout.id || layout.h > maxHeight || layout.purposeH !== 32 || !layout.nextText) {
+    fail(context, `巡护确认层级或高度异常: ${layout.id || "none"}/${layout.h || 0}`);
+  }
+  if (header.split !== "horizontal" || header.background !== "horizontalBands") {
+    fail(context, "弹窗头部仍可能用斜切背景穿过标题");
+  }
+  const safeRight = header.pill ? header.pill.x - 8 : layout.x + layout.w - 18;
+  if (!header.textW || header.textX + header.textW > safeRight) {
+    fail(context, "弹窗标题与右上状态区发生侵占");
+  }
+  if (["buySupplies", "salvage"].includes(layout.id) && !layout.blocked && header.pill) {
+    fail(context, "物资弹窗头部重复展示结算状态，挤压主标题");
+  }
+  const metrics = (layout.metricLayouts || []).filter(Boolean);
+  if (metrics.length < 3 || metrics.some((metric) => metric.valueSize < 10)
+    || !metrics.some((metric) => ["primary", "focus"].includes(metric.role) && metric.valueSize >= 16)) {
+    fail(context, "核心数值没有形成至少三项清晰结果，或主数据字号过小");
+  }
+  if (modalTexts.some((item) => item.text === "指令" || item.text === "结算摘要")) {
+    fail(context, "巡护确认仍保留重复的指令或结算摘要区");
+  }
+  if (!audit.buttons.some((button) => button.phase === "modal" && button.label === "取消")) {
+    fail(context, "巡护确认缺少明确取消操作");
+  }
+  if (options.blocked) {
+    const expectedRoute = options.routeLabel || "去物资";
+    const hasClearNext = options.routeLabel
+      ? !!layout.nextText && !/^先补齐\s*$/.test(layout.nextText)
+      : layout.nextText.startsWith("先补齐");
+    if (!layout.blocked || !hasClearNext || layout.routeLabel !== expectedRoute
+      || !audit.buttons.some((button) => button.label === expectedRoute)) {
+      fail(context, "缺资源状态没有明确缺口或直达物资入口");
+    }
+  } else if (layout.blocked) {
+    fail(context, "可执行巡护被错误标记为缺资源");
+  }
+}
+
+function settlementFixture(game) {
+  const reserve = game.state.world.reserve || {};
+  return {
+    title: "驱赶偷猎者 · 西部岩坡洞域",
+    summary: "漂亮，偷猎压力被压下 19 点。有 6 只动物愿意靠近保护区。",
+    grade: "S",
+    guardianScore: 91,
+    scoreDelta: 36,
+    day: 8,
+    weather: "阴",
+    location: "西部岩坡洞域",
+    actionIcon: "signal",
+    guardianRun: reserve.guardianRun || {},
+    progression: game.reserveProgression(reserve),
+    eventChain: reserve.eventChain || {},
+    goalDone: true,
+    causality: {
+      statLine: "安全 +18，生态 +4；原因：边界恢复",
+      animalLine: "动物从「受惊」变为「警觉」：坏脚印减少",
+      tomorrowRiskLine: "明日风险：继续听动物确认路线"
+    },
+    stats: [
+      { label: "安全指数", before: 62, after: 80, delta: 18 },
+      { label: "水源指数", before: 64, after: 68, delta: 4 },
+      { label: "偷猎压力", before: 31, after: 12, delta: -19, inverse: true },
+      { label: "迁移指数", before: 0, after: 6, delta: 6 }
+    ],
+    rewards: ["收益：目标奖励 / 安全 +18 / 偷猎 -19 / 迁入 +6", "代价：警报器检查", "明日影响：局面不错，回沙盘点动物再决定下一步"],
+    nextHint: "明日建议：局面不错，回沙盘点动物再决定下一步。",
+    speaker: "沉牙狼",
+    speakerAnimal: game.state.world.knownCharacters[0],
+    speech: "“今晚我会让幼崽靠近水边一点。你的脚步，和坏脚印不一样。”",
+    emotionalEcho: {
+      title: "晨角今晚敢睡得更沉了",
+      impact: "信任 57→58",
+      quote: "“今晚我会让幼崽靠近水边一点。你的脚步，和坏脚印不一样。”"
+    }
+  };
+}
+
+function crisisSettlementFixture(game) {
+  return Object.assign(settlementFixture(game), {
+    title: "疾病扩散至多个区域",
+    grade: "A",
+    guardianScore: 79,
+    scoreDelta: 1,
+    breakthrough: {
+      kind: "emergency_failed",
+      kicker: "事件失控",
+      title: "疾病扩散至多个区域",
+      body: "疾病正在向水线和草场扩散。"
+    },
+    causality: {
+      statLine: "偷猎压力 +7，生态 -4；原因：病味扩散",
+      animalLine: "动物从「警觉」变为「生病」：幼体减少活动",
+      tomorrowRiskLine: "明日风险：病味扩散，建议派猎犬侦察。",
+      reasons: [{ label: "病味扩散", body: "幼体和老弱个体会先减少活动", action: "houndScout" }]
+    },
+    stats: [
+      { label: "安全指数", before: 68, after: 66, delta: -2 },
+      { label: "水源指数", before: 78, after: 74, delta: -4 },
+      { label: "偷猎压力", before: 27, after: 34, delta: 7, inverse: true },
+      { label: "迁移指数", before: 3, after: 0, delta: -3 }
+    ],
+    rewards: ["奖励：猎犬队升级", "补给：整理完成"],
+    nextHint: "明日建议：修复草场或降低过度取食。",
+    returnScreen: "role"
+  });
+}
+
+viewports.forEach((viewport) => {
+  const game = createGame(viewport);
+  const screens = ["choose", "home", "action", "social", "league", "collection", "role", "animalworld"];
+  screens.forEach((screen) => {
+    runRenderAudit(game, viewport, screen, 0);
+    const max = game.maxScroll();
+    if (max > 10) {
+      runRenderAudit(game, viewport, screen, max / 2);
+      runRenderAudit(game, viewport, screen, max);
+    }
+  });
+  const existingCharacter = game.state.character;
+  const chooseAudit = runRenderAudit(game, viewport, "choose", 0, (g) => {
+    g.state.character = null;
+    g.state.ui = Object.assign({}, g.state.ui || {}, { prologue: { version: 1, stage: "fog", completed: false } });
+    g.prologueRuntime = { stage: "fog", startedAt: Date.now() - 2200, touchFlashUntil: 0 };
+  });
+  if (chooseAudit.maxScroll !== 0 || game.maxScroll() !== 0) {
+    fail(`${viewport.name}/choose`, "entry page should fit one screen without scrolling");
+  }
+  const prologueVisual = game.renderedPlayablePrologue || {};
+  if (!chooseAudit.texts.some((item) => item.text === "轻触犬铃")
+    || !chooseAudit.texts.some((item) => /雾里，有什么停下了脚步/.test(item.text))
+    || prologueVisual.stage !== "fog" || !prologueVisual.dynamicMap || prologueVisual.staticChapterArt
+    || !prologueVisual.cinematicArt || prologueVisual.beat !== "listen" || prologueVisual.soundCue !== "叮——"
+    || prologueVisual.comicPanels !== 3 || prologueVisual.panel !== 1
+    || !prologueVisual.panelOneReady || !prologueVisual.panelTwoReady
+    || !prologueVisual.dialogue || !prologueVisual.dialogue.layeredCloud
+    || prologueVisual.fogOpacity < .7 || prologueVisual.operationsBeforeReveal !== 2
+    || !prologueVisual.dogBounds || prologueVisual.dogBounds.w < 88) {
+    fail(`${viewport.name}/choose`, "cinematic fog prologue lost its art, layered cloud dialogue, unified three-panel transition, or interaction rhythm");
+  }
+  if (chooseAudit.texts.some((item) => /开始守护|从这些开始|合法回收 → 出售|开局一队狗/.test(item.text))) {
+    fail(`${viewport.name}/choose`, "entry page still shows the old static start cards");
+  }
+  game.state.character = existingCharacter;
+  game.state.ui = Object.assign({}, game.state.ui || {}, { prologue: { version: 1, stage: "complete", completed: true } });
+  const missionPushAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    g.infoDetailModal = g.buildMissionPushDetail("manual");
+  });
+  const missionVisual = (game.infoDetailModal || {}).renderedMissionPush || {};
+  if (missionVisual.whyVisible !== false || !missionVisual.rewardProminent
+    || missionVisual.rewardTitleSize < 12 || missionVisual.rewardH < 68
+    || missionPushAudit.texts.some((item) => item.text === "为什么")
+    || !missionPushAudit.texts.some((item) => item.text === "完成奖励")) {
+    fail(`${viewport.name}/mission-push`, "阶段任务仍重复展示为什么，或完成奖励没有成为核心视觉");
+  }
+  const expectedSpeciesCounts = { 1: 7, 2: 11, 3: 15, 4: 19, 5: 21 };
+  [1, 2, 3, 4, 5].forEach((level) => {
+    const populationAudit = runRenderAudit(game, viewport, "animalworld", 0, (g) => {
+      g.state.world.reserve.progression.level = level;
+      reconcileSpeciesPopulations(g.state.world.reserve, { initializeUnlocked: true, removeLocked: true });
+      g.selectedAnimalWorldSpecies = null;
+      g.speciesPage = 0;
+    });
+    const expected = expectedSpeciesCounts[level];
+    const expectedVisible = Math.min(6, expected);
+    const expectedPages = Math.ceil(expected / 6);
+    const summary = game.renderedSpeciesSummary || {};
+    const cards = game.renderedSpeciesCards || [];
+    const pagination = game.renderedSpeciesPagination || {};
+    const columns = new Set(cards.map((card) => Math.round(card.x))).size;
+    if (summary.species !== expected || summary.h > 54 || summary.valueSize < 17
+      || cards.length !== expectedVisible || columns !== 2
+      || cards.some((card) => card.layout !== "twoColumnPortrait" || card.h < 82 || card.titleSize < 11 || card.valueSize < 14 || !card.trend
+        || card.avatarSize < 56 || card.avatarBounds.x + card.avatarBounds.w > card.textX
+        || card.populationBounds.x + card.populationBounds.w > card.trendBounds.x)) {
+      fail(`${viewport.name}/population-lv${level}`, "种群总览没有使用两列大头像卡，或名称/数量/趋势安全区不符合图形优先规则");
+    }
+    if (summary.concern > 0 && (!summary.concernAction || !summary.concernTargetId)) {
+      fail(`${viewport.name}/population-lv${level}`, "需关注数字没有提供可点击的下降种群入口");
+    }
+    if (pagination.pageCount !== expectedPages || pagination.visible !== expectedVisible || pagination.pageSize !== 6) {
+      fail(`${viewport.name}/population-lv${level}`, "种群分页没有保持每页六种的两列大头像结构");
+    }
+    if (populationAudit.texts.some((item) => item.text.includes("点击种群，查看数量") || item.text.startsWith("待解锁 "))) {
+      fail(`${viewport.name}/population-lv${level}`, "种群页仍保留重复点击说明或展开全部锁定物种");
+    }
+    const locked = game.renderedLockedSpeciesSummary;
+    if (level < 5 && (!locked || locked.level !== level + 1 || locked.count !== getUnlockedSpecies(level + 1).length - expected)) {
+      fail(`${viewport.name}/population-lv${level}`, "下一等级物种没有合并成单一预览入口");
+    }
+    if (level === 5 && locked) fail(`${viewport.name}/population-lv5`, "满级种群仍显示不存在的锁定物种");
+    if (level === 5 && viewport.name !== "small" && populationAudit.maxScroll !== 0) {
+      fail(`${viewport.name}/population-lv5`, `21种物种仍需要滚动 ${populationAudit.maxScroll}px`);
+    }
+    if (level === 5 && viewport.name === "small" && populationAudit.maxScroll > 80) {
+      fail(`${viewport.name}/population-lv5`, `小屏种群滚动仍过长 ${populationAudit.maxScroll}px`);
+    }
+    if (level === 5) {
+      const firstPageIds = cards.map((card) => card.id);
+      if (!game.changeSpeciesPage(1) || game.speciesPage !== 1 || (game.renderedSpeciesCards || []).length !== 6
+        || (game.renderedSpeciesCards || []).some((card) => firstPageIds.includes(card.id))) {
+        fail(`${viewport.name}/population-lv5`, "第二页物种不可达或与第一页重复");
+      }
+      if (!game.changeSpeciesPage(1) || game.speciesPage !== 2 || (game.renderedSpeciesCards || []).length !== 6) {
+        fail(`${viewport.name}/population-lv5`, "第三页物种不可达");
+      }
+      if (!game.changeSpeciesPage(1) || game.speciesPage !== 3 || (game.renderedSpeciesCards || []).length !== 3
+        || game.changeSpeciesPage(1) !== false) {
+        fail(`${viewport.name}/population-lv5`, "最后三种物种不可达或分页越界");
+      }
+      game.speciesPage = 0;
+    }
+  });
+  [1, 2, 3].forEach((page) => {
+    const pageAudit = runRenderAudit(game, viewport, "animalworld", 0, (g) => {
+      g.state.world.reserve.progression.level = 5;
+      reconcileSpeciesPopulations(g.state.world.reserve, { initializeUnlocked: true, removeLocked: true });
+      g.speciesPage = page;
+    });
+    const expectedVisible = page === 3 ? 3 : 6;
+    if ((game.renderedSpeciesCards || []).length !== expectedVisible
+      || (game.renderedSpeciesCards || []).some((card) => card.titleSize < 11 || card.valueSize < 14 || card.avatarSize < 56)
+      || pageAudit.texts.some((item) => item.text.includes("点击种群，查看数量"))) {
+      fail(`${viewport.name}/population-page${page + 1}`, "后续物种页存在长名称压缩、数量过小或旧说明回流");
+    }
+  });
+  const nextSpecies = getUnlockedSpecies(2).filter((sp) => sp.unlockLevel === 2);
+  const lockedSpeciesAudit = runRenderAudit(game, viewport, "animalworld", 0, (g) => {
+    g.state.world.reserve.progression.level = 1;
+    reconcileSpeciesPopulations(g.state.world.reserve, { initializeUnlocked: true, removeLocked: true });
+    g.openLockedSpeciesOverview(2, nextSpecies);
+  });
+  if (!nextSpecies.every((sp) => lockedSpeciesAudit.texts.some((item) => item.text === sp.name))) {
+    fail(`${viewport.name}/population-locked-overview`, "下一章物种合并入口没有完整展示即将解锁的物种");
+  }
+  game.state.world.reserve.progression.level = 1;
+  reconcileSpeciesPopulations(game.state.world.reserve, { initializeUnlocked: true, removeLocked: true });
+  const firstChoiceAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    g.state.world.reserve.progression.totalActions = 0;
+    g.state.ui.onboarding = { version: 2, completed: false, seen: {} };
+    g.openFirstOnboardingChoice();
+  });
+  const firstChoiceItems = (game.infoDetailModal && game.infoDetailModal.renderedInfoItems) || [];
+  if (!game.infoDetailModal || game.infoDetailModal.kind !== "onboardingChoice"
+    || firstChoiceItems.length !== 2
+    || firstChoiceItems.some((entry) => !entry.layout || (entry.layout.title && entry.layout.title.truncated) || (entry.layout.body && entry.layout.body.truncated))
+    || !firstChoiceAudit.texts.some((item) => /水源 \d+→\d+~\d+/.test(item.text))
+    || !firstChoiceAudit.texts.some((item) => /偷猎 \d+→\d+~\d+/.test(item.text))) {
+    fail(`${viewport.name}/onboarding-choice`, "first choice does not show two complete numeric cost/result previews");
+  }
+  const reserveForTerrain = game.state.world.reserve || {};
+  reserveForTerrain.migration = reserveForTerrain.migration || {};
+  const previousMigrationDelta = reserveForTerrain.migration.delta || 0;
+  reserveForTerrain.migration.delta = 3;
+  const homeAudit = runRenderAudit(game, viewport, "home", 0);
+  if (homeAudit.texts.some((item) => item.text === "展开" || item.text === "分享" || /的来信$/.test(item.text))) {
+    fail(`${viewport.name}/home`, "sandbox home should not render daily letter hero");
+  }
+  if (homeAudit.texts.some((item) => item.text === "动物视角沙盘" || item.text === "AI LIVE")) {
+    fail(`${viewport.name}/home`, "sandbox map should not render the old title row");
+  }
+  if (homeAudit.texts.some((item) => /^(雨季|旱季) · \d+\/12$/.test(item.text))) {
+    fail(`${viewport.name}/home`, "sandbox map should not repeat the season progress already shown in the status dock");
+  }
+  const facilityLabels = game.renderedMapFacilityLabels || [];
+  if (!facilityLabels.length || facilityLabels.some((entry) => entry.size < 10 || entry.h < 20 || entry.w < 46 || entry.style !== "grounded" || entry.spriteSize > 64)) {
+    fail(`${viewport.name}/home`, "沙盘设施状态仍使用难以辨认的小字或过小标签");
+  }
+  const terrain = game.renderedSeasonTerrain || {};
+  if (!(terrain.waterFeatures || []).length
+    || terrain.waterFeatures.some((entry) => entry.style !== "ground-ripples" || entry.labelVisible !== false)
+    || !terrain.migrationRoute
+    || terrain.migrationRoute.style !== "fading-tracks"
+    || terrain.migrationRoute.dashed !== false
+    || (terrain.migrationRoute.steps || []).length < 6) {
+    fail(`${viewport.name}/home`, "季节水面或迁徙路线仍是高饱和色块、常驻文字或长虚线");
+  }
+  const groundMarkers = game.renderedMapGroundMarkers || [];
+  const resourceFlows = game.renderedMapResourceFlows || [];
+  if (groundMarkers.some((entry) => entry.backingPlate !== true || entry.style !== "field-event-icon" || !entry.concreteIcon || !entry.icon)
+    || resourceFlows.some((entry) => entry.style !== "resource-flow-chip" || entry.dialogue !== false || entry.grounded !== false || !entry.metric)) {
+    fail(`${viewport.name}/home`, "沙盘事件仍使用脚印线稿，没有按疾病、水源、偷猎等语义显示具体图形");
+  }
+  const rangerMarkers = (((game.reserveViewForDisplay() || {}).mapMarkers) || []).filter((marker) => /^巡护员[：:]/.test(marker.dialogue || ""));
+  const activeMapSpeaker = game.renderedMapSpeechCandidate || null;
+  const activeRanger = activeMapSpeaker && activeMapSpeaker.kind === "marker"
+    && rangerMarkers.some((marker) => String(marker.id) === String(activeMapSpeaker.id));
+  if (activeRanger && (!(game.renderedRangerActors || []).length || game.renderedRangerActors.some((actor) => actor.style !== "filled-cartoon-ranger" || !actor.concrete))) {
+    fail(`${viewport.name}/home`, "巡护员对白仍悬空，没有对应的卡通人物实体");
+  }
+  if ((game.renderedMapSpeechBubbles || []).length > 1) {
+    fail(`${viewport.name}/home`, "沙盘同一帧出现了多个对白气泡");
+  }
+  game.mapConsequencePulse = {
+    startedAt: Date.now() - 1600,
+    expiresAt: Date.now() + 2600,
+    x: .52,
+    y: .46,
+    title: "生态干预",
+    valueText: "疾病 34→27（-7）",
+    secondaryValueText: "水源 74→76（+2）",
+    responseText: "晨角：幼崽重新靠近水边。",
+    reason: "病群已经隔离",
+    positive: true,
+    tone: "intervention"
+  };
+  runRenderAudit(game, viewport, "home", 0);
+  if (!game.renderedMapSpeechSuppressed || !game.mapConsequencePulse.renderedCard
+    || game.mapConsequencePulse.renderedCard.layer !== "map-foreground"
+    || !game.mapConsequencePulse.renderedCard.suppressesMapSpeech) {
+    fail(`${viewport.name}/home-result-layer`, "行动结果没有处于地图最上层，仍可能被动物或事件气泡遮挡");
+  }
+  game.mapConsequencePulse = null;
+  reserveForTerrain.migration.delta = previousMigrationDelta;
+  const homeNetworkAudit = runRenderAudit(game, viewport, "home", game.maxScroll());
+  const networkTeaser = game.renderedLeagueTeaser || {};
+  if (networkTeaser.h > 106 || networkTeaser.metrics !== 4 || networkTeaser.buttons !== 2
+    || !homeNetworkAudit.buttons.some((button) => button.label.startsWith("世界 #"))
+    || homeNetworkAudit.texts.some((item) => item.text.includes("朋友/世界保护地正在影响迁移线"))) {
+    fail(`${viewport.name}/home-network`, "保护地网络二级入口仍占用过多高度，或重复展示说明文字");
+  }
+  const actionAudit = runRenderAudit(game, viewport, "action", 0);
+  if (!actionAudit.texts.some((item) => item.text === "×")) {
+    fail(`${viewport.name}/action`, "patrol operation screen should expose a visible close button");
+  }
+  const threatBoard = game.renderedPatrolThreatBoard || {};
+  const threatTiles = game.renderedPatrolThreatTiles || [];
+  const actionTiles = game.renderedPatrolActionTiles || [];
+  if (threatBoard.h > 154 || threatBoard.metrics !== 1 || threatBoard.redundantSafetyBar !== false
+    || !threatBoard.readOnly || !threatBoard.purpose || !threatBoard.instruction
+    || threatTiles.length !== 1 || !threatTiles[0].readOnly || threatTiles[0].clickable !== false) {
+    fail(`${viewport.name}/action`, "巡护首屏没有收敛为一个只读优先问题和明确任务说明");
+  }
+  if (actionAudit.texts.some((item) => ["Safety", "Water", "Poacher", "Migration"].includes(item.text))) {
+    fail(`${viewport.name}/action`, "威胁卡仍显示不参与决策的英文副标题");
+  }
+  if (actionTiles.length !== 4 || actionTiles.some((item) => !item.primaryLabel || !item.primaryValue || item.valueSize < 12 || !item.costText)
+    || !["houndScout", "antiPoacher", "habitat", "intervention"].every((id) => actionTiles.some((item) => item.id === id))) {
+    fail(`${viewport.name}/action`, "四张巡护任务卡没有同时展示真实主变化与次级资源消耗");
+  }
+  if (actionAudit.texts.some((item) => item.text === "巡护点" || /班次|情报|外勤/.test(item.text))) {
+    fail(`${viewport.name}/action`, "巡护页重新暴露了已移除的行动资源");
+  }
+  game.leagueScope = "world";
+  const worldLeagueAudit = runRenderAudit(game, viewport, "league", 0);
+  if (!worldLeagueAudit.texts.some((item) => item.text.includes("系统守护者"))) {
+    fail(`${viewport.name}/league-world`, "world ranking should clearly identify simulated system guardians");
+  }
+  const leagueHeader = game.renderedLeagueHeader || {};
+  const leagueBattle = game.renderedLeagueBattle || {};
+  const leagueRows = game.renderedLeagueRows || [];
+  if (leagueHeader.h > 88 || leagueHeader.rankSize < 24 || !leagueHeader.rank
+    || leagueBattle.h > 158 || leagueBattle.metricSize < 16 || leagueBattle.buttons !== 3
+    || !leagueBattle.success || !leagueRows.length || leagueRows[0].y - leagueHeader.y > 300) {
+    fail(`${viewport.name}/league-world`, "世界页首屏仍被说明区占满，或排名/胜率/防护主数据不够突出");
+  }
+  if (!["边界巡查", "资源交换", "加固"].every((label) => worldLeagueAudit.buttons.some((button) => button.label === label))
+    || worldLeagueAudit.texts.some((item) => item.text.startsWith("当前 #") || item.text === "世界保护区")) {
+    fail(`${viewport.name}/league-world`, "世界页核心三操作不完整，或旧的重复排名文字仍在显示");
+  }
+  const worldActionAudit = runRenderAudit(game, viewport, "league", 0, (g) => {
+    g.leagueScope = "world";
+    g.state.world.reserve.league.lastAction = { type: "raid", title: "边界巡查完成", materialDelta: 14, shieldDelta: -3, ratingDelta: 8 };
+  });
+  const leagueImpacts = (game.renderedLeagueBattle && game.renderedLeagueBattle.impacts) || [];
+  if (leagueImpacts.length !== 3 || leagueImpacts.some((item) => item.valueSize < 13)
+    || !worldActionAudit.texts.some((item) => item.text === "+14" && item.size >= 13)
+    || !worldActionAudit.texts.some((item) => item.text === "-3" && item.size >= 13)) {
+    fail(`${viewport.name}/league-world-result`, "世界操作结果没有以三项独立大号差值显示");
+  }
+  game.leagueScope = "friends";
+  const emptyFriendAudit = runRenderAudit(game, viewport, "league", 0);
+  if (!emptyFriendAudit.buttons.some((button) => button.label === "邀请好友加入") || !emptyFriendAudit.texts.some((item) => item.text === "好友榜等待第一位守护者")) {
+    fail(`${viewport.name}/league-friends`, "empty friend ranking should become a prominent share invitation");
+  }
+  if ((game.renderedLeagueHeader || {}).h > 88 || (game.renderedLeagueHeader || {}).rank !== 0
+    || emptyFriendAudit.texts.some((item) => /好友 待邀请/.test(item.text) || item.text === "#1")) {
+    fail(`${viewport.name}/league-friends`, "空好友状态仍在顶部重复展示文字状态，或邀请卡占位过大");
+  }
+  const realFriendAudit = runRenderAudit(game, viewport, "league", 0, (g) => {
+    g.leagueScope = "friends";
+    g.state.world.reserve.league.rivals.push({
+      id: `audit_friend_${viewport.name}`,
+      name: "好友的长河湿地保护区",
+      owner: "真实好友",
+      rating: 1190,
+      shield: 44,
+      animals: 36,
+      material: 120,
+      style: "共同巡护",
+      scope: "friends",
+      simulated: false,
+      source: "player"
+    });
+    g.ensureSelectedRivalForScope("friends");
+  });
+  if (!realFriendAudit.buttons.some((button) => button.label === "好友协作")
+    || !(game.renderedLeagueRows || []).some((row) => !row.mine && !row.simulated)
+    || realFriendAudit.texts.some((item) => item.text.includes("系统守护者"))) {
+    fail(`${viewport.name}/league-friends-real`, "真实好友加入后没有切换到协作操作与真实好友榜单");
+  }
+  game.leagueScope = "world";
+  const collectionAudit = runRenderAudit(game, viewport, "collection", 0);
+  if (game.maxScroll() !== 0 || collectionAudit.maxScroll !== 0) {
+    fail(`${viewport.name}/collection`, "collection should fit one screen without vertical scrolling");
+  }
+  const collectionFolders = game.renderedCollectionFolders || [];
+  if (collectionFolders.length !== 6
+    || collectionFolders.some((folder) => folder.columns !== 3 || folder.iconSize < 44 || folder.w < 82)) {
+    fail(`${viewport.name}/collection`, "collection home must use six graphic-dominant 3-column folders with large cover art");
+  }
+  runRenderAudit(game, viewport, "collection", 0, (g) => g.openCollectionOverview());
+  const collectionOverview = ((game.infoDetailModal || {}).renderedCollectionOverview) || [];
+  if (collectionOverview.length !== 6
+    || collectionOverview.some((folder) => folder.columns !== 3 || folder.iconSize < 36 || folder.h < 80)) {
+    fail(`${viewport.name}/collection-overview`, "collection progress modal must remain a six-cover visual album instead of a text list");
+  }
+  const collectionShelfAudit = runRenderAudit(game, viewport, "collection", 0, (g) => {
+    g.collectionCaseId = null;
+    ["c1_whistle", "c1_roster", "h_first_photo", "h_hound_tag"].forEach((id, itemIndex) => {
+      g.state.world.collection.items[id] = { id, firstDay: itemIndex + 2, methodName: "现场勘验" };
+    });
+  });
+  ["半页值班表", "砾灰磨损的项圈牌"].forEach((name) => {
+    if (!collectionShelfAudit.texts.some((item) => item.text === name)) {
+      fail(`${viewport.name}/collection-shelf`, `collection home does not visibly name owned item: ${name}`);
+    }
+  });
+  game.collectionCaseId = "case_1";
+  game.collectionPage = 0;
+  game.changeCollectionPage(1);
+  if (game.collectionPage !== 1) fail(`${viewport.name}/collection`, "next collection page is not reachable");
+  game.changeCollectionPage(-1);
+  if (game.collectionPage !== 0) fail(`${viewport.name}/collection`, "previous collection page is not reachable");
+  const collectionCtaAudit = runRenderAudit(game, viewport, "collection", 0, (g) => {
+    g.collectionCaseId = "case_1";
+    g.collectionPage = 0;
+    const discovery = { id: "story_cta", itemId: "c1_footprint", caseId: "case_1", status: "hinted", actionId: "habitat", actionLabel: "修复附近环境", regionId: "river", animal: { id: "npc_deer", name: "晨角", trust: 72 } };
+    g.state.world.collection.discovery.active = discovery;
+    g.state.world.collection.discovery.states.c1_footprint = discovery;
+  });
+  const investigationCta = collectionCtaAudit.buttons.find((button) => button.label === "下一步 · 修复附近环境");
+  const activeCtaState = game.renderedCollectionCaseCta || {};
+  if (!investigationCta || investigationCta.h < 40 || activeCtaState.kind !== "story"
+    || !activeCtaState.enabled) {
+    fail(`${viewport.name}/collection`, "剧情发现没有明确展示下一步行动或可点击状态");
+  }
+  const emptyCollectionCtaAudit = runRenderAudit(game, viewport, "collection", 0, (g) => {
+    g.collectionCaseId = "case_1";
+    g.collectionPage = 0;
+    g.state.world.collection.leads = [];
+    g.state.world.collection.investigation.pending = null;
+    g.state.world.collection.discovery.active = null;
+  });
+  const emptyCtaState = game.renderedCollectionCaseCta || {};
+  if (emptyCtaState.kind !== "none" || emptyCtaState.enabled || emptyCtaState.leadCount !== 0
+    || !emptyCollectionCtaAudit.buttons.some((button) => button.label === "等待动物发现异常")
+    || emptyCollectionCtaAudit.hits.some((hit) => rectOverlaps(hit, emptyCtaState.bounds || {}))) {
+    fail(`${viewport.name}/collection`, "没有剧情迹象时按钮必须置灰、说明原因且不可点击");
+  }
+  const collectionCards = game.renderedCollectionCards || [];
+  if (collectionCards.length !== 6
+    || collectionCards.some((card) => card.columns !== 3 || card.iconSize < 48 || card.h < 112)) {
+    fail(`${viewport.name}/collection`, "collection case must use a 3x2 large-art grid without text-heavy cards");
+  }
+  if (collectionCards.some((card) => card.titleSize < 11
+    || card.titleBaseline - card.titleSize < card.iconVisualBottom + 5
+    || card.titleBaseline + 14 > card.statusY - 5)) {
+    fail(`${viewport.name}/collection`, "collection item title is too small or overlaps the toy icon/status area");
+  }
+  const collectedItemAudit = runRenderAudit(game, viewport, "collection", 0, (g) => {
+    g.collectionCaseId = "case_1";
+    g.openCollectionItem("c1_roster");
+  });
+  const collectedDetail = (game.infoDetailModal || {}).renderedCollectionItemDetail || {};
+  if (collectedDetail.iconSize < 68 || collectedDetail.iconSize > 82
+    || collectedDetail.plateSize < 88 || collectedDetail.plateShape !== "rounded-square"
+    || collectedDetail.metaLayout !== "side" || collectedDetail.storyH > 118
+    || collectedDetail.graphicalStages !== 4 || !collectedDetail.owned
+    || !collectedItemAudit.texts.some((item) => item.text === "这段故事")) {
+    fail(`${viewport.name}/collection-item`, "已发现物详情必须使用清晰大图、简短故事和四段发现过程");
+  }
+  const lockedItemAudit = runRenderAudit(game, viewport, "collection", 0, (g) => {
+    g.collectionCaseId = "case_1";
+    const discovery = { id: "story_locked", itemId: "c1_footprint", caseId: "case_1", status: "hinted", actionId: "habitat", actionLabel: "修复附近环境", regionId: "river", animal: { id: "npc_deer", name: "晨角", trust: 72 } };
+    g.state.world.collection.discovery.active = discovery;
+    g.state.world.collection.discovery.states.c1_footprint = discovery;
+    g.openCollectionItem("c1_footprint");
+  });
+  const lockedDetail = (game.infoDetailModal || {}).renderedCollectionItemDetail || {};
+  if (lockedDetail.iconSize < 68 || lockedDetail.iconSize > 82
+    || lockedDetail.plateShape !== "rounded-square" || lockedDetail.metaLayout !== "side" || lockedDetail.owned
+    || !lockedItemAudit.texts.some((item) => item.text === "下一步")
+    || !lockedItemAudit.buttons.some((button) => button.label === "修复附近环境")) {
+    fail(`${viewport.name}/collection-item-locked`, "未收录物详情必须展示清晰轮廓、简短迹象和直达守护行动");
+  }
+  runRenderAudit(game, viewport, "home", 0, (g) => {
+    g.infoDetailModal = g.buildSandboxInfoDetail("brief");
+  });
+  const patrolTaskAudit = runRenderAudit(game, viewport, "action", 0, (g) => {
+    g.state.world.reserve.actionPoints = 4;
+    g.state.world.reserve.supplies.dogFood = 5;
+    g.selectedReserveAction = "houndScout";
+    g.command = "派猎犬侦察";
+    g.patrolTaskModal = g.selectedReserveActionOption();
+  });
+  checkPatrolTaskModal(game, patrolTaskAudit, `${viewport.name}/patrol-task`);
+  if (!patrolTaskAudit.buttons.some((button) => button.label === "规划路线")) {
+    fail(`${viewport.name}/patrol-task`, "可交互巡护没有把下一步明确为规划路线");
+  }
+  const plannerAudit = runRenderAudit(game, viewport, "action", 0, (g) => {
+    g.state.world.reserve.actionPoints = 4;
+    g.state.world.reserve.supplies.dogFood = 5;
+    g.selectedReserveAction = "houndScout";
+    g.patrolTaskModal = g.selectedReserveActionOption();
+    g.patrolOperationPlan = { actionId: "houndScout", nodeIds: ["scent", "ridge"] };
+  });
+  if (!["气味线", "兽群边缘", "高地捷径"].every((label) => plannerAudit.texts.some((item) => item.text === label))
+    || !plannerAudit.buttons.some((button) => button.label === "返回调整")
+    || !plannerAudit.buttons.some((button) => button.label === "按路线出发")) {
+    fail(`${viewport.name}/patrol-planner`, "三节点路线或返回/确认操作不完整");
+  }
+  const salvageTaskAudit = runRenderAudit(game, viewport, "role", 0, (g) => {
+    g.state.world.reserve.actionPoints = 4;
+    g.state.world.reserve.inventory.recoveredTrap = 3;
+    g.selectedReserveAction = "salvage";
+    g.command = "移交库存中的陷阱证据";
+    g.patrolTaskModal = g.reserveActionOptions().find((item) => item.id === "salvage");
+  });
+  checkPatrolTaskModal(game, salvageTaskAudit, `${viewport.name}/salvage-task`);
+  const purchaseTaskAudit = runRenderAudit(game, viewport, "role", 0, (g) => {
+    g.state.world.reserve.fund = Math.max(900, g.state.world.reserve.fund || 0);
+    g.selectedReserveAction = "buySupplies";
+    g.selectedPurchaseId = "dogFood";
+    g.command = "采购狗粮包";
+    g.patrolTaskModal = g.reserveActionOptions().find((item) => item.id === "buySupplies");
+  });
+  checkPatrolTaskModal(game, purchaseTaskAudit, `${viewport.name}/purchase-task`, { maxHeight: 350 });
+  if (!purchaseTaskAudit.texts.some((item) => item.text === "补给入库")
+    || !purchaseTaskAudit.texts.some((item) => /\d+→\d+/.test(item.text))
+    || purchaseTaskAudit.texts.some((item) => item.text === "结算摘要" || /狗粮包\s*\+|确认后\s*狗粮包/.test(item.text))) {
+    fail(`${viewport.name}/purchase-task`, "purchase task did not use the compact horizontal before/after result strip");
+  }
+  const blockedTaskAudit = runRenderAudit(game, viewport, "action", 0, (g) => {
+    g.state.world.reserve.actionPoints = 4;
+    g.state.world.reserve.fieldPermits = 3;
+    g.state.world.reserve.supplies.alarm = 0;
+    g.selectedReserveAction = "antiPoacher";
+    g.command = "驱赶偷猎者";
+    g.patrolTaskModal = g.selectedReserveActionOption();
+  });
+  checkPatrolTaskModal(game, blockedTaskAudit, `${viewport.name}/blocked-patrol-task`, { blocked: true });
+  ["fund", "water", "grass"].forEach((type) => runRenderAudit(game, viewport, "home", 0, (g) => {
+    g.infoDetailModal = g.buildReserveMetricDetail(type);
+    if (!g.infoDetailModal.readOnly || g.infoDetailModal.action || g.infoDetailModal.actionLabel) {
+      fail(`${viewport.name}/${type}-data`, "基金、水源、草场详情必须只展示数据，不能带经营操作");
+    }
+  }));
+  runRenderAudit(game, viewport, "home", 0, (g) => {
+    g.infoDetailModal = g.buildChapterProgressDetail();
+  });
+  const prosperityAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    g.openReserveProsperityDetail();
+  });
+  checkMetricDashboard(game, prosperityAudit, `${viewport.name}/prosperity-dashboard`, ["市值", "物种", "动物"]);
+  const houndDashboardAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    g.infoDetailModal = g.buildHoundTeamDetail();
+  });
+  checkMetricDashboard(game, houndDashboardAudit, `${viewport.name}/hound-dashboard`, ["等级", "体能", "默契"]);
+  const resourceHeaderAudit = runRenderAudit(game, viewport, "role", 0);
+  const resourceHeader = game.renderedActionResourceHeader || [];
+  if (resourceHeader.length !== 3 || resourceHeader.map((item) => item.kind).join(",") !== "fund,water,grass"
+    || resourceHeader.some((item) => item.w < 44 || item.h < 28)) {
+    fail(`${viewport.name}/role-resource-header`, "基金/水源/草场入口缺失、顺序错误或点击区过小");
+  }
+  if (!["基金", "水源", "草场"].every((label) => resourceHeaderAudit.texts.some((item) => item.text === label))
+    || resourceHeaderAudit.texts.some((item) => /班次|情报|外勤/.test(item.text))) {
+    fail(`${viewport.name}/role-resource-header`, "核心资源入口不清楚或仍显示废弃资源");
+  }
+  const animalDashboardAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    const animal = g.state.world.knownCharacters[0];
+    g.infoDetailModal = g.buildAnimalThoughtDetail(animal, g.createAnimalDialogueContext(animal));
+  });
+  checkMapAnimalAction(game, animalDashboardAudit, `${viewport.name}/animal-dashboard`);
+  const comfortAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    const animal = g.state.world.knownCharacters[0];
+    g.openAnimalCareProcess(animal, "calmObserve");
+  });
+  checkAnimalComfort(game, comfortAudit, `${viewport.name}/animal-comfort`, "approach");
+  const comfortResultAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    const animal = g.state.world.knownCharacters[0];
+    const config = g.animalCareProcessConfig(animal, "calmObserve");
+    g.infoDetailModal = {
+      kind: "animalComfort",
+      phase: "result",
+      step: 1,
+      kicker: "温柔回应",
+      title: "它没有转身离开",
+      icon: config.icon,
+      animal,
+      actionId: "calmObserve",
+      config,
+      resultChanges: [
+        { label: "信任", value: "62→64（+2）", tone: "good" },
+        { label: "警惕", value: "11→10（-1）", tone: "good" },
+        { label: "基金", value: "620→615", tone: "warn" }
+      ]
+    };
+  });
+  checkAnimalComfort(game, comfortResultAudit, `${viewport.name}/animal-comfort-result`, "result");
+  const warehouseDetailAudit = runRenderAudit(game, viewport, "role", 0, (g) => {
+    g.infoDetailModal = g.openMaterialDetail("warehouse") || g.infoDetailModal;
+  });
+  const supplyDetailAudit = runRenderAudit(game, viewport, "role", 0, (g) => {
+    g.infoDetailModal = g.buildMaterialDetail("supply", "tranquilizer");
+  });
+  ["用途", "库存", "执行后", "影响", "建议"].forEach((label) => {
+    if (!supplyDetailAudit.texts.some((item) => item.text === label)) {
+      fail(`${viewport.name}/supply-detail`, `horizontal supply summary lost section: ${label}`);
+    }
+  });
+  const settlementAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    g.settlementModal = settlementFixture(g);
+  });
+  const settlementChanges = (game.settlementModal && game.settlementModal.renderedSettlementChanges) || [];
+  const primarySettlementChange = settlementChanges.find((item) => item.role === "primary");
+  const settlementRewardRows = (game.settlementModal && game.settlementModal.renderedSettlementRewardRows) || [];
+  const settlementStyle = (game.settlementModal && game.settlementModal.renderedSettlementStyle) || {};
+  if (!primarySettlementChange || primarySettlementChange.label !== "偷猎压力"
+    || primarySettlementChange.valueSize < 23 || primarySettlementChange.beneficial !== true
+    || primarySettlementChange.shownValue !== 12) {
+    fail(`${viewport.name}/settlement`, "结算没有把最关键的逆向风险变化作为大号主数据展示");
+  }
+  if (settlementChanges.filter((item) => item.role === "secondary").length !== 2
+    || !settlementChanges.some((item) => item.label === "安全" && item.role === "secondary")) {
+    fail(`${viewport.name}/settlement`, "结算的次要数据没有收束为两项清晰辅助变化");
+  }
+  if (!settlementRewardRows.length || settlementRewardRows.length > 3 || settlementRewardRows.some((item) => item.size < 10)) {
+    fail(`${viewport.name}/settlement`, "结算明细仍然过密或字号过小");
+  }
+  if (!settlementStyle.compactCopy || settlementStyle.rewardRows > 2 || (settlementStyle.palette || []).length > 3
+    || settlementStyle.repeatedGoalLabel !== false
+    || settlementAudit.texts.some((item) => /结果与后续|结算明细|目标未达成|守护回声/.test(item.text))) {
+    fail(`${viewport.name}/settlement`, "结算仍存在过多颜色层级或重复说明文字");
+  }
+  if (!settlementAudit.texts.some((item) => item.text === "12" && item.size >= 23)
+    || settlementAudit.texts.some((item) => item.text === "因果与奖励")) {
+    fail(`${viewport.name}/settlement`, "结算主数字不突出，或旧的同权重信息标题仍在显示");
+  }
+  const crisisSettlementAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    g.settlementModal = crisisSettlementFixture(g);
+  });
+  const crisisButtons = crisisSettlementAudit.buttons.filter((button) => button.phase === "modal").map((button) => button.label);
+  if (!crisisButtons.includes("去猎犬侦察") || !crisisButtons.includes("稍后处理") || crisisButtons.includes("完成 ✓")) {
+    fail(`${viewport.name}/settlement-crisis`, "失控事件没有给出可直达的具体处置按钮");
+  }
+  if (!crisisSettlementAudit.texts.some((item) => /猎犬侦察/.test(item.text) && item.size >= 10)) {
+    fail(`${viewport.name}/settlement-crisis`, "失控事件没有把具体处置方式提升为主要信息");
+  }
+  const gradeBadge = (game.settlementModal && game.settlementModal.renderedSettlementGradeBadge) || {};
+  if (gradeBadge.grade !== "A" || gradeBadge.gradeSize < 28 || gradeBadge.scoreSize < 11
+    || gradeBadge.fill !== "cream-gold" || gradeBadge.gradeColor !== "#173d34" || gradeBadge.scoreColor !== "#173d34") {
+    fail(`${viewport.name}/settlement-crisis`, "评级徽章字号、底色或文字对比度不足");
+  }
+  const commerceAudit = runRenderAudit(game, viewport, "role", 0, (g) => {
+    g.settlementModal = Object.assign(settlementFixture(g), {
+      causality: null,
+      title: "样本移交完成 · 研究补助 +230",
+      commerce: { count: 2, description: "A级鹿角×1 / 研究样本×1", baseValue: 210, value: 230, fundingLabel: "研究补助", levelFactor: 1.05, neighborFactor: 1.04 },
+      fundBefore: 1000,
+      fundAfter: 1230,
+      returnScreen: "role"
+    });
+  });
+  const commercePrimary = ((game.settlementModal && game.settlementModal.renderedSettlementChanges) || []).find((item) => item.role === "primary");
+  if (!commercePrimary || commercePrimary.label !== "基金" || commercePrimary.shownValue !== 1230 || commercePrimary.valueSize < 18) {
+    fail(`${viewport.name}/settlement-commerce`, "样本移交结算没有把实际拨款作为核心大数字");
+  }
+  const commerceStyle = (game.settlementModal && game.settlementModal.renderedSettlementStyle) || {};
+  if (!commerceStyle.focusedOutcome || commerceStyle.focusMode !== "commerce" || commerceStyle.rewardRows !== 1
+    || commerceAudit.texts.filter((item) => item.phase === "modal" && item.text === "研究补助 +230").length !== 1
+    || commerceAudit.texts.some((item) => item.phase === "modal" && item.text === "明日")) {
+    fail(`${viewport.name}/settlement-commerce`, "样本移交结算仍重复拨款金额，或次要信息没有收束");
+  }
+  const explorationAudit = runRenderAudit(game, viewport, "role", 0, (g) => {
+    g.settlementModal = Object.assign(settlementFixture(g), {
+      causality: null,
+      title: "探索发现 · 陷阱证据 ×2",
+      materialExploration: {
+        reward: { id: "trap", label: "陷阱证据", amount: 2 },
+        roll: 5,
+        levelContribution: 2,
+        relationshipContribution: 1,
+        qualityScore: 8,
+        requiredScore: 6,
+        relationship: { securityAverage: 64, wildnessAverage: 58, helper: { name: "晨角" } }
+      },
+      fundBefore: 1000,
+      fundAfter: 1000,
+      returnScreen: "role"
+    });
+  });
+  const explorationPrimary = ((game.settlementModal && game.settlementModal.renderedSettlementChanges) || []).find((item) => item.role === "primary");
+  if (!explorationPrimary || explorationPrimary.label !== "陷阱证据" || explorationPrimary.shownValue !== "×2" || explorationPrimary.valueSize < 18) {
+    fail(`${viewport.name}/settlement-exploration`, "探索结算没有突出具体收集物名称与数量");
+  }
+  const explorationStyle = (game.settlementModal && game.settlementModal.renderedSettlementStyle) || {};
+  const explorationTitleCount = explorationAudit.texts.filter((item) => /陷阱证据\s*×2/.test(item.text)).length;
+  if (!explorationStyle.focusedExploration || explorationStyle.rewardRows !== 1 || explorationTitleCount !== 1) {
+    fail(`${viewport.name}/settlement-exploration`, "探索结算重复展示收集物，或次要信息仍与主结果争夺视觉层级");
+  }
+  if (explorationAudit.texts.some((item) => item.text === "明日" || /^点数[:：]/.test(item.text))) {
+    fail(`${viewport.name}/settlement-exploration`, "探索结算仍显示多余的明日信息区或旧版点数明细");
+  }
+  const recoveryAudit = runRenderAudit(game, viewport, "role", 0, (g) => {
+    g.settlementModal = Object.assign(settlementFixture(g), {
+      causality: null,
+      title: "回收完成 · A级鹿角 ×1",
+      recoveredGoodsGain: { items: [{ id: "antler", label: "A级鹿角", amount: 1 }] },
+      fundBefore: 1000,
+      fundAfter: 1000,
+      returnScreen: "role"
+    });
+  });
+  const recoveryPrimary = ((game.settlementModal && game.settlementModal.renderedSettlementChanges) || []).find((item) => item.role === "primary");
+  if (!recoveryPrimary || recoveryPrimary.label !== "A级鹿角" || recoveryPrimary.shownValue !== "×1") {
+    fail(`${viewport.name}/settlement-recovery`, "回收结算没有突出具体回收物名称与数量");
+  }
+  const recoveryStyle = (game.settlementModal && game.settlementModal.renderedSettlementStyle) || {};
+  if (!recoveryStyle.focusedOutcome || recoveryStyle.focusMode !== "recovery" || recoveryStyle.rewardRows !== 1
+    || recoveryAudit.texts.filter((item) => item.phase === "modal" && /A级鹿角\s*×1/.test(item.text)).length !== 1
+    || recoveryAudit.texts.some((item) => item.phase === "modal" && item.text === "明日")) {
+    fail(`${viewport.name}/settlement-recovery`, "回收结算仍重复物品名称，或次要信息没有收束");
+  }
+  const mysteryAudit = runRenderAudit(game, viewport, "role", 0, (g) => {
+    g.settlementModal = Object.assign(settlementFixture(g), {
+      causality: null,
+      title: "追回白犀牛角证物",
+      mysteryRecovery: { id: "white_rhino_horn", name: "白犀牛角证物", fundReward: 120 },
+      breakthrough: { kind: "mystery_recovery", kicker: "超等级·神秘证物", title: "追回白犀牛角证物" },
+      returnScreen: "role"
+    });
+  });
+  const mysteryStyle = (game.settlementModal && game.settlementModal.renderedSettlementStyle) || {};
+  if (!mysteryStyle.focusedOutcome || mysteryStyle.focusMode !== "mystery" || mysteryStyle.rewardRows !== 1
+    || mysteryAudit.texts.filter((item) => item.phase === "modal" && item.text === "白犀牛角证物").length !== 1
+    || mysteryAudit.texts.some((item) => item.phase === "modal" && item.text === "明日")) {
+    fail(`${viewport.name}/settlement-mystery`, "神秘证物结算仍重复名称，或封存规则没有收束");
+  }
+  runRenderAudit(game, viewport, "animalworld", 0, (g) => {
+    g.infoDetailModal = g.buildLifeMemoryDetail();
+  });
+  runRenderAudit(game, viewport, "animalworld", 0, (g) => {
+    const species = require("../js/animalWorld").getUnlockedSpecies(1)[0];
+    g.infoDetailModal = g.buildSpeciesProfileDetail(species.id);
+  });
+  runRenderAudit(game, viewport, "animalworld", 0, (g) => {
+    g.infoDetailModal = g.buildFoodChainDetail();
+  });
+  runRenderAudit(game, viewport, "animalworld", 0, (g) => {
+    const friend = require("../js/emotionSystem").normalizeLifeMemory(g.state.world).individuals[0];
+    g.openNamedIndividual(friend);
+  });
+  const collectionEndingAudit = runRenderAudit(game, viewport, "collection", 0, (g) => {
+    g.openCollectionItem("c1_whistle");
+  });
+  runRenderAudit(game, viewport, "collection", 0, (g) => {
+    g.openCollectionItem("c3_ledger");
+  });
+  const investigationAudit = runRenderAudit(game, viewport, "collection", 0, (g) => {
+    g.state.world.collection.leads = [{ id: "audit_lead", caseId: "case_1", quality: 1, sourceAction: "houndScout", sourceLabel: "猎犬侦察", animal: { id: "npc_deer", name: "晨角", trust: 72 }, title: "清晰线索", clue: "水边出现一条待调查的旧路线。" }];
+    g.openCollectionInvestigation("audit_lead");
+  });
+  if (!game.infoDetailModal || game.infoDetailModal.selectedMethodId !== "animal") {
+    fail(`${viewport.name}/collection-investigation`, "调查弹窗没有默认选择适合的调查方式");
+  }
+  if (!investigationAudit.texts.some((item) => item.text.includes("默认选中")) || !investigationAudit.buttons.some((button) => button.label === "确认并掷骰")) {
+    fail(`${viewport.name}/collection-investigation`, "默认选择提示或可用确认按钮没有展示");
+  }
+  const methodLayout = (game.infoDetailModal && game.infoDetailModal.renderedMethodLayout) || [];
+  const methodText = (game.infoDetailModal && game.infoDetailModal.renderedMethodText) || [];
+  const investigationVisual = (game.infoDetailModal && game.infoDetailModal.renderedCollectionInvestigation) || {};
+  if (methodLayout.length !== 3
+    || methodLayout.some((item) => !item.graphical || item.layout !== "vertical" || item.h < 54 || item.iconSize < 36 || item.valueSize < 16)
+    || !methodLayout.some((item) => item.selected)
+    || investigationVisual.graphicalTiles !== 3
+    || investigationVisual.layout !== "vertical"
+    || investigationVisual.primaryValueSize < 20
+    || investigationVisual.detailH > 84) {
+    fail(`${viewport.name}/collection-investigation`, "调查方式没有形成三张纵向大图按钮与紧凑骰前结果区");
+  }
+  if (!methodText.length || methodText.some((item) => !item.layout || item.layout.truncated)) {
+    fail(`${viewport.name}/collection-investigation`, "默认调查方式仍有核心说明被截断");
+  }
+  game.selectCollectionMethod("field");
+  if (game.infoDetailModal.selectedMethodId !== "field" || !game.infoDetailModal.selectionChanged) {
+    fail(`${viewport.name}/collection-investigation`, "玩家不能替换默认调查方式");
+  }
+  if (game.preferredCollectionMethodId({ animal: { trust: 20 } }) !== "field") {
+    fail(`${viewport.name}/collection-investigation`, "隐藏档案关系不足时没有默认选择稳定的现场勘验");
+  }
+  const collectionDiceAudit = runRenderAudit(game, viewport, "collection", 0, (g) => {
+    g.state.world.collection.investigation.charges = 2;
+    g.state.world.collection.leads = [{ id: "audit_dice", caseId: "case_1", quality: 2, sourceAction: "houndScout", sourceLabel: "猎犬侦察", animal: { id: "npc_deer", name: "晨角", trust: 82 }, title: "关键线索", clue: "水边出现一条关键旧路线。" }];
+    require("../js/collectionSystem").startInvestigation(g.state, "audit_dice", "animal");
+    g.openCollectionDice("audit_dice", "animal");
+  });
+  if (!collectionDiceAudit.texts.some((item) => item.text === "点击掷骰") || !collectionDiceAudit.buttons.some((button) => button.label === "掷骰决定结果")) {
+    fail(`${viewport.name}/collection-dice`, "骰子缺少明确的可点击提示或主操作按钮");
+  }
+  const collectionDiceFactors = (game.infoDetailModal && game.infoDetailModal.renderedDiceFactors) || [];
+  if (collectionDiceFactors.length !== 4 || collectionDiceFactors.some((item) => item.labelSize < 9 || item.valueSize < 17)) {
+    fail(`${viewport.name}/collection-dice`, "调查骰子的线索、方法、关系或骰面数据过小");
+  }
+  if (collectionDiceAudit.texts.filter((item) => item.text === "动物引路").length !== 1) {
+    fail(`${viewport.name}/collection-dice`, "调查方式名称在标题和骰子正文中重复出现");
+  }
+  const materialDiceAudit = runRenderAudit(game, viewport, "role", 0, (g) => {
+    g.state.world.reserve.actionPoints = 3;
+    g.openMaterialExploration("shedAntlerA");
+  });
+  if (materialDiceAudit.texts.filter((item) => item.phase === "modal" && /A级鹿角/.test(item.text)).length !== 1
+    || !materialDiceAudit.texts.some((item) => item.text === "定向追踪")) {
+    fail(`${viewport.name}/material-dice`, "物资探索目标在标题和骰子正文中重复出现");
+  }
+  const strategicDiceAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    const { strategicDilemmaById } = require("../js/strategySystem");
+    const dilemma = strategicDilemmaById("water_access");
+    const choice = dilemma && dilemma.choices.find((item) => item.dice);
+    if (choice) g.openStrategicDiceModal(dilemma, choice);
+  });
+  const strategicDiceTitle = game.infoDetailModal && game.infoDetailModal.choice && game.infoDetailModal.choice.label;
+  if (!strategicDiceTitle || strategicDiceAudit.texts.filter((item) => item.text === strategicDiceTitle).length !== 1
+    || !strategicDiceAudit.texts.some((item) => item.text === "成功目标")) {
+    fail(`${viewport.name}/strategy-dice`, "高风险方案名称在标题和骰子正文中重复出现");
+  }
+  runRenderAudit(game, viewport, "collection", 0, (g) => {
+    const api = require("../js/collectionSystem");
+    api.itemsForCase("case_1").slice(0, 7).forEach((item) => {
+      g.state.world.collection.items[item.id] = { id: item.id, firstDay: 1 };
+      if (!g.state.world.collection.cases.case_1.itemIds.includes(item.id)) g.state.world.collection.cases.case_1.itemIds.push(item.id);
+    });
+    g.openCollectionEnding("case_1");
+  });
+  runRenderAudit(game, viewport, "collection", 0, (g) => {
+    const api = require("../js/collectionSystem");
+    api.itemsForCase("case_1").slice(0, 7).forEach((item) => {
+      g.state.world.collection.items[item.id] = { id: item.id, firstDay: 1 };
+      if (!g.state.world.collection.cases.case_1.itemIds.includes(item.id)) g.state.world.collection.cases.case_1.itemIds.push(item.id);
+    });
+    const realRender = g.render;
+    g.render = () => {};
+    g.openCollectionEnding("case_1");
+    const choice = g.infoDetailModal && g.infoDetailModal.endingChoices && g.infoDetailModal.endingChoices[0];
+    if (choice) g.selectCollectionEnding(choice.id);
+    g.render = realRender;
+  });
+  const collectionEndingText = (game.infoDetailModal && game.infoDetailModal.renderedChoiceText) || [];
+  if (!collectionEndingText.length || collectionEndingText.some((item) => !item.layout || item.layout.truncated)) {
+    fail(`${viewport.name}/collection-ending`, "案件结局的关键数值或完整后果仍被截断");
+  }
+  if (viewport.name === "small") {
+    const { CASES, ENDINGS } = require("../js/collectionSystem");
+    CASES.filter((caseDef) => !caseDef.hidden).forEach((caseDef) => {
+      (ENDINGS[caseDef.id] || []).forEach((choice) => {
+        runRenderAudit(game, viewport, "collection", 0, (g) => {
+          g.infoDetailModal = {
+            kind: "collectionEnding",
+            kicker: "案件终章·三选一",
+            title: caseDef.title,
+            icon: caseDef.icon,
+            caseDef,
+            endingChoices: ENDINGS[caseDef.id],
+            selectedChoiceId: choice.id,
+            footer: "影响路线、动物关系与世界状态。"
+          };
+        });
+        const endingLayout = (game.infoDetailModal && game.infoDetailModal.renderedChoiceLayout) || [];
+        const endingText = (game.infoDetailModal && game.infoDetailModal.renderedChoiceText) || [];
+        if (endingLayout.length !== 3 || endingText.some((item) => !item.layout || item.layout.truncated)) {
+          fail(`small/collection-ending/${caseDef.id}/${choice.id}`, "结局卡在最小屏无法完整展开");
+        }
+      });
+    });
+  }
+  const strategyChoiceAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    const { normalizeStrategyState, strategicDilemmaById } = require("../js/strategySystem");
+    const dilemma = strategicDilemmaById("water_access");
+    g.state.world.reserve.strategy = normalizeStrategyState({
+      pendingDilemma: { id: dilemma.id, tier: dilemma.tier, day: 10, actionIndex: 10, chapter: 1 }
+    });
+    const realRender = g.render;
+    g.render = () => {};
+    g.openPendingStrategicDilemma();
+    g.selectStrategicDilemmaChoice(dilemma.id, "open_water");
+    g.render = realRender;
+  });
+  const strategyEllipses = strategyChoiceAudit.texts.filter((item) => /^(长期|数值|动物) · .*…$/.test(item.text));
+  if (strategyEllipses.length) {
+    fail(`${viewport.name}/strategy-choice`, `selected strategy still hides core copy: ${strategyEllipses.map((item) => item.text).join(" / ")}`);
+  }
+  const strategyResultAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    const { normalizeStrategyState, strategicDilemmaById } = require("../js/strategySystem");
+    const dilemma = strategicDilemmaById("injured_herd");
+    g.state.world.reserve.strategy = normalizeStrategyState({
+      pendingDilemma: { id: dilemma.id, tier: dilemma.tier, day: 10, actionIndex: 10, chapter: 1 }
+    });
+    const realRender = g.render;
+    g.render = () => {};
+    g.openPendingStrategicDilemma();
+    g.selectStrategicDilemmaChoice(dilemma.id, "track_deer");
+    g.confirmStrategicChoice(dilemma.id, "track_deer");
+    if (g.infoDetailModal) g.infoDetailModal.revealAt = 0;
+    g.render = realRender;
+  });
+  const resultCards = (game.infoDetailModal && game.infoDetailModal.renderedInfoItems) || [];
+  if (resultCards.length < 3 || resultCards.some((item) => !item.layout || !item.layout.title || item.layout.title.truncated || (item.layout.body && item.layout.body.truncated))) {
+    const detail = resultCards.map((item) => `${item.item.tag}:${item.h}:标题${item.layout && item.layout.title && item.layout.title.truncated ? "截断" : "完整"}/正文${item.layout && item.layout.body && item.layout.body.truncated ? "截断" : "完整"}`).join(" | ");
+    fail(`${viewport.name}/strategy-result`, `策略结果卡仍有标题越界、正文截断或错误换行（${resultCards.length}张：${detail}）`);
+  }
+  const numericResultCards = resultCards.filter((item) => item.layout && item.layout.delta);
+  const negativeReputation = numericResultCards.find((item) => item.item.tag === "声誉");
+  const negativeRelationship = numericResultCards.find((item) => item.item.tag === "共护关系");
+  const positiveMigration = numericResultCards.find((item) => item.item.tag === "迁移");
+  if (numericResultCards.length < 2 || numericResultCards.some((item) => item.layout.title.size < 20)
+    || !(negativeReputation || negativeRelationship)
+    || (negativeReputation || negativeRelationship).layout.delta.beneficial !== false
+    || !positiveMigration || positiveMigration.layout.delta.beneficial !== true) {
+    fail(`${viewport.name}/strategy-result`, "数值变化没有使用大号新值或正确的红绿语义");
+  }
+  if (!strategyResultAudit.texts.some((item) => item.size >= 20 && /^\d+$/.test(item.text))) {
+    fail(`${viewport.name}/strategy-result`, "结算页缺少可见的大号结果数字");
+  }
+  const strategyResultTitle = strategyResultAudit.texts
+    .filter((item) => item.text === "保持距离观察")
+    .sort((a, b) => b.size - a.size)[0];
+  const strategyOutcomeCard = resultCards.find((item) => item.item.tag === "持续影响");
+  if (!strategyResultTitle || strategyResultTitle.size < 18) {
+    fail(`${viewport.name}/strategy-result`, "重大选择主标题仍因路线说明而被缩小或截断");
+  }
+  if (!strategyOutcomeCard || !strategyOutcomeCard.layout || !strategyOutcomeCard.layout.body
+    || strategyOutcomeCard.layout.body.size < 10 || strategyOutcomeCard.layout.body.truncated
+    || !/^远距跟踪 · 4次$/.test(strategyOutcomeCard.item.title)
+    || !/迁徙没有中断/.test(strategyOutcomeCard.item.body)) {
+    fail(`${viewport.name}/strategy-result`, "长期后果仍把叙事长句挤在标题行，或正文换行不可读");
+  }
+  const guardianChoiceAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    const { maybePrepareGuardianPromise } = require("../js/guardianPromises");
+    g.state.world.reserve.guardianPromises = null;
+    g.state.world.reserve.progression.level = 1;
+    g.state.world.reserve.progression.totalActions = 3;
+    maybePrepareGuardianPromise(g.state.world.reserve, { day: 3, totalActions: 3 });
+    const realRender = g.render;
+    g.render = () => {};
+    g.openPendingGuardianPromise();
+    g.selectGuardianPromise(1, "adaptive_contact");
+    g.render = realRender;
+  });
+  if (guardianChoiceAudit.texts.some((item) => /^(长期|数值|动物) · .*…$/.test(item.text))) {
+    fail(`${viewport.name}/guardian-choice`, "selected guardian promise still hides core copy behind an ellipsis");
+  }
+  const guardianLayout = (game.infoDetailModal && game.infoDetailModal.renderedChoiceLayout) || [];
+  const guardianText = (game.infoDetailModal && game.infoDetailModal.renderedChoiceText) || [];
+  if (!game.infoDetailModal || game.infoDetailModal.renderedPromiseMode !== "focused"
+    || guardianLayout.filter((item) => item.selected).length !== 1
+    || guardianLayout.filter((item) => item.collapsed).length !== 2
+    || guardianText.length !== 3
+    || guardianText.some((item) => !item.layout || item.layout.truncated)) {
+    fail(`${viewport.name}/guardian-choice`, "永久守则未保持单卡聚焦，或完整收益、代价与长期影响不可读");
+  }
+  runRenderAudit(game, viewport, "collection", 0, (g) => {
+    g.state.world.collection.legacyArchive = { count: 2, entries: { old_a: {}, old_b: {} }, history: [{ id: "old_a", name: "旧版收藏", day: 8 }] };
+    g.openLegacyCollectionArchive();
+  });
+  const facilityBuildAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    g.state.world.collection.cases.case_1.ending = { id: "audit", name: "旧巡线真相" };
+    g.state.world.reserve.facilityConstruction = { version: 1, sites: { old_patrol_post: { buildStage: 1, buildSteps: 0, specialization: null, totalInvested: 0, lastBuiltDay: 0 } } };
+    g.openReserveFacilityDetail("old_patrol_post");
+  });
+  const buildMetrics = (game.infoDetailModal && game.infoDetailModal.renderedFacilityBuildMetrics) || [];
+  if (buildMetrics.length !== 2 || !buildMetrics.some((metric) => metric.label === "基金" && /\d+→\d+/.test(metric.value))
+    || !buildMetrics.some((metric) => metric.label === "本步提升") || buildMetrics.some((metric) => metric.valueSize < 12)
+    || !facilityBuildAudit.texts.some((item) => /沙盘：/.test(item.text))) {
+    fail(`${viewport.name}/facility-build`, "facility build step does not foreground exact fund change, improvement and visible sandbox result");
+  }
+  const facilityRouteAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    g.state.world.collection.cases.case_1.ending = { id: "audit", name: "旧巡线真相" };
+    g.state.world.reserve.facilityConstruction.sites.old_patrol_post = { buildStage: 2, buildSteps: 2, specialization: null, totalInvested: 170, lastBuiltDay: 8 };
+    g.openReserveFacilityDetail("old_patrol_post");
+  });
+  const initialFacilityRoutes = (game.infoDetailModal && game.infoDetailModal.renderedFacilityRouteLayout) || [];
+  if (initialFacilityRoutes.length !== 3 || initialFacilityRoutes.some((entry) => entry.titleSize < 11)
+    || !facilityRouteAudit.texts.some((item) => /点击查看永久效果/.test(item.text))) {
+    fail(`${viewport.name}/facility-routes`, "facility specialization does not begin with three readable compact choices");
+  }
+  const selectedFacilityRouteAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    g.state.world.collection.cases.case_1.ending = { id: "audit", name: "旧巡线真相" };
+    g.state.world.reserve.facilityConstruction.sites.old_patrol_post = { buildStage: 2, buildSteps: 2, specialization: null, totalInvested: 170, lastBuiltDay: 8 };
+    g.openReserveFacilityDetail("old_patrol_post");
+    g.infoDetailModal.selectedSpecializationId = "enforcement";
+  });
+  const selectedFacilityRoutes = (game.infoDetailModal && game.infoDetailModal.renderedFacilityRouteLayout) || [];
+  const selectedRoute = selectedFacilityRoutes.find((entry) => entry.selected);
+  const collapsedRoutes = selectedFacilityRoutes.filter((entry) => !entry.selected);
+  const selectedRouteText = (game.infoDetailModal && game.infoDetailModal.renderedFacilityRouteText) || [];
+  if (!selectedRoute || collapsedRoutes.length !== 2 || selectedRoute.h - Math.max(...collapsedRoutes.map((entry) => entry.h)) < 40
+    || !selectedRouteText.length || selectedRouteText.some((entry) => !entry.layout || entry.layout.truncated)
+    || !selectedFacilityRouteAudit.texts.some((item) => /\d+→\d+ · 永久生效/.test(item.text))) {
+    fail(`${viewport.name}/facility-routes-selected`, "selected permanent specialization does not expand with complete note and exact fund change");
+  }
+  const facilityOwnedAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    g.state.world.collection.cases.case_1.ending = { id: "audit", name: "旧巡线真相" };
+    g.state.world.reserve.facilityConstruction.sites.old_patrol_post = { buildStage: 3, buildSteps: 2, specialization: "enforcement", totalInvested: 260, lastBuiltDay: 8 };
+    g.openReserveFacilityDetail("old_patrol_post");
+  });
+  if (!facilityOwnedAudit.texts.some((item) => item.text === "永久收益")
+    || !facilityOwnedAudit.texts.some((item) => item.text === "路线倾向")
+    || !facilityOwnedAudit.texts.some((item) => /已建成 · 沙盘/.test(item.text))
+    || (game.infoDetailModal && game.infoDetailModal.renderedFacilityOwnedText && game.infoDetailModal.renderedFacilityOwnedText.truncated)) {
+    fail(`${viewport.name}/facility-owned`, "completed facility does not foreground permanent benefit and visible sandbox ownership");
+  }
+  if (viewport.name === "small") {
+    const { FACILITIES } = require("../js/reserveFacilities");
+    FACILITIES.forEach((facility) => {
+      (facility.routes || []).forEach((route) => {
+        runRenderAudit(game, viewport, "home", 0, (g) => {
+          g.infoDetailModal = {
+            kind: "facilityConstruction",
+            kicker: "我的保护区 · 选择专精",
+            title: facility.name,
+            icon: facility.icon,
+            facility: Object.assign({}, facility, { buildStage: 2, buildSteps: 2, stageLabel: "已启用 · 待专精" }),
+            selectedSpecializationId: route.id,
+            footer: "选择一条设施路线。"
+          };
+        });
+        const layouts = (game.infoDetailModal && game.infoDetailModal.renderedFacilityRouteLayout) || [];
+        const notes = (game.infoDetailModal && game.infoDetailModal.renderedFacilityRouteText) || [];
+        if (layouts.length !== 3 || !layouts.some((entry) => entry.id === route.id && entry.selected && entry.h >= 108)
+          || layouts.some((entry) => entry.titleSize < 11) || notes.some((entry) => !entry.layout || entry.layout.truncated)) {
+          fail(`small/facility-route/${facility.id}/${route.id}`, "one of the 18 permanent facility choices is clipped or unreadable");
+        }
+      });
+    });
+  }
+  [1, 2, 3, 4, 5].forEach((level) => {
+    runRenderAudit(game, viewport, "home", 0, (g) => {
+      g.chapterStoryModal = g.buildChapterStory(level, "start");
+    });
+  });
+  runRenderAudit(game, viewport, "home", 0, (g) => {
+    g.chapterStoryModal = g.buildChapterStory(5, "end");
+  });
+});
+
+if (failures.length) throw new Error(`screen audit failed (${failures.length}): ${failures.slice(0, 6).join(" | ")}`);
+console.log("screen audit check ok");

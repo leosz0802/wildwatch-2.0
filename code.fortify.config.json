@@ -1,0 +1,69 @@
+{
+  "watermark": {
+    "name": "野境守护代码水印",
+    "files": [
+      "js/game.js",
+      "js/simulator.js",
+      "js/strategySystem.js",
+      "js/collectionSystem.js",
+      "js/goalSystem.js",
+      "js/animalWorld.js",
+      "js/emotionSystem.js",
+      "js/world.js",
+      "js/storage.js",
+      "js/reserveView.js",
+      "js/reserveFacilities.js",
+      "js/forestDirector.js"
+    ]
+  },
+  "obfuscation": {
+    "name": "野境守护分级代码混淆",
+    "tasks": [
+      {
+        "level": 3,
+        "files": [
+          "js/animalWorld.js",
+          "js/animals.js",
+          "js/balanceConfig.js",
+          "js/collectionSystem.js",
+          "js/ecologyConsistency.js",
+          "js/ecologyEconomy.js",
+          "js/emotionSystem.js",
+          "js/forestDirector.js",
+          "js/goalSystem.js",
+          "js/guardianCycle.js",
+          "js/guardianPromises.js",
+          "js/materialExploration.js",
+          "js/mysteryRecoveries.js",
+          "js/ordinaryMoments.js",
+          "js/reserveFacilities.js",
+          "js/resourceLedger.js",
+          "js/seasonSystem.js",
+          "js/shareSystem.js",
+          "js/storyGuidance.js",
+          "js/strategySystem.js",
+          "js/world.js"
+        ]
+      },
+      {
+        "level": 2,
+        "files": [
+          "js/actionOperations.js",
+          "js/actions.js",
+          "js/game.js",
+          "js/reserveView.js",
+          "js/simulator.js",
+          "js/storage.js"
+        ]
+      },
+      {
+        "level": 1,
+        "files": [
+          "game.js",
+          "js/audioSystem.js",
+          "js/runtime.js"
+        ]
+      }
+    ]
+  }
+}

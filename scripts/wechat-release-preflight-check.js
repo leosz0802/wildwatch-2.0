@@ -1,0 +1,153 @@
+const fs = require("fs");
+const path = require("path");
+
+const root = path.resolve(__dirname, "..");
+const project = JSON.parse(fs.readFileSync(path.join(root, "project.config.json"), "utf8"));
+const gameConfig = JSON.parse(fs.readFileSync(path.join(root, "game.json"), "utf8"));
+const failures = [];
+const warnings = [];
+const passes = [];
+
+function pass(message) {
+  passes.push(message);
+}
+
+function fail(message) {
+  failures.push(message);
+}
+
+function warn(message) {
+  warnings.push(message);
+}
+
+function walk(directory) {
+  if (!fs.existsSync(directory)) return [];
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const target = path.join(directory, entry.name);
+    return entry.isDirectory() ? walk(target) : [target];
+  });
+}
+
+const ignoredEntries = (((project.packOptions || {}).ignore) || []).map((entry) => String(entry.value || "").replace(/\/$/, ""));
+const subpackageRoots = (gameConfig.subpackages || []).map((entry) => String(entry.root || "").replace(/\/$/, "")).filter(Boolean);
+
+function isIgnored(relativePath) {
+  return ignoredEntries.some((entry) => relativePath === entry || relativePath.startsWith(`${entry}/`));
+}
+
+function packageSize(relativeDirectory = ".", mainOnly = false) {
+  let total = 0;
+  const absoluteDirectory = path.join(root, relativeDirectory);
+  fs.readdirSync(absoluteDirectory, { withFileTypes: true }).forEach((entry) => {
+    const relativePath = relativeDirectory === "." ? entry.name : `${relativeDirectory}/${entry.name}`;
+    if (isIgnored(relativePath)) return;
+    if (mainOnly && subpackageRoots.some((subpackageRoot) => relativePath === subpackageRoot || relativePath.startsWith(`${subpackageRoot}/`))) return;
+    const absolutePath = path.join(root, relativePath);
+    if (entry.isDirectory()) total += packageSize(relativePath, mainOnly);
+    else total += fs.statSync(absolutePath).size;
+  });
+  return total;
+}
+
+function runtimeText() {
+  return [path.join(root, "game.js")]
+    .concat(walk(path.join(root, "js")).filter((file) => file.endsWith(".js")))
+    .map((file) => fs.readFileSync(file, "utf8"))
+    .join("\n");
+}
+
+if (project.compileType === "game") pass("项目类型为微信小游戏");
+else fail(`compileType 应为 game，当前为 ${project.compileType}`);
+
+if (/^wx[a-z0-9]{16}$/i.test(String(project.appid || ""))) pass("AppID 格式有效");
+else fail("缺少有效的微信小游戏 AppID");
+
+if (/^\d+\.\d+\.\d+$/.test(String(project.libVersion || ""))) pass(`基础库版本已固定为 ${project.libVersion}`);
+else warn("基础库版本没有使用明确的三段式版本号");
+
+subpackageRoots.forEach((subpackageRoot) => {
+  if (fs.existsSync(path.join(root, subpackageRoot))) pass(`分包目录存在：${subpackageRoot}`);
+  else fail(`分包目录不存在：${subpackageRoot}`);
+});
+
+const mainBytes = packageSize(".", true);
+const subpackageBytes = subpackageRoots.reduce((sum, subpackageRoot) => sum + packageSize(subpackageRoot, false), 0);
+const totalBytes = mainBytes + subpackageBytes;
+const mib = (bytes) => (bytes / 1024 / 1024).toFixed(3);
+
+if (mainBytes <= 4 * 1024 * 1024) pass(`主包 ${mib(mainBytes)} MiB（官方上限 4 MiB）`);
+else fail(`主包 ${mib(mainBytes)} MiB 超过官方 4 MiB 上限`);
+
+if (totalBytes <= 20 * 1024 * 1024) pass(`总包 ${mib(totalBytes)} MiB（官方上限 20 MiB）`);
+else fail(`总包 ${mib(totalBytes)} MiB 超过官方 20 MiB 上限`);
+
+if (totalBytes < 4 * 1024 * 1024) pass(`总包低于项目自设 4 MiB 门槛：${mib(totalBytes)} MiB`);
+else warn(`总包未满足项目自设 4 MiB 门槛：${mib(totalBytes)} MiB`);
+
+const code = runtimeText();
+const inputApis = /(?:showKeyboard|onKeyboardInput|onKeyboardConfirm|offKeyboardInput|chooseImage|chooseMedia|chooseMessageFile|getClipboardData)/;
+const privacyApis = /(?:getUserProfile|getUserInfo|getPhoneNumber|getLocation|chooseLocation|startRecord|authorize\s*\()/;
+const paymentOrAdApis = /(?:requestPayment|createRewardedVideoAd|createBannerAd|createInterstitialAd|createCustomAd)/;
+
+if (!inputApis.test(code) && /editable:\s*true/.test(code)) pass("生产代码没有公开UGC入口；仅保留本地整数采购数量输入");
+else if (!inputApis.test(code)) pass("生产代码没有玩家文本/媒体录入入口");
+else fail("生产代码仍包含玩家输入或媒体选择接口，需补充内容安全与隐私链路");
+
+if (!privacyApis.test(code)) pass("生产代码未调用敏感隐私接口");
+else warn("检测到敏感隐私接口，须确认隐私保护指引、用途声明和授权时机");
+
+if (!paymentOrAdApis.test(code)) pass("生产代码未接入支付或广告接口");
+else warn("检测到支付或广告接口，须补齐对应类目、协议和审核材料");
+
+if (/showShareMenu/.test(code) && /onShareAppMessage/.test(code)) pass("原生分享菜单与分享回调均已配置");
+else warn("分享菜单或分享回调配置不完整");
+
+const remoteDefault = code.match(/remote:\s*\{[\s\S]*?url:\s*"([^"]*)"/);
+if (!remoteDefault || remoteDefault[1] === "") pass("默认版本不加载远程动态美术内容");
+else warn(`检测到默认远程美术地址：${remoteDefault[1]}，须配置下载域名并纳入内容审核`);
+
+const secretPatterns = [
+  /sk-[A-Za-z0-9_-]{16,}/,
+  /access_token\s*[:=]\s*["'][A-Za-z0-9_-]{16,}["']/i,
+  /secret\s*[:=]\s*["'][A-Za-z0-9_-]{24,}["']/i
+];
+const packageTextFiles = walk(root).filter((file) => {
+  const relativePath = path.relative(root, file).replace(/\\/g, "/");
+  return !isIgnored(relativePath) && /\.(?:js|json|md|txt|wxml|wxss)$/i.test(file);
+});
+const leaked = packageTextFiles.some((file) => {
+  const text = fs.readFileSync(file, "utf8");
+  return secretPatterns.some((pattern) => pattern.test(text));
+});
+if (!leaked) pass("上传包未发现常见密钥或 access_token 泄露");
+else fail("上传包疑似包含密钥或 access_token");
+
+if ((project.setting || {}).minified) pass("上传构建已启用代码压缩");
+else warn("project.config.json 未启用 minified；不阻断审核，但正式上传建议启用并复测");
+
+const fortifyConfigPath = path.join(root, "code.fortify.config.json");
+if (fs.existsSync(fortifyConfigPath)) {
+  try {
+    const fortifyConfig = JSON.parse(fs.readFileSync(fortifyConfigPath, "utf8"));
+    const tasks = (((fortifyConfig.obfuscation || {}).tasks) || []);
+    const files = tasks.flatMap((task) => task.files || []);
+    if (tasks.length && files.length) pass(`微信游戏深度保护已配置：${files.length} 个 JS 文件`);
+    else fail("code.fortify.config.json 没有有效的代码混淆任务");
+  } catch (error) {
+    fail(`code.fortify.config.json 无法解析：${error.message}`);
+  }
+} else {
+  fail("缺少微信游戏深度保护配置 code.fortify.config.json");
+}
+
+if (ignoredEntries.includes("code.fortify.config.json")) pass("深度保护配置已从正式上传包排除");
+else fail("深度保护配置应加入 packOptions.ignore");
+
+if ((project.setting || {}).urlCheck) pass("开发者工具已启用合法域名校验");
+else warn("开发者工具 urlCheck=false；当前无默认网络请求，但上线前若启用远程资源必须开启并配置域名");
+
+passes.forEach((message) => console.log(`ok ${message}`));
+warnings.forEach((message) => console.log(`warn ${message}`));
+failures.forEach((message) => console.error(`fail ${message}`));
+console.log(`wechat release preflight: ${passes.length} passed, ${warnings.length} warnings, ${failures.length} failed`);
+if (failures.length) process.exit(1);

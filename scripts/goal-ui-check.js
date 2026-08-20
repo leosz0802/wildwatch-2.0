@@ -1,0 +1,105 @@
+const assert = require("assert");
+
+let viewport = { windowWidth: 375, windowHeight: 667, pixelRatio: 1 };
+
+function createFakeContext(width, height) {
+  const gradient = { addColorStop() {} };
+  return new Proxy({}, {
+    get(target, prop) {
+      if (prop === "measureText") return (text) => ({ width: String(text || "").length * 7 });
+      if (prop === "createLinearGradient" || prop === "createRadialGradient") return () => gradient;
+      if (prop === "canvas") return { width, height };
+      if (!target[prop]) target[prop] = () => {};
+      return target[prop];
+    },
+    set(target, prop, value) { target[prop] = value; return true; }
+  });
+}
+
+global.wx = {
+  getSystemInfoSync() { return viewport; },
+  createCanvas() {
+    const ctx = createFakeContext(viewport.windowWidth, viewport.windowHeight);
+    return { width: viewport.windowWidth, height: viewport.windowHeight, getContext() { return ctx; } };
+  },
+  createImage() {
+    return {
+      loaded: true,
+      set src(value) { this._src = value; this.loaded = true; if (this.onload) this.onload(); },
+      get src() { return this._src; }
+    };
+  },
+  getStorageSync() { return null; }, setStorageSync() {},
+  onTouchStart() {}, onTouchMove() {}, onTouchEnd() {}, onTouchCancel() {},
+  onKeyboardConfirm() {}, onAppHide() {}, onAppShow() {}, showToast() {}
+};
+
+const { Game } = require("../js/game");
+const { createCharacter } = require("../js/storage");
+
+for (const [width, height] of [[320, 568], [375, 667], [430, 932]]) {
+  viewport = { windowWidth: width, windowHeight: height, pixelRatio: 1 };
+  const game = new Game();
+  game.stopLoop();
+  game.state = createCharacter(null, "目标界面测试");
+  game.state.ui = { onboarding: { version: 2, completed: true, seen: {} } };
+  game.screen = "home";
+  game.infoDetailModal = null;
+  assert(game.openGoalCenter(), `${width}x${height} 应能打开目标中心`);
+  const modal = game.infoDetailModal;
+  assert.strictEqual(modal.kind, "missionPush");
+  assert(modal.goals.length >= 1 && modal.goals.length <= 3, "目标中心只显示1–3项");
+  game.hitAreas = [];
+  game.drawInfoDetailModal();
+  assert.strictEqual((modal.renderedGoalCards || []).length, 1, "默认只应展示唯一当前目标");
+  assert.strictEqual(modal.renderedGoalCards[0].id, modal.currentGoalId, "默认卡片必须是当前追踪目标");
+  (modal.renderedGoalCards || []).forEach((card, index, cards) => {
+    assert(card.x >= 0 && card.y >= 0 && card.x + card.w <= width && card.y + card.h <= height, `${width}x${height} 目标卡不得越界`);
+    if (index) assert(card.y >= cards[index - 1].y + cards[index - 1].h, "目标卡不得互相遮挡");
+  });
+  if (modal.goals[1]) {
+    const oldPrimaryId = modal.currentGoalId;
+    modal.showAlternatives = true;
+    game.drawInfoDetailModal();
+    assert.strictEqual((modal.renderedGoalCards || []).length, modal.goals.length, "主动更换时才展示所有备选目标");
+    const alternativeId = modal.goals.find((goal) => goal.id !== oldPrimaryId).id;
+    assert(game.selectGoalAsPrimary(alternativeId), "备选目标必须可设为当前目标");
+    assert.strictEqual(game.state.world.goals.active.primary.id, alternativeId, "选择必须写回全局唯一当前目标");
+    assert.strictEqual(modal.currentGoalId, alternativeId, "弹窗必须立即切换当前目标");
+    assert.strictEqual(modal.showAlternatives, false, "选定后应自动收起备选目标");
+    game.drawInfoDetailModal();
+    assert.strictEqual((modal.renderedGoalCards || []).length, 1, "选定后旧目标不得继续并列显示");
+    assert.strictEqual(modal.renderedGoalCards[0].id, alternativeId, "选定后只展示新当前目标");
+  }
+  game.stopLoop();
+}
+
+// Regression: the goal dock is painted every animation frame. With rerouting
+// active, resolving once in currentGoalView and again in buildGoalView used to
+// alternate two candidates and flash both title and progress values.
+viewport = { windowWidth: 375, windowHeight: 667, pixelRatio: 1 };
+const stableGame = new Game();
+stableGame.stopLoop();
+stableGame.state = createCharacter(null, "目标稳定帧测试");
+stableGame.state.ui = { onboarding: { version: 2, completed: true, seen: {} } };
+const prepared = stableGame.currentGoalView(true);
+stableGame.state.world.goals.noProgressActions = 3;
+const firstStableView = stableGame.currentGoalView(true);
+const storedGoals = stableGame.state.world.goals;
+const signature = (view) => [
+  view.primary && view.primary.id,
+  view.primary && view.primary.title,
+  view.primary && view.primary.progress,
+  view.primary && view.primary.target,
+  (view.alternatives || []).map((goal) => goal.id).join(",")
+].join("|");
+assert(prepared.primary, "稳定帧测试必须先生成主目标");
+assert.strictEqual(firstStableView.primary.id, storedGoals.active.primary.id, "绘制目标必须与已决策主目标一致");
+for (let frame = 0; frame < 180; frame += 1) {
+  const frameView = stableGame.currentGoalView();
+  assert.strictEqual(signature(frameView), signature(firstStableView), `第${frame + 1}帧目标文字和数值不得闪烁`);
+  assert.strictEqual(stableGame.state.world.goals, storedGoals, "纯绘制不得替换目标状态");
+}
+stableGame.stopLoop();
+
+console.log("goal ui check ok");

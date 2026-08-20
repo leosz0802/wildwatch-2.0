@@ -1,0 +1,97 @@
+{
+  "description": "野境守护微信小游戏 v0.3.1",
+  "appid": "wx0ad30effd406ea13",
+  "projectname": "野境守护 v0.3.1",
+  "compileType": "game",
+  "libVersion": "3.8.0",
+  "packOptions": {
+    "ignore": [
+      {
+        "value": "scripts",
+        "type": "folder"
+      },
+      {
+        "value": "README.md",
+        "type": "file"
+      },
+      {
+        "value": "ANIMALWORLD_INTEGRATION.md",
+        "type": "file"
+      },
+      {
+        "value": "MANUS_LATEST_CODE_HANDOFF.md",
+        "type": "file"
+      },
+      {
+        "value": "REMOTE_ART_ASSETS.md",
+        "type": "file"
+      },
+      {
+        "value": "STABLE_BUILD.md",
+        "type": "file"
+      },
+      {
+        "value": "SYSTEM_MODEL.md",
+        "type": "file"
+      },
+      {
+        "value": "TEST_REPORT.md",
+        "type": "file"
+      },
+      {
+        "value": "VERSION.md",
+        "type": "file"
+      },
+      {
+        "value": "WECHAT_DEVTOOL_SETUP.md",
+        "type": "file"
+      },
+      {
+        "value": "art-source",
+        "type": "folder"
+      },
+      {
+        "value": "ART_DIRECTION_V4.md",
+        "type": "file"
+      },
+      {
+        "value": "project.private.config.json",
+        "type": "file"
+      },
+      {
+        "value": "code.fortify.config.json",
+        "type": "file"
+      }
+    ],
+    "include": []
+  },
+  "setting": {
+    "urlCheck": true,
+    "es6": true,
+    "postcss": false,
+    "minified": true,
+    "enhance": true,
+    "minifyWXML": true,
+    "compileWorklet": false,
+    "uglifyFileName": false,
+    "uploadWithSourceMap": true,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "minifyWXSS": true,
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "useCompilerPlugins": false,
+    "condition": false,
+    "swc": false,
+    "disableSWC": true,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
+  },
+  "condition": {},
+  "simulatorPluginLibVersion": {},
+  "isGameTourist": false,
+  "editorSetting": {}
+}

@@ -1,0 +1,10 @@
+{
+  "deviceOrientation": "portrait",
+  "showStatusBar": false,
+  "subpackages": [
+    {
+      "name": "chapters",
+      "root": "chapter-assets"
+    }
+  ]
+}
