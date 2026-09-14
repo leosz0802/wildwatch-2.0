@@ -418,6 +418,7 @@ class Game {
       : { state: this.state.world.lifeMemory, todayLetters: [], changed: false, dateKey: animalLetterDateKey() };
     this.state.world.lifeMemory = animalLetterVisit.state;
     const reserve = (this.state.world || {}).reserve || (this.state.world.reserve = {});
+    this.ensureDailyReturnEvent(Date.now());
     reserve.emergency = Object.assign({ active: null, cooldown: 0, history: [], lastOutcome: null }, reserve.emergency || {});
     if (!Number.isFinite(Number(reserve.emergency.idleNextAt)) || Number(reserve.emergency.idleNextAt) <= 0) {
       reserve.emergency.idleNextAt = Date.now() + 180000 + Math.floor(Math.random() * 120000);
@@ -23628,6 +23629,26 @@ class Game {
     return this.reserveViewRenderCache;
   }
 
+  ensureDailyReturnEvent(now = Date.now()) {
+    const reserve = ((this.state || {}).world || {}).reserve;
+    if (!reserve || !this.state.character) return null;
+    const dateKey = new Date(now).toISOString().slice(0, 10);
+    const day = Number((((reserve.guardianCycle || {}).day) || (this.state.world || {}).day || 1));
+    const current = reserve.dailyReturnEvent || {};
+    if (current.dateKey === dateKey && ["pending", "opened", "completed"].includes(current.status)) return current;
+    const ecology = reserve.ecology || {};
+    const highRisk = Number(reserve.poacherPressure || 0) >= 55;
+    const lowWater = Number(ecology.water || 0) < 55;
+    const event = highRisk
+      ? { type: "poacher-trace", title: "昨夜边界留下新脚印", label: "边界新线索", regionId: "forest", actionId: "antiPoacher", playMode: "dice" }
+      : lowWater
+      ? { type: "waterline-check", title: "浅滩水线发生变化", label: "浅滩新变化", regionId: "river", actionId: "habitat", playMode: "archery" }
+      : { type: "animal-trace", title: "动物在水边留下新脚印", label: "动物新线索", regionId: "meadow", actionId: "houndScout", playMode: "dice" };
+    reserve.dailyReturnEvent = Object.assign(event, { id: `daily_return_${day}_${dateKey}`, dateKey, day, status: "pending", createdAt: now });
+    saveState(this.state);
+    return reserve.dailyReturnEvent;
+  }
+
   mapTaskStoryMarkersForDisplay(world = this.state.world || {}, storyDiscovery = null) {
     const locatedStoryRegion = storyDiscovery && storyDiscovery.status === "located"
       ? String(storyDiscovery.regionId || "") : "";
@@ -23805,6 +23826,21 @@ class Game {
         metric: focus.type
       };
       mergedMarkers = [guideMarker].concat(mergedMarkers.filter((marker) => marker.id !== guideMarker.id));
+    }
+    const dailyReturnEvent = reserve.dailyReturnEvent;
+    if (dailyReturnEvent && ["pending", "opened"].includes(dailyReturnEvent.status)) {
+      const returnMarker = Object.assign({}, dailyReturnEvent, {
+        id: dailyReturnEvent.id,
+        type: "dailyReturnEvent",
+        kind: "dailyReturnEvent",
+        title: dailyReturnEvent.title,
+        label: dailyReturnEvent.label,
+        impact: "这是今天唯一的回归事件，完成后会推进剧情、任务或收藏线索。",
+        recommendAction: dailyReturnEvent.actionId,
+        intensity: 5,
+        focused: true
+      });
+      mergedMarkers = [returnMarker].concat(mergedMarkers.filter((marker) => marker.type !== "dailyReturnEvent"));
     }
     return Object.assign({}, view, { mapMarkers: mergedMarkers.slice(0, 3) });
   }
