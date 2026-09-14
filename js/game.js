@@ -9093,6 +9093,7 @@ class Game {
     const brief = this.pendingOfflineBrief;
     this.pendingOfflineBrief = null;
     this.infoDetailModal = {
+      kind: "returnBrief",
       kicker: `离线简报 · ${brief.elapsedLabel}`,
       title: brief.title,
       icon: "reserve_prosperity",
@@ -9106,7 +9107,11 @@ class Game {
       actionLabel: "查看今日任务",
       action: () => {
         this.infoDetailModal = null;
-        if (!this.openGuardianReturnLetter() && !this.openAnimalLetterPrompt()) this.openGoalCenter();
+        // 回归简报确认后只进入一个当前主任务；动物信件和普通卡片
+        // 保留到任务处理完成后再由各自入口展示，避免登录连环弹窗。
+        this.state.ui = Object.assign({}, this.state.ui || {}, { returnBriefConfirmedAt: Date.now() });
+        saveState(this.state);
+        this.openGoalCenter();
       }
     };
     this.render();
