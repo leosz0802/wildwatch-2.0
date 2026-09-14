@@ -113,7 +113,7 @@ emptyGame.screen = "role";
 emptyGame.infoDetailModal = emptyDetail;
 emptyDetail.action();
 assert(emptyGame.screen === "role", "empty goods exploration should stay on the materials page");
-assert(emptyGame.infoDetailModal && /独立探索/.test(emptyGame.infoDetailModal.kicker), "empty goods should open the three-factor exploration modal");
+assert(emptyGame.infoDetailModal && emptyGame.infoDetailModal.kind === "materialExploration" && /动物引路/.test(emptyGame.infoDetailModal.kicker), "empty goods should open the current animal-guided material exploration modal");
 assert(!emptyGame.patrolTaskModal, "empty goods exploration should not open the patrol task modal");
 
 const patrolOverviewGame = new Game();
@@ -155,6 +155,28 @@ const sale = saleResult.visual && saleResult.visual.salvageEconomy;
 assert(sale && sale.sold.length === 3, "selling recovered goods should expose sold inventory");
 assert(saleResult.world.reserve.fund > saleBeforeFund, "selling recovered goods should increase fund");
 assert(saleResult.world.reserve.inventory.shedAntlerA === 0, "selling recovered goods should consume antler inventory");
+
+// 覆盖真机问题：物资页滚动到广告和出售区后完成移交，不应跳回沙盘、
+// 启动五秒回放或重置滚动位置，否则原生广告会被隐藏并表现为卡顿。
+const saleUiGame = new Game();
+saleUiGame.stopLoop();
+saleUiGame.render = () => {};
+saleUiGame.toast = () => {};
+saleUiGame.playSfx = () => {};
+saleUiGame.state = createCharacter(null, "出售留页测试");
+saleUiGame.state.world.reserve.inventory.researchSample = 2;
+saleUiGame.screen = "role";
+saleUiGame.scrollY = 426;
+const saleUiBeforeFund = saleUiGame.state.world.reserve.fund;
+saleUiGame.openRecoveredChoice("researchSample");
+saleUiGame.confirmRecoveredChoice();
+assert(saleUiGame.patrolTaskModal && saleUiGame.patrolTaskModal.id === "salvage", "sale confirmation should prepare the salvage command");
+withRandom(0.99, () => saleUiGame.submitCommand());
+assert(saleUiGame.screen === "role", "completed sale should remain on the materials page");
+assert(saleUiGame.scrollY === 426, "completed sale should preserve the ad and goods viewport");
+assert(!saleUiGame.settlementModal && !saleUiGame.mapPatrolReplay, "completed sale should not leave a hidden sandbox settlement or replay");
+assert(saleUiGame.state.world.reserve.fund > saleUiBeforeFund, "inline sale should still grant the exact project funding");
+assert(saleUiGame.state.world.reserve.inventory.researchSample === 0, "inline sale should still consume the transferred samples");
 
 const emptySaleState = createCharacter(null, "保护区卫士");
 ["shedAntlerA", "shedAntlerB", "naturalHide", "researchSample", "recoveredTrap"].forEach((key) => {

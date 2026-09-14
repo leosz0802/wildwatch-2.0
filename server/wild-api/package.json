@@ -1,0 +1,13 @@
+{
+  "name": "wild-guard-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Remote config, telemetry and world leaderboard service for Wild Guard.",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}

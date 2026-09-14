@@ -62,8 +62,20 @@ assetReferences.forEach((asset) => {
   assert(fs.existsSync(path.join(root, asset)), `referenced runtime asset is missing: ${asset}`);
 });
 
+const projectConfig = JSON.parse(fs.readFileSync(path.join(root, "project.config.json"), "utf8"));
+const ignoredPackageEntries = ((projectConfig.packOptions || {}).ignore || []).map((entry) => ({
+  value: String(entry.value || "").replace(/\/$/, ""),
+  type: entry.type
+}));
+function isPackageIgnored(asset) {
+  return ignoredPackageEntries.some((entry) => {
+    if (entry.type === "file") return asset === entry.value;
+    return asset === entry.value || asset.startsWith(`${entry.value}/`);
+  });
+}
 const runtimeAssets = walk(path.join(root, "assets")).concat(walk(path.join(root, "chapter-assets")))
   .map(relative)
+  .filter((asset) => !isPackageIgnored(asset))
   .sort();
 const packageConfig = JSON.parse(fs.readFileSync(path.join(root, "game.json"), "utf8"));
 const subpackageBootstraps = new Set((packageConfig.subpackages || []).map((item) => `${item.root.replace(/\/$/, "")}/game.js`));
@@ -77,7 +89,12 @@ const obsoleteSymbols = {
     "drawGroundedPlayerToken", "drawEventIcon", "openStrategyDetail", "drawThreatTileV3",
     "drawPatrolHoundLevelBadge", "guardianGradeColor", "openMetricActionTask",
     "drawMaterialSummary", "buildActionResourceDetail", "requestFieldPermit",
-    "buildActionPointDetail", "drawLakePatch", "metric", "tag"
+    "buildActionPointDetail", "drawLakePatch", "metric", "tag",
+    "buildMissionPushDetail", "drawPatrolDayGauge", "animalFacilityOverlapCount",
+    "buildRunGrowthDetail", "drawHomeProsperityStrip", "dailyCareSteps", "infoTickerCards",
+    "openReserveStateDetail", "openReserveBroadcastDetail", "buildHoundTeamDetail",
+    "actionResourceGuide", "guardianGradeFromScore", "dailyActionShortLabel", "truncateLabel",
+    "openMissionPush", "drawFundStack", "shouldOfferRecommendation"
   ],
   "js/reserveView.js": ["labelForTone"],
   "js/simulator.js": ["withTrustTier", "addIntel", "consumeIntel", "consumeFieldPermit"],
@@ -89,5 +106,10 @@ Object.keys(obsoleteSymbols).forEach((file) => {
     assert(!new RegExp(`\\b${name}\\s*\\(`).test(source), `obsolete runtime symbol remains: ${file}#${name}`);
   });
 });
+
+assert(
+  !fs.existsSync(path.join(root, "assets/art/animal-map-sprites-atlas-v1.png")),
+  "superseded animal map atlas v1 should stay removed"
+);
 
 console.log(`runtime reachability check ok (${reachable.size} modules, ${runtimeAssets.length} packaged assets, 0 orphans)`);

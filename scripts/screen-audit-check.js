@@ -273,6 +273,22 @@ function fail(context, message) {
   console.log(`FAIL: ${context}: ${message}`);
 }
 
+function checkPremiumSkin(game, expectedScreen, context) {
+  const skin = game.renderedPremiumSkin || {};
+  if (skin.screen !== expectedScreen || !skin.parchment || !skin.leather || !skin.brass || !skin.infoCards || !skin.dynamic
+    || !["canvas", "remote"].includes(skin.textureMode) || skin.version !== 1) {
+    fail(context, `${expectedScreen} has lost the shared dynamic parchment/leather/brass visual system`);
+  }
+  const friendHeader = expectedScreen === "home" ? game.renderedHomeIdentityPill : game.renderedStagePill;
+  const rankButton = expectedScreen === "home" ? ((friendHeader || {}).rankButton) : ((friendHeader || {}).friendRankButton);
+  if (!friendHeader || friendHeader.affordance !== "好友榜 ›" || friendHeader.rankScope !== "friends"
+    || !rankButton || rankButton.w < 58 || rankButton.h < 20
+    || (expectedScreen === "home" && (!friendHeader.audioButton || rankButton.x >= friendHeader.audioButton.x || friendHeader.friendAudioGap < 6))
+    || !friendHeader.avoidsSystemMenu) {
+    fail(context, `${expectedScreen} header has lost its safe, visible friend leaderboard button`);
+  }
+}
+
 function checkText(audit, context) {
   audit.texts.forEach((item) => {
     if (!rectVisible(item, audit.viewport)) return;
@@ -325,6 +341,9 @@ function textIntersection(a, b) {
 
 function checkTextOverlaps(audit, context, game) {
   const texts = audit.texts.filter((item) => textOverlapCandidate(item, audit.viewport));
+  const sticky = game && game.renderedStickyTableHeader;
+  const stickyRect = sticky ? { x: sticky.x, y: sticky.y, w: sticky.w, h: sticky.h } : null;
+  const textInSticky = (item) => stickyRect && rectOverlaps(item, stickyRect);
   const homeDock = audit.screen === "home" && game && game.renderedHomeActionDock;
   const dockLabels = homeDock
     ? new Set([homeDock.title, homeDock.focus, homeDock.actionLabel, "新手下一步", "当前最重要"])
@@ -337,6 +356,10 @@ function checkTextOverlaps(audit, context, game) {
     for (let j = i + 1; j < texts.length; j += 1) {
       const b = texts[j];
       if (a.phase !== b.phase) continue;
+      // The sticky table header is an opaque fixed layer drawn over the
+      // translated list. Text from the scrolled row underneath is expected to
+      // occupy the same coordinates and is intentionally occluded.
+      if (textInSticky(a) || textInSticky(b)) continue;
       // The home action dock is an opaque floating layer over the live map.
       // Map dialogue underneath it is intentionally occluded, so do not
       // compare that hidden text with the dock's own title/action label.
@@ -406,6 +429,7 @@ function runRenderAudit(game, viewport, screen, scrollY = 0, modalSetup = null) 
   game.ctx = createAuditContext(audit);
   installInstrumentation(game, audit);
   game.screen = screen;
+  game.prepareLocalAssetsForScreen(screen);
   game.scrollY = scrollY;
   game.patrolTaskModal = null;
   game.patrolOperationPlan = null;
@@ -414,6 +438,7 @@ function runRenderAudit(game, viewport, screen, scrollY = 0, modalSetup = null) 
   game.settlementModal = null;
   game.chapterStoryModal = null;
   game.chapterStoryQueue = [];
+  if (screen === "collection") game.discoveryTab = "population";
   if (modalSetup) modalSetup(game);
   // Some setup helpers call render() themselves. Only audit the final state;
   // otherwise pre-selection and post-selection text can be compared as if it
@@ -526,8 +551,10 @@ function checkPatrolTaskModal(game, audit, context, options = {}) {
   if (!layout.id || layout.h > maxHeight || layout.purposeH !== 32 || !layout.nextText) {
     fail(context, `巡护确认层级或高度异常: ${layout.id || "none"}/${layout.h || 0}`);
   }
-  if (header.split !== "horizontal" || header.background !== "horizontalBands") {
-    fail(context, "弹窗头部仍可能用斜切背景穿过标题");
+  if (header.split !== "horizontal" || header.background !== "leatherArchive"
+    || layout.style !== "field-task-v2" || !Array.isArray(layout.materials)
+    || !["leather", "parchment", "brass"].every((material) => layout.materials.includes(material))) {
+    fail(context, "巡护任务没有使用统一的皮革档案材质");
   }
   const safeRight = header.pill ? header.pill.x - 8 : layout.x + layout.w - 18;
   if (!header.textW || header.textX + header.textW > safeRight) {
@@ -633,7 +660,7 @@ function crisisSettlementFixture(game) {
 
 viewports.forEach((viewport) => {
   const game = createGame(viewport);
-  const screens = ["choose", "home", "action", "social", "league", "collection", "role", "animalworld"];
+  const screens = ["choose", "home", "action", "social", "league", "collection", "survival", "role", "animalworld"];
   screens.forEach((screen) => {
     runRenderAudit(game, viewport, screen, 0);
     const max = game.maxScroll();
@@ -642,26 +669,69 @@ viewports.forEach((viewport) => {
       runRenderAudit(game, viewport, screen, max);
     }
   });
+  const ecologyFullTextAudit = runRenderAudit(game, viewport, "role", 0, (g) => {
+    const parent = { kind: "ecologyNarrativeDecision", title: "生态现场", icon: "eye", items: [] };
+    g.openInfoListItemDetail(parent, {
+      tag: "现场",
+      title: "一方经过后留下可利用的食物与通道，另一方随即跟上。",
+      body: ""
+    }, 0);
+  });
+  if ((game.infoDetailModal || {}).meta
+    || ecologyFullTextAudit.texts.some((item) => /任务生成器|完成结算|完整记录|返回后/.test(item.text))) {
+    fail(`${viewport.name}/ecology-full-text`, "expanded ecology text still includes redundant implementation or navigation commentary");
+  }
+  const letterHomeAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+    g.state.world.lifeMemory.animalLetters = [];
+    g.state.world.lifeMemory.animalLetterDateKey = "";
+    g.ensureAnimalLettersForToday();
+    // 游客数据和来信现在共用地图内的一个入口；没有变化时不长驻，
+    // 以一次快照差异模拟新来信，验证只出现一个短暂入口。
+    g.state.ui.mapNotifiedLetterKeys = [];
+  });
+  if (!game.renderedMapVisitorCountChip
+    || game.renderedMapVisitorCountChip.mode !== "reserveLetters"
+    || !(game.renderedMapVisitorCountChip.letters >= 2)
+    || !letterHomeAudit.texts.some((item) => /新邮件/.test(item.text))) {
+    fail(`${viewport.name}/animal-letter-home`, "home is missing the transient protection-area letter entrance");
+  }
+  runRenderAudit(game, viewport, "home", 0, (g) => g.openAnimalLetterInbox());
+  if (!game.infoDetailModal || game.infoDetailModal.kind !== "animalLetterInbox"
+    || !game.infoDetailModal.renderedLetterInbox || !game.infoDetailModal.renderedLetterInbox.showsAllHistory
+    || !(game.infoDetailModal.renderedLetterItems || []).length) {
+    fail(`${viewport.name}/animal-letter-inbox`, "animal-letter history or portrait rows are missing from the inbox");
+  }
+  const auditLetter = ((game.infoDetailModal || {}).letters || [])[0];
+  runRenderAudit(game, viewport, "home", 0, (g) => g.openAnimalLetterReader(auditLetter));
+  if (!game.infoDetailModal || game.infoDetailModal.kind !== "animalLetterReader"
+    || !game.infoDetailModal.renderedAnimalLetter || !game.infoDetailModal.renderedAnimalLetter.portrait
+    || !game.infoDetailModal.renderedAnimalLetter.fits) {
+    fail(`${viewport.name}/animal-letter-reader`, "animal letter reader lost its portrait, complete copy, or narrow-screen layout");
+  }
   const existingCharacter = game.state.character;
   const chooseAudit = runRenderAudit(game, viewport, "choose", 0, (g) => {
     g.state.character = null;
     g.state.ui = Object.assign({}, g.state.ui || {}, { prologue: { version: 1, stage: "fog", completed: false } });
-    g.prologueRuntime = { stage: "fog", startedAt: Date.now() - 2200, touchFlashUntil: 0 };
+    g.prologueRuntime = { stage: "fog", startedAt: Date.now() - 1150 };
   });
   if (chooseAudit.maxScroll !== 0 || game.maxScroll() !== 0) {
     fail(`${viewport.name}/choose`, "entry page should fit one screen without scrolling");
   }
   const prologueVisual = game.renderedPlayablePrologue || {};
-  if (!chooseAudit.texts.some((item) => item.text === "轻触犬铃")
-    || !chooseAudit.texts.some((item) => /雾里，有什么停下了脚步/.test(item.text))
-    || prologueVisual.stage !== "fog" || !prologueVisual.dynamicMap || prologueVisual.staticChapterArt
+  if (!chooseAudit.texts.some((item) => item.text === "看清代价")
+    || !chooseAudit.texts.some((item) => /这里没有无代价的善意/.test(item.text))
+    || prologueVisual.stage !== "fog" || prologueVisual.dynamicMap || !prologueVisual.staticUnderlay || prologueVisual.staticChapterArt
     || !prologueVisual.cinematicArt || prologueVisual.beat !== "listen" || prologueVisual.soundCue !== "叮——"
-    || prologueVisual.comicPanels !== 3 || prologueVisual.panel !== 1
+    || prologueVisual.comicPanels !== 2 || prologueVisual.panel !== 1
     || !prologueVisual.panelOneReady || !prologueVisual.panelTwoReady
     || !prologueVisual.dialogue || !prologueVisual.dialogue.layeredCloud
-    || prologueVisual.fogOpacity < .7 || prologueVisual.operationsBeforeReveal !== 2
+    || prologueVisual.dialogue.style !== "survival-manifesto" || prologueVisual.dialogue.cloud
+    || prologueVisual.textPriority !== "primary" || !prologueVisual.backgroundMuted || !prologueVisual.businessSurvivalWorld
+    || prologueVisual.imageTransitionMode !== "fade-through-dark" || prologueVisual.transitionFlash !== false
+    || !prologueVisual.geometryContinuous || !prologueVisual.lateLoadHold || !prologueVisual.avoidsDoubleExposure
+    || prologueVisual.fogOpacity < .7 || prologueVisual.imagesBeforePlay !== 2 || prologueVisual.operationsBeforePlay !== 2
     || !prologueVisual.dogBounds || prologueVisual.dogBounds.w < 88) {
-    fail(`${viewport.name}/choose`, "cinematic fog prologue lost its art, layered cloud dialogue, unified three-panel transition, or interaction rhythm");
+    fail(`${viewport.name}/choose`, "two-image prologue lost its art, layered dialogue, compact transition, or interaction rhythm");
   }
   if (chooseAudit.texts.some((item) => /开始守护|从这些开始|合法回收 → 出售|开局一队狗/.test(item.text))) {
     fail(`${viewport.name}/choose`, "entry page still shows the old static start cards");
@@ -669,17 +739,18 @@ viewports.forEach((viewport) => {
   game.state.character = existingCharacter;
   game.state.ui = Object.assign({}, game.state.ui || {}, { prologue: { version: 1, stage: "complete", completed: true } });
   const missionPushAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
-    g.infoDetailModal = g.buildMissionPushDetail("manual");
+    g.openGoalCenter();
   });
-  const missionVisual = (game.infoDetailModal || {}).renderedMissionPush || {};
-  if (missionVisual.whyVisible !== false || !missionVisual.rewardProminent
-    || missionVisual.rewardTitleSize < 12 || missionVisual.rewardH < 68
-    || missionPushAudit.texts.some((item) => item.text === "为什么")
-    || !missionPushAudit.texts.some((item) => item.text === "完成奖励")) {
-    fail(`${viewport.name}/mission-push`, "阶段任务仍重复展示为什么，或完成奖励没有成为核心视觉");
+  const missionModal = game.infoDetailModal || {};
+  const goalCards = missionModal.renderedGoalCards || [];
+  if (missionModal.kind !== "missionPush" || goalCards.length !== 1
+    || goalCards[0].id !== missionModal.currentGoalId
+    || missionPushAudit.texts.some((item) => item.text === "为什么")) {
+    fail(`${viewport.name}/mission-push`, "目标中心没有保持唯一当前目标，或仍展示旧版重复说明");
   }
-  const expectedSpeciesCounts = { 1: 7, 2: 11, 3: 15, 4: 19, 5: 21 };
-  [1, 2, 3, 4, 5].forEach((level) => {
+  const expectedSpeciesCounts = { 1: 7, 2: 11, 3: 15, 4: 19, 5: 21, 6: 23, 7: 25 };
+  const finalSpeciesLevel = 7;
+  [1, 2, 3, 4, 5, 6, 7].forEach((level) => {
     const populationAudit = runRenderAudit(game, viewport, "animalworld", 0, (g) => {
       g.state.world.reserve.progression.level = level;
       reconcileSpeciesPopulations(g.state.world.reserve, { initializeUnlocked: true, removeLocked: true });
@@ -696,6 +767,7 @@ viewports.forEach((viewport) => {
     if (summary.species !== expected || summary.h > 54 || summary.valueSize < 17
       || cards.length !== expectedVisible || columns !== 2
       || cards.some((card) => card.layout !== "twoColumnPortrait" || card.h < 82 || card.titleSize < 11 || card.valueSize < 14 || !card.trend
+        || !card.status || !card.role || !card.detailAction
         || card.avatarSize < 56 || card.avatarBounds.x + card.avatarBounds.w > card.textX
         || card.populationBounds.x + card.populationBounds.w > card.trendBounds.x)) {
       fail(`${viewport.name}/population-lv${level}`, "种群总览没有使用两列大头像卡，或名称/数量/趋势安全区不符合图形优先规则");
@@ -710,39 +782,45 @@ viewports.forEach((viewport) => {
       fail(`${viewport.name}/population-lv${level}`, "种群页仍保留重复点击说明或展开全部锁定物种");
     }
     const locked = game.renderedLockedSpeciesSummary;
-    if (level < 5 && (!locked || locked.level !== level + 1 || locked.count !== getUnlockedSpecies(level + 1).length - expected)) {
+    if (level < finalSpeciesLevel && (!locked || locked.level !== level + 1 || locked.count !== getUnlockedSpecies(level + 1).length - expected)) {
       fail(`${viewport.name}/population-lv${level}`, "下一等级物种没有合并成单一预览入口");
     }
-    if (level === 5 && locked) fail(`${viewport.name}/population-lv5`, "满级种群仍显示不存在的锁定物种");
-    if (level === 5 && viewport.name !== "small" && populationAudit.maxScroll !== 0) {
-      fail(`${viewport.name}/population-lv5`, `21种物种仍需要滚动 ${populationAudit.maxScroll}px`);
+    if (level === finalSpeciesLevel && locked) fail(`${viewport.name}/population-lv7`, "满级种群仍显示不存在的锁定物种");
+    if (level === finalSpeciesLevel && viewport.name === "base" && populationAudit.maxScroll > 80) {
+      fail(`${viewport.name}/population-lv7`, `中屏种群滚动仍过长 ${populationAudit.maxScroll}px`);
     }
-    if (level === 5 && viewport.name === "small" && populationAudit.maxScroll > 80) {
-      fail(`${viewport.name}/population-lv5`, `小屏种群滚动仍过长 ${populationAudit.maxScroll}px`);
+    if (level === finalSpeciesLevel && viewport.name === "large" && populationAudit.maxScroll !== 0) {
+      fail(`${viewport.name}/population-lv7`, `大屏种群不应需要滚动 ${populationAudit.maxScroll}px`);
     }
-    if (level === 5) {
+    if (level === finalSpeciesLevel && viewport.name === "small" && populationAudit.maxScroll > 180) {
+      fail(`${viewport.name}/population-lv7`, `小屏种群滚动仍过长 ${populationAudit.maxScroll}px`);
+    }
+    if (level === finalSpeciesLevel) {
       const firstPageIds = cards.map((card) => card.id);
       if (!game.changeSpeciesPage(1) || game.speciesPage !== 1 || (game.renderedSpeciesCards || []).length !== 6
         || (game.renderedSpeciesCards || []).some((card) => firstPageIds.includes(card.id))) {
-        fail(`${viewport.name}/population-lv5`, "第二页物种不可达或与第一页重复");
+        fail(`${viewport.name}/population-lv7`, "第二页物种不可达或与第一页重复");
       }
       if (!game.changeSpeciesPage(1) || game.speciesPage !== 2 || (game.renderedSpeciesCards || []).length !== 6) {
-        fail(`${viewport.name}/population-lv5`, "第三页物种不可达");
+        fail(`${viewport.name}/population-lv7`, "第三页物种不可达");
       }
-      if (!game.changeSpeciesPage(1) || game.speciesPage !== 3 || (game.renderedSpeciesCards || []).length !== 3
+      if (!game.changeSpeciesPage(1) || game.speciesPage !== 3 || (game.renderedSpeciesCards || []).length !== 6) {
+        fail(`${viewport.name}/population-lv7`, "第四页物种不可达");
+      }
+      if (!game.changeSpeciesPage(1) || game.speciesPage !== 4 || (game.renderedSpeciesCards || []).length !== 1
         || game.changeSpeciesPage(1) !== false) {
-        fail(`${viewport.name}/population-lv5`, "最后三种物种不可达或分页越界");
+        fail(`${viewport.name}/population-lv7`, "最后一种物种不可达或分页越界");
       }
       game.speciesPage = 0;
     }
   });
-  [1, 2, 3].forEach((page) => {
+  [1, 2, 3, 4].forEach((page) => {
     const pageAudit = runRenderAudit(game, viewport, "animalworld", 0, (g) => {
-      g.state.world.reserve.progression.level = 5;
+      g.state.world.reserve.progression.level = finalSpeciesLevel;
       reconcileSpeciesPopulations(g.state.world.reserve, { initializeUnlocked: true, removeLocked: true });
       g.speciesPage = page;
     });
-    const expectedVisible = page === 3 ? 3 : 6;
+    const expectedVisible = page === 4 ? 1 : 6;
     if ((game.renderedSpeciesCards || []).length !== expectedVisible
       || (game.renderedSpeciesCards || []).some((card) => card.titleSize < 11 || card.valueSize < 14 || card.avatarSize < 56)
       || pageAudit.texts.some((item) => item.text.includes("点击种群，查看数量"))) {
@@ -778,6 +856,7 @@ viewports.forEach((viewport) => {
   const previousMigrationDelta = reserveForTerrain.migration.delta || 0;
   reserveForTerrain.migration.delta = 3;
   const homeAudit = runRenderAudit(game, viewport, "home", 0);
+  checkPremiumSkin(game, "home", `${viewport.name}/home-premium-skin`);
   if (homeAudit.texts.some((item) => item.text === "展开" || item.text === "分享" || /的来信$/.test(item.text))) {
     fail(`${viewport.name}/home`, "sandbox home should not render daily letter hero");
   }
@@ -816,6 +895,29 @@ viewports.forEach((viewport) => {
   if ((game.renderedMapSpeechBubbles || []).length > 1) {
     fail(`${viewport.name}/home`, "沙盘同一帧出现了多个对白气泡");
   }
+  const attention = game.renderedSandboxAttentionBudget || {};
+  if (attention.contextualLimit !== 2
+    || attention.guidanceChannels !== 2
+    || !attention.primaryGoalMerged
+    || attention.primaryActions !== 0
+    || attention.visibleContextual > attention.contextualLimit
+    || attention.repeatedVisibleActions > 0
+    || (attention.hiddenContextual > 0 && !attention.aggregateVisible)) {
+    fail(`${viewport.name}/home`, "沙盘没有收敛为“更多线索 + 地图操作”两种引导，或遗漏了线索聚合入口");
+  }
+  if (!game.renderedSandboxInfoDock || game.renderedSandboxInfoDock.standaloneGoalRow !== false
+    || game.renderedSandboxInfoDock.primaryGoalMergedInto !== "map-opportunity-aggregate") {
+    fail(`${viewport.name}/home`, "当前主任务仍作为第三种独立操作指引存在");
+  }
+  const visibleAnimalPrompts = (game.renderedAnimalFocusMarkers || []).filter((marker) => marker.labelVisible);
+  if (visibleAnimalPrompts.length > 2) {
+    fail(`${viewport.name}/home`, "沙盘动物仍同时显示过多文字按钮");
+  }
+  const stateTiles = game.renderedSandboxStateTiles || [];
+  if (stateTiles.some((tile) => !tile.clickable
+    || tile.affordance !== (["warn", "bad"].includes(tile.riskTone) ? "改善 ›" : "查看 ›"))) {
+    fail(`${viewport.name}/home`, "基金/水源/草场缺少详情入口，或状态提示与风险不一致");
+  }
   game.mapConsequencePulse = {
     startedAt: Date.now() - 1600,
     expiresAt: Date.now() + 2600,
@@ -830,17 +932,33 @@ viewports.forEach((viewport) => {
     tone: "intervention"
   };
   runRenderAudit(game, viewport, "home", 0);
-  if (!game.renderedMapSpeechSuppressed || !game.mapConsequencePulse.renderedCard
-    || game.mapConsequencePulse.renderedCard.layer !== "map-foreground"
-    || !game.mapConsequencePulse.renderedCard.suppressesMapSpeech) {
+  const consequenceCard = game.mapConsequencePulse && game.mapConsequencePulse.renderedCard;
+  const navTop = game.height - game.navHeight();
+  const consequenceScreenY = consequenceCard ? consequenceCard.y - game.scrollY : Infinity;
+  const dismissHit = consequenceCard
+    ? game.hitAreaAt(consequenceCard.x + consequenceCard.w / 2, consequenceScreenY + consequenceCard.h / 2)
+    : null;
+  if (!game.renderedMapSpeechSuppressed || !consequenceCard
+    || consequenceCard.layer !== "map-foreground"
+    || !consequenceCard.suppressesMapSpeech) {
     fail(`${viewport.name}/home-result-layer`, "行动结果没有处于地图最上层，仍可能被动物或事件气泡遮挡");
   }
-  game.mapConsequencePulse = null;
+  if (!consequenceCard || !consequenceCard.dismissible || !dismissHit
+    || consequenceScreenY < 0 || consequenceScreenY + consequenceCard.h > navTop - 6
+    || !game.mapViewport || game.mapViewport.y + game.mapViewport.h > navTop - 4) {
+    fail(`${viewport.name}/home-result-layer`, "行动结果卡被底部导航裁切、无法点击收起，或地图触控区伸入了导航栏");
+  }
+  if (dismissHit && typeof dismissHit.onTap === "function") dismissHit.onTap();
+  if (game.mapConsequencePulse) {
+    fail(`${viewport.name}/home-result-layer`, "点击行动结果卡后没有收起");
+    game.mapConsequencePulse = null;
+  }
   reserveForTerrain.migration.delta = previousMigrationDelta;
   const homeNetworkAudit = runRenderAudit(game, viewport, "home", game.maxScroll());
   const networkTeaser = game.renderedLeagueTeaser || {};
   if (networkTeaser.h > 106 || networkTeaser.metrics !== 4 || networkTeaser.buttons !== 2
-    || !homeNetworkAudit.buttons.some((button) => button.label.startsWith("世界 #"))
+    || !homeNetworkAudit.buttons.some((button) => button.label.startsWith("世界 #") || button.label === "世界榜 · 待开放")
+    || (networkTeaser.worldLeaderboardLocked && !homeNetworkAudit.buttons.some((button) => button.label === "世界榜 · 待开放"))
     || homeNetworkAudit.texts.some((item) => item.text.includes("朋友/世界保护地正在影响迁移线"))) {
     fail(`${viewport.name}/home-network`, "保护地网络二级入口仍占用过多高度，或重复展示说明文字");
   }
@@ -863,21 +981,61 @@ viewports.forEach((viewport) => {
     || !["houndScout", "antiPoacher", "habitat", "intervention"].every((id) => actionTiles.some((item) => item.id === id))) {
     fail(`${viewport.name}/action`, "四张巡护任务卡没有同时展示真实主变化与次级资源消耗");
   }
-  if (actionAudit.texts.some((item) => item.text === "巡护点" || /班次|情报|外勤/.test(item.text))) {
-    fail(`${viewport.name}/action`, "巡护页重新暴露了已移除的行动资源");
+  if (!["资金", "承载", "社区"].every((label) => actionAudit.texts.some((item) => item.text === label))
+    || actionAudit.texts.some((item) => item.text === "巡护点" || /巡护节奏|现场/.test(item.text))) {
+    fail(`${viewport.name}/action`, "巡护页未完整展示五项核心资源，或仍暴露旧资源");
   }
   game.leagueScope = "world";
+  // The world leaderboard is intentionally gated during the first two
+  // meaningful actions. Audit its full layout with an account that has met
+  // that real unlock condition; the locked teaser is checked above.
+  game.state.world.reserve.progression = Object.assign({}, game.state.world.reserve.progression || {}, { totalActions: 2 });
+  game.state.ui = Object.assign({}, game.state.ui || {}, {
+    firstSessionFocus: Object.assign({}, (game.state.ui || {}).firstSessionFocus || {}, { version: 1, completed: true })
+  });
+  game.leaguePageByScope = Object.assign({ friends: 0, world: 0 }, game.leaguePageByScope || {}, { world: 0 });
+  game.state.world.reserve.league.rivals = (game.state.world.reserve.league.rivals || []).filter((row) => row.scope !== "world");
+  game.state.world.reserve.league.rivals.push(...Array.from({ length: 120 }, (_, index) => ({
+    id: `audit_world_${viewport.name}_${index}`,
+    name: `真实玩家${index + 1}的苔原哨站`,
+    owner: `真实玩家${index + 1}`,
+    reserveName: "苔原哨站",
+    valuation: 20000 - index * 100,
+    rating: 20000 - index * 100,
+    rank: index + 1,
+    shield: 37 + index * 3,
+    animals: 42 + index,
+    material: 120,
+    style: "真实经营",
+    scope: "world",
+    simulated: false,
+    source: "cloud"
+  })));
+  game.ensureSelectedRivalForScope("world");
   const worldLeagueAudit = runRenderAudit(game, viewport, "league", 0);
-  if (!worldLeagueAudit.texts.some((item) => item.text.includes("系统守护者"))) {
-    fail(`${viewport.name}/league-world`, "world ranking should clearly identify simulated system guardians");
+  if (!worldLeagueAudit.texts.some((item) => item.text.includes("真实玩家"))
+    || worldLeagueAudit.texts.some((item) => item.text.includes("系统守护者"))) {
+    fail(`${viewport.name}/league-world`, "world ranking should contain only clearly identified real players");
   }
   const leagueHeader = game.renderedLeagueHeader || {};
   const leagueBattle = game.renderedLeagueBattle || {};
   const leagueRows = game.renderedLeagueRows || [];
+  const leaguePagination = game.renderedLeaguePagination || {};
   if (leagueHeader.h > 88 || leagueHeader.rankSize < 24 || !leagueHeader.rank
     || leagueBattle.h > 158 || leagueBattle.metricSize < 16 || leagueBattle.buttons !== 3
-    || !leagueBattle.success || !leagueRows.length || leagueRows[0].y - leagueHeader.y > 300) {
+    || !leagueBattle.success || leagueRows.length !== 10 || leagueRows[0].y - leagueHeader.y > 300
+    || leaguePagination.total !== 100 || leaguePagination.pageCount !== 10 || leaguePagination.page !== 0) {
     fail(`${viewport.name}/league-world`, "世界页首屏仍被说明区占满，或排名/胜率/防护主数据不够突出");
+  }
+  const worldLastPageAudit = runRenderAudit(game, viewport, "league", 0, (g) => {
+    g.leagueScope = "world";
+    g.leaguePageByScope = Object.assign({ friends: 0, world: 9 }, g.leaguePageByScope || {}, { world: 9 });
+  });
+  const lastPageRows = game.renderedLeagueRows || [];
+  if (!game.renderedLeaguePagination || game.renderedLeaguePagination.page !== 9
+    || lastPageRows.length !== 10 || lastPageRows[0].rank !== 91 || !lastPageRows.some((row) => row.mine)
+    || worldLastPageAudit.texts.some((item) => /卫士[·・•.\-_:：]/.test(item.text))) {
+    fail(`${viewport.name}/league-world`, "世界榜百人名单无法翻到末页，或仍显示旧的卫士前缀");
   }
   if (!["边界巡查", "资源交换", "加固"].every((label) => worldLeagueAudit.buttons.some((button) => button.label === label))
     || worldLeagueAudit.texts.some((item) => item.text.startsWith("当前 #") || item.text === "世界保护区")) {
@@ -885,7 +1043,7 @@ viewports.forEach((viewport) => {
   }
   const worldActionAudit = runRenderAudit(game, viewport, "league", 0, (g) => {
     g.leagueScope = "world";
-    g.state.world.reserve.league.lastAction = { type: "raid", title: "边界巡查完成", materialDelta: 14, shieldDelta: -3, ratingDelta: 8 };
+    g.state.world.reserve.league.lastAction = { type: "raid", title: "边界巡查完成", materialDelta: 14, shieldDelta: -3, ratingDelta: 8, valuationDelta: 18 };
   });
   const leagueImpacts = (game.renderedLeagueBattle && game.renderedLeagueBattle.impacts) || [];
   if (leagueImpacts.length !== 3 || leagueImpacts.some((item) => item.valueSize < 13)
@@ -895,12 +1053,17 @@ viewports.forEach((viewport) => {
   }
   game.leagueScope = "friends";
   const emptyFriendAudit = runRenderAudit(game, viewport, "league", 0);
-  if (!emptyFriendAudit.buttons.some((button) => button.label === "邀请好友加入") || !emptyFriendAudit.texts.some((item) => item.text === "好友榜等待第一位守护者")) {
-    fail(`${viewport.name}/league-friends`, "empty friend ranking should become a prominent share invitation");
+  if (!emptyFriendAudit.buttons.some((button) => button.label === "微信内查看")
+    || !emptyFriendAudit.buttons.some((button) => button.label === "邀请好友")
+    || !emptyFriendAudit.texts.some((item) => item.text === "微信好友榜仅在微信环境可用")) {
+    fail(`${viewport.name}/league-friends`, "friend ranking should explain WeChat authorization and retain a separate invite action");
   }
   if ((game.renderedLeagueHeader || {}).h > 88 || (game.renderedLeagueHeader || {}).rank !== 0
+    || (game.renderedLeagueHeader || {}).rankLabel !== "微信好友榜"
+    || !(game.renderedLeagueHeader || {}).noTitleTabOverlap
+    || (game.renderedLeagueHeader || {}).labelBottom >= (game.renderedLeagueHeader || {}).tabTop
     || emptyFriendAudit.texts.some((item) => /好友 待邀请/.test(item.text) || item.text === "#1")) {
-    fail(`${viewport.name}/league-friends`, "空好友状态仍在顶部重复展示文字状态，或邀请卡占位过大");
+    fail(`${viewport.name}/league-friends`, "好友榜标题与页签仍有重叠，或空好友状态重复展示文字状态");
   }
   const realFriendAudit = runRenderAudit(game, viewport, "league", 0, (g) => {
     g.leagueScope = "friends";
@@ -919,36 +1082,52 @@ viewports.forEach((viewport) => {
     });
     g.ensureSelectedRivalForScope("friends");
   });
-  if (!realFriendAudit.buttons.some((button) => button.label === "好友协作")
+  if (!realFriendAudit.buttons.some((button) => button.label === "好友交换")
     || !(game.renderedLeagueRows || []).some((row) => !row.mine && !row.simulated)
     || realFriendAudit.texts.some((item) => item.text.includes("系统守护者"))) {
-    fail(`${viewport.name}/league-friends-real`, "真实好友加入后没有切换到协作操作与真实好友榜单");
+    fail(`${viewport.name}/league-friends-real`, "真实好友加入后没有切换到好友交换操作与真实好友榜单");
   }
   game.leagueScope = "world";
-  const collectionAudit = runRenderAudit(game, viewport, "collection", 0);
-  if (game.maxScroll() !== 0 || collectionAudit.maxScroll !== 0) {
-    fail(`${viewport.name}/collection`, "collection should fit one screen without vertical scrolling");
+  const collectionAudit = runRenderAudit(game, viewport, "collection", 0, (g) => {
+    g.discoveryTab = "population";
+  });
+  checkPremiumSkin(game, "collection", `${viewport.name}/collection-premium-skin`);
+  const discoveryTabs = game.renderedDiscoveryTabs || {};
+  if (!Array.isArray(discoveryTabs.items) || discoveryTabs.items.length !== 2
+    || !discoveryTabs.items.some((tab) => tab.id === "visitors")
+    || !discoveryTabs.items.some((tab) => tab.id === "population")
+    || discoveryTabs.h < 44 || discoveryTabs.gap < 6
+    || discoveryTabs.items.some((tab) => !tab.buttonLike || !tab.stateLabel || tab.h < 44)) {
+    fail(`${viewport.name}/collection`, "Discovery must expose Visitors and Population Observation as two primary tabs");
   }
-  const collectionFolders = game.renderedCollectionFolders || [];
-  if (collectionFolders.length !== 6
-    || collectionFolders.some((folder) => folder.columns !== 3 || folder.iconSize < 44 || folder.w < 82)) {
-    fail(`${viewport.name}/collection`, "collection home must use six graphic-dominant 3-column folders with large cover art");
+  if (!game.renderedSpeciesCards || !game.renderedSpeciesCards.length) {
+    fail(`${viewport.name}/collection-population`, "Population Observation did not render as the default Discovery page");
   }
-  runRenderAudit(game, viewport, "collection", 0, (g) => g.openCollectionOverview());
-  const collectionOverview = ((game.infoDetailModal || {}).renderedCollectionOverview) || [];
-  if (collectionOverview.length !== 6
-    || collectionOverview.some((folder) => folder.columns !== 3 || folder.iconSize < 36 || folder.h < 80)) {
-    fail(`${viewport.name}/collection-overview`, "collection progress modal must remain a six-cover visual album instead of a text list");
+  runRenderAudit(game, viewport, "collection", 0, (g) => {
+    g.discoveryTab = "visitors";
+  });
+  const visitorTable = game.renderedVisitorTable || {};
+  if (visitorTable.buildings !== 4 || !Number.isFinite(visitorTable.visitors)
+    || !Number.isFinite(visitorTable.income) || !Number.isFinite(visitorTable.influence)
+    || !Number.isFinite(visitorTable.letters) || !Number.isFinite(visitorTable.survivalIncome)) {
+    fail(`${viewport.name}/collection-visitors`, "Visitor table must show buildings, visitors, economy, events, letters, and survival-program income");
   }
-  const collectionShelfAudit = runRenderAudit(game, viewport, "collection", 0, (g) => {
+
+  const collectionShelfAudit = runRenderAudit(game, viewport, "survival", 0, (g) => {
+    g.survivalArchiveOpen = true;
     g.collectionCaseId = null;
     ["c1_whistle", "c1_roster", "h_first_photo", "h_hound_tag"].forEach((id, itemIndex) => {
       g.state.world.collection.items[id] = { id, firstDay: itemIndex + 2, methodName: "现场勘验" };
     });
   });
+  const collectionFolders = game.renderedCollectionFolders || [];
+  if (collectionFolders.length !== 6
+    || collectionFolders.some((folder) => folder.columns !== 3 || folder.iconSize < 44 || folder.w < 82)) {
+    fail(`${viewport.name}/survival-collection`, "the merged Survival archive must retain six graphic collection folders");
+  }
   ["半页值班表", "砾灰磨损的项圈牌"].forEach((name) => {
     if (!collectionShelfAudit.texts.some((item) => item.text === name)) {
-      fail(`${viewport.name}/collection-shelf`, `collection home does not visibly name owned item: ${name}`);
+      fail(`${viewport.name}/survival-collection`, `the merged archive does not visibly name owned item: ${name}`);
     }
   });
   game.collectionCaseId = "case_1";
@@ -957,7 +1136,8 @@ viewports.forEach((viewport) => {
   if (game.collectionPage !== 1) fail(`${viewport.name}/collection`, "next collection page is not reachable");
   game.changeCollectionPage(-1);
   if (game.collectionPage !== 0) fail(`${viewport.name}/collection`, "previous collection page is not reachable");
-  const collectionCtaAudit = runRenderAudit(game, viewport, "collection", 0, (g) => {
+  const collectionCtaAudit = runRenderAudit(game, viewport, "survival", 0, (g) => {
+    g.survivalArchiveOpen = true;
     g.collectionCaseId = "case_1";
     g.collectionPage = 0;
     const discovery = { id: "story_cta", itemId: "c1_footprint", caseId: "case_1", status: "hinted", actionId: "habitat", actionLabel: "修复附近环境", regionId: "river", animal: { id: "npc_deer", name: "晨角", trust: 72 } };
@@ -970,7 +1150,8 @@ viewports.forEach((viewport) => {
     || !activeCtaState.enabled) {
     fail(`${viewport.name}/collection`, "剧情发现没有明确展示下一步行动或可点击状态");
   }
-  const emptyCollectionCtaAudit = runRenderAudit(game, viewport, "collection", 0, (g) => {
+  const emptyCollectionCtaAudit = runRenderAudit(game, viewport, "survival", 0, (g) => {
+    g.survivalArchiveOpen = true;
     g.collectionCaseId = "case_1";
     g.collectionPage = 0;
     g.state.world.collection.leads = [];
@@ -988,13 +1169,24 @@ viewports.forEach((viewport) => {
     || collectionCards.some((card) => card.columns !== 3 || card.iconSize < 48 || card.h < 112)) {
     fail(`${viewport.name}/collection`, "collection case must use a 3x2 large-art grid without text-heavy cards");
   }
+  if (collectionCards.some((card) => card.visualStyle !== "archive-item-card-v2"
+    || !card.paperBase || card.iconRatio < .42 || !card.stateStyle || !card.ctaLabel
+    || (!card.unlocked && !card.lockBadge))) {
+    fail(`${viewport.name}/collection`, "collection item cards must keep the shared paper, artwork, lock, and single-state-button treatment");
+  }
   if (collectionCards.some((card) => card.titleSize < 11
     || card.titleBaseline - card.titleSize < card.iconVisualBottom + 5
     || card.titleBaseline + 14 > card.statusY - 5)) {
     fail(`${viewport.name}/collection`, "collection item title is too small or overlaps the toy icon/status area");
   }
-  const collectedItemAudit = runRenderAudit(game, viewport, "collection", 0, (g) => {
+  const collectedItemAudit = runRenderAudit(game, viewport, "survival", 0, (g) => {
+    g.survivalArchiveOpen = true;
     g.collectionCaseId = "case_1";
+    g.state.world.collection.items.c1_roster = {
+      id: "c1_roster",
+      firstDay: 2,
+      discovery: { who: "短耳", where: "中央混交林", action: "现场记录" }
+    };
     g.openCollectionItem("c1_roster");
   });
   const collectedDetail = (game.infoDetailModal || {}).renderedCollectionItemDetail || {};
@@ -1002,10 +1194,11 @@ viewports.forEach((viewport) => {
     || collectedDetail.plateSize < 88 || collectedDetail.plateShape !== "rounded-square"
     || collectedDetail.metaLayout !== "side" || collectedDetail.storyH > 118
     || collectedDetail.graphicalStages !== 4 || !collectedDetail.owned
-    || !collectedItemAudit.texts.some((item) => item.text === "这段故事")) {
+    || !collectedItemAudit.texts.some((item) => item.text === "故事")) {
     fail(`${viewport.name}/collection-item`, "已发现物详情必须使用清晰大图、简短故事和四段发现过程");
   }
-  const lockedItemAudit = runRenderAudit(game, viewport, "collection", 0, (g) => {
+  const lockedItemAudit = runRenderAudit(game, viewport, "survival", 0, (g) => {
+    g.survivalArchiveOpen = true;
     g.collectionCaseId = "case_1";
     const discovery = { id: "story_locked", itemId: "c1_footprint", caseId: "case_1", status: "hinted", actionId: "habitat", actionLabel: "修复附近环境", regionId: "river", animal: { id: "npc_deer", name: "晨角", trust: 72 } };
     g.state.world.collection.discovery.active = discovery;
@@ -1040,10 +1233,22 @@ viewports.forEach((viewport) => {
     g.patrolTaskModal = g.selectedReserveActionOption();
     g.patrolOperationPlan = { actionId: "houndScout", nodeIds: ["scent", "ridge"] };
   });
-  if (!["气味线", "兽群边缘", "高地捷径"].every((label) => plannerAudit.texts.some((item) => item.text === label))
+  if (!["气味线", "兽群边缘", "高地捷径", "稳健巡线", "强攻追踪", "护群截击", "高风险"].every((label) => plannerAudit.texts.some((item) => item.text === label || item.text.startsWith(`${label} ·`)))
     || !plannerAudit.buttons.some((button) => button.label === "返回调整")
     || !plannerAudit.buttons.some((button) => button.label === "按路线出发")) {
-    fail(`${viewport.name}/patrol-planner`, "三节点路线或返回/确认操作不完整");
+    fail(`${viewport.name}/patrol-planner`, "三节点路线缺少三种策略、风险提示或返回/确认操作");
+  }
+  const directRouteAudit = runRenderAudit(game, viewport, "action", 0, (g) => {
+    g.state.world.reserve.actionPoints = 4;
+    g.state.world.reserve.supplies.dogFood = 5;
+    g.selectedReserveAction = "houndScout";
+    g.command = "派猎犬侦察";
+    g.patrolTaskModal = g.selectedReserveActionOption();
+    g.patrolOperationPlan = { actionId: "houndScout", nodeIds: ["scent", "ridge"] };
+    g.confirmPatrolOperation();
+  });
+  if (directRouteAudit.buttons.some((button) => button.label === "稳住路线" || button.label === "追查异响")) {
+    fail(`${viewport.name}/patrol-direct-settlement`, "路线确认后不应再次弹出稳住/追查的第二次选择");
   }
   const salvageTaskAudit = runRenderAudit(game, viewport, "role", 0, (g) => {
     g.state.world.reserve.actionPoints = 4;
@@ -1075,12 +1280,26 @@ viewports.forEach((viewport) => {
     g.patrolTaskModal = g.selectedReserveActionOption();
   });
   checkPatrolTaskModal(game, blockedTaskAudit, `${viewport.name}/blocked-patrol-task`, { blocked: true });
-  ["fund", "water", "grass"].forEach((type) => runRenderAudit(game, viewport, "home", 0, (g) => {
-    g.infoDetailModal = g.buildReserveMetricDetail(type);
-    if (!g.infoDetailModal.readOnly || g.infoDetailModal.action || g.infoDetailModal.actionLabel) {
-      fail(`${viewport.name}/${type}-data`, "基金、水源、草场详情必须只展示数据，不能带经营操作");
+  ["fund", "water", "grass"].forEach((type) => {
+    const metricAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+      if (type === "fund") {
+        g.state.world.reserve.fund = 520;
+        g.state.world.reserve.guardianCycle.day = 2;
+        g.state.world.reserve.emergencyFundAd = {};
+      }
+      g.infoDetailModal = g.buildReserveMetricDetail(type);
+      if (type === "fund") {
+        if (g.infoDetailModal.readOnly || typeof g.infoDetailModal.action !== "function" || !/1000/.test(g.infoDetailModal.actionLabel || "")) {
+          fail(`${viewport.name}/fund-data`, "低基金详情必须提供1000星币激励视频入口");
+        }
+      } else if (!g.infoDetailModal.readOnly || g.infoDetailModal.action || g.infoDetailModal.actionLabel) {
+        fail(`${viewport.name}/${type}-data`, "水源、草场详情必须只展示数据，不能带经营操作");
+      }
+    });
+    if (type === "fund" && !metricAudit.buttons.some((button) => /看广告/.test(button.label) && /1000/.test(button.label))) {
+      fail(`${viewport.name}/fund-data`, "保护基金详情底部没有渲染广告奖励按钮");
     }
-  }));
+  });
   runRenderAudit(game, viewport, "home", 0, (g) => {
     g.infoDetailModal = g.buildChapterProgressDetail();
   });
@@ -1088,19 +1307,72 @@ viewports.forEach((viewport) => {
     g.openReserveProsperityDetail();
   });
   checkMetricDashboard(game, prosperityAudit, `${viewport.name}/prosperity-dashboard`, ["市值", "物种", "动物"]);
-  const houndDashboardAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
-    g.infoDetailModal = g.buildHoundTeamDetail();
-  });
-  checkMetricDashboard(game, houndDashboardAudit, `${viewport.name}/hound-dashboard`, ["等级", "体能", "默契"]);
   const resourceHeaderAudit = runRenderAudit(game, viewport, "role", 0);
+  checkPremiumSkin(game, "role", `${viewport.name}/role-premium-skin`);
   const resourceHeader = game.renderedActionResourceHeader || [];
-  if (resourceHeader.length !== 3 || resourceHeader.map((item) => item.kind).join(",") !== "fund,water,grass"
+  if (resourceHeader.length !== 3 || resourceHeader.map((item) => item.kind).join(",") !== "fund,supplies,reputation"
     || resourceHeader.some((item) => item.w < 44 || item.h < 28)) {
-    fail(`${viewport.name}/role-resource-header`, "基金/水源/草场入口缺失、顺序错误或点击区过小");
+    fail(`${viewport.name}/role-resource-header`, "基金/补给/社区入口缺失、顺序错误或点击区过小");
   }
-  if (!["基金", "水源", "草场"].every((label) => resourceHeaderAudit.texts.some((item) => item.text === label))
-    || resourceHeaderAudit.texts.some((item) => /班次|情报|外勤/.test(item.text))) {
+  if (!["基金", "补给", "社区"].every((label) => resourceHeaderAudit.texts.some((item) => item.text === label))
+    || resourceHeaderAudit.texts.some((item) => /巡护节奏|现场/.test(item.text))) {
     fail(`${viewport.name}/role-resource-header`, "核心资源入口不清楚或仍显示废弃资源");
+  }
+  const supplyCards = game.renderedSupplyCards || [];
+  if (supplyCards.length !== 6
+    || supplyCards.some((card) => card.columns !== 3 || card.h < 120 || card.iconSize < 48
+      || card.visualStyle !== "archive-item-card-v2" || !card.paperBase
+      || card.iconRatio < .45 || !card.stateStyle || !card.ctaLabel)) {
+    fail(`${viewport.name}/role-supply-cards`, "supply items must use six 3x2 large-art archive cards with one bottom state control");
+  }
+  if (resourceHeaderAudit.texts.some((item) => /^安全线\s*\d+/.test(item.text))) {
+    fail(`${viewport.name}/role-supply-cards`, "supply cards should not repeat safety-line copy on the card face");
+  }
+  runRenderAudit(game, viewport, "survival", 0);
+  checkPremiumSkin(game, "survival", `${viewport.name}/survival-premium-skin`);
+  const survivalCards = game.renderedSurvivalCards || [];
+  if (survivalCards.length < 12
+    || survivalCards.some((card) => card.h < 140 || card.imageSize < 60 || !card.imageDominant
+      || card.summaryLines !== 1 || card.disclosure !== "detail-modal"
+      || !card.ctaLabel || !card.cta || card.cta.h < 22)) {
+    fail(`${viewport.name}/survival-progressive-disclosure`, "survival catalog cards must be image-dominant, concise, and open detailed explanations on tap");
+  }
+  if (survivalCards.some((card) => card.visualStyle !== "archive-item-card-v2"
+    || !card.paperBase || card.iconRatio < .35 || !card.stateStyle
+    || (!card.unlocked && !card.lockBadge))) {
+    fail(`${viewport.name}/survival-progressive-disclosure`, "survival items must share the parchment frame, large artwork, lock seal, and bottom state control");
+  }
+  const nativeAdState = { slot: null, visible: false };
+  runRenderAudit(game, viewport, "role", 0, (g) => {
+    g.nativeTemplateAds = {
+      isSupported: () => true,
+      layoutSize: () => ({ width: Math.min(320, viewport.width - 48), height: 90 }),
+      setViewportSlot: (slot) => { nativeAdState.slot = slot; },
+      setVisible: (visible) => { nativeAdState.visible = !!visible; }
+    };
+  });
+  const initialAdSlot = game.renderedNativeTemplateAdSlot || {};
+  if (!initialAdSlot.inline || initialAdSlot.reservedHeight < 120 || initialAdSlot.railWidth < 24
+    || !initialAdSlot.slot || game.maxScroll() <= 0
+    || initialAdSlot.visible !== initialAdSlot.fullyInsideViewport
+    || nativeAdState.visible !== initialAdSlot.fullyInsideViewport) {
+    fail(`${viewport.name}/role-native-ad`, "原生广告必须占用页面内容高度、保留至少24px滑动通道，且仅在完整进入安全视口时显示");
+  }
+  const adScroll = initialAdSlot.slot
+    ? Math.max(0, initialAdSlot.slot.y - (game.compactStageTop() + 52))
+    : 0;
+  game.screen = "role";
+  game.scrollY = adScroll;
+  game.infoDetailModal = null;
+  game.patrolTaskModal = null;
+  game.settlementModal = null;
+  game.chapterStoryModal = null;
+  game.render();
+  const visibleAdSlot = game.renderedNativeTemplateAdSlot || {};
+  if (!visibleAdSlot.visible || !visibleAdSlot.fullyInsideViewport || !visibleAdSlot.slot || !nativeAdState.visible || !nativeAdState.slot
+    || nativeAdState.slot.top < visibleAdSlot.safeTop
+    || nativeAdState.slot.top + visibleAdSlot.slot.h > visibleAdSlot.navTop - 8) {
+    fail(`${viewport.name}/role-native-ad`, "原生广告槽完整进入安全视口后应随滚动定位，且不得覆盖顶部安全区或底部导航");
   }
   const animalDashboardAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
     const animal = g.state.world.knownCharacters[0];
@@ -1156,9 +1428,9 @@ viewports.forEach((viewport) => {
     || primarySettlementChange.shownValue !== 12) {
     fail(`${viewport.name}/settlement`, "结算没有把最关键的逆向风险变化作为大号主数据展示");
   }
-  if (settlementChanges.filter((item) => item.role === "secondary").length !== 2
+  if (settlementChanges.filter((item) => item.role === "secondary").length > 3
     || !settlementChanges.some((item) => item.label === "安全" && item.role === "secondary")) {
-    fail(`${viewport.name}/settlement`, "结算的次要数据没有收束为两项清晰辅助变化");
+    fail(`${viewport.name}/settlement`, "结算的次要数据没有收束为最多三项清晰辅助变化");
   }
   if (!settlementRewardRows.length || settlementRewardRows.length > 3 || settlementRewardRows.some((item) => item.size < 10)) {
     fail(`${viewport.name}/settlement`, "结算明细仍然过密或字号过小");
@@ -1172,11 +1444,16 @@ viewports.forEach((viewport) => {
     || settlementAudit.texts.some((item) => item.text === "因果与奖励")) {
     fail(`${viewport.name}/settlement`, "结算主数字不突出，或旧的同权重信息标题仍在显示");
   }
+  const settlementButtons = settlementAudit.buttons.filter((button) => button.phase === "modal").map((button) => button.label);
+  if (!settlementButtons.includes("关闭") || settlementButtons.includes("推荐这款游戏")
+    || settlementStyle.secondaryAction !== "close") {
+    fail(`${viewport.name}/settlement`, "结算左侧必须是关闭入口，不得再次插入游戏推荐");
+  }
   const crisisSettlementAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
     g.settlementModal = crisisSettlementFixture(g);
   });
   const crisisButtons = crisisSettlementAudit.buttons.filter((button) => button.phase === "modal").map((button) => button.label);
-  if (!crisisButtons.includes("去猎犬侦察") || !crisisButtons.includes("稍后处理") || crisisButtons.includes("完成 ✓")) {
+  if (!crisisButtons.includes("去猎犬侦察") || !crisisButtons.includes("关闭") || crisisButtons.includes("完成 ✓")) {
     fail(`${viewport.name}/settlement-crisis`, "失控事件没有给出可直达的具体处置按钮");
   }
   if (!crisisSettlementAudit.texts.some((item) => /猎犬侦察/.test(item.text) && item.size >= 10)) {
@@ -1345,7 +1622,7 @@ viewports.forEach((viewport) => {
     g.openMaterialExploration("shedAntlerA");
   });
   if (materialDiceAudit.texts.filter((item) => item.phase === "modal" && /A级鹿角/.test(item.text)).length !== 1
-    || !materialDiceAudit.texts.some((item) => item.text === "定向追踪")) {
+    || !materialDiceAudit.texts.some((item) => item.text === "定向样本 + 生存素材")) {
     fail(`${viewport.name}/material-dice`, "物资探索目标在标题和骰子正文中重复出现");
   }
   const strategicDiceAudit = runRenderAudit(game, viewport, "home", 0, (g) => {

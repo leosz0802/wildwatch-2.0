@@ -97,27 +97,29 @@ if (status.canRun || status.missing.indexOf("野外工具包") < 0) {
   throw new Error("habitat repair should be blocked without a field kit");
 }
 reserve.supplies.fieldKit = 1;
-if (!game.actionResourceStatus("habitat", reserve).canRun) {
-  throw new Error("fund must not block habitat repair when the concrete field kit is available");
+const fundedStatus = game.actionResourceStatus("habitat", reserve);
+if (fundedStatus.canRun || fundedStatus.missing.indexOf("基金") < 0) {
+  throw new Error("habitat repair should also reserve the configured chapter fund cost");
 }
 
-const listenedBefore = reserve.intel || 0;
 const animal = game.state.world.knownCharacters[0];
 game.openAnimalThought(animal);
-const listenedAfter = game.state.world.reserve.intel || 0;
 game.openAnimalThought(animal);
-if (listenedAfter !== listenedBefore || game.state.world.reserve.intel !== listenedBefore) {
-  throw new Error("animal listening must not revive the retired intel resource");
+if (Object.prototype.hasOwnProperty.call(game.state.world.reserve, "intel")) {
+  throw new Error("animal listening must not restore retired resource fields");
 }
 if (!game.infoDetailModal || !(game.infoDetailModal.mapActions || []).some((item) => item.label && typeof item.action === "function")) {
   throw new Error("animal thought detail should expose clear animal care or exploration actions");
 }
 const animalBefore = game.state.world.knownCharacters.find((item) => item.id === animal.id);
-const actionPointsBefore = game.state.world.reserve.actionPoints;
+game.speakingAnimalId = animal.id;
 game.performAnimalAction(animalBefore, "calmObserve");
+if (game.speakingAnimalId !== null || game.mapSpeakerFocus !== null) {
+  throw new Error("完成动物任务后必须清理地图选中态");
+}
 const animalAfter = game.state.world.knownCharacters.find((item) => item.id === animal.id);
-if ((game.state.world.reserve.actionPoints || 0) !== actionPointsBefore) {
-  throw new Error("light animal interaction should not consume patrol shift");
+if (Object.prototype.hasOwnProperty.call(game.state.world.reserve, "actionPoints")) {
+  throw new Error("light animal interaction should not restore retired action field");
 }
 if (((animalAfter.relation || {}).trust || 0) <= ((animalBefore.relation || {}).trust || 0)) {
   throw new Error("animal interaction should improve animal trust");
@@ -129,25 +131,23 @@ if (game.animalActionStatus("calmObserve").canRun) {
 
 const scoutState = createCharacter(null, "保护区卫士");
 scoutState.world.reserve.supplies.dogFood = 3;
-scoutState.world.reserve.intel = 0;
 const scoutResult = withRandom(0.9, () => simulateDay("派猎犬侦察：让砾灰去中央混交林搜寻陷阱和陌生气味", scoutState));
 if (scoutResult.world.reserve.supplies.dogFood !== 2) {
   throw new Error("hound scout should consume dog food");
 }
-if ((scoutResult.world.reserve.intel || 0) !== 0) {
-  throw new Error("hound scout must not produce the retired intel resource");
+if (Object.prototype.hasOwnProperty.call(scoutResult.world.reserve, "intel")) {
+  throw new Error("hound scout must not restore retired resource fields");
 }
 
 const weakState = createCharacter(null, "保护区卫士");
 weakState.world.reserve.poacherPressure = 60;
 weakState.world.reserve.supplies.alarm = 2;
-weakState.world.reserve.intel = 0;
 const strongState = clone(weakState);
-strongState.world.reserve.intel = 2;
+strongState.world.reserve.__legacyClue = 2;
 const weakResult = withRandom(0.9, () => simulateDay("驱赶偷猎者：带白河去西部岩坡洞域排查可疑人影", weakState));
 const strongResult = withRandom(0.9, () => simulateDay("驱赶偷猎者：带白河去西部岩坡洞域排查可疑人影", strongState));
 if (strongResult.world.reserve.poacherPressure !== weakResult.world.reserve.poacherPressure) {
-  throw new Error("retired intel must not secretly alter anti-poacher results");
+  throw new Error("retired resource data must not secretly alter anti-poacher results");
 }
 
 const salvageState = createCharacter(null, "保护区卫士");
@@ -163,13 +163,12 @@ if (salvageResult.world.reserve.inventory.shedAntlerA !== 0 || salvageResult.wor
 }
 
 const leagueGame = makeGame();
-leagueGame.state.world.reserve.fieldPermits = 1;
 leagueGame.state.world.reserve.base.raidTickets = 1;
 leagueGame.state.world.reserve.supplies.dogFood = 1;
 leagueGame.selectedRivalId = "base_sun";
 withRandom(0, () => leagueGame.raidRival());
-if (leagueGame.state.world.reserve.fieldPermits !== 1 || leagueGame.state.world.reserve.supplies.dogFood !== 0) {
-  throw new Error("border patrol should consume dog food without touching retired field permits");
+if (Object.prototype.hasOwnProperty.call(leagueGame.state.world.reserve, "fieldPermits") || leagueGame.state.world.reserve.supplies.dogFood !== 0) {
+  throw new Error("border patrol should consume dog food without restoring retired permit fields");
 }
 
 console.log("resource loop check ok");

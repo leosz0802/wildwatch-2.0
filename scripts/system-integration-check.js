@@ -115,7 +115,7 @@ const statusExpectations = {
   habitat: ["野外工具包 1"],
   salvage: ["库存"],
   intervention: ["麻醉弹 1"],
-  buySupplies: ["基金 15", "狗粮 +1"]
+  buySupplies: ["基金 25", "狗粮 +1"]
 };
 
 actions.forEach((action) => {
@@ -161,10 +161,9 @@ if (supply.world.reserve.supplies.tranquilizer !== supplyState.world.reserve.sup
   throw new Error("buy supplies should not replenish unrelated supplies");
 }
 
-const detail = game.buildHoundTeamDetail();
-const detailText = JSON.stringify(detail.items || []);
-if (/砾灰|白河|苔点|亲密/.test(detailText)) {
-  throw new Error("hound team detail should stay squad-based");
+const squad = game.houndTeamSummary();
+if (!squad.title || !Number.isFinite(squad.tracking) || !Number.isFinite(squad.pursuit) || !Number.isFinite(squad.guard)) {
+  throw new Error("hound team summary should expose squad-level progression");
 }
 
 console.log("system integration check ok");

@@ -3,9 +3,9 @@ const path = require("path");
 
 const root = path.resolve(__dirname, "..");
 const coreSpritesPath = path.join(root, "assets/art/core-sprites-atlas.png");
-const coreMapPath = path.join(root, "assets/art/core-map.jpg");
+const coreMapPath = path.join(root, "assets/art/core-map-anime-v1.jpg");
 const animalPortraitsPath = path.join(root, "assets/art/animal-portraits-atlas-v4.jpg");
-const animalMapSpritesPath = path.join(root, "assets/art/animal-map-sprites-atlas-v1.png");
+const animalMapSpritesPath = path.join(root, "assets/art/animal-map-sprites-atlas-v2.png");
 const facilitiesPath = path.join(root, "assets/art/facility-sprites-atlas-v4.png");
 const collectionItemsPath = path.join(root, "assets/art/collection/collection-items-atlas.png");
 const gamePath = path.join(root, "js/game.js");
@@ -27,6 +27,18 @@ function jpegInfo(data) {
   return null;
 }
 
+function webpInfo(data) {
+  if (data.subarray(0, 4).toString("ascii") !== "RIFF" || data.subarray(8, 12).toString("ascii") !== "WEBP") return null;
+  const chunk = data.subarray(12, 16).toString("ascii");
+  if (chunk === "VP8 " && data.length >= 30 && data.subarray(23, 26).toString("hex") === "9d012a") {
+    return { width: data.readUInt16LE(26) & 0x3fff, height: data.readUInt16LE(28) & 0x3fff };
+  }
+  if (chunk === "VP8X" && data.length >= 30) {
+    return { width: data.readUIntLE(24, 3) + 1, height: data.readUIntLE(27, 3) + 1 };
+  }
+  return null;
+}
+
 const coreSprites = fs.readFileSync(coreSpritesPath);
 if (coreSprites.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") {
   throw new Error("core-sprites-atlas.png is not a valid PNG");
@@ -39,15 +51,14 @@ if (coreSprites.length < 700 * 1024 || coreSprites.length > 1400 * 1024) {
 }
 
 const coreMap = fs.readFileSync(coreMapPath);
-if (coreMap.subarray(0, 2).toString("hex") !== "ffd8") {
-  throw new Error("core-map.jpg is not a valid JPEG");
-}
 const coreMapInfo = jpegInfo(coreMap);
-if (!coreMapInfo || coreMapInfo.width < 2304 || coreMapInfo.height < 1296 || !coreMapInfo.progressive) {
-  throw new Error(`core map must stay high-resolution progressive JPEG: ${JSON.stringify(coreMapInfo)}`);
+if (!coreMapInfo || coreMapInfo.width !== 1672 || coreMapInfo.height !== 941) {
+  throw new Error(`core anime map must stay a 1672x941 baseline JPEG: ${JSON.stringify(coreMapInfo)}`);
 }
-// 高清底图必须在正常沙盘缩放下保持原生像素，同时为 4MiB 总包预留余量。
-if (coreMap.length < 250 * 1024 || coreMap.length > 340 * 1024) {
+if (coreMapInfo.progressive) throw new Error("core anime map must use baseline JPEG for broad wx.createImage compatibility");
+// Clear broad shapes remain sharp on phone screens without spending the package
+// budget on details hidden behind the HUD and animal interactions.
+if (coreMap.length < 160 * 1024 || coreMap.length > 300 * 1024) {
   throw new Error(`core map unexpected size: ${coreMap.length}`);
 }
 
@@ -56,7 +67,8 @@ if (animalPortraits.subarray(0, 2).toString("hex") !== "ffd8") throw new Error("
 if (animalPortraits.length < 90 * 1024 || animalPortraits.length > 140 * 1024) throw new Error(`animal portraits v4 unexpected size: ${animalPortraits.length}`);
 
 [
-  { path: animalMapSpritesPath, width: 896, height: 384, min: 60 * 1024, max: 110 * 1024, label: "animal map sprites v1" },
+  // Indexed PNG keeps all 25 transparent sprites crisp while protecting the 4MiB upload budget.
+  { path: animalMapSpritesPath, width: 896, height: 512, min: 75 * 1024, max: 140 * 1024, label: "animal map sprites v2" },
   { path: facilitiesPath, width: 480, height: 320, min: 12 * 1024, max: 60 * 1024, label: "facility sprites v4" },
   // V2 deliberately uses flat color, broad silhouettes and transparent space.
   // A lower byte size is a quality signal here: the icons stay crisp at 96px
@@ -70,10 +82,10 @@ if (animalPortraits.length < 90 * 1024 || animalPortraits.length > 140 * 1024) t
 });
 
 const game = fs.readFileSync(gamePath, "utf8");
-if (!/assets\/art\/core-sprites-atlas\.png/.test(game) || !/assets\/art\/core-map\.jpg/.test(game)
-  || !/assets\/art\/animal-portraits-atlas-v4\.jpg/.test(game) || !/assets\/art\/animal-map-sprites-atlas-v1\.png/.test(game)
+if (!/assets\/art\/core-sprites-atlas\.png/.test(game) || !/assets\/art\/core-map-anime-v1\.jpg/.test(game)
+  || !/ANIMAL_PORTRAIT_ATLAS/.test(game) || !/loadAnimalPortraitCandidate/.test(game) || !/assets\/art\/animal-map-sprites-atlas-v2\.png/.test(game)
   || !/assets\/art\/facility-sprites-atlas-v4\.png/.test(game)) {
-  throw new Error("game should load core first-package art");
+  throw new Error("game should load core art and dynamically cache animal portraits");
 }
 if (!/downloadFile/.test(game) || !/getFileSystemManager/.test(game)) {
   throw new Error("game should support remote art atlas download and cache");
@@ -91,7 +103,7 @@ const stickerStart = game.indexOf("\n  drawAnimalSticker(");
 const stickerEnd = game.indexOf("\n  animalMapSpriteIndex(", stickerStart);
 const stickerSource = game.slice(stickerStart, stickerEnd);
 if (!stickerSource.includes("animalMapSprites") || !stickerSource.includes("spriteIndex") || stickerSource.includes("drawAnimalSilhouette")) {
-  throw new Error("sandbox animals must use the 21-species full-body atlas without silhouette fallback");
+  throw new Error("sandbox animals must use the 25-species full-body atlas without silhouette fallback");
 }
 if (/\.drawAnimalSilhouette\s*\(/.test(game)) {
   throw new Error("no screen may invoke the legacy floating animal silhouette renderer");
@@ -102,8 +114,11 @@ if (game.slice(groundedStart, groundedEnd).includes("drawGroundedPlayerToken")) 
   throw new Error("sandbox overview must not replace full-body animals with abstract player tokens");
 }
 const project = fs.readFileSync(projectPath, "utf8");
-if (/"value": "assets\/art\/core-map\.jpg"/.test(project) || /"value": "assets\/art\/core-sprites-atlas\.png"/.test(project)) {
+if (/"value": "assets\/art\/core-map-anime-v1\.jpg"/.test(project) || /"value": "assets\/art\/core-sprites-atlas\.png"/.test(project)) {
   throw new Error("core art must stay in the first package");
+}
+if (!/"value": "assets\/art\/animal-portraits-atlas-v4\.jpg"/.test(project)) {
+  throw new Error("animal portraits should stay outside the first package and use their Canvas fallback offline");
 }
 [
   "map",

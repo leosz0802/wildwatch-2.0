@@ -39,19 +39,22 @@ game.infoDetailModal = null;
 game.gesture = null;
 game.anim = { t: 0 };
 
-const allSpecies = getUnlockedSpecies(5).map((species) => species.name);
+const allSpecies = getUnlockedSpecies(7).map((species) => species.name);
 const atlasIndices = allSpecies.map((species) => game.animalMapSpriteIndex(species));
-if (atlasIndices.some((index) => index < 0) || new Set(atlasIndices).size !== 21 || Math.max(...atlasIndices) !== 20) {
-  throw new Error(`all 21 unlocked species must have unique full-body map sprites: ${atlasIndices.join(",")}`);
+if (atlasIndices.some((index) => index < 0) || new Set(atlasIndices).size !== 25 || Math.max(...atlasIndices) !== 24) {
+  throw new Error(`all 25 unlocked species must have unique full-body map sprites: ${atlasIndices.join(",")}`);
 }
 if (game.animalMapSpriteIndex("兔子") !== game.animalMapSpriteIndex("野兔")) {
   throw new Error("legacy rabbit alias should resolve to the wild-hare sprite");
 }
 // This list is deliberately independent from animalSpriteFacesRight(). It
-// records the actual native orientation in animal-map-sprites-atlas-v1.png,
+// records the actual native orientation in animal-map-sprites-atlas-v2.png,
 // so the regression catches a wrong metadata table instead of merely proving
 // that the mirror function agrees with itself.
-const expectedNativeRight = new Set(["鹿", "羚羊", "乌鸦", "斑马", "野猪", "秃鹫", "水貂"]);
+// Read directly from the atlas cells: these are the only sprites whose
+// head/nose is on the right side of the source image. Keep this independent
+// from the production lookup so a bad metadata edit cannot self-validate.
+const expectedNativeRight = new Set(["狼", "斑马", "野猪", "野犬", "水貂"]);
 allSpecies.forEach((species) => {
   const nativeRight = game.animalSpriteFacesRight(species);
   if (nativeRight !== expectedNativeRight.has(species)) {
@@ -92,6 +95,50 @@ allSpecies.forEach((species) => {
 
 const animals = game.visibleSandAnimals(game.state.world);
 if (!animals.length) throw new Error("no animals available for motion check");
+
+// High-priority animals need a visible target treatment, not only a larger
+// invisible hit area. Verify the renderer records all three hierarchy states.
+const focusGradient = { addColorStop() {} };
+const focusCtx = new Proxy({
+  createRadialGradient() { return focusGradient; },
+  measureText(text) { return { width: String(text || "").length * 7 }; }
+}, {
+  get(target, property) {
+    if (property in target) return target[property];
+    return () => {};
+  },
+  set(target, property, value) {
+    target[property] = value;
+    return true;
+  }
+});
+game.renderedAnimalFocusMarkers = [];
+const focusMetrics = { bodyY: 130, bubbleY: 92, groundY: 164, hitSize: 68 };
+game.drawAnimalFocusMarker(focusCtx, 160, focusMetrics, "event", 1, animals[0], false);
+game.drawAnimalFocusMarker(focusCtx, 160, focusMetrics, "moment", 1, animals[0], true);
+game.drawAnimalFocusMarker(focusCtx, 160, focusMetrics, "selected", 1, animals[0], false);
+const focusLabels = game.renderedAnimalFocusMarkers.map((marker) => marker.label).join(",");
+const [eventFocus, momentFocus, selectedFocus] = game.renderedAnimalFocusMarkers;
+if (focusLabels !== "听线索,看回应,已选"
+  || !game.renderedAnimalFocusMarkers.every((marker) => marker.hasBacklight && marker.hasDoubleRing)
+  || !eventFocus.actionAffordance || eventFocus.purpose !== "tap-animal-for-clue" || !eventFocus.displayLabel.includes("›")
+  || !momentFocus.actionAffordance || momentFocus.purpose !== "tap-animal-for-response" || !momentFocus.displayLabel.includes("›")
+  || selectedFocus.actionAffordance || selectedFocus.purpose !== "selected-animal") {
+  throw new Error(`animal focus hierarchy must use a backlight, double ring and explicit flag: ${focusLabels}`);
+}
+
+// Focused/glowing animals must remain easy to select even when an ordinary
+// animal overlaps their visual halo. Hit testing walks from the last-added
+// target, so the focused target is intentionally registered last.
+game.hitAreas = [];
+game.mapViewport = { x: 0, y: 0, w: 320, h: 320 };
+let picked = "";
+game.addMapHit(160, 160, 52, () => { picked = "ordinary"; });
+game.addMapHit(160, 160, 88, () => { picked = "glowing"; });
+const haloHit = game.hitAreaAt(195, 160);
+if (!haloHit) throw new Error("glowing animal halo should be included in its touch target");
+haloHit.onTap();
+if (picked !== "glowing") throw new Error("glowing animal should win overlapping animal hit targets");
 
 // Run every atlas species through several seconds of real map motion. This
 // catches direction regressions in species that are not currently unlocked in
@@ -164,7 +211,16 @@ const collisionAnimals = collisionSpecies.map((species, index) => ({
   });
   game.resolveAnimalMotionOverlaps(placements, collisionCamera);
   game.resolveAnimalFacilityOverlaps(placements, collisionCamera, [facility]);
-  if (game.animalFacilityOverlapCount(placements, collisionCamera, [facility])) {
+  const scale = collisionCamera.scale || 1;
+  const worldW = Math.max(1, (collisionCamera.worldW || collisionCamera.worldSize || collisionCamera.w || 1) * scale);
+  const worldH = Math.max(1, (collisionCamera.worldH || collisionCamera.worldSize || collisionCamera.h || 1) * scale);
+  const obstacle = game.animalFacilityCollisionSize(collisionCamera);
+  const overlapsFacility = placements.some((placement) => {
+    const size = game.animalMotionCollisionSize(placement.animal, collisionCamera, placement.groupCount || 1);
+    return Math.abs(placement.motion.x - facility.x) * worldW < (size.w + obstacle.w) / 2 - .25
+      && Math.abs(placement.motion.y - facility.y) * worldH < (size.h + obstacle.h) / 2 - .25;
+  });
+  if (overlapsFacility) {
     throw new Error(`${width}x${height} animals must not cover a facility or its label`);
   }
   placements.forEach((placement, index) => {

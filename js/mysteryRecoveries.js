@@ -69,7 +69,7 @@ const MYSTERY_RECOVERY_CATALOG = [
     name: "跨区黑市账本",
     source: "联合执法线索",
     rarity: "超等级·唯一证物",
-    icon: "intel",
+    icon: "eye",
     minChapter: 3,
     minStoryStep: 4,
     minActions: 28,

@@ -33,7 +33,7 @@ function checkView(view, label) {
   if (!water || !grass || water.outcome !== view.outcome || grass.outcome !== view.outcome) {
     throw new Error(`${label} water and grass should carry the animal outcome reference`);
   }
-  if ((view.states || []).some((item) => /安全|生态|经营|班次|情报|外勤/.test(item.label))) {
+  if ((view.states || []).some((item) => /安全|生态|经营|巡护节奏|线索|现场/.test(item.label))) {
     throw new Error(`${label} should not expose deprecated player resources`);
   }
   (view.states || []).forEach((state) => {

@@ -45,6 +45,7 @@ for (let seed = 1; seed <= 40; seed += 1) {
   let day = 100;
 
   for (const caseDef of CASES.filter((entry) => !entry.hidden)) {
+    current.world.reserve.eventChain = Object.assign({}, current.world.reserve.eventChain, { chapterLevel: caseDef.chapter, step: 7 });
     for (let index = 0; index < 7; index += 1) {
       const nextItem = itemsForCase(caseDef.id)
         .filter((item) => !(item.condition || {}).finale && !current.world.collection.items[item.id])

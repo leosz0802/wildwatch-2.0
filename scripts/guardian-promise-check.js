@@ -125,6 +125,7 @@ game.stopLoop();
 game.ctx = fakeContext();
 game.render = () => {};
 game.state = uiState;
+game.screen = "home";
 game.infoDetailModal = null;
 assert(game.openPendingGuardianPromise(), "pending promise should open in the shared progressive choice UI");
 assert(game.infoDetailModal.kind === "guardianPromise" && game.infoDetailModal.choiceCards.length === 3, "promise UI must present exactly three choices");
@@ -156,6 +157,7 @@ GUARDIAN_PROMISES.forEach((promise) => {
     compactGame.width = 320;
     compactGame.height = 568;
     compactGame.state = createCharacter(null, "保护区卫士");
+    compactGame.screen = "home";
     compactGame.state.world.reserve.guardianPromises = normalizeGuardianPromises({
       pending: { id: promise.id, chapter: promise.chapter, day: 10, actionIndex: 12, selectedChoiceId: "" }
     });

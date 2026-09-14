@@ -1,0 +1,38 @@
+{
+  "version": 3,
+  "minimumClientVersion": "0.3.1",
+  "maintenance": false,
+  "features": {
+    "worldLeaderboard": true,
+    "socialTrade": true,
+    "reciprocalTrade": true,
+    "telemetry": true,
+    "cloudSave": false,
+    "remoteBalance": true
+  },
+  "balance": {
+    "emergencySupplyDailyLimit": 2,
+    "eventUploadSampleRate": 1
+  },
+  "assets": {
+    "artAtlas": {
+      "url": "",
+      "version": ""
+    },
+    "premiumUiAtlas": {
+      "url": "https://wild.hubao.tv/assets/premium-ui-v1.jpg",
+      "version": "premium-ui-v1"
+    },
+    "wildernessMaterialAtlas": {
+      "url": "https://wild.hubao.tv/assets/wilderness-materials-atlas-v1.webp",
+      "version": "wilderness-materials-v1"
+    },
+    "animalPortraitAtlas": {
+      "url": "https://wild.hubao.tv/assets/animal-portraits-atlas-v4.jpg",
+      "version": "animal-portraits-v4"
+    }
+  },
+  "messages": {
+    "maintenance": "保护区正在维护，请稍后回来。"
+  }
+}

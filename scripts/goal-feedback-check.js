@@ -44,8 +44,11 @@ if (!result.world.goals.daily || result.world.goals.daily.completedPrevious !== 
   throw new Error("阶段目标达到要求次数后没有进入下一项任务");
 }
 
-if (after.fund <= before.fund) {
-  throw new Error("完成目标后应该有更明确的基金/奖励反馈");
+const rewardState = result.world.goals.lastReward || after.lastTaskReward || {};
+const pendingDelta = Object.values(after.pendingRecovered || {}).reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0)
+  - Object.values(before.pendingRecovered || {}).reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
+if (!rewardState.rewards && pendingDelta <= 0) {
+  throw new Error("完成目标后应该有明确的待收样本或奖励反馈");
 }
 
 const game = Object.create(Game.prototype);
@@ -64,8 +67,8 @@ if (!modal.grade || typeof modal.guardianScore !== "number" || !modal.rewards ||
 if (!modal.nextHint || !modal.causality) {
   throw new Error("结算弹窗缺少下一步建议或三条因果反馈");
 }
-if (!/数值|安全|生态|经营/.test(modal.causality.statLine || "")) {
-  throw new Error(`结算数值变化应解释前台状态，实际: ${modal.causality.statLine}`);
+if (!modal.causality.statLine || !/原因/.test(modal.causality.statLine)) {
+  throw new Error(`结算数值变化应解释实际变化原因，实际: ${modal.causality.statLine}`);
 }
 if (!/动物/.test(modal.causality.animalLine || "")) {
   throw new Error(`结算动物变化应解释动物状态，实际: ${modal.causality.animalLine}`);

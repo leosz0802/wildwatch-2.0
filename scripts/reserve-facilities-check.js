@@ -19,6 +19,10 @@ FACILITIES.forEach((facility) => {
 
 const state = createCharacter(null, "设施测试员");
 normalizeCollectionState(state);
+state.world.reserve.fund = 2000;
+// 建设升级需要同时满足保护区与游客进阶；本段推进到第二阶后再验证旧的两步建设流程。
+state.world.reserve.progression.level = 2;
+state.world.reserve.development.operations.today.tourismScore = 12;
 let states = facilityStates(state);
 if (states.some((facility) => facility.repaired)) throw new Error("new save should show six facilities but none repaired");
 const hiddenAtStart = states.find((facility) => facility.caseId === "hidden");
@@ -43,6 +47,12 @@ let patrol = states.find((facility) => facility.caseId === caseId);
 if (patrol.collectionStage !== 3 || patrol.buildStage !== 0 || !/待建设/.test(patrol.stageLabel)) throw new Error("case ending should unlock, but not auto-complete, the linked facility");
 if (!applyFacilityBuildStep(state, patrol.id).ok || !applyFacilityBuildStep(state, patrol.id).ok) throw new Error("unlocked facility should accept two explicit construction investments");
 patrol = facilityStates(state).find((facility) => facility.caseId === caseId);
+state.world.reserve.progression.level = 2;
+state.world.reserve.development.operations.today.tourismScore = 12;
+const blockedSpecialization = applyFacilitySpecialization(state, patrol.id, "enforcement");
+if (blockedSpecialization.ok || blockedSpecialization.missing.length !== 2) throw new Error("facility specialization should expose both progression gates");
+state.world.reserve.progression.level = 3;
+state.world.reserve.development.operations.today.tourismScore = 18;
 if (patrol.buildStage !== 2 || !applyFacilitySpecialization(state, patrol.id, "enforcement").ok) throw new Error("completed facility body should allow one permanent route specialization");
 state.world.reserve.poacherPressure = 50;
 const operational = applyFacilityOperationalEffects(state.world.reserve, "antiPoacher", "旱季");

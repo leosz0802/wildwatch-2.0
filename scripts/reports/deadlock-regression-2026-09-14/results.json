@@ -1,0 +1,152 @@
+[
+  {
+    "test": "nonlinear-task-routing",
+    "code": 0,
+    "seconds": 2.02
+  },
+  {
+    "test": "task-lock-recovery",
+    "code": 0,
+    "seconds": 0.3
+  },
+  {
+    "test": "recurring-rescue-task-routing",
+    "code": 0,
+    "seconds": 0.35
+  },
+  {
+    "test": "rescue-point-feedback",
+    "code": 0,
+    "seconds": 1.57
+  },
+  {
+    "test": "chapter-rescue-strict-cache",
+    "code": 0,
+    "seconds": 0.4
+  },
+  {
+    "test": "chapter-rescue-restart",
+    "code": 1,
+    "seconds": 0.6
+  },
+  {
+    "test": "chapter-rescue-system",
+    "code": 0,
+    "seconds": 0.17
+  },
+  {
+    "test": "loop-safety",
+    "code": 0,
+    "seconds": 0.41
+  },
+  {
+    "test": "story-system-consistency",
+    "code": 0,
+    "seconds": 0.69
+  },
+  {
+    "test": "chapter-story",
+    "code": 0,
+    "seconds": 0.31
+  },
+  {
+    "test": "story-activation",
+    "code": 0,
+    "seconds": 0.35
+  },
+  {
+    "test": "task-story-alignment",
+    "code": 0,
+    "seconds": 0.56
+  },
+  {
+    "test": "task-story-resource-match",
+    "code": 0,
+    "seconds": 0.38
+  },
+  {
+    "test": "map-task-story-dedupe",
+    "code": 0,
+    "seconds": 0.43
+  },
+  {
+    "test": "mission-push",
+    "code": 0,
+    "seconds": 0.48
+  },
+  {
+    "test": "world-event-system",
+    "code": 0,
+    "seconds": 0.43
+  },
+  {
+    "test": "world-event-idle",
+    "code": 0,
+    "seconds": 0.25
+  },
+  {
+    "test": "world-event-visual",
+    "code": 0,
+    "seconds": 0.36
+  },
+  {
+    "test": "visitor-incident",
+    "code": 0,
+    "seconds": 1.06
+  },
+  {
+    "test": "event-business-loop",
+    "code": 0,
+    "seconds": 1.15
+  },
+  {
+    "test": "progression",
+    "code": 1,
+    "seconds": 0.59
+  },
+  {
+    "test": "stage1-regression",
+    "code": 0,
+    "seconds": 0.43
+  },
+  {
+    "test": "first-stage-reduction",
+    "code": 1,
+    "seconds": 0.51
+  },
+  {
+    "test": "long-run-soak",
+    "code": 0,
+    "seconds": 11.69
+  },
+  {
+    "test": "numeric-regression",
+    "code": 0,
+    "seconds": 0.43
+  },
+  {
+    "test": "task-resource-pipeline",
+    "code": 0,
+    "seconds": 1.22
+  },
+  {
+    "test": "resource-loop",
+    "code": 0,
+    "seconds": 0.49
+  },
+  {
+    "test": "sandbox-task-sync",
+    "code": 0,
+    "seconds": 0.38
+  },
+  {
+    "test": "sandbox-task-navigation",
+    "code": 0,
+    "seconds": 0.44
+  },
+  {
+    "test": "modal-close",
+    "code": 0,
+    "seconds": 0.54
+  }
+]

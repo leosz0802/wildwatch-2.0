@@ -2,7 +2,10 @@ function createFakeContext() {
   const gradient = { addColorStop() {} };
   return new Proxy({}, {
     get(target, prop) {
-      if (prop === "measureText") return (text) => ({ width: String(text || "").length * 7 });
+      if (prop === "measureText") return (text) => {
+        const size = Number((String(target.font || "12px").match(/([\d.]+)px/) || [])[1]) || 12;
+        return { width: Array.from(String(text || "")).reduce((sum, char) => sum + size * (char.charCodeAt(0) > 255 ? 1 : .6), 0) };
+      };
       if (prop === "createLinearGradient" || prop === "createRadialGradient") return () => gradient;
       if (prop === "canvas") return { width: 430, height: 932 };
       if (!target[prop]) target[prop] = () => {};
@@ -65,7 +68,7 @@ if (game.stopLoop) game.stopLoop();
   game.hitAreas = [];
   game.drawPatrolTaskModal();
   const header = (game.renderedPatrolTask || {}).header;
-  if (!header || header.split !== "horizontal" || header.background !== "horizontalBands") throw new Error(`${viewport.width}: patrol header did not use horizontal safe bands`);
+  if (!header || header.split !== "horizontal" || header.background !== "leatherArchive") throw new Error(`${viewport.width}: patrol header did not use the shared leather archive`);
   const patrolIconRight = header.icon.cx + header.icon.size / 2;
   if (patrolIconRight > header.textX - 8) throw new Error(`${viewport.width}: patrol header icon overlaps title area`);
   if (header.pill) throw new Error(`${viewport.width}: purchase header repeats its result in a hero pill`);
@@ -81,9 +84,30 @@ if (game.stopLoop) game.stopLoop();
     game.drawPatrolTaskModal();
     const actionHeader = (game.renderedPatrolTask || {}).header;
     if (!actionHeader || !actionHeader.pill) throw new Error(`${viewport.width}/${item.id}: patrol state pill missing`);
-    if (actionHeader.textX + actionHeader.textW > actionHeader.pill.x - 8) throw new Error(`${viewport.width}/${item.id}: title overlaps state pill`);
+    const title = actionHeader.titleBounds;
+    const pill = actionHeader.pill;
+    if (!title || ![title.x, title.y, title.w, title.h, actionHeader.titleSize].every(Number.isFinite)) throw new Error(`${viewport.width}/${item.id}: title geometry missing`);
+    if (title.x < actionHeader.icon.cx + actionHeader.icon.size / 2 + 8 || title.x + title.w > game.renderedPatrolTask.x + game.renderedPatrolTask.w - 18) throw new Error(`${viewport.width}/${item.id}: title leaves its safe area`);
+    if (!(title.y >= pill.y + pill.h + 4 || title.x + title.w <= pill.x - 8)) throw new Error(`${viewport.width}/${item.id}: title overlaps state pill`);
+    const bottomGap = game.renderedPatrolTask.buttonY - game.renderedPatrolTask.contentBottom;
+    if (!Number.isFinite(bottomGap) || bottomGap < 8 || bottomGap > 24) throw new Error(`${viewport.width}/${item.id}: excessive or overlapping footer gap ${bottomGap}`);
     if (actionHeader.pill.x + actionHeader.pill.w > game.renderedPatrolTask.x + game.renderedPatrolTask.w - 12) throw new Error(`${viewport.width}/${item.id}: state pill exceeds safe area`);
   });
+
+  game.patrolTaskModal = null;
+  game.infoDetailModal = {
+    kind: "genericInfo",
+    kicker: "保护区档案 · 现场记录",
+    title: "边界巡查详情",
+    icon: "leaf",
+    items: [{ tag: "迹象", title: "泥岸留下新脚印", body: "沿水线继续确认来源。" }],
+    footer: "记录来自当前保护区状态。"
+  };
+  game.hitAreas = [];
+  game.drawInfoDetailModal();
+  const infoFrame = game.infoDetailModal.renderedInfoFrame;
+  if (!infoFrame || infoFrame.style !== "field-archive-v2") throw new Error(`${viewport.width}: generic information modal missed the shared archive frame`);
+  if (infoFrame.y < 0 || infoFrame.y + infoFrame.h > viewport.height) throw new Error(`${viewport.width}: premium information modal exceeds the viewport`);
 });
 
 if (source.includes("this.roundRect(ctx, x + 18, y + 20, 52, 52")) throw new Error("legacy info-modal frame-in-frame icon remains");
@@ -98,8 +122,12 @@ if (!source.includes("drawPurchaseTaskResultStrip") || !source.includes("purchas
   || !source.includes("purposeH: 32") || !source.includes("metricLayouts") || !source.includes('this.text(ctx, "下一步"')) {
   throw new Error("task modal did not keep the compact result-first hierarchy");
 }
+if (!source.includes('style: "field-task-v2"') || !source.includes('background: "leatherArchive"')) throw new Error("task modal visual audit metadata is missing");
 if (!source.includes('ctx.fillStyle = "rgba(12,18,15,.48)"')) throw new Error("task modal does not use the standardized system veil");
-if (!source.includes('header.close.h, header.close.w / 2, "rgba(255,255,255,.90)"')) throw new Error("info modal close control is not a neutral circular system control");
+if (!source.includes("this.drawPremiumLeatherPanel(ctx, x, y, w, h, 24, { rivets: true })")) throw new Error("info modal does not use the shared leather archive frame");
+if (!source.includes("this.drawPremiumBrassPlate(ctx, header.close.x, header.close.y, header.close.w, header.close.h")) throw new Error("info modal close control does not use the shared brass treatment");
+if (!source.includes('style: "field-archive-v2"') || !source.includes('materials: ["leather", "parchment", "brass"]')) throw new Error("info modal visual audit metadata is missing");
+if (!(game.infoDetailModalHeight({ kind: "animalLetterInbox", letters: [{}, {}] }) < game.infoDetailModalHeight({ kind: "animalLetterReader" }))) throw new Error("short inboxes should not retain the generic full-height modal");
 if (source.includes("addColorStop(.341") || source.includes("addColorStop(.241")) throw new Error("a diagonal modal header split remains");
 if (!source.includes("compact ? 10 : 11")) throw new Error("compact species dialogue did not receive readable typography");
 if (source.includes("compact ? 8 : 9")) throw new Error("8px compact species dialogue returned");

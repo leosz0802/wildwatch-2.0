@@ -93,6 +93,9 @@ function run(command, state, random = 0.9) {
 
 function nonNegativeObject(group, label) {
   Object.keys(group || {}).forEach((key) => {
+    if (key === "rescueItems" && group[key] && typeof group[key] === "object") {
+      return nonNegativeObject(group[key], `${label}.${key}`);
+    }
     assert((group[key] || 0) >= 0, `${label}.${key} should be non-negative`);
   });
 }
@@ -126,7 +129,7 @@ missingFundReserve.supplies.fieldKit = 0;
 assert(!game.actionResourceStatus("habitat", missingFundReserve).canRun, "habitat should require a field kit");
 assert(!game.actionResourceStatus("buySupplies", missingFundReserve).canRun, "buy supplies should require enough fund");
 
-assert(reserve.actionPoints === 0 && reserve.intel === 0 && reserve.fieldPermits === 0, "retired abstract resources must normalize to zero");
+["actionPoints", "intel", "fieldPermits"].forEach((key) => assert(!Object.prototype.hasOwnProperty.call(reserve, key), `retired abstract resource ${key} must not exist`));
 ["fund", "stability", "reputation", "enforcement", "poacherPressure", "safety"].forEach((key) => {
   assert(typeof reserve[key] === "number", `reserve.${key} should be numeric`);
 });
@@ -142,7 +145,7 @@ const protectedAnimalCount = Object.keys((reserve.base || {}).protectedAnimals |
 assert(reserve.safety === 68, `converged initial safety should be 68, got ${reserve.safety}`);
 assert(reserve.stability === 66, `converged initial ecology/stability should be 66, got ${reserve.stability}`);
 assert(reserve.business === 58, `converged initial business should be 58, got ${reserve.business}`);
-assert(reserve.fund === 900, `converged initial fund should be 900, got ${reserve.fund}`);
+assert(reserve.fund === 800, `新玩家初始保护基金应为800，实际 ${reserve.fund}`);
 assert(protectedAnimalCount === 32, `converged protected animal count should be 32, got ${protectedAnimalCount}`);
 assert((reserve.base || {}).rareAnimals === 3, `converged rare animal count should be 3, got ${(reserve.base || {}).rareAnimals}`);
 assert(reserve.reputation === 50, `converged reputation should be 50, got ${reserve.reputation}`);
@@ -179,11 +182,10 @@ world.knownCharacters.forEach((animal) => {
 
 let state = wardenState();
 state.world.reserve.supplies.dogFood = 3;
-state.world.reserve.intel = 0;
 let before = clone(state.world.reserve);
 let result = run("猎犬侦察：让砾灰去中央混交林搜寻陌生气味", state, 0.1);
 assert(result.world.reserve.supplies.dogFood === before.supplies.dogFood - 1, "hound scout should consume dog food");
-assert(result.world.reserve.intel === 0, "hound scout must not revive retired intel");
+assert(!Object.prototype.hasOwnProperty.call(result.world.reserve, "intel"), "hound scout must not restore retired resource fields");
 assert(result.world.reserve.poacherPressure < before.poacherPressure, "hound scout should reduce poacher pressure");
 assert(result.visual.dailyEconomy.net === 0, `ordinary patrol must not mint hidden fund; fund comes from explicit sample transfer, got ${result.visual.dailyEconomy.net}`);
 assert(result.visual.actionOutcome.successChance >= 30 && result.visual.actionOutcome.successChance <= 92, `success chance should stay bounded, got ${result.visual.actionOutcome.successChance}`);
@@ -192,19 +194,20 @@ assert(Math.abs(result.world.reserve.guardianRun.rankDelta) <= 700, `daily rank 
 const weak = wardenState();
 weak.world.reserve.poacherPressure = 70;
 weak.world.reserve.supplies.alarm = 2;
-weak.world.reserve.intel = 0;
 const strong = clone(weak);
-strong.world.reserve.intel = 2;
+strong.world.reserve.__legacyClue = 2;
 const weakResult = run("驱赶偷猎者：带白河去西部岩坡洞域排查可疑人影", weak);
 const strongResult = run("驱赶偷猎者：带白河去西部岩坡洞域排查可疑人影", strong);
-assert(strongResult.world.reserve.poacherPressure === weakResult.world.reserve.poacherPressure, "retired intel must not secretly strengthen anti-poacher action");
+assert(strongResult.world.reserve.poacherPressure === weakResult.world.reserve.poacherPressure, "retired resource data must not secretly strengthen anti-poacher action");
 
 state = wardenState();
 state.world.reserve.fund = 620;
 before = clone(state.world.reserve);
 result = run("修复水源和草场：去东部河岸湿地修复水源", state);
 const habitatNet = ((result.visual || {}).dailyEconomy || {}).net || 0;
-assert(result.world.reserve.fund === before.fund + habitatNet, "habitat should consume its concrete field kit, not add a hidden direct fund cost");
+const expectedHabitatCost = require("../js/balanceConfig").chapterEconomy(before).habitatCost;
+assert(result.visual.actionFundCost.cost === expectedHabitatCost, "habitat cost must match chapter configuration");
+assert(result.world.reserve.fund === before.fund - expectedHabitatCost + habitatNet, "habitat must settle its disclosed fund cost exactly once");
 assert(result.world.reserve.ecology.water >= before.ecology.water, "habitat should not reduce water");
 assert(result.world.reserve.ecology.grass > before.ecology.grass, "habitat should improve grass");
 
@@ -226,11 +229,10 @@ assert(result.world.reserve.supplies.fieldKit === before.supplies.fieldKit, "buy
 
 state = wardenState();
 state.world.reserve.supplies.tranquilizer = 2;
-state.world.reserve.intel = 0;
 before = clone(state.world.reserve);
 result = run("执行许可内生态干预：麻醉转移过度靠近水源的鹿", state);
 assert(result.world.reserve.supplies.tranquilizer === before.supplies.tranquilizer - 1, "intervention should consume tranquilizer");
-assert(result.world.reserve.intel === 0, "intervention must not consume retired intel");
+assert(!Object.prototype.hasOwnProperty.call(result.world.reserve, "intel"), "intervention must not restore retired resource fields");
 assert(result.world.reserve.ecology.grass > before.ecology.grass, "intervention should improve grass");
 
 const animalGame = new Game();
@@ -244,7 +246,7 @@ const animalBefore = clone(animalGame.state.world.reserve);
 const relationBefore = clone(animal.relation);
 animalGame.performAnimalAction(animal, "calmObserve");
 const animalAfter = animalGame.state.world.knownCharacters.find((item) => item.id === animal.id);
-assert(animalGame.state.world.reserve.actionPoints === animalBefore.actionPoints, "light animal care should not consume patrol shift");
+assert(!Object.prototype.hasOwnProperty.call(animalGame.state.world.reserve, "actionPoints"), "light animal care should not restore retired action field");
 assert(animalAfter.relation.trust > relationBefore.trust, "light animal care should improve trust");
 assert(!animalGame.animalActionStatus("calmObserve").canRun, "same animal care should be once per day");
 
@@ -253,12 +255,11 @@ leagueGame.stopLoop();
 leagueGame.render = () => {};
 leagueGame.toast = () => {};
 leagueGame.state = wardenState();
-leagueGame.state.world.reserve.fieldPermits = 1;
 leagueGame.state.world.reserve.base.raidTickets = 1;
 leagueGame.state.world.reserve.supplies.dogFood = 1;
 leagueGame.selectedRivalId = "base_sun";
 withRandom(0, () => leagueGame.raidRival());
-assert(leagueGame.state.world.reserve.fieldPermits === 1, "border patrol must not consume retired field permits");
+assert(!Object.prototype.hasOwnProperty.call(leagueGame.state.world.reserve, "fieldPermits"), "border patrol must not restore retired permit fields");
 assert(leagueGame.state.world.reserve.supplies.dogFood === 0, "border patrol should consume dog food");
 assert((leagueGame.state.world.reserve.social || {}).migrationDelta > 0, "border patrol should influence migration");
 

@@ -212,7 +212,7 @@ function validateState(state, label, previousStage) {
   [reserve.fund, reserve.ecology.water, reserve.ecology.grass, reserve.ecology.disease, reserve.poacherPressure].forEach((value, index) => finite(value, `${label}.核心值${index}`));
   assert(reserve.fund >= 0, `${label}.基金为负数`);
   ["water", "grass", "disease"].forEach((key) => assert(reserve.ecology[key] >= 0 && reserve.ecology[key] <= 100, `${label}.${key}越界`));
-  ["actionPoints", "intel", "fieldPermits"].forEach((key) => assert((reserve[key] || 0) === 0, `${label}.${key}旧资源重新影响游戏`));
+  ["actionPoints", "intel", "fieldPermits"].forEach((key) => assert(!Object.prototype.hasOwnProperty.call(reserve, key), `${label}.${key}旧资源重新影响游戏`));
   Object.keys(reserve.supplies || {}).forEach((key) => {
     finite(reserve.supplies[key], `${label}.supplies.${key}`);
     assert(reserve.supplies[key] >= 0, `${label}.supplies.${key}为负数`);

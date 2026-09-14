@@ -3,6 +3,7 @@ const { createCharacter } = require("../js/storage");
 const { simulateDay, reserveProgressionFor } = require("../js/simulator");
 const { buildReserveView } = require("../js/reserveView");
 const { consumeProjectPreparation } = require("../js/resourceLedger");
+const { chapterEconomy } = require("../js/balanceConfig");
 
 function withRandom(value, fn) {
   const original = Math.random;
@@ -14,9 +15,6 @@ function stateWithResources(name = "三资源回归") {
   const state = createCharacter(null, name);
   const reserve = state.world.reserve;
   reserve.fund = 900;
-  reserve.actionPoints = 0;
-  reserve.intel = 0;
-  reserve.fieldPermits = 0;
   reserve.supplies = { dogFood: 10, alarm: 5, tranquilizer: 6, fieldKit: 5 };
   reserve.ecology.water = 62;
   reserve.ecology.grass = 60;
@@ -47,7 +45,7 @@ let reserve = state.world.reserve;
 let view = buildReserveView(reserve, reserve, { action: "view", day: 1, season: "雨季", weather: "小雨" });
 assert.strictEqual(view.version, "reserve-view-v2-core3");
 assert.deepStrictEqual(view.states.map((item) => item.id), ["fund", "water", "grass"]);
-assert.strictEqual(view.actionSystem.lastAuthorization, null, "旧班次/情报/外勤授权不得进入玩家视图");
+assert(!Object.prototype.hasOwnProperty.call(view.actionSystem, "lastAuthorization"), "废弃授权不得进入玩家视图");
 
 // 旧资源即使全部为0，也不能阻断现场任务；普通巡护不会暗增或暗扣基金。
 const patrolCases = [
@@ -60,10 +58,13 @@ for (const [command, supply] of patrolCases) {
   const fixture = stateWithResources(command);
   const before = JSON.parse(JSON.stringify(fixture.world.reserve));
   const after = run(fixture, command).world.reserve;
-  assert.strictEqual(after.actionPoints, 0, `${command}不应读写班次`);
-  assert.strictEqual(after.intel, 0, `${command}不应读写情报`);
-  assert.strictEqual(after.fieldPermits, 0, `${command}不应读写外勤`);
-  assert.strictEqual(after.fund, before.fund, `${command}不应后台扣基金`);
+  ["actionPoints", "intel", "fieldPermits"].forEach((key) => assert(!Object.prototype.hasOwnProperty.call(after, key), `${command}不得恢复废弃字段${key}`));
+  const expectedFund = command.includes("修复水源")
+    ? before.fund - chapterEconomy(before).habitatCost
+    : command.includes("生态干预")
+      ? before.fund - chapterEconomy(before).interventionCost
+      : before.fund;
+  assert.strictEqual(after.fund, expectedFund, `${command}应按章节成本结算基金`);
   assert(after.supplies[supply] < before.supplies[supply], `${command}应消耗具体补给${supply}`);
 }
 
@@ -167,9 +168,7 @@ for (let index = 0; index < 120; index += 1) {
   [reserve.fund, reserve.ecology.water, reserve.ecology.grass, reserve.ecology.disease].forEach((value) => {
     assert(Number.isFinite(value) && value >= 0, `核心数值异常: ${value}`);
   });
-  assert.strictEqual(reserve.actionPoints, 0);
-  assert.strictEqual(reserve.intel, 0);
-  assert.strictEqual(reserve.fieldPermits, 0);
+  ["actionPoints", "intel", "fieldPermits"].forEach((key) => assert(!Object.prototype.hasOwnProperty.call(reserve, key), `不得恢复废弃字段${key}`));
 }
 
 console.log("core resource system check ok");

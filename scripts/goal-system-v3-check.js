@@ -28,9 +28,9 @@ assert.strictEqual(goalDateKey(Date.parse("2026-07-16T20:00:00Z")), "2026-07-17"
 const state = createCharacter(null, "目标闭环测试");
 let goals = normalizeGoalState(state.world.goals, state, Date.parse("2026-07-17T04:30:00Z"));
 assert.strictEqual(goals.version, 3);
-assert.strictEqual(goals.daily.objectives.length, 3);
-assert.deepStrictEqual(goals.daily.objectives.map((item) => item.kind), ["guard", "economy", "animal"]);
-assert.strictEqual(goals.daily.required, 2);
+assert.strictEqual(goals.daily.objectives.length, 4);
+assert.deepStrictEqual(goals.daily.objectives.map((item) => item.kind), ["guard", "economy", "animal", "visitor"]);
+assert.strictEqual(goals.daily.required, 4);
 assert.strictEqual(goals.longTerm.tracks.length, 4);
 assert.strictEqual(goals.longTerm.tracks.find((item) => item.id === "guardian_journey").current, 0, "初始存档不能误算为已完成第一章");
 
@@ -59,9 +59,7 @@ if (selectionView.alternatives[0]) {
 }
 
 const zero = createCharacter(null, "零资源目标测试");
-zero.world.reserve.actionPoints = 0;
 zero.world.reserve.fund = 0;
-zero.world.reserve.intel = 0;
 Object.keys(zero.world.reserve.supplies).forEach((key) => { zero.world.reserve.supplies[key] = 0; });
 Object.keys(zero.world.reserve.inventory).forEach((key) => { zero.world.reserve.inventory[key] = 0; });
 zero.world.goals = normalizeGoalState(zero.world.goals, zero);
@@ -71,8 +69,6 @@ assert(actionExecutable(zero, zeroView.primary.recommendedAction), "恢复目标
 
 const crisis = clone(state);
 crisis.world.reserve.emergency = { active: { id: "outbreak", title: "疾病扩散", recommendedAction: "intervention", daysRemaining: 2 } };
-crisis.world.reserve.fieldPermits = 2;
-crisis.world.reserve.intel = 3;
 crisis.world.reserve.supplies.tranquilizer = 3;
 crisis.world.reserve.fund = 1200;
 crisis.world.goals = resolveGoals(crisis, crisis.world.goals, "crisis");
@@ -93,39 +89,47 @@ discoveryShortage.world.collection.discovery = Object.assign({}, discoveryShorta
   }
 });
 discoveryShortage.world.goals = resolveGoals(discoveryShortage, discoveryShortage.world.goals, "discovery_shortage");
-const discoveryPrimary = discoveryShortage.world.goals.active.primary;
-assert(discoveryPrimary.storyAligned && discoveryPrimary.evidenceAligned, "缺补给时仍必须保留剧情发现的因果上下文");
-assert.strictEqual(discoveryPrimary.recommendedAction, "buySupplies", "缺麻醉弹的剧情发现应先指向采购，不得改成无关观察");
-assert.strictEqual(discoveryPrimary.purchaseId, "tranquilizer", "剧情采购必须精确指出所缺补给");
-assert.strictEqual(discoveryPrimary.intendedAction, "intervention", "补齐后必须能接回原剧情行动");
+const discoveryGoals = [discoveryShortage.world.goals.active.primary].concat(discoveryShortage.world.goals.active.alternatives || []);
+const discoveryFollowup = discoveryGoals.find((goal) => goal && goal.storyAligned && goal.evidenceAligned);
+assert(discoveryFollowup, "附加收藏降级后仍必须保留剧情发现的因果上下文");
+assert.notStrictEqual(discoveryShortage.world.goals.active.primary.kind, "collection", "附加收藏不得压过保护区主要经营目标");
+assert.strictEqual(discoveryFollowup.recommendedAction, "buySupplies", "缺麻醉弹的剧情发现应指向采购，不得改成无关观察");
+assert.strictEqual(discoveryFollowup.purchaseId, "tranquilizer", "剧情采购必须精确指出所缺补给");
+assert.strictEqual(discoveryFollowup.intendedAction, "intervention", "补齐后必须能接回原剧情行动");
+
+const futureAttempt = advance(state, "visitorAdjust");
+assert(futureAttempt.goals.daily.objectives.every((item) => !item.complete), "未来任务操作不得提前完成其他每日任务");
+assert(!futureAttempt.rewards.some((item) => item.source === "daily_objective"), "未解锁任务不应领取每日奖励");
 
 let current = state;
 let result = advance(current, "houndScout");
 current = result.state;
 assert.strictEqual(current.world.goals.daily.objectives[0].progress, 1);
-assert(!current.world.goals.daily.coreClaimed, "单项推进不能提前领取今日2/3奖励");
+assert(!current.world.goals.daily.coreClaimed, "未完成全部每日任务不能领取全清奖励");
 result = advance(current, "houndScout");
 current = result.state;
 assert(current.world.goals.daily.objectives[0].complete, "守护目标需要两次有效行动完成");
-assert(!current.world.goals.daily.coreClaimed, "只完成1/3时不能领取核心奖励");
+assert(!current.world.goals.daily.coreClaimed, "只完成守护任务时不能领取全清奖励");
 const samplesBefore = ((current.world.reserve.pendingRecovered || {}).researchSample) || 0;
 result = advance(current, "buySupplies");
 current = result.state;
-assert(current.world.goals.daily.coreClaimed, "完成任意2/3必须自动结算核心奖励");
-assert(result.completions.some((item) => item.type === "daily_core"));
+assert(!current.world.goals.daily.coreClaimed, "完成部分任务不能提前领取全清奖励");
 const samplesAfterCore = ((current.world.reserve.pendingRecovered || {}).researchSample) || 0;
-assert(samplesAfterCore >= samplesBefore + 1 && samplesAfterCore <= samplesBefore + 2, "今日核心奖励和本次即时目标奖励应各自幂等进入研究样本待收区");
+assert(samplesAfterCore >= samplesBefore + 1, "每项每日任务奖励应进入研究样本待收区");
 const fundAfterCore = current.world.reserve.fund;
 const claimsAfterCore = Object.keys(current.world.goals.claims).length;
 result = advance(current, "buySupplies");
 current = result.state;
-assert(!result.completions.some((item) => item.type === "daily_core"), "核心奖励不得重复领取");
+assert(!result.completions.some((item) => item.type === "daily_core"), "全清奖励不得重复领取");
 assert(Object.keys(current.world.goals.claims).length >= claimsAfterCore);
 assert(current.world.reserve.fund - fundAfterCore <= GOAL_BALANCE.instantRewardBudget[1], "重复操作不得再次发放核心基金");
 
 result = advance(current, "exploreMaterials");
 current = result.state;
-assert(current.world.goals.daily.fullClaimed, "完成3/3必须发放补给和动物关系奖励");
+assert(!current.world.goals.daily.fullClaimed, "仍有游客任务时不能发放全清奖励");
+result = advance(current, "visitorAdjust");
+current = result.state;
+assert(current.world.goals.daily.fullClaimed, "完成4/4必须发放补给和动物关系奖励");
 assert(result.completions.some((item) => item.type === "daily_full"));
 
 const stale = clone(state);
@@ -149,6 +153,10 @@ const beforeFinal = createCharacter(null, "长线终奖测试");
 beforeFinal.world.reserve.progression.stage = 10;
 beforeFinal.world.reserve.progression.chapterComplete = false;
 beforeFinal.world.goals = normalizeGoalState(beforeFinal.world.goals, beforeFinal);
+beforeFinal.world.goals.daily.dateKey = "2026-07-17";
+beforeFinal.world.goals.daily.objectives.forEach((item) => { item.progress = item.target; item.complete = true; });
+beforeFinal.world.goals.daily.coreClaimed = true;
+beforeFinal.world.goals.daily.fullClaimed = true;
 const afterFinal = clone(beforeFinal);
 afterFinal.world.reserve.progression.chapterComplete = true;
 const finalResult = applyGoalProgress(beforeFinal, afterFinal, { action: "houndScout", now: Date.parse("2026-07-17T04:30:00Z") });

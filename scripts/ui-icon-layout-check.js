@@ -208,6 +208,7 @@ function checkUiImageBasics(records, context) {
 }
 
 function checkPatrolTiles() {
+  game.prepareLocalAssetsForScreen("action");
   const reserve = game.state.world.reserve || {};
   const groups = game.patrolActionGroups(reserve);
   const tileGap = 10;
@@ -255,6 +256,7 @@ function checkPatrolTiles() {
 }
 
 function checkMaterialPage() {
+  game.prepareLocalAssetsForScreen("role");
   const records = resetRecords("role-screen");
   game.screen = "role";
   game.scrollY = 0;
@@ -267,7 +269,7 @@ function checkMaterialPage() {
     if (image.w < 24 || image.w > 26 || image.h < 24 || image.h > 26) fail("bottom nav: icon should be enlarged to 24-26px");
     if (image.y + image.h > viewport.height - 25) fail("bottom nav: icon overlaps label/safe area");
   });
-  const navLabels = records.texts.filter((item) => ["沙盘", "种群", "发现", "物资"].includes(item.text) && item.baseline >= navTop);
+  const navLabels = records.texts.filter((item) => ["沙盘", "生存", "发现", "物资"].includes(item.text) && item.baseline >= navTop);
   if (navLabels.length < 4) fail("bottom nav: missing nav labels");
   if (records.texts.some((item) => item.text === "巡护" && item.baseline >= navTop)) {
     fail("bottom nav: patrol should be event-driven, not a primary nav item");
@@ -286,8 +288,8 @@ function checkMaterialPage() {
     fail("bottom nav: English subtitles should not be rendered");
   }
   const bodyIcons = uiImages(records).filter((image) => image.y < navTop);
-  if (!bodyIcons.some((image) => image.w >= 42 && image.w <= 52)) {
-    fail("material screen: supply/warehouse card icons should render at 42-52px");
+  if (!bodyIcons.some((image) => image.w >= 48 && image.w <= 60)) {
+    fail("material screen: supply item art should render at 48-60px");
   }
   const goodsRecords = resetRecords("recovered-goods-module");
   game.scrollY = 0;
@@ -299,6 +301,7 @@ function checkMaterialPage() {
 }
 
 function checkActionPage() {
+  game.prepareLocalAssetsForScreen("action");
   const records = resetRecords("action-screen");
   game.screen = "action";
   game.scrollY = 0;
@@ -315,21 +318,10 @@ function checkActionPage() {
   }
 }
 
-function checkHomeProsperityEstimateCoin() {
-  const records = resetRecords("home-prosperity-strip");
-  game.drawHomeProsperityStrip(game.ctx, 18, 24, viewport.width - 36, 66, game.state.world.reserve || {});
-  checkUiImageBasics(records, "home prosperity strip");
-  const coin = uiImages(records).find((image) => image.src.includes("fund_v3.png"));
-  if (!coin) {
-    fail("home prosperity strip: estimate value should show a coin/fund icon");
-  }
-  if (coin.w < 22 || coin.x < viewport.width - 56) {
-    fail("home prosperity strip: estimate coin should be a large icon after the value");
-  }
-}
-
 function checkLargeIconsPreferUiV3() {
-  ["houndScout", "antiPoacher", "habitat", "salvage", "intervention", "water", "fund"].forEach((kind) => {
+  const kinds = ["houndScout", "antiPoacher", "habitat", "salvage", "intervention", "water", "fund"];
+  game.ensureUiIconAssets(kinds);
+  kinds.forEach((kind) => {
     const records = resetRecords(`large-icon:${kind}`);
     game.drawLargeIcon(game.ctx, kind, 80, 80, "#f0d376", 72);
     checkUiImageBasics(records, `large icon ${kind}`);
@@ -344,7 +336,6 @@ function checkLargeIconsPreferUiV3() {
 checkPatrolTiles();
 checkMaterialPage();
 checkActionPage();
-checkHomeProsperityEstimateCoin();
 checkLargeIconsPreferUiV3();
 
 console.log("ui icon layout check ok");

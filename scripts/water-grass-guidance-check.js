@@ -44,4 +44,32 @@ const waterDetail = game.buildReserveMetricDetail("water");
 assert(!waterDetail.action, "丰沛水源不应误导玩家继续修复");
 assert(/自然外流/.test(waterDetail.items[0].body), "高水位详情必须解释自然回落机制");
 
+const lowWaterGame = new Game();
+lowWaterGame.stopLoop();
+lowWaterGame.render = () => {};
+lowWaterGame.state = createCharacter(null, "低水源修复反馈测试");
+lowWaterGame.state.world.reserve.ecology.water = 52;
+lowWaterGame.state.world.reserve.ecology.grass = 85;
+lowWaterGame.state.world.reserve.fund = 1000;
+lowWaterGame.state.world.reserve.supplies.fieldKit = 4;
+assert(/水源 52/.test(lowWaterGame.patrolButtonValue("habitat", lowWaterGame.state.world.reserve)), "低水源时栖息地任务按钮必须显示水源而不是草场");
+lowWaterGame.startPatrolOperation({ id: "habitat" });
+assert.deepStrictEqual(lowWaterGame.patrolOperationPlan.nodeIds, ["spring"], "低水源进入路线规划时必须默认聚焦暗泉保水路线");
+const lowWaterResult = withRandom(.1, () => simulateDay("去东部河岸湿地修复水源，观察鹿群迁移", lowWaterGame.state));
+assert(lowWaterResult.world.reserve.ecology.water > 52, "低水源修复任务完成后必须真实提高水源");
+const settlementDisplay = lowWaterGame.settlementDisplayChanges({
+  actionType: "habitat",
+  command: "去东部河岸湿地修复水源",
+  fundBefore: 1000,
+  fundAfter: 910,
+  visitorsBefore: 0,
+  visitorsAfter: 0,
+  stats: [
+    { key: "fund", label: "保护基金", before: 1000, after: 910, delta: -90 },
+    { key: "water", label: "水源", before: 52, after: lowWaterResult.world.reserve.ecology.water, delta: lowWaterResult.world.reserve.ecology.water - 52 },
+    { key: "grass", label: "草场", before: 85, after: lowWaterResult.world.reserve.ecology.grass, delta: lowWaterResult.world.reserve.ecology.grass - 85 }
+  ]
+});
+assert.strictEqual(settlementDisplay.primary.key, "water", "修复水源后的结算主结果必须突出水源变化，不能被基金支出盖住");
+
 console.log("water grass guidance check ok");

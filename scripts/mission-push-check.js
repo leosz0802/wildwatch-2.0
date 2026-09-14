@@ -63,6 +63,11 @@ game.stopLoop();
 game.state = createCharacter(null, "保护区卫士");
 game.state.ui = { onboarding: { version: 2, completed: true, seen: {} } };
 game.state.world.reserve.progression.totalActions = 9;
+game.state.world.reserve.progression.activeSeconds = 45;
+if (game.maybeOpenMissionPush("login")) {
+  throw new Error("ordinary card mission must wait through the opening minute");
+}
+game.state.world.reserve.progression.activeSeconds = 60;
 game.screen = "home";
 game.infoDetailModal = null;
 game.patrolTaskModal = null;
@@ -98,14 +103,54 @@ if (reopened) {
   throw new Error("same mission should not auto-push repeatedly after being seen");
 }
 
+// After three minutes of active play, automatic mission cards must leave a
+// real-time browsing window of more than 30 seconds. The queue remains
+// available; only the unsolicited popup is delayed.
+game.state.world.reserve.progression.activeSeconds = 181;
+game.state.ui.missionPushSeenKey = "";
+game.state.ui.lastMissionAutoAction = 0;
+game.state.ui.lastMissionAutoPushAt = Date.now();
+if (game.maybeOpenMissionPush("home")) {
+  throw new Error("experienced players should not receive another automatic mission within 35 seconds");
+}
+game.state.ui.lastMissionAutoPushAt = Date.now() - 35001;
+game.state.ui.missionPushSeenKey = "";
+game.state.world.reserve.progression.totalActions = 20;
+if (!game.maybeOpenMissionPush("home")) {
+  throw new Error("the automatic mission should resume after the 35-second quiet window");
+}
+game.infoDetailModal = null;
+// Restore the short synthetic timeline used by the legacy action-gap checks.
+game.state.world.reserve.progression.activeSeconds = 60;
+game.state.ui.lastMissionAutoPushAt = 0;
+game.state.ui.lastMissionAutoAction = 9;
+
+// A seven-beat chapter event updates its progress, but must remain one
+// consolidated mission card instead of pushing the same task seven times.
+const stableMissionKey = game.missionPushKey();
+for (let step = 1; step <= 7; step += 1) {
+  game.state.world.reserve.eventChain = Object.assign({}, game.state.world.reserve.eventChain || {}, { step });
+  if (game.missionPushKey() !== stableMissionKey) {
+    throw new Error("chapter event step changes must not split one mission into repeated pushes");
+  }
+}
+
 game.state.world.goals.daily.cycle = 2;
 game.state.world.reserve.progression.totalActions = 14;
 if (game.maybeOpenMissionPush("home")) {
   throw new Error("a newly rotated task should still respect the minimum action interval");
 }
 game.state.world.reserve.progression.totalActions = 18;
+if (game.maybeOpenMissionPush("home")) {
+  throw new Error("routine patrol guidance should leave room for player-led browsing");
+}
+game.state.world.reserve.progression.totalActions = 23;
+if (game.maybeOpenMissionPush("home")) {
+  throw new Error("routine sampling should skip one of the later card opportunities");
+}
+game.state.world.reserve.progression.totalActions = 24;
 if (!game.maybeOpenMissionPush("home")) {
-  throw new Error("a new stage task should auto-push after enough meaningful operations");
+  throw new Error("a new stage task should auto-push after the quieter patrol interval");
 }
 game.infoDetailModal = null;
 
@@ -116,7 +161,7 @@ if (game.maybeOpenMissionPush("home")) {
   throw new Error("mission push should respect the quiet interval after major popups");
 }
 
-game.openMissionPush("manual");
+game.openGoalCenter();
 if (!game.infoDetailModal || typeof game.infoDetailModal.action !== "function") {
   throw new Error("manual mission push should still be available");
 }
@@ -136,6 +181,7 @@ sequenceGame.stopLoop();
 sequenceGame.state = createCharacter(null, "保护区卫士");
 sequenceGame.state.ui = { onboarding: { version: 2, completed: true, seen: {} } };
 sequenceGame.state.world.reserve.progression.totalActions = 12;
+sequenceGame.state.world.reserve.progression.activeSeconds = 60;
 sequenceGame.state.world.goals.daily.completedPrevious = true;
 sequenceGame.screen = "home";
 sequenceGame.infoDetailModal = null;

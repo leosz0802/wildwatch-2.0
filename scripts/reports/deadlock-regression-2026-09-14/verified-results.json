@@ -1,0 +1,242 @@
+[
+  {
+    "test": "nonlinear-task-routing",
+    "code": 0,
+    "seconds": 2.57
+  },
+  {
+    "test": "task-lock-recovery",
+    "code": 0,
+    "seconds": 0.45
+  },
+  {
+    "test": "recurring-rescue-task-routing",
+    "code": 0,
+    "seconds": 0.56
+  },
+  {
+    "test": "rescue-point-feedback",
+    "code": 0,
+    "seconds": 2.73
+  },
+  {
+    "test": "chapter-rescue-strict-cache",
+    "code": 0,
+    "seconds": 0.5
+  },
+  {
+    "test": "chapter-rescue-restart",
+    "code": 0,
+    "seconds": 1.21
+  },
+  {
+    "test": "chapter-rescue-system",
+    "code": 0,
+    "seconds": 0.25
+  },
+  {
+    "test": "loop-safety",
+    "code": 0,
+    "seconds": 0.99
+  },
+  {
+    "test": "story-system-consistency",
+    "code": 0,
+    "seconds": 1.17
+  },
+  {
+    "test": "chapter-story",
+    "code": 0,
+    "seconds": 0.43
+  },
+  {
+    "test": "story-activation",
+    "code": 0,
+    "seconds": 0.46
+  },
+  {
+    "test": "task-story-alignment",
+    "code": 0,
+    "seconds": 0.89
+  },
+  {
+    "test": "task-story-resource-match",
+    "code": 0,
+    "seconds": 0.5
+  },
+  {
+    "test": "map-task-story-dedupe",
+    "code": 0,
+    "seconds": 0.45
+  },
+  {
+    "test": "mission-push",
+    "code": 0,
+    "seconds": 0.6
+  },
+  {
+    "test": "world-event-system",
+    "code": 0,
+    "seconds": 0.37
+  },
+  {
+    "test": "world-event-idle",
+    "code": 0,
+    "seconds": 0.4
+  },
+  {
+    "test": "world-event-visual",
+    "code": 0,
+    "seconds": 0.37
+  },
+  {
+    "test": "visitor-incident",
+    "code": 0,
+    "seconds": 1.32
+  },
+  {
+    "test": "event-business-loop",
+    "code": 0,
+    "seconds": 1.43
+  },
+  {
+    "test": "progression",
+    "code": 0,
+    "seconds": 0.83
+  },
+  {
+    "test": "stage1-regression",
+    "code": 0,
+    "seconds": 0.71
+  },
+  {
+    "test": "first-stage-reduction",
+    "code": 0,
+    "seconds": 0.52
+  },
+  {
+    "test": "long-run-soak",
+    "code": 0,
+    "seconds": 16.37
+  },
+  {
+    "test": "numeric-regression",
+    "code": 0,
+    "seconds": 0.66
+  },
+  {
+    "test": "task-resource-pipeline",
+    "code": 0,
+    "seconds": 1.78
+  },
+  {
+    "test": "resource-loop",
+    "code": 0,
+    "seconds": 0.85
+  },
+  {
+    "test": "sandbox-task-sync",
+    "code": 0,
+    "seconds": 0.59
+  },
+  {
+    "test": "sandbox-task-navigation",
+    "code": 0,
+    "seconds": 0.38
+  },
+  {
+    "test": "modal-close",
+    "code": 0,
+    "seconds": 0.53
+  },
+  {
+    "test": "mixed-task-deadlock",
+    "code": 0,
+    "seconds": 2.52
+  },
+  {
+    "test": "chapter-gate-order",
+    "code": 0,
+    "seconds": 0.4
+  },
+  {
+    "test": "guardian-24day-soak",
+    "code": 0,
+    "seconds": 27.03
+  },
+  {
+    "test": "collection-v2-soak",
+    "code": 0,
+    "seconds": 0.88
+  },
+  {
+    "test": "guardian-turnover-loop",
+    "code": 0,
+    "seconds": 0.71
+  },
+  {
+    "test": "goal-system-v3",
+    "code": 0,
+    "seconds": 0.42
+  },
+  {
+    "test": "goal-ui",
+    "code": 0,
+    "seconds": 0.74
+  },
+  {
+    "test": "flow-return",
+    "code": 0,
+    "seconds": 0.9
+  },
+  {
+    "test": "navigation-routing",
+    "code": 0,
+    "seconds": 1.08
+  },
+  {
+    "test": "ledger-story-task",
+    "code": 0,
+    "seconds": 0.27
+  },
+  {
+    "test": "endless-chapter",
+    "code": 0,
+    "seconds": 0.42
+  },
+  {
+    "test": "collection-system",
+    "code": 0,
+    "seconds": 0.53
+  },
+  {
+    "test": "core-resource-system",
+    "code": 0,
+    "seconds": 2.6
+  },
+  {
+    "test": "ecology-consistency",
+    "code": 0,
+    "seconds": 0.36
+  },
+  {
+    "test": "daily-event-mail-entry",
+    "code": 0,
+    "seconds": 0.54
+  },
+  {
+    "test": "visitor-routine-layout",
+    "code": 0,
+    "seconds": 0.51
+  },
+  {
+    "test": "animal-interaction",
+    "code": 0,
+    "seconds": 0.16
+  },
+  {
+    "test": "population-interaction",
+    "code": 0,
+    "seconds": 0.43
+  }
+]

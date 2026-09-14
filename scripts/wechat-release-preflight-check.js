@@ -3,6 +3,8 @@ const path = require("path");
 
 const root = path.resolve(__dirname, "..");
 const project = JSON.parse(fs.readFileSync(path.join(root, "project.config.json"), "utf8"));
+const privateProjectPath = path.join(root, "project.private.config.json");
+const privateProject = fs.existsSync(privateProjectPath) ? JSON.parse(fs.readFileSync(privateProjectPath, "utf8")) : null;
 const gameConfig = JSON.parse(fs.readFileSync(path.join(root, "game.json"), "utf8"));
 const failures = [];
 const warnings = [];
@@ -32,6 +34,9 @@ const ignoredEntries = (((project.packOptions || {}).ignore) || []).map((entry) 
 const subpackageRoots = (gameConfig.subpackages || []).map((entry) => String(entry.root || "").replace(/\/$/, "")).filter(Boolean);
 
 function isIgnored(relativePath) {
+  // Git metadata lives beside the game during development, but never belongs
+  // to the WeChat upload package or release-size calculation.
+  if (relativePath === ".git" || relativePath.startsWith(".git/")) return true;
   return ignoredEntries.some((entry) => relativePath === entry || relativePath.startsWith(`${entry}/`));
 }
 
@@ -65,10 +70,18 @@ else fail("缺少有效的微信小游戏 AppID");
 if (/^\d+\.\d+\.\d+$/.test(String(project.libVersion || ""))) pass(`基础库版本已固定为 ${project.libVersion}`);
 else warn("基础库版本没有使用明确的三段式版本号");
 
+if (!privateProject || !privateProject.libVersion || privateProject.libVersion === project.libVersion) pass("本机私有配置没有覆盖为其他基础库版本");
+else fail(`本机私有配置将基础库覆盖为 ${privateProject.libVersion}，应与项目配置 ${project.libVersion} 一致`);
+
 subpackageRoots.forEach((subpackageRoot) => {
   if (fs.existsSync(path.join(root, subpackageRoot))) pass(`分包目录存在：${subpackageRoot}`);
   else fail(`分包目录不存在：${subpackageRoot}`);
 });
+
+const openDataRoot = String(gameConfig.openDataContext || "").replace(/\/$/, "");
+const openDataEntry = openDataRoot ? path.join(root, openDataRoot, "index.js") : "";
+if (openDataRoot && fs.existsSync(openDataEntry)) pass(`微信开放数据域已配置：${openDataRoot}`);
+else fail("缺少微信好友榜开放数据域配置或 index.js");
 
 const mainBytes = packageSize(".", true);
 const subpackageBytes = subpackageRoots.reduce((sum, subpackageRoot) => sum + packageSize(subpackageRoot, false), 0);
@@ -86,15 +99,26 @@ else warn(`总包未满足项目自设 4 MiB 门槛：${mib(totalBytes)} MiB`);
 
 const code = runtimeText();
 const inputApis = /(?:showKeyboard|onKeyboardInput|onKeyboardConfirm|offKeyboardInput|chooseImage|chooseMedia|chooseMessageFile|getClipboardData)/;
-const privacyApis = /(?:getUserProfile|getUserInfo|getPhoneNumber|getLocation|chooseLocation|startRecord|authorize\s*\()/;
+const nonFriendPrivacyApis = /(?:getUserProfile|getUserInfo|getPhoneNumber|getLocation|chooseLocation|startRecord)/;
+const relationFriendApi = /\.getRelationFriendList\s*\(/.test(code);
+const relationFriendAuthorization = /scope\s*:\s*["']scope\.interactedUserInfo["']/.test(code);
+const obsoleteFriendAuthorization = /scope\s*:\s*["']scope\.WxFriendInteraction["']/.test(code);
 const paymentOrAdApis = /(?:requestPayment|createRewardedVideoAd|createBannerAd|createInterstitialAd|createCustomAd)/;
 
 if (!inputApis.test(code) && /editable:\s*true/.test(code)) pass("生产代码没有公开UGC入口；仅保留本地整数采购数量输入");
 else if (!inputApis.test(code)) pass("生产代码没有玩家文本/媒体录入入口");
 else fail("生产代码仍包含玩家输入或媒体选择接口，需补充内容安全与隐私链路");
 
-if (!privacyApis.test(code)) pass("生产代码未调用敏感隐私接口");
-else warn("检测到敏感隐私接口，须确认隐私保护指引、用途声明和授权时机");
+if (!nonFriendPrivacyApis.test(code) && !relationFriendApi && !relationFriendAuthorization && !obsoleteFriendAuthorization) pass("好友榜仅使用开放数据域，不额外请求同玩互动好友资料");
+else if (!nonFriendPrivacyApis.test(code) && relationFriendApi && relationFriendAuthorization && !obsoleteFriendAuthorization) pass("同玩互动好友接口使用 scope.interactedUserInfo，并与好友榜能力分离");
+else if (!nonFriendPrivacyApis.test(code)) fail("同玩互动好友授权配置不匹配：getRelationFriendList 必须对应 scope.interactedUserInfo，且不得使用 scope.WxFriendInteraction");
+else warn("检测到其他敏感隐私接口，须确认隐私保护指引、用途声明和授权时机");
+
+const openDataCode = openDataEntry && fs.existsSync(openDataEntry) ? fs.readFileSync(openDataEntry, "utf8") : "";
+if (/getFriendCloudStorage/.test(openDataCode) && !/getFriendCloudStorage/.test(code)) pass("好友云数据只在开放数据域读取，主域不会取得完整好友列表");
+else fail("好友云数据读取边界错误：getFriendCloudStorage 必须且只能位于开放数据域");
+if (/setUserCloudStorage/.test(code) && /wild_guardian_rank_v1/.test(code)) pass("本保护区排行数据已写入微信托管 KV 数据");
+else fail("好友榜缺少本玩家排行数据上传链路");
 
 if (!paymentOrAdApis.test(code)) pass("生产代码未接入支付或广告接口");
 else warn("检测到支付或广告接口，须补齐对应类目、协议和审核材料");

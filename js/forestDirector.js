@@ -208,7 +208,7 @@ function animalMood(npc, facts, input) {
     common.imageCue = "狼在混交林阴影里沿鹿群边缘移动";
     common.memory = `${input.day}日：${common.livedEvent}`;
   } else if (npc.species === "乌鸦") {
-    common.summary = "乌鸦把脚印、叫声和边界异响变成树冠情报";
+    common.summary = "乌鸦把脚印、叫声和边界异响变成树冠线索";
     common.livedEvent = (reserve.poacherPressure || 0) > 52
       ? "树冠下出现直线脚印，乌鸦记住了陌生人的路线。"
       : "树冠上能听见迁移路线变冷，熟悉的叫声少了一些。";
@@ -338,6 +338,148 @@ function visualState(facts, input) {
   };
 }
 
+const NARRATIVE_FACT_RULES = {
+  water: {
+    actionId: "habitat", threshold: { metric: "water", operator: ">=", value: 52, label: "水源恢复至52" },
+    dilemma: "先把有限资源留给水线，还是继续追查边界？",
+    debt: "水位恢复会让更多动物集中，也会把捕食者带近浅滩。",
+    hook: "天亮后，确认逆行脚印是否回到浅滩。"
+  },
+  grass: {
+    actionId: "habitat", threshold: { metric: "grass", operator: ">=", value: 40, label: "草场恢复至40" },
+    dilemma: "封闭草场让根系喘息，还是给迁徙队伍留下食物？",
+    debt: "草场轮休能保住新芽，也会迫使弱小队伍走向外缘。",
+    hook: "下一次风停时，查看队尾是否仍在保护区内。"
+  },
+  disease: {
+    actionId: "intervention", threshold: { metric: "disease", operator: "<=", value: 36, label: "疾病降至36以下" },
+    dilemma: "靠近救助病弱个体，还是保留群体最后的距离？",
+    debt: "干预能减慢扩散，人类气味却会留在育幼地。",
+    hook: "入夜后，确认哪一只没有回应群体呼叫。"
+  },
+  poachers: {
+    actionId: "antiPoacher", threshold: { metric: "poacherPressure", operator: "<=", value: 50, label: "偷猎压力降至50以下" },
+    dilemma: "立即封住入口，还是跟着脚印寻找更远的来源？",
+    debt: "强力封锁能守住今晚，也会惊动依赖黑暗活动的动物。",
+    hook: "下一班巡线时，寻找没有返回的第二串脚印。"
+  },
+  migration: {
+    actionId: "habitat", threshold: { metric: "migrationDelta", operator: ">=", value: 0, label: "迁徙不再流失" },
+    dilemma: "加固通道留住队伍，还是让它们自己决定去向？",
+    debt: "安全通道能护送幼体，也可能让群体依赖人为路线。",
+    hook: "清晨再数一次脚印，确认谁留下、谁继续走。"
+  },
+  population: {
+    actionId: "habitat", threshold: { metric: "grass", operator: ">=", value: 55, label: "草场恢复至55" },
+    dilemma: "接住回流的队伍，还是先守住保护区承载力？",
+    debt: "动物增加不是纯粹的好消息，每一张嘴都会改变草场。",
+    hook: "明天查看新脚印是否挤向同一个水点。"
+  },
+  predator_pressure: {
+    actionId: "houndScout", threshold: { metric: "safety", operator: ">=", value: 64, label: "安全恢复至64" },
+    dilemma: "保护眼前的猎物，还是接受捕食者也必须养活幼体？",
+    debt: "改变一次追逐，只会把饥饿推向另一条路线。",
+    hook: "下一次黄昏，确认捕食者是否绕向育幼地。"
+  },
+  time_weather: {
+    actionId: "houndScout", threshold: { metric: "meaningfulActions", operator: ">=", value: 1, label: "完成一次有效巡线" },
+    dilemma: "先确认最安静的异常，还是把补给留给更坏的夜晚？",
+    debt: "没有立刻发生的坏事，也可能只是还没有被看见。",
+    hook: "风向改变前，确认最边缘的动物还在不在。"
+  }
+};
+
+function narrativeFact(facts) {
+  return facts.find((fact) => fact.severity === "high")
+    || facts.find((fact) => fact.severity === "medium" && fact.id !== "time_weather")
+    || facts.find((fact) => fact.id === "migration" && fact.delta)
+    || facts.find((fact) => fact.id === "water")
+    || facts[0];
+}
+
+function narrativeSpeaker(fact, characters) {
+  const preferred = {
+    water: ["水貂", "大象", "鹿", "河马"],
+    grass: ["鹿", "羚羊", "斑马"],
+    disease: ["秃鹫", "乌鸦", "鹿"],
+    poachers: ["乌鸦", "鹿", "熊"],
+    migration: ["鹿", "大象", "斑马"],
+    population: ["狼", "狮子", "鹿"],
+    predator_pressure: ["狼", "狮子", "鹿"]
+  }[fact && fact.id] || [];
+  return preferred.map((species) => (characters || []).find((animal) => animal.species === species)).find(Boolean)
+    || (characters || [])[0]
+    || { id: "forest", name: "森林", shortName: "森林", species: "森林" };
+}
+
+function narrativeAnimalLine(fact, speaker, input) {
+  const lines = {
+    water: "幼崽今天还没有喝到水。",
+    grass: "队尾已经在啃最后一层草根。",
+    disease: "有一只，今夜没有回应。",
+    poachers: "那不是兽类留下的直线。",
+    migration: "我们要记住两条能离开的路。",
+    population: "脚印多了，退路却没有变宽。",
+    predator_pressure: "饥饿不会因为边界停下来。",
+    time_weather: "风停以后，声音反而更少了。"
+  };
+  const migrationDelta = Number((((input || {}).reserve || {}).migration || {}).delta) || 0;
+  if (fact && fact.id === "migration" && migrationDelta < 0) return "队伍少了，但幼崽还得继续走。";
+  return lines[(fact && fact.id) || "time_weather"] || lines.time_weather;
+}
+
+function immediateNarrativeConsequence(input, fact) {
+  const delta = input.delta || {};
+  const action = input.action || "seed";
+  if (action === "seed") return "你还没有行动，所有代价仍停在选择之前。";
+  if (fact.id === "water" || fact.id === "grass" || fact.id === "disease") {
+    const value = (input.reserve && input.reserve.ecology && input.reserve.ecology[fact.id]) || 0;
+    return `${fact.label}现在为${value}；这次行动已经改变下一夜的承载力。`;
+  }
+  if (fact.id === "poachers") return `偷猎压力现在为${(input.reserve && input.reserve.poacherPressure) || 0}；脚印只退到了视线以外。`;
+  if (fact.id === "migration") return `迁徙变化${delta.migration >= 0 ? "+" : ""}${delta.migration || 0}；留下与离开都已经发生。`;
+  if (delta.safety) return `安全${delta.safety > 0 ? "+" : ""}${delta.safety}；被惊动的路线还没有重新安静。`;
+  if (delta.fund) return `基金${delta.fund > 0 ? "+" : ""}${delta.fund}；下一次守护能动用的余地已经改变。`;
+  return "行动已经写入保护区，真正的回声要等到下一次巡线。";
+}
+
+function buildNarrativeBeat(input = {}, factsInput = null, charactersInput = null) {
+  const facts = factsInput || buildFacts(input);
+  const fact = narrativeFact(facts);
+  const characters = charactersInput || input.knownCharacters || ((input.world || {}).knownCharacters || []);
+  const speaker = narrativeSpeaker(fact, characters);
+  const rule = NARRATIVE_FACT_RULES[fact.id] || NARRATIVE_FACT_RULES.time_weather;
+  const day = Math.max(1, Number(input.day || (input.world || {}).day) || 1);
+  const place = regionNameById(fact.regionId, input.world || {});
+  const sceneByFact = {
+    water: `第${day}日，${place}的浅滩又短了一截，幼体被推到队伍内侧。`,
+    grass: `第${day}日，${place}的新芽被反复踩断，队尾开始啃食草根。`,
+    disease: `第${day}日，${place}少了一次回应，健康个体正在远离旧水点。`,
+    poachers: `第${day}日，${place}出现过于笔直的脚印，动物先于巡护线转向。`,
+    migration: `第${day}日，${place}的脚印改变方向，最年幼的个体走在中间。`,
+    population: `第${day}日，${place}多了新的脚印，水草与退路却没有一起增加。`,
+    predator_pressure: `第${day}日，${place}的追逐线靠近水边，猎物与捕食者都在养育后代。`,
+    time_weather: `第${day}日，${place}最熟悉的叫声突然少了一次。`
+  };
+  return {
+    id: `beat_${day}_${input.action || "seed"}_${fact.id}`,
+    scene: sceneByFact[fact.id] || sceneByFact.time_weather,
+    animalId: speaker.id || "forest",
+    animalName: speaker.shortName || speaker.name || speaker.species || "森林",
+    animalLine: narrativeAnimalLine(fact, speaker, input),
+    dilemma: rule.dilemma,
+    actionId: rule.actionId,
+    threshold: Object.assign({}, rule.threshold),
+    immediateConsequence: immediateNarrativeConsequence(input, fact),
+    delayedDebt: rule.debt,
+    nextHook: rule.hook,
+    permanence: fact.severity === "high" ? "warning" : "none",
+    factId: fact.id,
+    factValue: fact.value,
+    factDelta: fact.delta || 0
+  };
+}
+
 function runForestDirector(input) {
   const world = input.world || {};
   const reserveView = input.reserveView || (world && world.reserveView) || (input.reserve && input.reserve.reserveView) || null;
@@ -363,17 +505,19 @@ function runForestDirector(input) {
     });
   });
   const view = visualState(facts, input);
+  const narrativeBeat = buildNarrativeBeat(input, facts, knownCharacters);
   const director = {
-    version: "local-forest-director-v1",
+    version: "local-forest-director-v2",
     day: input.day || world.day || 1,
     action: input.action || "patrol",
     location: input.location || "保护区",
     timeLabel: `第 ${input.day || world.day || 1} 日 ${(input.time && input.time.phase) || "未知时段"} · ${input.weather || world.weather || "天气未知"}`,
-    principle: "数据决定事实，AI 负责表达",
+    principle: "数据决定事实，智能系统负责表达",
     facts,
     dataSummary,
     reserveView,
     animalMoods,
+    narrativeBeat,
     visualState: view,
     pictureCues: [
       view.waterCue,
@@ -389,5 +533,6 @@ function runForestDirector(input) {
 }
 
 module.exports = {
-  runForestDirector
+  runForestDirector,
+  buildNarrativeBeat
 };

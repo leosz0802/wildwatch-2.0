@@ -1,4 +1,5 @@
 const { BALANCE_V2 } = require("./balanceConfig");
+const { eventCategory } = require("./eventEconomy");
 const { addPendingRecovered, consumeProjectPreparation } = require("./resourceLedger");
 
 const STRATEGY_ROUTES = {
@@ -47,6 +48,7 @@ const STRATEGY_ROUTES = {
 const STRATEGY_ROUTE_IDS = ["enforcement", "ecology", "research", "community"];
 const MAX_ROUTE_SCORE = 30;
 const STRATEGY_CHAPTER_TARGETS = {
+  // 第一阶段由阶段状态覆盖为一次轻策略；后续第1章延伸阶段保留原节奏。
   1: { total: 3, major: 1 },
   2: { total: 4, major: 1 },
   3: { total: 5, major: 2 },
@@ -93,8 +95,8 @@ const LEGACY_MAJOR_DILEMMAS = [
         id: "pay_informant",
         label: "支付线人费用",
         route: "research",
-        effects: { fund: -140, intel: 2, poacherPressure: -5, reputation: 2 },
-        consequence: { id: "informant_line", label: "线人情报线", remainingActions: 4, modifiers: { enforcement: 1, fund: -8 } },
+        effects: { fund: -140, poacherPressure: -5, reputation: 2 },
+        consequence: { id: "informant_line", label: "线人线索线", remainingActions: 4, modifiers: { enforcement: 1, fund: -8 } },
         outcome: "运输时间表被验证，后续数次巡护会持续得到线索，但线人维护需要补给。"
       },
       {
@@ -154,7 +156,7 @@ const LEGACY_MAJOR_DILEMMAS = [
         id: "secret_archive",
         label: "只做秘密档案",
         route: "research",
-        effects: { fund: -90, intel: 1, reputation: 4, poacherPressure: -2 },
+        effects: { fund: -90, reputation: 4, poacherPressure: -2 },
         consequence: { id: "quiet_monitoring", label: "静默监测", remainingActions: 5, modifiers: { fund: -10, reputation: 1 } },
         outcome: "你放弃即时曝光，把路线交给小范围科研监测。"
       }
@@ -198,7 +200,7 @@ const LEGACY_MAJOR_DILEMMAS = [
         id: "joint_taskforce",
         label: "移交联合专案组",
         route: "enforcement",
-        effects: { fund: 250, enforcement: 10, poacherPressure: -12, intel: -1, reputation: -3 },
+        effects: { fund: 250, enforcement: 10, poacherPressure: -12, reputation: -3 },
         consequence: { id: "joint_taskforce", label: "联合专案", remainingActions: 7, modifiers: { enforcement: 1, fund: -15 } },
         outcome: "案件迅速扩大，边界压力下降，但部分研究线索不再由你掌握。"
       },
@@ -206,7 +208,7 @@ const LEGACY_MAJOR_DILEMMAS = [
         id: "research_chain",
         label: "建立研究证据链",
         route: "research",
-        effects: { fund: -120, intel: 2, reputation: 4, enforcement: 2 },
+        effects: { fund: -120, reputation: 4, enforcement: 2 },
         consequence: { id: "research_chain", label: "证据链研究", remainingActions: 6, modifiers: { fund: -12, enforcement: 1, reputation: 1 } },
         outcome: "即时收益较低，但保护区开始掌握犯罪链的长期模式。"
       }
@@ -233,11 +235,11 @@ function choice(id, label, route, effects, consequenceLabel, modifiers, outcome,
 
 const THIRD_MAJOR_CHOICES = {
   water_access: choice("rotating_water", "轮换开放水线", "ecology", { water: 6, fund: -120, migrationDelta: 2, poacherPressure: 1 }, "轮换水线", { water: 1, fund: -10 }, "水线按动物活动轮换开放，恢复速度适中，也需要持续维护。", "balanced"),
-  informant_or_blockade: choice("controlled_sting", "布置可控诱捕", "research", { fund: -120, intel: -1, poacherPressure: -8, enforcement: 4 }, "可控诱捕", { intel: -1, enforcement: 1 }, "你没有立刻收网，而是用有限情报锁定更完整的运输链。", "balanced"),
-  disease_response: choice("mobile_screening", "建立移动筛查", "research", { disease: -7, fund: -130, intel: -1, stability: 3 }, "移动筛查", { fund: -12, disease: -1 }, "筛查队沿迁徙路线移动，成本不低，但避免了全面封路。", "balanced"),
-  rare_route: choice("limited_release", "限量发布影像", "ecology", { fund: 240, reputation: 5, poacherPressure: 2, intel: -1 }, "限量公开", { fund: 20, poacherPressure: 1 }, "你只公开模糊地点的影像，获得关注，同时保留核心路线。", "balanced"),
+  informant_or_blockade: choice("controlled_sting", "布置可控诱捕", "research", { fund: -120, poacherPressure: -8, enforcement: 4 }, "可控诱捕", { enforcement: 1 }, "你没有立刻收网，而是用有限线索锁定更完整的运输链。", "balanced"),
+  disease_response: choice("mobile_screening", "建立移动筛查", "research", { disease: -7, fund: -130, stability: 3 }, "移动筛查", { fund: -12, disease: -1 }, "筛查队沿迁徙路线移动，成本不低，但避免了全面封路。", "balanced"),
+  rare_route: choice("limited_release", "限量发布影像", "ecology", { fund: 240, reputation: 5, poacherPressure: 2 }, "限量公开", { fund: 20, poacherPressure: 1 }, "你只公开模糊地点的影像，获得关注，同时保留核心路线。", "balanced"),
   community_boundary: choice("seasonal_corridor", "划定季节通道", "ecology", { fund: -140, water: 3, migrationDelta: 4, reputation: 3, poacherPressure: 2 }, "季节通道", { migrationDelta: 1, fund: -12 }, "动物与社区按季节错峰使用边界，冲突缓解但巡查更复杂。", "balanced"),
-  evidence_destination: choice("independent_archive", "建立独立档案", "community", { fund: -90, reputation: 5, enforcement: 3, intel: 1 }, "公共监督档案", { fund: -10, reputation: 1 }, "保护区保留证物副本并接受公共监督，效率较慢但信任更稳。", "balanced")
+  evidence_destination: choice("independent_archive", "建立独立档案", "community", { fund: -90, reputation: 5, enforcement: 3 }, "公共监督档案", { fund: -10, reputation: 1 }, "保护区保留证物副本并接受公共监督，效率较慢但信任更稳。", "balanced")
 };
 
 function failureEffectsFor(effects) {
@@ -281,7 +283,7 @@ const TACTICAL_DILEMMAS = [
   {
     id: "patrol_split", title: "今晚只有一支巡护队", story: "河岸出现脚印，草场同时传来幼兽叫声。你只能先处理一边。", minChapter: 1, minActions: 3,
     choices: [
-      choice("patrol_river", "先查河岸脚印", "enforcement", { poacherPressure: -4, intel: 1, grass: -2 }, "河岸加密巡查", { poacherPressure: -1, fund: -6 }, "边界线索更清楚，但草场维护被推迟。"),
+      choice("patrol_river", "先查河岸脚印", "enforcement", { poacherPressure: -4, grass: -2 }, "河岸加密巡查", { poacherPressure: -1, fund: -6 }, "边界线索更清楚，但草场维护被推迟。"),
       choice("patrol_meadow", "先找草场幼兽", "ecology", { grass: 4, reputation: 2, poacherPressure: 2 }, "草场救助", { grass: 1, fund: -6 }, "幼兽得到照看，但陌生脚印暂时无人跟进。")
     ]
   },
@@ -296,7 +298,7 @@ const TACTICAL_DILEMMAS = [
     id: "injured_herd", title: "迁徙队尾有一只伤鹿", story: "单独救助会打乱群体节奏，继续观察则可能错过治疗窗口。", minChapter: 1, minActions: 5, minAnimalTrust: 38,
     choices: [
       choice("rescue_deer", "立即救助", "ecology", { reputation: 4, stability: 3, fund: -75, migrationDelta: -1 }, "个体救助", { reputation: 1, fund: -8 }, "伤鹿被留下治疗，鹿群先向前移动。"),
-      choice("track_deer", "保持距离观察", "research", { intel: 2, migrationDelta: 2, reputation: -2 }, "远距跟踪", { intel: 1, reputation: -1 }, "迁徙没有中断，但你承担了延迟救助的舆论压力。")
+      choice("track_deer", "保持距离观察", "research", { migrationDelta: 2, reputation: -2 }, "远距跟踪", { reputation: -1 }, "迁徙没有中断，但你承担了延迟救助的舆论压力。")
     ]
   },
   {
@@ -306,20 +308,20 @@ const TACTICAL_DILEMMAS = [
     id: "fence_gap", title: "防护网出现一处缺口", story: "缺口也是动物通道。立即封死更安全，保留通道则需要持续监控。", minChapter: 1, minActions: 5,
     choices: [
       choice("seal_gap", "立即封死", "enforcement", { safety: 5, migrationDelta: -2, fund: -45 }, "封闭缺口", { safety: 1, migrationDelta: -1 }, "边界更安全，但动物失去一条熟悉通道。"),
-      choice("monitor_gap", "保留并监控", "research", { intel: 1, migrationDelta: 2, fund: -65 }, "监控通道", { intel: 1, fund: -8 }, "动物继续使用通道，巡护成本随之增加。")
+      choice("monitor_gap", "保留并监控", "research", { migrationDelta: 2, fund: -65 }, "监控通道", { fund: -8 }, "动物继续使用通道，巡护成本随之增加。")
     ]
   },
   {
-    id: "sample_request", title: "研究站申请一批新样本", story: "提交样本能换来数据，留在仓库则可以等待更高的项目拨款。", minChapter: 1, minActions: 6, routeRequirement: "research", eligible: (reserve) => (reserve.intel || 0) <= 4,
+    id: "sample_request", title: "研究站申请一批新样本", story: "提交样本能换来数据，留在仓库则可以等待更高的项目拨款。", minChapter: 1, minActions: 6, routeRequirement: "research", eligible: (reserve) => (reserve.poacherPressure || 0) >= 35,
     choices: [
-      choice("share_samples", "交给研究站", "research", { intel: 1, reputation: 3, fund: -40 }, "联合研究", { reputation: 1, fund: -5 }, "研究数据回流保护区，但短期没有现金收益。"),
-      choice("hold_samples", "暂存等待合同", "community", { fund: 180, business: 2, intel: -1, reputation: -1 }, "样本暂存", { fund: 8 }, "现金压力缓解，但研究合作降温。")
+      choice("share_samples", "交给研究站", "research", { reputation: 3, fund: -40 }, "联合研究", { reputation: 1, fund: -5 }, "研究数据回流保护区，但短期没有现金收益。"),
+      choice("hold_samples", "暂存等待合同", "community", { fund: 180, business: 2, reputation: -1 }, "样本暂存", { fund: 8 }, "现金压力缓解，但研究合作降温。")
     ]
   },
   {
     id: "community_tip", title: "牧民提供一条可疑车辙", story: "公开奖励能鼓励更多报告，也可能招来虚假线索。", minChapter: 1, minActions: 6, routeRequirement: "community", minAnimalTrust: 50,
     choices: [
-      choice("reward_tip", "公开奖励线索", "community", { reputation: 4, intel: 1, fund: -70 }, "社区线索网", { reputation: 1, fund: -8 }, "更多人愿意报告异常，但维护线索网需要预算。"),
+      choice("reward_tip", "公开奖励线索", "community", { reputation: 4, fund: -70 }, "社区线索网", { reputation: 1, fund: -8 }, "更多人愿意报告异常，但维护线索网需要预算。"),
       choice("verify_tip", "秘密核验", "enforcement", { poacherPressure: -3, enforcement: 3, reputation: -2 }, "秘密核验", { poacherPressure: -1, reputation: -1 }, "行动更隐蔽，但社区感受不到参与价值。")
     ]
   },
@@ -347,15 +349,15 @@ const TACTICAL_DILEMMAS = [
   {
     id: "market_offer", title: "项目提高样本拨款", story: "现在移交能快速获得研究补助，保留样本则可能支持后续研究。", minChapter: 2, minActions: 12, eligible: (reserve) => (reserve.fund || 0) <= 2000 || (reserve.business || 0) <= 55,
     choices: [
-      choice("sell_now", "接受专项拨款", "community", { fund: 250, business: 4, intel: -1 }, "样本移交", { fund: 12, reputation: -1 }, "基金迅速回升，但研究材料被提前移交。"),
-      choice("reserve_stock", "保留研究库存", "research", { intel: 2, reputation: 3, fund: -55 }, "研究库存", { reputation: 1, fund: -6 }, "你放弃短期拨款，换取持续研究价值。")
+      choice("sell_now", "接受专项拨款", "community", { fund: 250, business: 4 }, "样本移交", { fund: 12, reputation: -1 }, "基金迅速回升，但研究材料被提前移交。"),
+      choice("reserve_stock", "保留研究库存", "research", { reputation: 3, fund: -55 }, "研究库存", { reputation: 1, fund: -6 }, "你放弃短期拨款，换取持续研究价值。")
     ]
   },
   {
     id: "camera_failure", title: "红外相机同时离线", story: "集中维修一处能快速恢复，分散替换则覆盖更广。", minChapter: 2, minActions: 13,
     choices: [
-      choice("repair_core", "先修核心区", "enforcement", { intel: 1, poacherPressure: -3, fund: -65 }, "核心监控", { enforcement: 1, fund: -6 }, "核心区重新可见，外围盲点仍然存在。"),
-      choice("replace_edges", "替换外围设备", "research", { enforcement: 3, intel: 1, fund: -105 }, "外围监控", { enforcement: 1, fund: -9 }, "覆盖面扩大，但维修成本更高。")
+      choice("repair_core", "先修核心区", "enforcement", { poacherPressure: -3, fund: -65 }, "核心监控", { enforcement: 1, fund: -6 }, "核心区重新可见，外围盲点仍然存在。"),
+      choice("replace_edges", "替换外围设备", "research", { enforcement: 3, fund: -105 }, "外围监控", { enforcement: 1, fund: -9 }, "覆盖面扩大，但维修成本更高。")
     ]
   },
   {
@@ -376,14 +378,14 @@ const TACTICAL_DILEMMAS = [
     id: "disease_trace", title: "水边发现不明病迹", story: "立即封样能控制传播，继续跟踪则可能找到源头。", minChapter: 3, minActions: 20,
     choices: [
       choice("seal_trace", "封锁取样点", "ecology", { disease: -4, safety: 3, water: -2, fund: -55 }, "取样点封锁", { disease: -1, water: -1 }, "传播风险下降，动物失去一处饮水点。"),
-      choice("follow_trace", "沿足迹追踪", "research", { intel: 3, disease: 2, fund: -35 }, "病迹追踪", { intel: 1, disease: 1 }, "你得到更多信息，也承担病迹扩散风险。")
+      choice("follow_trace", "沿足迹追踪", "research", { clue: 3, disease: 2, fund: -35 }, "病迹追踪", { disease: 1 }, "你得到更多信息，也承担病迹扩散风险。")
     ]
   },
   {
     id: "evidence_storage", title: "证物库接近容量上限", story: "扩建需要基金，转交外部机构则会失去部分控制权。", minChapter: 4, minActions: 27, eligible: (reserve) => Object.keys((((reserve.mysteryEvidence || {}).evidence) || {})).length > 0,
     choices: [
-      choice("expand_archive", "扩建证物库", "research", { enforcement: 4, intel: 2, fund: -150 }, "证物库扩建", { enforcement: 1, fund: -12 }, "证据链留在本地，经营成本明显提高。"),
-      choice("transfer_evidence", "转交联合机构", "community", { fund: 120, reputation: 3, intel: -1 }, "联合保管", { reputation: 1 }, "外部机构承担成本，你失去部分研究主动权。")
+      choice("expand_archive", "扩建证物库", "research", { enforcement: 4, fund: -150 }, "证物库扩建", { enforcement: 1, fund: -12 }, "证据链留在本地，经营成本明显提高。"),
+      choice("transfer_evidence", "转交联合机构", "community", { fund: 120, reputation: 3 }, "联合保管", { reputation: 1 }, "外部机构承担成本，你失去部分研究主动权。")
     ]
   },
   {
@@ -416,10 +418,10 @@ const ADDITIONAL_MAJOR_DILEMMAS = [
   majorDecision("water_governance", "谁来管理长期水线", "临时水线已经稳定，但管理权会决定下一季谁先得到水。", 2, 14, "water_access", { choices: [
     choice("water_committee", "成立社区水委会", "community", { reputation: 7, fund: -180, water: 3 }, "水委会", { reputation: 1, fund: -16 }, "社区参与提高，协调成本长期存在。"),
     choice("water_command", "由保护区统一调度", "enforcement", { safety: 12, water: 10, reputation: -5 }, "统一水令", { safety: 1, reputation: -1 }, "调度效率提高，社区认为权力过于集中。", "risky"),
-    choice("water_model", "采用动态水量模型", "research", { intel: -1, water: 5, fund: -100, stability: 5 }, "动态水模", { fund: -10, water: 1 }, "模型减少争执，但依赖持续数据和预算。", "balanced")
+    choice("water_model", "采用动态水量模型", "research", { water: 5, fund: -100, stability: 5 }, "动态水模", { fund: -10, water: 1 }, "模型减少争执，但依赖持续数据和预算。", "balanced")
   ] }),
   majorDecision("poacher_network", "追到偷猎网络上游", "上一轮行动留下资金和运输线索，现在必须决定如何收网。", 2, 16, "informant_or_blockade", { choices: [
-    choice("network_watch", "继续监视", "research", { intel: 2, poacherPressure: -4, fund: -100 }, "网络监视", { enforcement: 1, fund: -10 }, "证据更完整，但部分人员暂时逃离视线。"),
+    choice("network_watch", "继续监视", "research", { poacherPressure: -4, fund: -100 }, "网络监视", { enforcement: 1, fund: -10 }, "证据更完整，但部分人员暂时逃离视线。"),
     choice("network_raid", "立即跨区收网", "enforcement", { enforcement: 8, poacherPressure: -12, reputation: -4, fund: -80 }, "跨区收网", { enforcement: 1, reputation: -1 }, "高风险收网可能瓦解网络，也可能打草惊蛇。", "risky"),
     choice("network_freeze", "冻结交易渠道", "community", { business: -4, poacherPressure: -7, reputation: 5, fund: -130 }, "交易冻结", { business: -1, poacherPressure: -1 }, "社区共同切断销赃渠道，合法经营也受到影响。", "balanced")
   ] }),
@@ -431,7 +433,7 @@ const ADDITIONAL_MAJOR_DILEMMAS = [
   majorDecision("rare_guardians", "谁能接近罕见动物", "罕见路线已经被记录，下一步是决定谁有资格接近。", 3, 25, "rare_route", { choices: [
     choice("rare_closed", "核心区完全封闭", "enforcement", { safety: 8, fund: -140, reputation: -3 }, "核心封闭", { safety: 1, fund: -12 }, "风险最低，也失去公众参与和研究机会。"),
     choice("rare_live", "公开限时直播", "community", { fund: 800, reputation: 10, poacherPressure: 6 }, "限时直播", { fund: 40, poacherPressure: 1 }, "关注和基金激增，路线暴露风险同步上升。", "risky"),
-    choice("rare_research", "认证研究员进入", "research", { intel: 1, reputation: 4, fund: -100, safety: 2 }, "认证研究", { reputation: 1, fund: -10 }, "获得长期数据，仍需承担人员进入的风险。", "balanced")
+    choice("rare_research", "认证研究员进入", "research", { reputation: 4, fund: -100, safety: 2 }, "认证研究", { reputation: 1, fund: -10 }, "获得长期数据，仍需承担人员进入的风险。", "balanced")
   ] }),
   majorDecision("community_charter", "边界协议表决", "临时约定到期，需要确定长期规则。", 4, 31, "community_boundary", { choices: [
     choice("charter_local", "社区共同治理", "community", { reputation: 8, stability: 5, fund: -220 }, "共同治理", { reputation: 1, fund: -18 }, "信任最稳，但保护区持续承担协调成本。"),
@@ -441,7 +443,7 @@ const ADDITIONAL_MAJOR_DILEMMAS = [
   majorDecision("reserve_funding_crisis", "保护区出现结构性资金缺口", "维护、救助和执法同时需要资金，没有方案能保住全部目标。", 4, 30, "", { eligible: (reserve) => (reserve.fund || 0) < 1100, choices: [
     choice("fund_cut", "全面压缩支出", "enforcement", { fund: 220, stability: -6, reputation: -4 }, "紧缩预算", { fund: 20, stability: -1 }, "账面迅速稳定，前线和社区承受压力。"),
     choice("fund_campaign", "发动公众募资", "community", { fund: 360, reputation: 7, poacherPressure: 7 }, "公众募资", { fund: 30, poacherPressure: 1 }, "资金最充足，保护区位置与故事也更公开。", "risky"),
-    choice("fund_contract", "签科研服务合同", "research", { fund: 210, intel: -2, business: 4, reputation: -1 }, "科研合同", { fund: 18, intel: -1 }, "收入更稳定，但科研资源被合同占用。", "balanced")
+    choice("fund_contract", "签科研服务合同", "research", { fund: 210, clue: -2, business: 4, reputation: -1 }, "科研合同", { fund: 18 }, "收入更稳定，但科研资源被合同占用。", "balanced")
   ] })
 ].map((item) => Object.assign({}, item, {
   choices: item.choices.map((entry, index) => Object.assign({}, entry, {
@@ -459,7 +461,7 @@ const STRATEGY_BALANCE_WEIGHTS = {
   reputation: 0.8,
   enforcement: 1,
   poacherPressure: -1,
-  intel: 2,
+  clue: 2,
   business: 1,
   water: 1,
   grass: 1,
@@ -481,9 +483,17 @@ function strategicChoiceExpectedValue(entry) {
 }
 
 const STRATEGIC_DILEMMAS = TACTICAL_DILEMMAS.filter((item) => item.id !== "feed_shortage").concat(ENHANCED_MAJOR_DILEMMAS, ADDITIONAL_MAJOR_DILEMMAS).map((item) => {
+  const natural = ["water_access", "water_pump", "injured_herd", "disease_trace", "disease_response", "disease_corridor", "dry_season_queue"].includes(item.id);
+  const neighbor = ["water_governance", "evidence_destination"].includes(item.id);
+  const category = eventCategory({ category: neighbor ? "neighbor" : natural ? "nature" : "social" });
   const values = item.choices.map(strategicChoiceExpectedValue);
   const average = values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
   return Object.assign({}, item, {
+    category: category.id,
+    categoryLabel: category.label,
+    economicChain: category.chain,
+    story: item.id === "water_governance" ? "上游邻区提出共同管理水线。分配方式影响两区动物停留，也决定水边游客能否继续参访。"
+      : item.id === "evidence_destination" ? "邻区送来转运证物，希望交换核验结果。联合办案或共享研究，会改变边界安全和后续客流。" : item.story,
     choices: item.choices.map((entry, index) => Object.assign({}, entry, {
       expectedValue: values[index],
       balanceScore: Math.round(100 + values[index] - average)
@@ -506,7 +516,7 @@ function normalizeStrategyState(saved) {
     ? Object.assign({}, base.pendingDilemma, {
       id: pendingDefinition.id,
       tier: pendingDefinition.tier,
-      chapter: Math.max(1, Math.min(5, Math.round(base.pendingDilemma.chapter || pendingDefinition.minChapter || 1))),
+      chapter: Math.max(1, Math.min(7, Math.round(base.pendingDilemma.chapter || pendingDefinition.minChapter || 1))),
       actionIndex: Math.max(0, Math.round(base.pendingDilemma.actionIndex || 0))
     })
     : null;
@@ -568,8 +578,8 @@ function strategyRoute(reserve) {
 
 function addMetric(reserve, key, amount) {
   if (!amount) return;
-  if (key === "intel") {
-    // 情报已退出玩家资源层；保留旧事件字段，但不再改变存档或成功率。
+  if (key === "clue") {
+    // 线索已退出玩家资源层；保留旧事件字段，但不再改变存档或成功率。
     return;
   }
   if (key === "fund") {
@@ -594,7 +604,7 @@ function addMetric(reserve, key, amount) {
     reserve.migration.trend = reserve.migration.delta > 0 ? "in" : reserve.migration.delta < 0 ? "out" : "stable";
     return;
   }
-  const max = key === "intel" ? 6 : key === "fund" ? Number.MAX_SAFE_INTEGER : 100;
+  const max = key === "clue" ? 6 : key === "fund" ? Number.MAX_SAFE_INTEGER : 100;
   reserve[key] = clamp(Math.round((reserve[key] || 0) + amount), 0, max);
 }
 
@@ -636,7 +646,7 @@ function recordStrategicAction(reserve, action) {
 
   if (penalty > 0) {
     if (action === "houndScout" || action === "antiPoacher") addMetric(reserve, "poacherPressure", penalty * 2);
-    if (action === "houndScout") addMetric(reserve, "intel", -penalty);
+    if (action === "houndScout") addMetric(reserve, "clue", -penalty);
     if (action === "habitat") {
       addMetric(reserve, "water", -penalty * 2);
       addMetric(reserve, "grass", -penalty * 2);
@@ -672,7 +682,7 @@ function recordStrategicAction(reserve, action) {
     if (action === "antiPoacher") addMetric(reserve, "poacherPressure", 1);
   } else if (meaningful && route.id === "research") {
     if (action === "houndScout") {
-      addMetric(reserve, "intel", 1);
+      addMetric(reserve, "clue", 1);
       addMetric(reserve, "poacherPressure", -1);
       if ((reserve.safety || 0) < 60) addMetric(reserve, "safety", 1);
     }
@@ -749,7 +759,9 @@ function maybePrepareStrategicDilemma(reserve, context = {}, random = Math.rando
   const animalTrust = Math.max(0, Math.min(100, context.animalTrust == null ? (reserve.reputation || 50) : context.animalTrust));
   const seasonName = ((reserve.seasonState || {}).name) || context.season || "雨季";
   const chapterRecords = (state.choiceHistory || []).filter((record) => record.chapter === chapter);
-  const chapterTarget = STRATEGY_CHAPTER_TARGETS[chapter] || STRATEGY_CHAPTER_TARGETS[5];
+  const chapterTarget = ((reserve.progression || {}).stage === 1)
+    ? { total: 1, major: 0 }
+    : (STRATEGY_CHAPTER_TARGETS[chapter] || STRATEGY_CHAPTER_TARGETS[5]);
   const storedChapterChoices = Number.isFinite((reserve.progression || {}).chapterStrategicChoices) ? reserve.progression.chapterStrategicChoices : 0;
   const storedChapterMajorChoices = Number.isFinite((reserve.progression || {}).chapterMajorStrategicChoices) ? reserve.progression.chapterMajorStrategicChoices : 0;
   const chapterChoiceCount = Math.max(storedChapterChoices, chapterRecords.length);
@@ -768,7 +780,7 @@ function maybePrepareStrategicDilemma(reserve, context = {}, random = Math.rando
     && chapter - lastChapterFor(item.id) >= (item.minChapterRepeatGap || 0)
     && item.id !== lastDilemmaId
     && chapter >= item.minChapter
-    && totalActions >= item.minActions
+    && totalActions >= (item.id === "patrol_split" && ((reserve.progression || {}).stage === 1) ? 4 : item.minActions)
     && (!item.seasons || item.seasons.includes(seasonName))
     && (item.minAnimalTrust == null || animalTrust >= item.minAnimalTrust)
     && (!item.requiresDilemmaId || (state.choiceHistory || []).some((record) => record.dilemmaId === item.requiresDilemmaId))
@@ -836,7 +848,6 @@ function metricSnapshot(reserve) {
     reputation: reserve.reputation || 0,
     enforcement: reserve.enforcement || 0,
     poacherPressure: reserve.poacherPressure || 0,
-    intel: reserve.intel || 0,
     business: reserve.business || 0,
     water: ecology.water || 0,
     grass: ecology.grass || 0,
@@ -854,7 +865,7 @@ const METRIC_LABELS = {
   reputation: "共护关系",
   enforcement: "边界控制",
   poacherPressure: "偷猎",
-  intel: "调查记录",
+  clue: "调查记录",
   business: "协作效率",
   water: "水源",
   grass: "草场",
@@ -865,7 +876,7 @@ const METRIC_LABELS = {
 };
 
 function effectPreview(choice) {
-  return Object.keys(choice.effects || {}).filter((key) => key !== "intel").map((key) => {
+  return Object.keys(choice.effects || {}).filter((key) => key !== "clue").map((key) => {
     const value = choice.effects[key];
     if (key === "fund") {
       const amount = Math.max(1, Math.ceil(Math.abs(value) / 100));
@@ -901,7 +912,7 @@ function adjustedEffectsFor(reserve, dilemma, choice, effects) {
 function strategicResourceShortfall(reserve, effects) {
   return {
     fund: 0,
-    intel: 0,
+    clue: 0,
     stabilityPenalty: 0,
     reputationPenalty: 0,
     poacherPenalty: 0
@@ -1005,6 +1016,11 @@ function applyStrategicChoice(reserve, dilemmaId, choiceId, diceResult = null) {
   state.lastChoiceAction = state.lastDilemmaAction;
   if (dilemma.tier === "major") state.lastMajorAction = state.lastDilemmaAction;
   else state.lastTacticalAction = state.lastDilemmaAction;
+  // 第一阶段的轻策略在第4次行动后才展示，但不应让后续章节整体多出一拍等待。
+  // 将节奏锚点回拨一格，保留“第4次出现”的体验，同时维持原有章节 cadence。
+  if (dilemma.id === "patrol_split" && ((reserve.progression || {}).stage === 1)) {
+    state.lastTacticalAction = Math.max(0, state.lastTacticalAction - 1);
+  }
   state.chainFlags[dilemma.id] = choice.id;
   state.pendingDilemma = null;
   state.pendingSelection = null;

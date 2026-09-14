@@ -1,4 +1,4 @@
-const { fundHealth, levelOf } = require("./balanceConfig");
+const { fundHealth, ECOLOGY_THRESHOLDS, levelOf } = require("./balanceConfig");
 
 function clamp(value) {
   return Math.max(0, Math.min(100, Math.round(value || 0)));
@@ -43,7 +43,8 @@ function actionLabel(action) {
     exploreMaterials: "动物引路探索",
     salvage: "移交守护样本",
     buySupplies: "采购补给",
-    patrol: "巡护"
+    patrol: "巡护",
+    visitorAdjust: "调节游客现场"
   }[action] || "巡护";
 }
 
@@ -57,16 +58,16 @@ function animalStatusFor(reserve, context = {}) {
   if ((migration.delta || 0) > 2) {
     return { value: "回归", tone: "special", reason: migration.reason || "安全感提升，动物开始靠近", action: "habitat" };
   }
-  if (disease > 30) {
+  if (disease >= ECOLOGY_THRESHOLDS.warningDisease) {
     return { value: "生病", tone: "bad", reason: "病虫害升高，幼体和老弱个体先受影响", action: "houndScout" };
   }
-  if ((migration.delta || 0) < 0 || water < 40 || grass < 38) {
+  if ((migration.delta || 0) < 0 || water <= ECOLOGY_THRESHOLDS.criticalWater || grass <= ECOLOGY_THRESHOLDS.criticalGrass) {
     return { value: "迁出", tone: "bad", reason: migration.reason || (water < grass ? "饮水不足，边缘动物开始退走" : "草场承载不足，动物开始寻找新食地"), action: "habitat" };
   }
-  if (water < 55 || grass < 52 || disease > 22) {
-    return { value: "承压", tone: "warn", reason: disease > 22 ? "疾病风险升高，群体活动开始收缩" : water < 55 ? "水线变紧，饮水路线更谨慎" : "草场吃紧，群体活动范围变大", action: disease > 22 ? "intervention" : "habitat" };
+  if (water < ECOLOGY_THRESHOLDS.lowWater || grass < ECOLOGY_THRESHOLDS.lowGrass || disease >= ECOLOGY_THRESHOLDS.warningDisease) {
+    return { value: "承压", tone: "warn", reason: disease >= ECOLOGY_THRESHOLDS.warningDisease ? "疾病风险升高，群体活动开始收缩" : water < ECOLOGY_THRESHOLDS.lowWater ? "水线变紧，饮水路线更谨慎" : "草场吃紧，群体活动范围变大", action: disease >= ECOLOGY_THRESHOLDS.warningDisease ? "intervention" : "habitat" };
   }
-  if (seasonDay % 24 >= 10 && seasonDay % 24 <= 18 && water >= 70 && grass >= 68 && disease <= 18) {
+  if (seasonDay % 24 >= 10 && seasonDay % 24 <= 18 && water >= 70 && grass >= 68 && disease <= ECOLOGY_THRESHOLDS.recoveryDisease) {
     return { value: "繁殖中", tone: "special", reason: "繁殖季窗口稳定，幼崽更愿意留在核心区", action: "habitat" };
   }
   return { value: "安定", tone: "good", reason: "水草和边界暂时稳定，动物愿意继续观察这里", action: "houndScout" };
@@ -88,21 +89,39 @@ function primaryReasons(before = {}, reserve = {}, context = {}) {
   const beforeMigrationDelta = (before.migration && before.migration.delta) || 0;
   const action = context.action || "";
   const emergency = reserve.emergency && reserve.emergency.active;
+  const visitorToday = ((((reserve.development || {}).operations || {}).today) || {});
+  const social = reserve.social || {};
 
   if (emergency) reasons.push({
     id: emergency.type,
+    eventType: emergency.type,
     priority: 120,
     label: emergency.title,
-    body: emergency.type === "poacher_ring" ? `偷猎团伙仍在活动，剩余 ${emergency.daysRemaining} 天处置窗口` : `疾病正在扩散，剩余 ${emergency.daysRemaining} 天处置窗口`,
-    action: emergency.recommendedAction,
-    marker: "crisis",
-    regionId: emergency.type === "poacher_ring" ? "river" : "meadow"
+    body: `${emergency.impact || "保护区危机仍在持续"} 剩余 ${emergency.daysRemaining} 次处置机会，进度 ${emergency.progress || 0}/${emergency.target || 3}`,
+    action: emergency.type === "visitor_conflict" ? "visitorAdjust" : emergency.recommendedAction,
+    marker: emergency.type === "visitor_conflict" ? "visitor" : "crisis",
+    regionId: emergency.regionId || "center",
+    responseOptions: emergency.type === "visitor_conflict" ? [] : (emergency.responses || []).map((item) => Object.assign({}, item)),
+    visualKind: emergency.visualKind || emergency.type
   });
   if ((reserve.poacherPressure || 0) > 58 || poacherDelta > 5) reasons.push({ id: "poacher", priority: 100, label: "陌生脚印升级", body: "偷猎压力正在挤压动物路线", action: "antiPoacher", marker: "crisis", regionId: "river" });
+  if (visitorToday.trouble && visitorToday.trouble !== "尚无明显麻烦" && !/已回到观察线|现场恢复|已处理/.test(visitorToday.trouble)) {
+    reasons.push({
+      id: "visitor_trouble",
+      priority: 90,
+      label: "游客现场需要处置",
+      body: visitorToday.trouble,
+      action: "visitorAdjust",
+      marker: "visitor",
+      visualKind: "visitor-conflict",
+      regionId: "river"
+    });
+  }
+  if (social.log && social.pressure > 0) reasons.push({ id: "reserve_network", priority: 84, label: "相邻保护区传来异动", body: social.title || "跨区动物与边界关系正在变化", action: "houndScout", marker: "event", regionId: "forest" });
   if (safetyDelta < -2) reasons.push({ id: "safety_down", priority: 92, label: "边界安全变薄", body: "动物会先从边缘退走", action: "houndScout", marker: "event", regionId: "center" });
-  if (diseaseDelta > 2 || (eco.disease || 0) > 30) reasons.push({ id: "disease", priority: 88, label: "病味扩散", body: "幼体和老弱个体会先减少活动", action: "houndScout", marker: "question", regionId: "meadow" });
-  if (waterDelta < -2 || (eco.water || 0) < 48) reasons.push({ id: "water", priority: 82, label: "水线变紧", body: "饮水点会变成风险路口", action: "habitat", marker: "event", regionId: "river", presentation: "resource-flow", metric: "water", metricLabel: "水源", delta: waterDelta, value: eco.water || 0 });
-  if (grassDelta < -2 || (eco.grass || 0) < 48) reasons.push({ id: "grass", priority: 78, label: "草场吃紧", body: "食草动物会扩大取食范围", action: "habitat", marker: "event", regionId: "meadow", presentation: "resource-flow", metric: "grass", metricLabel: "草场", delta: grassDelta, value: eco.grass || 0 });
+  if (diseaseDelta > 2 || (eco.disease || 0) >= ECOLOGY_THRESHOLDS.warningDisease) reasons.push({ id: "disease", priority: 88, label: "病味扩散", body: "幼体和老弱个体会先减少活动", action: "houndScout", marker: "question", regionId: "meadow" });
+  if (waterDelta < -2 || (eco.water || 0) < ECOLOGY_THRESHOLDS.lowWater) reasons.push({ id: "water", priority: 82, label: "水线变紧", body: "饮水点会变成风险路口", action: "habitat", marker: "event", regionId: "river", presentation: "resource-flow", metric: "water", metricLabel: "水源", delta: waterDelta, value: eco.water || 0 });
+  if (grassDelta < -2 || (eco.grass || 0) < ECOLOGY_THRESHOLDS.lowGrass) reasons.push({ id: "grass", priority: 78, label: "草场吃紧", body: "食草动物会扩大取食范围", action: "habitat", marker: "event", regionId: "meadow", presentation: "resource-flow", metric: "grass", metricLabel: "草场", delta: grassDelta, value: eco.grass || 0 });
   if (migrationDelta < 0) reasons.push({ id: "migration_out", priority: 75, label: "迁移线变薄", body: (reserve.migration && reserve.migration.reason) || "动物开始离开边缘", action: "habitat", marker: "event", regionId: "meadow", presentation: "resource-flow", metric: "migration", metricLabel: "迁徙", delta: migrationDelta - beforeMigrationDelta, value: migrationDelta, flowKind: "consumption", beneficial: false });
   const fundBand = fundHealth(levelOf(reserve));
   if (fundDelta < -120 || (reserve.fund || 0) < fundBand.danger) reasons.push({ id: "fund", priority: 70, label: "保护基金紧张", body: "先收取并移交回收物，再采购巡护补给", action: "salvage", marker: "question", regionId: "rocks", presentation: "resource-flow", metric: "fund", metricLabel: "基金", delta: fundDelta, value: reserve.fund || 0 });
@@ -200,11 +219,11 @@ function buildReserveView(beforeReserve, reserve, context = {}) {
       tone: toneFor(water),
       delta: water - beforeWater,
       reason: water === beforeWater ? "决定饮水、健康与迁徙" : (water > beforeWater ? "水面正在恢复" : "水线正在收缩"),
-      action: water < 60 ? "habitat" : (disease > 24 ? "intervention" : "houndScout"),
+      action: water < ECOLOGY_THRESHOLDS.earlyWater ? "habitat" : (disease >= ECOLOGY_THRESHOLDS.warningDisease ? "intervention" : "houndScout"),
       outcome,
       subMetrics: [
-        metric("water", "水源", water, beforeWater, toneFor(water), "影响饮水路线、湿地和水鸟活动。", water < 55 ? "habitat" : "houndScout"),
-        metric("disease", "疾病风险", disease, beforeDisease, toneFor(disease, 30, 18, true), "水源不足或过度聚集会提高疾病风险。", disease > 24 ? "intervention" : "houndScout"),
+        metric("water", "水源", water, beforeWater, toneFor(water), "影响饮水路线、湿地和水鸟活动。", water < ECOLOGY_THRESHOLDS.lowWater ? "habitat" : "houndScout"),
+        metric("disease", "疾病风险", disease, beforeDisease, toneFor(disease, 30, 18, true), "水源不足或过度聚集会提高疾病风险。", disease >= ECOLOGY_THRESHOLDS.warningDisease ? "intervention" : "houndScout"),
         metric("migration_line", "迁徙", migrationDelta, beforeMigrationDelta, migrationDelta > 0 ? "good" : migrationDelta < 0 ? "bad" : "warn", (current.migration && current.migration.reason) || "水源影响动物迁入与迁出。", migrationDelta < 0 ? "habitat" : "houndScout")
       ]
     },
@@ -212,15 +231,18 @@ function buildReserveView(beforeReserve, reserve, context = {}) {
       id: "grass",
       label: "草场",
       value: grass,
-      status: grass >= 70 ? "丰茂" : grass >= 45 ? "稳定" : "吃紧",
-      tone: toneFor(grass),
+      // 草场不是越高越好：70 以上代表过剩承载，动物取食、踩踏和季节会把它拉回目标区。
+      status: grass >= 70 ? "偏高" : grass >= 45 ? "紧平衡" : "吃紧",
+      tone: grass >= 70 ? "warn" : toneFor(grass, 66, 45),
       delta: grass - beforeGrass,
-      reason: grass === beforeGrass ? "决定承载量、健康与迁徙" : (grass > beforeGrass ? "草场产能恢复" : "草场产能下降"),
-      action: grass < 60 ? "habitat" : (disease > 24 ? "intervention" : "houndScout"),
+      reason: grass >= 70
+        ? "草场偏高，过剩产能会转成取食、踩踏和自然枯落压力"
+        : (grass === beforeGrass ? "决定承载量、健康与迁徙" : (grass > beforeGrass ? "草场产能恢复，仍需观察承载" : "草场产能下降")),
+      action: grass < ECOLOGY_THRESHOLDS.earlyGrass ? "habitat" : (disease >= ECOLOGY_THRESHOLDS.warningDisease ? "intervention" : "houndScout"),
       outcome,
       subMetrics: [
-        metric("grass", "草场产能", grass, beforeGrass, toneFor(grass), "影响食草动物数量、健康和幼体停留。", grass < 55 ? "habitat" : "houndScout"),
-        metric("disease", "疾病风险", disease, beforeDisease, toneFor(disease, 30, 18, true), "草场过载会提高疾病与营养风险。", disease > 24 ? "intervention" : "houndScout"),
+        metric("grass", "草场产能", grass, beforeGrass, grass >= 70 ? "warn" : toneFor(grass, 66, 45), "影响食草动物数量、健康和幼体停留；超过 70 会进入过剩承载压力。", grass < ECOLOGY_THRESHOLDS.earlyGrass ? "habitat" : "houndScout"),
+        metric("disease", "疾病风险", disease, beforeDisease, toneFor(disease, 30, 18, true), "草场过载会提高疾病与营养风险。", disease >= ECOLOGY_THRESHOLDS.warningDisease ? "intervention" : "houndScout"),
         metric("migration_line", "迁徙", migrationDelta, beforeMigrationDelta, migrationDelta > 0 ? "good" : migrationDelta < 0 ? "bad" : "warn", (current.migration && current.migration.reason) || "草场承载量影响迁入与迁出。", migrationDelta < 0 ? "habitat" : "houndScout")
       ]
     }
@@ -260,8 +282,8 @@ function buildReserveView(beforeReserve, reserve, context = {}) {
   const markerReasons = reasons.filter((reason) => reason.id !== "stable").slice(0, 3);
   const mapMarkers = markerReasons.slice(0, 3).map((reason, index) => ({
     id: `rv_${context.day || 0}_${reason.id}_${index}`,
-    type: reason.marker === "crisis" ? "crisis" : reason.marker === "recovery" ? "recovery" : reason.marker === "event" ? "event" : "question",
-    kind: reason.marker === "crisis" ? "exclamation" : reason.marker === "recovery" ? "recovery" : reason.marker === "event" ? "exclamation" : "question",
+    type: reason.marker === "visitor" ? "visitorIncident" : reason.marker === "crisis" ? "crisis" : reason.marker === "recovery" ? "recovery" : reason.marker === "event" ? "event" : "question",
+    kind: reason.marker === "visitor" ? "visitorIncident" : reason.marker === "crisis" ? "exclamation" : reason.marker === "recovery" ? "recovery" : reason.marker === "event" ? "exclamation" : "question",
     regionId: reason.regionId || context.regionId || "center",
     title: reason.label,
     label: reason.label,
@@ -275,7 +297,13 @@ function buildReserveView(beforeReserve, reserve, context = {}) {
     beneficial: typeof reason.beneficial === "boolean" ? reason.beneficial : undefined,
     impact: reason.body,
     recommendAction: reason.action,
-    recommendLabel: actionLabel(reason.action),
+    recommendLabel: reason.recommendLabel || actionLabel(reason.action),
+    responseOptions: (reason.responseOptions || []).map((item) => Object.assign({}, item)),
+    eventType: reason.eventType || "",
+    visualKind: reason.visualKind || "",
+    focused: reason.marker === "crisis" && reason.id === ((current.emergency || {}).active || {}).type,
+    progress: reason.id && reason.id === ((current.emergency || {}).active || {}).type ? (((current.emergency || {}).active || {}).progress || 0) : 0,
+    target: reason.id && reason.id === ((current.emergency || {}).active || {}).type ? (((current.emergency || {}).active || {}).target || 0) : 0,
     unhandled: reason.marker === "recovery" ? "继续保持，明天动物会更愿意靠近。" : `不处理：明天可能升级，${reason.body}。`,
     intensity: reason.marker === "crisis" ? 3 : reason.marker === "recovery" ? 1 : 2
   }));
@@ -341,18 +369,17 @@ function buildActionSystem(reserve, context = {}) {
   const poacher = reserve.poacherPressure || 0;
   const eco = reserve.ecology || {};
   const supplies = reserve.supplies || {};
-  const authorization = context.authorization || reserve.lastActionAuthorization || null;
   const pressure = Math.max(0, Math.round(
     (poacher >= 55 ? 2 : poacher >= 42 ? 1 : 0)
-    + ((eco.water || 60) < 50 ? 1 : 0)
-    + ((eco.grass || 60) < 50 ? 1 : 0)
-    + ((eco.disease || 0) > 28 ? 1 : 0)
+    + ((eco.water || 60) < ECOLOGY_THRESHOLDS.lowWater ? 1 : 0)
+    + ((eco.grass || 60) < ECOLOGY_THRESHOLDS.lowGrass ? 1 : 0)
+    + ((eco.disease || 0) >= ECOLOGY_THRESHOLDS.warningDisease ? 1 : 0)
   ));
   const nextGate = poacher >= 55
     ? ((supplies.alarm || 0) > 0 ? "用警报器驱赶偷猎" : "先采购警报器")
-    : (eco.water || 0) < 52 || (eco.grass || 0) < 52
+    : (eco.water || 0) < ECOLOGY_THRESHOLDS.lowWater || (eco.grass || 0) < ECOLOGY_THRESHOLDS.lowGrass
       ? ((supplies.fieldKit || 0) > 0 ? "用工具包修复水源和草场" : "先采购野外工具包")
-      : (eco.disease || 0) > 28
+      : (eco.disease || 0) >= ECOLOGY_THRESHOLDS.warningDisease
         ? ((supplies.tranquilizer || 0) > 0 ? "执行生态干预" : "先采购麻醉弹")
         : "水草稳定，可听动物寻找下一条线索";
   return {
@@ -362,8 +389,7 @@ function buildActionSystem(reserve, context = {}) {
     pressure,
     nextGate,
     summary: `基金${reserve.fund || 0} · 水源${eco.water || 0} · 草场${eco.grass || 0}`,
-    eventLogic: "移交回收物获得基金，基金购买补给；巡护行动改变水源和草场，水草再影响动物健康与迁徙。",
-    lastAuthorization: null
+    eventLogic: "移交回收物获得基金，基金购买补给；巡护行动改变水源和草场，水草再影响动物健康与迁徙。"
   };
 }
 

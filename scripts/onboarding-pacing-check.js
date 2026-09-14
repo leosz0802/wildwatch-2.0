@@ -1,9 +1,10 @@
-function createFakeContext() {
+function createFakeContext(drawCalls = null) {
   const gradient = { addColorStop() {} };
   return new Proxy({}, {
     get(target, prop) {
       if (prop === "measureText") return (text) => ({ width: String(text || "").length * 7 });
       if (prop === "createLinearGradient" || prop === "createRadialGradient") return () => gradient;
+      if (prop === "drawImage") return (...args) => { if (drawCalls) drawCalls.push(args[0]); };
       if (prop === "canvas") return { width: 430, height: 932 };
       if (!target[prop]) target[prop] = () => {};
       return target[prop];
@@ -47,11 +48,24 @@ function prepareGame() {
   return game;
 }
 
+const directBoot = prepareGame();
+directBoot.art.map = { loaded: false, failed: false };
+directBoot.art.atlas = { loaded: false, failed: false };
+directBoot.art.animalMapSprites = { loaded: false, failed: false };
+directBoot.clear = () => {};
+directBoot.clampScroll = () => {};
+directBoot.syncNativeTemplateAd = () => {};
+directBoot.drawBottomNav = () => {};
+let directBootScreenDrawn = false;
+directBoot.drawCurrentScreen = () => { directBootScreenDrawn = true; };
+Game.prototype.render.call(directBoot);
+assert(directBootScreenDrawn, "cold start should draw the real first screen immediately instead of waiting behind a splash screen");
+
 const chapterMinutes = Object.values(CHAPTER_PROGRESSION_GATES).map((gate) => gate.expectedMinutes);
-assert(chapterMinutes.join(",") === "10,20,30,35,40,45,50,55,60,60", `ten-stage pacing should be 10/20/30/35/40/45/50/55/60/60, got ${chapterMinutes.join("/")}`);
+assert(chapterMinutes.join(",") === "5,20,30,35,40,45,50,55,60,60,65,70,75,80,86,92,98,104,110,120", `twenty-stage pacing drifted: ${chapterMinutes.join("/")}`);
 assert(chapterMinutes.every((minutes, index) => !index || minutes >= chapterMinutes[index - 1]), "stage forecasts should rise smoothly without a late-game cliff");
-assert(chapterMinutes.reduce((sum, value) => sum + value, 0) === 405, "the ten stages should forecast 405 minutes of effective play");
-assert(Object.values(CHAPTER_PROGRESSION_GATES).every((gate) => gate.stage >= 1 && gate.stage <= 10 && gate.storyLevel === Math.ceil(gate.stage / 2)), "ten operating stages should map cleanly onto five story chapters");
+assert(chapterMinutes.reduce((sum, value) => sum + value, 0) === 1300, "the twenty stages should forecast 1300 minutes of effective play");
+assert(Object.values(CHAPTER_PROGRESSION_GATES).every((gate) => gate.stage >= 1 && gate.stage <= 20 && gate.storyLevel >= 1 && gate.storyLevel <= 7), "twenty operating stages should map cleanly onto the story chapter range");
 
 const game = prepareGame();
 game.state.character = null;
@@ -59,25 +73,33 @@ game.state.ui = { prologue: { version: 1, stage: "fog", completed: false } };
 game.screen = "choose";
 game.drawChoose(game.ctx);
 assert(game.renderedPlayablePrologue.stage === "fog"
-  && game.renderedPlayablePrologue.dynamicMap
+  && !game.renderedPlayablePrologue.dynamicMap
+  && game.renderedPlayablePrologue.staticUnderlay
   && !game.renderedPlayablePrologue.staticChapterArt
   && game.renderedPlayablePrologue.cinematicArt
-  && game.renderedPlayablePrologue.comicPanels === 3
+  && game.renderedPlayablePrologue.comicPanels === 1
   && game.renderedPlayablePrologue.panel === 1
   && game.renderedPlayablePrologue.panelOneReady
-  && game.renderedPlayablePrologue.panelTwoReady
+  && !game.renderedPlayablePrologue.panelTwoReady
   && game.renderedPlayablePrologue.beat === "listen"
   && game.renderedPlayablePrologue.soundCue === "叮——"
   && game.renderedPlayablePrologue.actionLabel === "听……"
   && game.renderedPlayablePrologue.actionBounds.hidden
-  && game.renderedPlayablePrologue.dialogue.style === "cloud-bubble"
-  && game.renderedPlayablePrologue.dialogue.cloud
+  && game.renderedPlayablePrologue.dialogue.style === "survival-manifesto"
+  && !game.renderedPlayablePrologue.dialogue.cloud
+  && game.renderedPlayablePrologue.dialogue.textPriority === "primary"
+  && game.renderedPlayablePrologue.imageTransitionMode === "fade-through-dark"
+  && game.renderedPlayablePrologue.transitionFlash === false
+  && game.renderedPlayablePrologue.geometryContinuous
+  && game.renderedPlayablePrologue.lateLoadHold
+  && game.renderedPlayablePrologue.avoidsDoubleExposure
+  && /没有无代价的善意/.test(game.renderedPlayablePrologue.dialogue.line)
   && game.renderedPlayablePrologue.dialogue.layeredCloud,
-"first frame should enter with a cartoon cloud bubble without showing a premature fake button");
+"first frame should foreground the first survival rule without showing a premature fake button");
 assert(!game.advancePlayablePrologue(), "the player should not be able to skip the opening bell before the first beat lands");
-game.prologueRuntime.startedAt = Date.now() - 2200;
+game.prologueRuntime.startedAt = Date.now() - 1150;
 game.drawChoose(game.ctx);
-assert(game.renderedPlayablePrologue.actionLabel === "轻触犬铃" && game.renderedPlayablePrologue.actionEnabled
+assert(game.renderedPlayablePrologue.actionLabel === "看清代价" && game.renderedPlayablePrologue.actionEnabled
   && game.renderedPlayablePrologue.actionBounds.compact && game.renderedPlayablePrologue.actionBounds.cartoon
   && game.renderedPlayablePrologue.actionBounds.w <= 190,
   "the first interaction should appear only after the bell-and-dialogue beat");
@@ -88,45 +110,47 @@ game.drawChoose(game.ctx);
 assert(game.renderedPlayablePrologue.panel === 2
   && game.renderedPlayablePrologue.panelTransition > .2
   && game.renderedPlayablePrologue.panelTransition < 1
+  && game.renderedPlayablePrologue.dogBounds.x > game.width * .43 - 56
+  && game.renderedPlayablePrologue.dogBounds.x < game.width * .49 - 56
   && game.renderedPlayablePrologue.dialogue.hidden
   && game.renderedPlayablePrologue.actionBounds.hidden,
-"panel 2 should slide over panel 1 without dialogue or a fake action crowding the page turn");
-game.prologueRuntime.startedAt = Date.now() - 2300;
+"panel 2 should fade through a dark midpoint while foreground geometry moves continuously and controls stay quiet");
+const transitionDraws = [];
+const transitionGame = prepareGame();
+transitionGame.ctx = createFakeContext(transitionDraws);
+transitionGame.state.character = null;
+transitionGame.state.ui = { prologue: { version: 1, stage: "trail", completed: false } };
+transitionGame.screen = "choose";
+transitionGame.art.prologueFog.loadedAt = 0;
+transitionGame.prologueRuntime = { stage: "trail", startedAt: Date.now() - 450 };
+transitionGame.drawChoose(transitionGame.ctx);
+assert(transitionDraws.length === 1,
+"the transition midpoint should render only one full-frame image so the dog cannot appear twice");
+game.prologueRuntime.startedAt = Date.now() - 1550;
 game.drawChoose(game.ctx);
 assert(game.renderedPlayablePrologue.panelTransition === 1
-  && /水边有陌生的气味/.test(game.renderedPlayablePrologue.dialogue.line)
-  && game.renderedPlayablePrologue.dialogue.style === "cloud-bubble"
-  && game.renderedPlayablePrologue.dialogue.cloud
+  && /遵循自然，衡量利益/.test(game.renderedPlayablePrologue.dialogue.line)
+  && game.renderedPlayablePrologue.dialogue.style === "survival-manifesto"
+  && !game.renderedPlayablePrologue.dialogue.cloud
   && game.renderedPlayablePrologue.dialogue.layeredCloud
   && game.renderedPlayablePrologue.dialogue.y < game.height * .3
-  && game.renderedPlayablePrologue.actionLabel === "跟上砾灰",
+  && game.renderedPlayablePrologue.actionLabel === "接管保护区"
+  && game.renderedPlayablePrologue.actionEnabled,
 "the second comic panel should settle before its single line and interaction appear");
-assert(game.advancePlayablePrologue() && game.playablePrologueState().stage === "reveal" && game.state.character, "following the hound should create the reserve and begin the fog reveal");
-game.state.ui.prologue.revealStartedAt = Date.now() - 4000;
-game.prologueRuntime.startedAt = Date.now() - 4000;
-game.drawChoose(game.ctx);
-assert(game.renderedPlayablePrologue.revealProgress >= .94
-  && game.renderedPlayablePrologue.panel === 3
-  && game.renderedPlayablePrologue.panelTransition === 1
-  && game.renderedPlayablePrologue.beat === "decide"
-  && game.renderedPlayablePrologue.layeredFog
-  && game.renderedPlayablePrologue.imageDissolveMode === "comic-mist-wipe"
-  && /水边那道陌生气味/.test(game.renderedPlayablePrologue.dialogue.line)
-  && game.renderedPlayablePrologue.actionLabel === "去水边看看", "fog reveal should end with hound dialogue and the first real water-side decision");
-assert(game.completePlayablePrologue(), "completed reveal should enter the active reserve");
+
+assert(game.advancePlayablePrologue() && game.state.character, "the text-led second beat should enter the active reserve without a third reveal screen");
 assert(game.screen === "home" && !game.chapterStoryModal && game.chapterStorySeen(1, "start"), "playable prologue should replace the first static chapter illustration");
 assert(game.infoDetailModal && game.infoDetailModal.kind === "onboardingChoice", "new player should enter the first choice instead of the full mission report");
 assert(game.infoDetailModal.kind === "onboardingChoice" && game.infoDetailModal.choices.length === 2, "first interaction should be a clear two-choice decision");
 assert(game.infoDetailModal.items.length === 2
   && game.infoDetailModal.items.every((item) => /\d+→\d+/.test(`${item.title}${item.body}`))
   && /水源/.test(game.infoDetailModal.items[0].title)
-  && /偷猎|情报/.test(game.infoDetailModal.items[1].title), "first choice should preview both real costs and result ranges");
+  && /偷猎|线索/.test(game.infoDetailModal.items[1].title), "first choice should preview both real costs and result ranges");
 assert(!game.maybeOpenMissionPush("home"), "complex mission push must stay quiet during onboarding");
 
 const resumed = prepareGame();
 resumed.state.ui.prologue = { version: 1, stage: "reveal", completed: false, revealStartedAt: Date.now() - 900 };
-assert(resumed.playablePrologueState().active && resumed.playablePrologueState().stage === "reveal"
-  && resumed.prologueRevealProgress() > .25, "interrupted fog reveal should resume from its saved stage and timestamp");
+assert(resumed.playablePrologueState().active && resumed.playablePrologueState().stage === "trail", "an interrupted legacy save should migrate to the text-led second beat instead of replaying the opening");
 const legacy = prepareGame();
 delete legacy.state.ui.prologue;
 assert(!legacy.playablePrologueState().active && legacy.playablePrologueState().legacy, "existing saves must never replay the new opening");
@@ -144,40 +168,33 @@ assert(!legacy.playablePrologueState().active && legacy.playablePrologueState().
   const fogVisual = entry.renderedPlayablePrologue;
   assert(fogVisual.stage === "fog" && fogVisual.dogBounds.w >= 88
     && fogVisual.cinematicArt && !fogVisual.actionEnabled && fogVisual.fogOpacity >= .7
-    && fogVisual.comicPanels === 3 && fogVisual.panel === 1
-    && fogVisual.panelOneReady && fogVisual.panelTwoReady
+    && fogVisual.comicPanels === 1 && fogVisual.panel === 1
+    && fogVisual.panelOneReady && !fogVisual.panelTwoReady
     && fogVisual.dialogue && fogVisual.actionBounds.y + fogVisual.actionBounds.h <= height - 20,
   `fog discovery should stay cinematic and safe at ${width}x${height}`);
-  entry.prologueRuntime.startedAt = Date.now() - 2200;
+  entry.prologueRuntime.startedAt = Date.now() - 1150;
   entry.drawChoose(entry.ctx);
   assert(entry.renderedPlayablePrologue.actionEnabled, `bell interaction should unlock after its film beat at ${width}x${height}`);
   entry.advancePlayablePrologue(true);
   entry.drawChoose(entry.ctx);
   assert(entry.renderedPlayablePrologue.stage === "trail" && entry.renderedPlayablePrologue.panel === 2
     && entry.renderedPlayablePrologue.actionBounds.hidden && entry.maxScroll() === 0,
-  `comic page turn should fit one screen without premature controls at ${width}x${height}`);
-  entry.prologueRuntime.startedAt = Date.now() - 2300;
+    `text-led second beat should fit one screen without premature controls at ${width}x${height}`);
+  entry.prologueRuntime.startedAt = Date.now() - 1550;
   entry.drawChoose(entry.ctx);
   assert(entry.renderedPlayablePrologue.panelTransition === 1
-    && entry.renderedPlayablePrologue.actionLabel === "跟上砾灰"
+    && entry.renderedPlayablePrologue.actionLabel === "接管保护区"
     && entry.renderedPlayablePrologue.actionEnabled,
-  `second comic panel should expose one clear interaction at ${width}x${height}`);
-  entry.advancePlayablePrologue(true);
-  entry.state.ui.prologue.revealStartedAt = Date.now() - 4000;
-  entry.prologueRuntime.startedAt = Date.now() - 4000;
-  entry.drawChoose(entry.ctx);
-  assert(entry.renderedPlayablePrologue.panel === 3
-    && entry.renderedPlayablePrologue.panelTransition === 1
-    && entry.renderedPlayablePrologue.imageDissolveMode === "comic-mist-wipe"
-    && entry.renderedPlayablePrologue.actionLabel === "去水边看看"
-    && entry.renderedPlayablePrologue.actionEnabled, `revealed sandbox should expose the real next action at ${width}x${height}`);
+    `text-led second beat should expose one clear interaction at ${width}x${height}`);
+  assert(entry.advancePlayablePrologue(true) && entry.screen === "home" && entry.state.character,
+    `one image plus text should enter the playable reserve directly at ${width}x${height}`);
   const visual = prepareGame();
   visual.width = width;
   visual.height = height;
   visual.openFirstOnboardingChoice();
   visual.hitAreas = [];
   visual.drawInfoDetailModal();
-  const choiceButtons = visual.hitAreas.filter((hit) => hit.h === 36 && hit.w > 90);
+  const choiceButtons = visual.hitAreas.filter((hit) => hit.h >= 36 && hit.w > 90);
   assert(choiceButtons.length >= 2, `first choice needs two safe buttons at ${width}x${height}`);
   choiceButtons.slice(-2).forEach((hit) => assert(hit.x >= 0 && hit.y >= 0 && hit.x + hit.w <= width && hit.y + hit.h <= height, `onboarding control should stay inside ${width}x${height}`));
 });
@@ -189,6 +206,14 @@ assert(game.settlementModal && game.settlementModal.onboardingFirstAction && gam
 assert(game.onboardingProgress().firstChoice === "houndScout" && game.onboardingProgress().firstActionDone, "first choice and result must persist");
 
 game.finishSettlement("home");
+assert(game.screen === "role" && game.patrolTaskModal && game.patrolTaskModal.id === "salvage", "first patrol reward should open the direct transfer confirmation on materials");
+assert(game.patrolTaskModal.label === "立即移交" && /自动入库/.test(game.patrolTaskModal.modalType || ""), "first patrol transfer should explain that the system already collected the samples");
+const firstRecovery = (game.state.ui || {}).firstPatrolRecovery || {};
+assert(firstRecovery.total >= 2 && firstRecovery.promptPending === false, "first patrol should auto-collect its real recovered samples exactly once");
+assert((game.state.world.reserve.pendingRecovered.researchSample || 0) === 0 && (game.state.world.reserve.inventory.researchSample || 0) >= 2, "new player research samples should move from pending collection into inventory");
+game.patrolTaskModal = null;
+game.setScreen("home");
+game.openOnboardingGuide("after_first", true);
 assert(game.infoDetailModal && game.infoDetailModal.kind === "onboardingGuide" && game.infoDetailModal.stage === "after_first", "first settlement should explain how to read numbers and animal feedback");
 game.infoDetailModal.action();
 assert(!game.infoDetailModal, "after-first guide should return to the sandbox in one tap");
@@ -207,41 +232,20 @@ game.command = "修复水源和草场";
 game.pendingTaskOriginScreen = "home";
 game.submitCommand();
 game.finishSettlement("home");
-assert(game.infoDetailModal && game.infoDetailModal.stage === "materials", "second action should teach the supply and material loop");
+assert(game.infoDetailModal && game.infoDetailModal.stage === "recruitment", "second action should route the new player into the visitor recruitment task");
+assert(!game.onboardingProgress().completed && game.onboardingHomeGuide().stage === "recruitment", "recruitment must remain the active third onboarding task");
 game.infoDetailModal.action();
-assert(game.screen === "role" && game.infoDetailModal && game.infoDetailModal.kind === "materialExploration", "material guide completion should immediately generate a playable exploration task");
-assert(game.onboardingHomeGuide().stage === "materials_action", "closing the exploration task must leave a recoverable material task on the sandbox");
-
-game.suppressNextHomeMission = true;
-game.setScreen("home");
+assert(game.infoDetailModal && game.infoDetailModal.kind === "visitorRecruitment" && game.infoDetailModal.onboardingRecruitment, "recruitment task should open the real visitor operation modal");
+assert(game.publishVisitorRecruitment() && game.infoDetailModal.phase === "result", "the onboarding recruitment should produce a real visitor and fund result");
+assert(game.onboardingProgress().recruitmentDone, "recruitment completion must persist");
 game.infoDetailModal = null;
-game.selectedReserveAction = "antiPoacher";
-game.command = "驱赶偷猎者：封锁边界";
-game.pendingTaskOriginScreen = "home";
-game.submitCommand();
-game.finishSettlement("home");
-assert(game.infoDetailModal && game.infoDetailModal.stage === "population", "third action should teach species and relationship meaning");
+game.openOnboardingGuide("core_complete", true);
+assert(game.infoDetailModal && game.infoDetailModal.stage === "core_complete", "recruitment result should lead to the core loop completion guide");
+assert(game.infoDetailModal.items.some((item) => /逐步开放/.test(item.tag)), "completion should explain that secondary systems unlock contextually");
 game.infoDetailModal.action();
-assert(game.screen === "animalworld", "population guide action should open the population page");
-nextGuide = game.onboardingHomeGuide();
-assert(nextGuide && nextGuide.stage === "population_view", "population guide completion must generate the concrete card-view task");
-game.openSpeciesProfile(getUnlockedSpecies(1)[0].id);
-assert(game.infoDetailModal && game.infoDetailModal.kind === "speciesProfile" && game.infoDetailModal.actionLabel === "回沙盘接新任务", "opening one population card must complete that task and expose the next task button");
-assert(game.onboardingHomeGuide().stage === "final_action", "population card completion must generate the final patrol task before the modal closes");
-game.infoDetailModal.action();
-assert(game.screen === "home", "population task CTA should return to the sandbox");
-const guide = game.onboardingHomeGuide();
-assert(guide && guide.step === 4 && guide.stage === "final_action" && guide.direct, "home should retain a clickable final task until onboarding completes");
+assert(game.screen === "home" && !game.infoDetailModal, "completion CTA should return directly to free sandbox play");
+const resumedComplete = prepareGame();
+resumedComplete.state = JSON.parse(JSON.stringify(game.state));
+assert(resumedComplete.onboardingProgress().completed && !resumedComplete.openFirstOnboardingChoice(), "completed onboarding must survive save-and-reload");
 
-game.suppressNextHomeMission = true;
-game.setScreen("home");
-game.infoDetailModal = null;
-game.selectedReserveAction = "houndScout";
-game.command = "派猎犬侦察：检查陌生气味";
-game.pendingTaskOriginScreen = "home";
-game.submitCommand();
-game.finishSettlement("home");
-assert(game.onboardingProgress().completed && !game.onboardingHomeGuide(), "fourth valid action should complete onboarding and remove the persistent guide");
-assert(game.infoDetailModal && game.infoDetailModal.kind === "strategicDilemma", "first strategy event should take priority over the normal mission push after onboarding");
-
-console.log("onboarding pacing check ok (playable fog discovery, dynamic sandbox reveal, 30-second choice loop, progressive guides, 3 sizes, 10-stage 10-60 minute staircase)");
+console.log("onboarding pacing check ok (single image plus text enters play directly, two-action core loop, legacy resume, 3 sizes)");

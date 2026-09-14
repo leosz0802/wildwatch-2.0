@@ -40,10 +40,10 @@ function withRandom(value, fn) {
 function fullySupplied(name = "任务资源专项") {
   const state = createCharacter(null, name);
   const reserve = state.world.reserve;
+  // This pipeline fixture verifies task/resource progression; rescue gates are
+  // covered by the chapter-rescue regression suite.
+  reserve.chapterRescue = Object.assign({}, reserve.chapterRescue || {}, { enforceCompletion: false });
   reserve.fund = 10000;
-  reserve.actionPoints = 0;
-  reserve.intel = 0;
-  reserve.fieldPermits = 0;
   reserve.base.raidTickets = 0;
   reserve.poacherPressure = 60;
   reserve.safety = 65;
@@ -84,7 +84,19 @@ assert(/沙盘信息/.test(blockedToast), "非法指标入口应解释正确的�
 assert.strictEqual(routeGame.openReserveViewAction("houndScout", "sandbox-task"), true);
 assert(routeGame.patrolTaskModal && routeGame.patrolTaskModal.id === "houndScout", "沙盘任务应准确打开猎犬侦察");
 
-// V3只让玩家管理基金、水源、草场和具体补给。班次、情报、外勤仅保留
+// A single depleted patrol item must become an explicit supply reminder,
+// rather than leaving the same unexecutable patrol task in place.
+const shortageState = fullySupplied("单项巡护补给提醒");
+shortageState.world.reserve.poacherPressure = 72;
+shortageState.world.reserve.supplies.alarm = 0;
+shortageState.world.goals = normalizeGoalState(shortageState.world.goals, shortageState, Date.now());
+// Resolve from the live state: callers may retain a normalized goal object
+// after inventory changes, so the view path must still surface the new
+// single-item shortage instead of trusting the stale primary.
+const shortageGoal = buildGoalView(shortageState).primary;
+assert(shortageGoal && shortageGoal.kind === "recovery" && /补警报器|补齐.*警报器/.test(`${shortageGoal.title}${shortageGoal.body}`), "缺少单项巡护物资时必须显示明确补给任务");
+
+// V3只让玩家管理基金、水源、草场和具体补给。巡护节奏、线索、现场仅保留
 // 旧存档字段，任何行动都不得再生产、消耗或用它们阻断任务。
 let state = suppressGoalRewards(fullySupplied("三核心资源专项"));
 let before = clone(state.world.reserve);
@@ -92,9 +104,9 @@ let result = run("派猎犬侦察：确认边界脚印", state);
 let reserve = result.world.reserve;
 assert.strictEqual(result.visual.actionType, "houndScout");
 assert.strictEqual(reserve.supplies.dogFood, before.supplies.dogFood - 1, "猎犬侦察必须消耗1狗粮");
-assert.strictEqual(reserve.actionPoints, 0);
-assert.strictEqual(reserve.intel, 0);
-assert.strictEqual(reserve.fieldPermits, 0);
+assert(!Object.prototype.hasOwnProperty.call(reserve, "actionPoints") && !Object.prototype.hasOwnProperty.call(reserve, "intel") && !Object.prototype.hasOwnProperty.call(reserve, "fieldPermits"));
+assert(!Object.prototype.hasOwnProperty.call(reserve, "actionPoints") && !Object.prototype.hasOwnProperty.call(reserve, "intel") && !Object.prototype.hasOwnProperty.call(reserve, "fieldPermits"));
+assert(!Object.prototype.hasOwnProperty.call(reserve, "actionPoints") && !Object.prototype.hasOwnProperty.call(reserve, "intel") && !Object.prototype.hasOwnProperty.call(reserve, "fieldPermits"));
 assert(reserve.poacherPressure < before.poacherPressure, "猎犬侦察必须降低真实风险");
 assert.strictEqual(reserve.eventChain.step, 1, "第一项有效任务应立即建立剧情事件线");
 
@@ -105,13 +117,13 @@ result = run("采购狗粮包", state);
 reserve = result.world.reserve;
 assert.strictEqual(reserve.supplies.dogFood, 4, "采购应加入具体狗粮数量");
 assert(reserve.fund < before.fund, "采购必须消耗保护基金");
-assert.strictEqual(reserve.actionPoints, 0);
+assert(!Object.prototype.hasOwnProperty.call(reserve, "actionPoints") && !Object.prototype.hasOwnProperty.call(reserve, "intel") && !Object.prototype.hasOwnProperty.call(reserve, "fieldPermits"));
 
 state = suppressGoalRewards(fullySupplied("样本移交"));
 result = run("出售研究样本", state);
 reserve = result.world.reserve;
 assert((reserve.lastSalvageSale || {}).sold.length > 0, "出售任务必须消耗具体库存");
-assert.strictEqual(reserve.actionPoints, 0);
+assert(!Object.prototype.hasOwnProperty.call(reserve, "actionPoints") && !Object.prototype.hasOwnProperty.call(reserve, "intel") && !Object.prototype.hasOwnProperty.call(reserve, "fieldPermits"));
 
 state = suppressGoalRewards(fullySupplied("高危驱赶"));
 before = clone(state.world.reserve);
@@ -119,7 +131,7 @@ result = run("驱赶偷猎者：封锁可疑路线", state);
 reserve = result.world.reserve;
 assert.strictEqual(reserve.supplies.alarm, before.supplies.alarm - 1);
 assert(reserve.poacherPressure < before.poacherPressure, "驱赶应真实降低偷猎压力");
-assert.strictEqual(reserve.actionPoints + reserve.intel + reserve.fieldPermits, 0);
+assert(!Object.prototype.hasOwnProperty.call(reserve, "actionPoints") && !Object.prototype.hasOwnProperty.call(reserve, "intel") && !Object.prototype.hasOwnProperty.call(reserve, "fieldPermits"));
 
 state = suppressGoalRewards(fullySupplied("生态干预"));
 before = clone(state.world.reserve);
@@ -129,14 +141,13 @@ assert.strictEqual(result.visual.actionType, "intervention");
 assert.strictEqual(reserve.supplies.tranquilizer, before.supplies.tranquilizer - 1);
 assert(reserve.ecology.grass > before.ecology.grass, "生态干预应改善目标生态数值");
 assert.strictEqual(reserve.eventChain.step, 1, "生态干预也必须能建立剧情事件线，不能等待保底推进");
-assert.strictEqual(reserve.actionPoints + reserve.intel + reserve.fieldPermits, 0);
+assert(!Object.prototype.hasOwnProperty.call(reserve, "actionPoints") && !Object.prototype.hasOwnProperty.call(reserve, "intel") && !Object.prototype.hasOwnProperty.call(reserve, "fieldPermits"));
 
 const blockedReserve = routeGame.state.world.reserve;
 blockedReserve.poacherPressure = 40;
 blockedReserve.supplies.alarm = 1;
-blockedReserve.intel = 0;
 const blockedAnti = routeGame.actionResourceStatus("antiPoacher", blockedReserve);
-assert(blockedAnti.canRun, "旧情报字段为0时不得阻断驱赶；警报器才是明确成本");
+assert(blockedAnti.canRun, "废弃字段不存在时不得阻断驱赶；警报器才是明确成本");
 
 // 任务闭环：真实操作推进正确目标，完成后立即生成下一项可执行目标。
 state = fullySupplied("任务闭环");
@@ -153,7 +164,7 @@ assert(state.world.goals.daily.objectives.find((item) => item.kind === "economy"
 const nextView = buildGoalView(state, state.world.goals);
 assert(nextView.primary && nextView.primary.id && nextView.primary.title, "目标完成后必须立即生成下一目标");
 assert(actionExecutable(state, nextView.primary.recommendedAction), `下一目标必须可执行：${nextView.primary.recommendedAction}`);
-assert((state.world.goals.history || []).some((item) => item.type === "daily_core"), "任务完成应进入统一历史并推动奖励/剧情反馈");
+assert((state.world.goals.history || []).some((item) => item.type === "daily_objective"), "单项任务完成应进入统一历史并推动奖励反馈");
 
 // 剧情节奏与死循环：前半章只播放两段，不能提前透支后半章剧情。
 state = fullySupplied("剧情循环");
@@ -185,12 +196,12 @@ for (let index = 0; index < 70; index += 1) {
     assert(chain.waitingText, "剧情未推进时必须说明下一条件，不能形成假循环");
   }
   previousStep = chain.step || 0;
-  ["actionPoints", "intel", "fieldPermits", "fund"].forEach((key) => {
+  ["fund"].forEach((key) => {
     assert(Number.isFinite(state.world.reserve[key]) && state.world.reserve[key] >= 0, `${key}不得为NaN或负数`);
   });
-  assert.strictEqual(state.world.reserve.actionPoints, 0);
-  assert.strictEqual(state.world.reserve.intel, 0);
-  assert.strictEqual(state.world.reserve.fieldPermits, 0);
+  assert(!Object.prototype.hasOwnProperty.call(state.world.reserve, "actionPoints") && !Object.prototype.hasOwnProperty.call(state.world.reserve, "intel") && !Object.prototype.hasOwnProperty.call(state.world.reserve, "fieldPermits"));
+  assert(!Object.prototype.hasOwnProperty.call(state.world.reserve, "actionPoints") && !Object.prototype.hasOwnProperty.call(state.world.reserve, "intel") && !Object.prototype.hasOwnProperty.call(state.world.reserve, "fieldPermits"));
+  assert(!Object.prototype.hasOwnProperty.call(state.world.reserve, "actionPoints") && !Object.prototype.hasOwnProperty.call(state.world.reserve, "intel") && !Object.prototype.hasOwnProperty.call(state.world.reserve, "fieldPermits"));
   const view = buildGoalView(state, state.world.goals);
   assert(view.primary && view.primary.recommendedAction, "任意结算后都必须保留下一任务");
 }

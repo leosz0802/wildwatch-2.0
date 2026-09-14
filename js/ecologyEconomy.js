@@ -1,5 +1,6 @@
 const { getUnlockedSpecies, speciesPopulation } = require("./animalWorld");
 const { BALANCE_V2, levelOf } = require("./balanceConfig");
+const { wildernessStockReadiness } = require("./wildernessKnowledge");
 
 const FRAGMENT_CATALOG = {
   fieldNote: { id: "fieldNote", name: "生态记录碎片", short: "记录", rarity: "common", color: "#54a980" },
@@ -32,7 +33,7 @@ function weightedAnimalUnits(reserve) {
 }
 
 function populationYieldMultiplier(population, level) {
-  const capacity = BALANCE_V2.population.carryingCapacity[level] || BALANCE_V2.population.carryingCapacity[5];
+  const capacity = BALANCE_V2.population.carryingCapacity[level] || BALANCE_V2.population.carryingCapacity[7];
   const ratio = capacity > 0 ? population / capacity : 0;
   if (ratio < 0.60) return 0.75;
   if (ratio < 0.85) return 1;
@@ -65,7 +66,7 @@ function normalizeEcologyEconomy(input, reserve) {
   const fragments = Object.assign({ fieldNote: 0, migrationTrace: 0, forestGift: 0, coGuardShard: 0 }, source.fragments || {});
   Object.keys(fragments).forEach((key) => { fragments[key] = roundNonNegative(fragments[key]); });
   const season = Object.assign(emptySeasonState(), source.competition || {});
-  season.bracket = clamp(Math.round(season.bracket || ((((reserve || {}).progression || {}).level) || 1)), 1, 5);
+  season.bracket = clamp(Math.round(season.bracket || ((((reserve || {}).progression || {}).level) || 1)), 1, 7);
   season.day = clamp(roundNonNegative(season.day || 1), 1, roundNonNegative(season.length || 12) || 12);
   season.length = Math.max(7, roundNonNegative(season.length || 12));
   season.contribution = roundNonNegative(season.contribution);
@@ -134,7 +135,7 @@ function dropPosition(type, day) {
 
 function contributionForAction(action, reserve, ledger) {
   const ecology = (reserve && reserve.ecology) || {};
-  const actionPoints = {
+  const actionVisitorWeights = {
     habitat: 8,
     antiPoacher: 9,
     houndScout: 6,
@@ -143,7 +144,7 @@ function contributionForAction(action, reserve, ledger) {
     salvage: 3,
     buySupplies: 2
   };
-  let value = actionPoints[action] || 3;
+  let value = actionVisitorWeights[action] || 3;
   if ((reserve.safety || 0) >= 70) value += 2;
   if ((ecology.water || 0) >= 70 && (ecology.grass || 0) >= 65) value += 2;
   if ((reserve.poacherPressure || 0) <= 28) value += 2;
@@ -168,8 +169,10 @@ function applyAnimalEcologyEconomy(reserve, knownCharacters, context = {}) {
   // 不在后台暗扣玩家无法预判的“动物养护费”。
   const ecology = reserve.ecology || {};
   const carryingPressure = Math.max(0, 55 - Math.min(ecology.water || 0, ecology.grass || 0));
-  state.careDebt = carryingPressure > 0
-    ? Math.min(999, state.careDebt + Math.ceil(carryingPressure / 8))
+  const survivalReadiness = wildernessStockReadiness(reserve);
+  const effectiveCarryingPressure = Math.max(0, carryingPressure - survivalReadiness.careRelief);
+  state.careDebt = effectiveCarryingPressure > 0
+    ? Math.min(999, state.careDebt + Math.ceil(effectiveCarryingPressure / 8))
     : Math.max(0, state.careDebt - 2);
 
   const trust = averageTrust(knownCharacters);
@@ -264,6 +267,8 @@ function applyAnimalEcologyEconomy(reserve, knownCharacters, context = {}) {
     shortfall: 0,
     medicalSpent: 0,
     careDebt: state.careDebt,
+    survivalSupport: survivalReadiness.support,
+    survivalCareRelief: survivalReadiness.careRelief,
     populationYieldMultiplier: carryingMultiplier,
     rareChance,
     produced: drops.map((drop) => Object.assign({}, drop)),
@@ -273,7 +278,7 @@ function applyAnimalEcologyEconomy(reserve, knownCharacters, context = {}) {
     rankGain,
     competitionReward,
     trust,
-    summary: `水草承载压力 ${state.careDebt}`
+    summary: `水草承载压力 ${state.careDebt} · 生存保障抵消 ${survivalReadiness.careRelief}`
   };
   state.lastLedger = ledger;
   reserve.ecologyEconomy = state;

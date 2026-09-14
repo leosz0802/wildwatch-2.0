@@ -1,0 +1,45 @@
+// 世界榜 Top 10 的轻量快照和差异计算。只比较榜单公开字段，避免把完整玩家资料
+// 写入本地消息；动物数量统一取整数，减少同步小数或格式变化造成的假提醒。
+function integer(value) { return Math.max(0, Math.round(Number(value) || 0)); }
+
+function top10Snapshot(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .filter((row) => row && row.id)
+    .slice()
+    .sort((a, b) => integer(a.rank || 999999) - integer(b.rank || 999999) || integer(b.valuation || b.rating) - integer(a.valuation || a.rating))
+    .slice(0, 10)
+    .map((row, index) => ({
+      id: String(row.id).slice(0, 64),
+      name: String(row.name || row.reserveName || row.owner || "未命名保护区").slice(0, 40),
+      rank: integer(row.rank) || index + 1,
+      animals: integer(row.animals),
+      valuation: integer(row.valuation || row.rating)
+    }));
+}
+
+function compareTop10(previous = [], current = []) {
+  const before = top10Snapshot(previous);
+  const after = top10Snapshot(current);
+  if (!before.length) return { changed: false, seeded: true, entered: [], exited: [], animalChanges: [], moves: [], before, after };
+  const beforeById = Object.fromEntries(before.map((row) => [row.id, row]));
+  const afterById = Object.fromEntries(after.map((row) => [row.id, row]));
+  const entered = after.filter((row) => !beforeById[row.id]);
+  const exited = before.filter((row) => !afterById[row.id]);
+  const animalChanges = after.filter((row) => beforeById[row.id] && row.animals !== beforeById[row.id].animals)
+    .map((row) => ({ id: row.id, name: row.name, before: beforeById[row.id].animals, after: row.animals, delta: row.animals - beforeById[row.id].animals }));
+  const moves = after.filter((row) => beforeById[row.id] && row.rank !== beforeById[row.id].rank)
+    .map((row) => ({ id: row.id, name: row.name, before: beforeById[row.id].rank, after: row.rank }));
+  return { changed: !!(entered.length || exited.length || animalChanges.length || moves.length), seeded: false, entered, exited, animalChanges, moves, before, after };
+}
+
+function formatTop10Broadcast(diff = {}) {
+  const parts = [];
+  if (diff.entered && diff.entered.length) diff.entered.forEach((row) => parts.push(`进榜：${row.name}（#${row.rank}）`));
+  if (diff.exited && diff.exited.length) diff.exited.forEach((row) => parts.push(`出榜：${row.name}`));
+  if (diff.animalChanges && diff.animalChanges.length) diff.animalChanges.forEach((row) => parts.push(`动物数量：${row.name} ${row.delta > 0 ? "+" : ""}${row.delta}只`));
+  if (diff.moves && diff.moves.length && !parts.length) diff.moves.forEach((row) => parts.push(`名次变化：${row.name} #${row.before}→#${row.after}`));
+  // 收件箱正文按“每行一条变化”展示，避免多个榜单名称挤在同一行被截断。
+  return parts.join("\n") || "Top 10 暂无变化";
+}
+
+module.exports = { top10Snapshot, compareTop10, formatTop10Broadcast };

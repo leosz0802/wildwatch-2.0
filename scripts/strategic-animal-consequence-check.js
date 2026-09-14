@@ -135,6 +135,7 @@ const game = new Game();
 game.stopLoop();
 game.render = () => {};
 game.state = createCharacter(null, "保护区卫士");
+game.screen = "home";
 game.state.world.reserve.strategy = normalizeStrategyState({ pendingDilemma: { id: "water_access", tier: "major", day: 8, actionIndex: 8, chapter: 1, occurrence: 1 } });
 game.infoDetailModal = null;
 assert(game.openPendingStrategicDilemma(), "major event popup should open");

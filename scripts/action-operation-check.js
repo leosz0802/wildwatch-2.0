@@ -30,6 +30,9 @@ const { simulateDay } = require("../js/simulator");
 const { Game } = require("../js/game");
 const {
   ACTION_OPERATION_CONFIG,
+  operationProfiles,
+  operationRouteProfile,
+  operationPlanPreview,
   normalizeOperationPlan,
   encodeOperationPlan,
   parseOperationPlan,
@@ -51,7 +54,14 @@ actionIds.forEach((actionId) => {
   const config = ACTION_OPERATION_CONFIG[actionId];
   assert(config.nodes.length === 3 && new Set(config.nodes.map((node) => node.id)).size === 3, `${actionId} should expose three distinct map nodes`);
   config.nodes.forEach((node) => {
-    assert(node.label && node.short && Object.keys(node.effects || {}).length >= 2, `${actionId}.${node.id} needs visible and real effects`);
+    assert(node.label && node.role && node.short && Object.keys(node.effects || {}).length >= 2, `${actionId}.${node.id} needs a visible strategic role and real effects`);
+  });
+  const profiles = operationProfiles(actionId);
+  assert(profiles.length === 3 && new Set(profiles.map((profile) => profile.id)).size === 3, `${actionId} should expose three distinct pair strategies`);
+  assert(new Set(profiles.map((profile) => profile.label)).size === 3, `${actionId} strategy names should make all three pairs distinguishable`);
+  profiles.forEach((profile) => {
+    assert(profile.risk && profile.promise && Number.isFinite(profile.chanceBonus), `${actionId}.${profile.id} needs risk, intent, and a success modifier`);
+    assert(operationRouteProfile(actionId, profile.nodeIds).id === profile.id, `${actionId}.${profile.id} should resolve from either node order`);
   });
   assert(!normalizeOperationPlan(actionId, [config.nodes[0].id]), `${actionId} should require exactly two nodes`);
   assert(!normalizeOperationPlan(actionId, [config.nodes[0].id, config.nodes[0].id]), `${actionId} should reject duplicate nodes`);
@@ -69,9 +79,15 @@ const forwardReserve = clone(baseReserve);
 const reverseReserve = clone(baseReserve);
 const forwardOutcome = applyOperationPlan(forwardReserve, "habitat", forward);
 const reverseOutcome = applyOperationPlan(reverseReserve, "habitat", reverse);
-assert(forwardReserve.ecology.water === 54 && forwardReserve.ecology.grass === 52, "spring-first route should prioritize water and then partially restore grass");
-assert(reverseReserve.ecology.grass === 54 && reverseReserve.ecology.water === 52, "reversing the same two nodes should prioritize grass instead");
+assert(forwardReserve.ecology.water === 54 && forwardReserve.ecology.grass === 53, "spring-first route should prioritize water and receive its water-grass strategy bonus");
+assert(reverseReserve.ecology.grass === 55 && reverseReserve.ecology.water === 52, "reversing the same two nodes should prioritize grass while keeping the pair bonus");
 assert(forwardOutcome.summary !== reverseOutcome.summary, "route order should remain visible in settlement");
+assert(forwardOutcome.strategyLabel === "水草复苏" && reverseOutcome.strategyLabel === "水草复苏", "node order should change priority without changing the selected pair strategy");
+
+const houndPreviews = [["scent", "herd"], ["scent", "ridge"], ["herd", "ridge"]].map((nodes) => operationPlanPreview("houndScout", nodes));
+assert(new Set(houndPreviews.map((preview) => preview.profile.id)).size === 3, "three hound pairs should resolve to three different strategies");
+assert(new Set(houndPreviews.map((preview) => `${preview.profile.chanceBonus}:${preview.deltaText}`)).size === 3, "three hound strategies should create measurably different risk and reward profiles");
+assert(houndPreviews.some((preview) => preview.profile.risk === "低风险") && houndPreviews.some((preview) => preview.profile.risk === "高风险"), "hound planner should show a meaningful low-to-high risk range");
 
 // The graphical operation must enter the real simulation and final saved values.
 const state = createCharacter(null, "保护区卫士");
@@ -79,7 +95,10 @@ const before = clone(state.world.reserve);
 const result = simulateDay(`猎犬侦察：沿河岸确认陌生气味 [路线:scent>ridge]`, state);
 assert(result.visual.patrolOperation && result.visual.patrolOperation.nodeIds.join(",") === "scent,ridge", "simulation should settle the player's selected route");
 assert(result.world.reserve.lastActionOperation.summary === "先到气味线 → 后到高地捷径", "selected route should be stored in the reserve save");
-assert(result.visual.patrolOperation.changes.some((item) => item.key === "intel" && item.delta > 0), "route should create concrete collected information");
+assert(result.visual.patrolOperation.strategyLabel === "强攻追踪", "simulation should retain the pair strategy, not only node order");
+assert(result.visual.patrolConditions && result.visual.patrolConditions.strategyBonus === -3
+  && result.visual.authorization.chanceBonus === result.visual.patrolConditions.chanceBonus, "route risk should participate in the real action success chance");
+assert(result.visual.patrolOperation.changes.some((item) => item.key === "poacherPressure" && item.delta < 0), "route should create a concrete anti-poaching effect without reviving retired intel");
 assert(result.world.reserve.poacherPressure < before.poacherPressure, "route effects should reach the shared poacher value");
 
 // UI: choose two nodes in order, change the secondary node, encode the route, and settle it.
@@ -106,6 +125,12 @@ sizes.forEach(([width, height]) => {
   game.drawPatrolOperationPlanner(option, game.actionResourceStatus(option.id, game.state.world.reserve));
   assert((game.renderedOperationNodes || []).length === 3
     && game.renderedOperationNodes.every((node) => node.graphical && node.icon && node.iconSize >= 30 && node.h >= 72), `${width}x${height} should show three pictorial field nodes, not text-only cards`);
+  assert((game.renderedOperationStrategies || []).length === 3
+    && new Set(game.renderedOperationStrategies.map((strategy) => strategy.label)).size === 3
+    && game.renderedOperationStrategies.filter((strategy) => strategy.active).length === 1, `${width}x${height} should compare all three pair strategies and highlight the chosen one`);
+  assert(game.renderedOperationStrategy && game.renderedOperationStrategy.risk === "高风险"
+    && game.renderedOperationStrategy.chanceBonus === -3
+    && /偷猎/.test(game.renderedOperationStrategy.deltaText), `${width}x${height} should expose the selected route's risk, odds, and concrete outcome`);
   const actionable = game.hitAreas.filter((area) => area.w < width || area.h < height);
   assert(actionable.length >= 5, `${width}x${height} should expose three nodes and two buttons`);
   actionable.forEach((area) => {
@@ -116,9 +141,12 @@ sizes.forEach(([width, height]) => {
 game.width = 375;
 game.height = 667;
 assert(game.confirmPatrolOperation(), "two selected nodes should execute the action");
+assert(!game.infoDetailModal, "route confirmation should settle directly instead of asking for a second choice");
 assert(!game.patrolOperationPlan, "operation plan should clear after settlement");
 assert(game.settlementModal && game.settlementModal.patrolOperation, "settlement should retain the route operation result");
-assert((game.settlementModal.rewards || []).some((line) => /路线：先到气味线/.test(line)), "settlement should clearly show route and concrete deltas");
-assert(/先去气味线，再去高地捷径/.test(game.settlementModal.speech || ""), "animal response should acknowledge the route order the player actually chose");
+assert((game.settlementModal.rewards || []).some((line) => /路线：强攻追踪 · 先到气味线/.test(line)), "settlement should clearly show strategy, route, and concrete deltas");
+assert((game.settlementModal.narrativeBeat || {}).animalLine
+  && (game.settlementModal.narrativeBeat.animalLine || "").replace(/[，。！？、“”]/g, "").length <= 22,
+"animal response should stay instinctive and short; route order is reported separately in the settlement ledger");
 
-console.log("action operation check ok (4 boards, ordered route, real values, settlement, 3 sizes)");
+console.log("action operation check ok (4 boards, 3 distinct strategies each, one decision, ordered route, real values, settlement, 3 sizes)");

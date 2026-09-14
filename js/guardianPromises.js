@@ -41,8 +41,8 @@ const GUARDIAN_PROMISES = [
         primaryBenefit: "现场判断更准确",
         primaryCost: "每次判断需要持续投入",
         longTerm: "侦察更容易发现关键痕迹；干预仍增加安全感，但会主动保留野性。",
-        immediateEffects: { intel: 1, fund: -75 },
-        actionEffects: { houndScout: { intel: 1, fund: -10 } },
+        immediateEffects: { safety: 1, fund: -75 },
+        actionEffects: { houndScout: { safety: 1, fund: -10 } },
         relationship: { intervention: { security: -1, wildness: 2 } },
         mapTag: "观察距离线"
       }
@@ -125,15 +125,15 @@ const GUARDIAN_PROMISES = [
         mapTag: "高压封锁线"
       },
       {
-        id: "intel_patrol",
+        id: "clue_patrol",
         label: "先取证再行动",
         route: "research",
         risk: "balanced",
         primaryBenefit: "侦察额外发现痕迹",
         primaryCost: "证据链持续消耗基金",
         longTerm: "猎犬侦察提高后续判断质量，但每轮取证都要支付维护成本。",
-        immediateEffects: { intel: 2, fund: -100 },
-        actionEffects: { houndScout: { intel: 1, fund: -18 } },
+        immediateEffects: { safety: 2, fund: -100 },
+        actionEffects: { houndScout: { safety: 1, fund: -18 } },
         mapTag: "取证观察塔"
       }
     ]
@@ -323,7 +323,6 @@ function selectGuardianPromiseChoice(reserve, chapter, choiceId) {
 
 function addMetric(reserve, key, amount) {
   if (!amount) return;
-  if (key === "intel") return;
   if (["water", "grass", "disease"].includes(key)) {
     reserve.ecology = reserve.ecology || {};
     reserve.ecology[key] = clamp((reserve.ecology[key] || 0) + amount);
@@ -343,7 +342,7 @@ function addMetric(reserve, key, amount) {
     consumeProjectPreparation(reserve, amount);
     return;
   }
-  const max = key === "intel" ? 6 : 100;
+  const max = 100;
   reserve[key] = clamp((reserve[key] || 0) + amount, 0, max);
 }
 
@@ -357,7 +356,6 @@ function metricSnapshot(reserve) {
     reputation: reserve.reputation || 0,
     enforcement: reserve.enforcement || 0,
     poacherPressure: reserve.poacherPressure || 0,
-    intel: reserve.intel || 0,
     water: eco.water || 0,
     grass: eco.grass || 0,
     disease: eco.disease || 0,

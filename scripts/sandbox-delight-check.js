@@ -111,9 +111,13 @@ assert(game.mapConsequencePulse.renderedCard && game.mapConsequencePulse.rendere
 
 game.openAnimalThought(animal);
 const explore = game.infoDetailModal.mapActions.find((item) => item.id === "explore:materials");
-assert(/骰子/.test(explore.value) && /直接探索/.test(explore.cost), "exploration preview must make randomness and the direct interaction clear at a glance");
+assert(/点数/.test(explore.value) && /直接探索/.test(explore.cost) && /物资|线索/.test(explore.cost), "exploration preview must explain the tap, point result and immediate outcome");
 explore.action();
 assert(game.infoDetailModal && game.infoDetailModal.kind === "materialExploration", "sandbox exploration verb must enter the playable six-sided-die flow");
-assert(/总点数|六面骰/.test(`${game.infoDetailModal.footer} ${(game.infoDetailModal.items || []).map((item) => item.title).join(" ")}`), "exploration must preserve the clear dice formula");
+assert(/总点数|六面点数/.test(`${game.infoDetailModal.footer} ${(game.infoDetailModal.items || []).map((item) => item.title).join(" ")}`), "exploration must preserve the clear point formula");
+
+game.infoDetailModal = game.buildAnimalThoughtDetail(animal, game.createAnimalDialogueContext(animal));
+assert(game.infoDetailModal.mapActions[0].id === "explore:materials" && game.infoDetailModal.mapActions[0].recommended, "when today's care is complete, exploration must move into the first recommended position");
+assert(/今日互动已完成/.test(game.infoDetailModal.nextStepGuide) && /立即/.test(game.infoDetailModal.nextStepGuide), "blocked animal cards must explicitly explain the next available step and its result timing");
 
 console.log("sandbox delight check ok");

@@ -79,10 +79,27 @@ assert(archived.ok && archived.entry.discovery, "点击沙盘物件必须生成�
 assert.strictEqual(archived.entry.discovery.who, deer.shortName || deer.name || deer.species, "档案必须记录带路动物");
 assert.strictEqual(storyDiscoverySummary(storyState).active, null, "收录后应清空当前发现");
 
+// 线索池最多同时保留5条，且新手期过后同类提示应当节流。
+const clueState = fresh(5);
+const clueAnimal = clueState.world.knownCharacters.find((entry) => entry.species === "鹿") || clueState.world.knownCharacters[0];
+clueState.world.collection.leads = Array.from({ length: 5 }, (_, index) => ({ id: `lead_${index}`, caseId: "case_1" }));
+const fullPool = offerAnimalCollectionLead(clueState, clueAnimal, { caseId: "case_1", guaranteed: true }, () => 0);
+assert(!fullPool.lead && /线索已经有点多了/.test(fullPool.reason), "线索池满时不得继续生成");
+const originalNow = Date.now;
+Date.now = () => 1700000000000;
+const cooldownState = fresh(5);
+const cooldownAnimal = cooldownState.world.knownCharacters.find((entry) => entry.species === "鹿") || cooldownState.world.knownCharacters[0];
+cooldownState.ui.firstSessionFocus = { version: 1, startedAt: Date.now() - (10 * 60 * 1000) };
+cooldownState.world.collection.investigation.lastLeadAt = Date.now();
+const blockedLead = offerAnimalCollectionLead(cooldownState, cooldownAnimal, { caseId: "case_1", guaranteed: true }, () => 0);
+Date.now = originalNow;
+assert(!blockedLead.lead && /缓一缓/.test(blockedLead.reason), "新手期后线索应按30秒节流");
+
 // 自动动物发现优先服务当前等级案件，不能因为鹿也属于第1章，就在
 // 第5章继续把旧物件当作主线投放。
 const currentChapterState = fresh(5);
 setDay(currentChapterState, 30);
+currentChapterState.world.reserve.eventChain = Object.assign({}, currentChapterState.world.reserve.eventChain, { chapterLevel: 5, step: 1 });
 const currentChapterOffer = offerAnimalCollectionLead(currentChapterState, deer, { guaranteed: true }, () => 0);
 assert(currentChapterOffer.discovery && currentChapterOffer.discovery.caseId === "case_5", "自动剧情发现必须优先当前章节案件");
 

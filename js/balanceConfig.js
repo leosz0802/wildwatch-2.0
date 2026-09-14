@@ -1,154 +1,46 @@
-// 野境守护长线经营数值体系 V2
-// 所有核心经济、成长与资源上限只允许从本文件读取。
-
-const BALANCE_V2 = Object.freeze({
-  version: 2,
-  tuning: Object.freeze({
-    fundSourceScale: 1,
-    fundSinkScale: 1,
-    supplyPriceScale: 1,
-    chapterRequirementScale: 1,
-    taskTargetScale: 1,
-    metricGainScale: 1,
-    metricPressureScale: 1,
-    populationGrowthScale: 1,
-    strategyRewardScale: 1,
-    strategyCostScale: 1,
-    rareDropScale: 1,
-    recoveryScale: 1
-  }),
-  caps: Object.freeze({
-    actionPoints: 5,
-    intel: 6,
-    fieldPermits: 3,
-    pendingRecovered: 6,
-    inventory: 10,
-    supplies: Object.freeze({ dogFood: 12, alarm: 6, tranquilizer: 8, fieldKit: 5, medicalKit: 5 })
-  }),
-  chapterEconomy: Object.freeze({
-    1: Object.freeze({ baseIncome: 105, baseMaintenance: 155, habitatCost: 90, interventionCost: 115, permitCost: 60, supplyPriceMultiplier: 1 }),
-    2: Object.freeze({ baseIncome: 135, baseMaintenance: 180, habitatCost: 105, interventionCost: 130, permitCost: 70, supplyPriceMultiplier: 1.05 }),
-    3: Object.freeze({ baseIncome: 170, baseMaintenance: 210, habitatCost: 120, interventionCost: 145, permitCost: 80, supplyPriceMultiplier: 1.10 }),
-    4: Object.freeze({ baseIncome: 210, baseMaintenance: 245, habitatCost: 135, interventionCost: 160, permitCost: 90, supplyPriceMultiplier: 1.15 }),
-    5: Object.freeze({ baseIncome: 255, baseMaintenance: 285, habitatCost: 150, interventionCost: 175, permitCost: 100, supplyPriceMultiplier: 1.20 })
-  }),
-  rankRewards: Object.freeze([
-    Object.freeze({ max: 0.01, value: 80 }),
-    Object.freeze({ max: 0.10, value: 60 }),
-    Object.freeze({ max: 0.30, value: 45 }),
-    Object.freeze({ max: 0.50, value: 30 }),
-    Object.freeze({ max: 1, value: 20 })
-  ]),
-  // 10 个经营阶段映射到现有 5 个剧情章：1–2 阶属于第一章，
-  // 3–4 阶属于第二章，以此类推。expectedMinutes 只用于平衡校验，
-  // 升级本身只检查有效操作、策略、剧情与里程碑，绝不检查挂机时长。
-  progression: Object.freeze({
-    // 每个剧情章由“4 次快速发现 + 15 次完整经营”组成；最终章收束为
-    // 10 次关键操作。全程共 90 次，按每日 3 次约 30 日，给剧情间隔
-    // 和恢复操作留下余量后，仍能稳定落入 27–41 日目标。
-    1: Object.freeze({ stage: 1, storyLevel: 1, nextStage: 2, nextLevel: 1, expectedMinutes: 10, expectedSessions: 1, actions: 4, strategicChoices: 1, majorChoices: 0, score: 56, storyBeats: 2, milestoneNeed: 1, population: 220, fundEarned: 600, migratedIn: 4, rareRecovered: 1 }),
-    2: Object.freeze({ stage: 2, storyLevel: 1, nextStage: 3, nextLevel: 2, expectedMinutes: 20, expectedSessions: 2, actions: 15, strategicChoices: 3, majorChoices: 1, score: 58, storyBeats: 7, milestoneNeed: 2, population: 260, fundEarned: 1200, migratedIn: 7, rareRecovered: 2 }),
-    3: Object.freeze({ stage: 3, storyLevel: 2, nextStage: 4, nextLevel: 2, expectedMinutes: 30, expectedSessions: 2, actions: 4, strategicChoices: 1, majorChoices: 0, score: 60, storyBeats: 2, milestoneNeed: 1, population: 300, fundEarned: 1000, migratedIn: 6, rareRecovered: 2 }),
-    4: Object.freeze({ stage: 4, storyLevel: 2, nextStage: 5, nextLevel: 3, expectedMinutes: 35, expectedSessions: 3, actions: 15, strategicChoices: 4, majorChoices: 1, score: 62, storyBeats: 7, milestoneNeed: 2, population: 340, fundEarned: 1800, migratedIn: 10, rareRecovered: 3 }),
-    5: Object.freeze({ stage: 5, storyLevel: 3, nextStage: 6, nextLevel: 3, expectedMinutes: 40, expectedSessions: 3, actions: 4, strategicChoices: 1, majorChoices: 0, score: 65, storyBeats: 2, milestoneNeed: 1, population: 400, fundEarned: 1700, migratedIn: 9, rareRecovered: 3 }),
-    6: Object.freeze({ stage: 6, storyLevel: 3, nextStage: 7, nextLevel: 4, expectedMinutes: 45, expectedSessions: 4, actions: 15, strategicChoices: 5, majorChoices: 2, score: 68, storyBeats: 7, milestoneNeed: 2, population: 470, fundEarned: 2800, migratedIn: 13, rareRecovered: 4 }),
-    7: Object.freeze({ stage: 7, storyLevel: 4, nextStage: 8, nextLevel: 4, expectedMinutes: 50, expectedSessions: 4, actions: 4, strategicChoices: 1, majorChoices: 0, score: 70, storyBeats: 2, milestoneNeed: 1, population: 540, fundEarned: 2500, migratedIn: 13, rareRecovered: 4 }),
-    8: Object.freeze({ stage: 8, storyLevel: 4, nextStage: 9, nextLevel: 5, expectedMinutes: 55, expectedSessions: 4, actions: 15, strategicChoices: 5, majorChoices: 2, score: 73, storyBeats: 7, milestoneNeed: 2, population: 620, fundEarned: 4000, migratedIn: 17, rareRecovered: 5 }),
-    9: Object.freeze({ stage: 9, storyLevel: 5, nextStage: 10, nextLevel: 5, expectedMinutes: 60, expectedSessions: 5, actions: 4, strategicChoices: 1, majorChoices: 0, score: 76, storyBeats: 2, milestoneNeed: 1, population: 700, fundEarned: 3800, migratedIn: 17, rareRecovered: 5 }),
-    10: Object.freeze({ stage: 10, storyLevel: 5, nextStage: 10, nextLevel: 5, expectedMinutes: 60, expectedSessions: 5, actions: 10, strategicChoices: 4, majorChoices: 1, score: 80, storyBeats: 7, milestoneNeed: 2, population: 780, fundEarned: 6000, migratedIn: 22, rareRecovered: 7 })
-  }),
-  task: Object.freeze({
-    targetByLevel: Object.freeze({ 1: 2, 2: 3, 3: 3, 4: 4, 5: 4 }),
-    fundRewardByLevel: Object.freeze({ 1: 20, 2: 25, 3: 30, 4: 35, 5: 40 })
-  }),
-  fundHealth: Object.freeze({
-    1: Object.freeze({ danger: 300, healthyMin: 500, healthyMax: 1200, high: 1600, projectCost: 320 }),
-    2: Object.freeze({ danger: 450, healthyMin: 700, healthyMax: 1600, high: 2200, projectCost: 450 }),
-    3: Object.freeze({ danger: 650, healthyMin: 950, healthyMax: 2200, high: 3000, projectCost: 600 }),
-    4: Object.freeze({ danger: 900, healthyMin: 1300, healthyMax: 2900, high: 3900, projectCost: 780 }),
-    5: Object.freeze({ danger: 1200, healthyMin: 1700, healthyMax: 3700, high: 5000, projectCost: 980 })
-  }),
-  supplyCaps: Object.freeze({ dogFood: 12, alarm: 6, tranquilizer: 8, fieldKit: 5, medicalKit: 5 }),
-  supplyBasePrices: Object.freeze({ dogFood: 50, alarm: 65, tranquilizer: 75, fieldKit: 45, medicalKit: 45 }),
-  repeatMultipliers: Object.freeze([1, 0.85, 0.70, 0.55]),
-  metricDiminishing: Object.freeze([
-    Object.freeze({ min: 95, multiplier: 0.25 }),
-    Object.freeze({ min: 85, multiplier: 0.50 }),
-    Object.freeze({ min: 75, multiplier: 0.70 }),
-    Object.freeze({ min: 0, multiplier: 1 })
-  ]),
-  poacherDiminishing: Object.freeze([
-    Object.freeze({ max: 9, multiplier: 0.30 }),
-    Object.freeze({ max: 24, multiplier: 0.55 }),
-    Object.freeze({ max: 40, multiplier: 0.80 }),
-    Object.freeze({ max: 100, multiplier: 1 })
-  ]),
-  resourceAging: Object.freeze({
-    intelFreshLimit: 4,
-    intelIdleActions: 3,
-    pendingLifetimeActions: 6,
-    recoveryCooldownActions: 8
-  }),
-  fragmentExchange: Object.freeze({
-    fieldNote: Object.freeze({ amount: 6, reward: "intel", rewardAmount: 1, cooldown: 3 }),
-    migrationTrace: Object.freeze({ amount: 5, fund: 80, reward: "fieldPermits", rewardAmount: 1, cooldown: 5 }),
-    forestGift: Object.freeze({ amount: 3, cooldown: 6 }),
-    coGuardShard: Object.freeze({ amount: 8, fund: 200, discount: 0.20 })
-  }),
-  highStockProject: Object.freeze({ triggerActions: 3, durationActions: 8 }),
-  population: Object.freeze({
-    maxGrowthPerAction: 3,
-    nearCapacityRatio: 0.90,
-    nearCapacityGrowthMultiplier: 0.30,
-    carryingCapacity: Object.freeze({ 1: 260, 2: 360, 3: 500, 4: 680, 5: 850 })
-  }),
-  rarity: Object.freeze({ baseChance: 0.03, trustBonus: 0.02, ecologyBonus: 0.02, seasonBonus: 0.01, maxChance: 0.08, pity: 10 })
+const BALANCE_V2=Object.freeze({version:2,tuning:Object.freeze({fundSourceScale:1,fundSinkScale:1,supplyPriceScale:1.08,chapterRequirementScale:1,taskTargetScale:1,metricGainScale:1,metricPressureScale:1,populationGrowthScale:1,strategyRewardScale:1,strategyCostScale:1,rareDropScale:1,recoveryScale:1}),caps:Object.freeze({pendingRecovered:6,inventory:10,supplies:Object.freeze({dogFood:12,alarm:6,tranquilizer:8,fieldKit:5,medicalKit:5,evidenceTrap:4})}),chapterEconomy:Object.freeze({1:Object.freeze({baseIncome:105,baseMaintenance:155,habitatCost:90,interventionCost:115,supplyPriceMultiplier:1}),2:Object.freeze({baseIncome:135,baseMaintenance:180,habitatCost:105,interventionCost:130,supplyPriceMultiplier:1.05}),3:Object.freeze({baseIncome:170,baseMaintenance:210,habitatCost:120,interventionCost:145,supplyPriceMultiplier:1.1}),4:Object.freeze({baseIncome:210,baseMaintenance:245,habitatCost:135,interventionCost:160,supplyPriceMultiplier:1.15}),5:Object.freeze({baseIncome:255,baseMaintenance:285,habitatCost:150,interventionCost:175,supplyPriceMultiplier:1.2}),6:Object.freeze({baseIncome:300,baseMaintenance:330,habitatCost:170,interventionCost:195,supplyPriceMultiplier:1.25}),7:Object.freeze({baseIncome:350,baseMaintenance:380,habitatCost:190,interventionCost:220,supplyPriceMultiplier:1.3})}),rankRewards:Object.freeze([Object.freeze({max:.01,value:80}),Object.freeze({max:.1,value:60}),Object.freeze({max:.3,value:45}),Object.freeze({max:.5,value:30}),Object.freeze({max:1,value:20})]),progression:Object.freeze({1:Object.freeze({stage:1,storyLevel:1,nextStage:2,nextLevel:1,expectedMinutes:5,expectedSessions:1,actions:4,strategicChoices:1,majorChoices:0,score:50,storyBeats:2,milestoneNeed:1,population:180,fundEarned:600,migratedIn:4,rareRecovered:1}),2:Object.freeze({stage:2,storyLevel:1,nextStage:3,nextLevel:2,expectedMinutes:20,expectedSessions:2,actions:15,strategicChoices:3,majorChoices:1,score:58,storyBeats:7,milestoneNeed:2,population:260,fundEarned:1200,migratedIn:7,rareRecovered:2}),3:Object.freeze({stage:3,storyLevel:2,nextStage:4,nextLevel:2,expectedMinutes:30,expectedSessions:2,actions:4,strategicChoices:1,majorChoices:0,score:60,storyBeats:2,milestoneNeed:1,population:300,fundEarned:1e3,migratedIn:6,rareRecovered:2}),4:Object.freeze({stage:4,storyLevel:2,nextStage:5,nextLevel:3,expectedMinutes:35,expectedSessions:3,actions:15,strategicChoices:4,majorChoices:1,score:62,storyBeats:7,milestoneNeed:2,population:340,fundEarned:1800,migratedIn:10,rareRecovered:3}),5:Object.freeze({stage:5,storyLevel:3,nextStage:6,nextLevel:3,expectedMinutes:40,expectedSessions:3,actions:4,strategicChoices:1,majorChoices:0,score:65,storyBeats:2,milestoneNeed:1,population:400,fundEarned:1700,migratedIn:9,rareRecovered:3}),6:Object.freeze({stage:6,storyLevel:3,nextStage:7,nextLevel:4,expectedMinutes:45,expectedSessions:4,actions:15,strategicChoices:5,majorChoices:2,score:68,storyBeats:7,milestoneNeed:2,population:470,fundEarned:2800,migratedIn:13,rareRecovered:4}),7:Object.freeze({stage:7,storyLevel:4,nextStage:8,nextLevel:4,expectedMinutes:50,expectedSessions:4,actions:4,strategicChoices:1,majorChoices:0,score:70,storyBeats:2,milestoneNeed:1,population:540,fundEarned:2500,migratedIn:13,rareRecovered:4}),8:Object.freeze({stage:8,storyLevel:4,nextStage:9,nextLevel:5,expectedMinutes:55,expectedSessions:4,actions:15,strategicChoices:5,majorChoices:2,score:73,storyBeats:7,milestoneNeed:2,population:620,fundEarned:4e3,migratedIn:17,rareRecovered:5}),9:Object.freeze({stage:9,storyLevel:5,nextStage:10,nextLevel:5,expectedMinutes:60,expectedSessions:5,actions:4,strategicChoices:1,majorChoices:0,score:76,storyBeats:2,milestoneNeed:1,population:700,fundEarned:3800,migratedIn:17,rareRecovered:5}),10:Object.freeze({stage:10,storyLevel:5,nextStage:11,nextLevel:6,expectedMinutes:60,expectedSessions:5,actions:15,strategicChoices:5,majorChoices:2,score:80,storyBeats:7,milestoneNeed:2,population:780,fundEarned:6e3,migratedIn:22,rareRecovered:7}),11:Object.freeze({stage:11,storyLevel:6,nextStage:12,nextLevel:6,expectedMinutes:65,expectedSessions:5,actions:4,strategicChoices:1,majorChoices:0,score:81,storyBeats:2,milestoneNeed:1,population:820,fundEarned:4200,migratedIn:18,rareRecovered:6}),12:Object.freeze({stage:12,storyLevel:6,nextStage:13,nextLevel:7,expectedMinutes:70,expectedSessions:6,actions:15,strategicChoices:5,majorChoices:2,score:82,storyBeats:7,milestoneNeed:2,population:900,fundEarned:7e3,migratedIn:24,rareRecovered:8}),13:Object.freeze({stage:13,storyLevel:7,nextStage:14,nextLevel:7,expectedMinutes:75,expectedSessions:6,actions:4,strategicChoices:1,majorChoices:0,score:83,storyBeats:2,milestoneNeed:1,population:940,fundEarned:5e3,migratedIn:20,rareRecovered:7}),14:Object.freeze({stage:14,storyLevel:7,nextStage:15,nextLevel:7,expectedMinutes:80,expectedSessions:7,actions:12,strategicChoices:4,majorChoices:1,score:84,storyBeats:7,milestoneNeed:2,population:1020,fundEarned:8500,migratedIn:28,rareRecovered:10}),15:Object.freeze({stage:15,storyLevel:7,nextStage:16,nextLevel:7,expectedMinutes:86,expectedSessions:7,actions:10,strategicChoices:4,majorChoices:1,score:85,storyBeats:6,milestoneNeed:2,population:1080,fundEarned:9e3,migratedIn:30,rareRecovered:10}),16:Object.freeze({stage:16,storyLevel:7,nextStage:17,nextLevel:7,expectedMinutes:92,expectedSessions:8,actions:11,strategicChoices:4,majorChoices:1,score:86,storyBeats:6,milestoneNeed:2,population:1140,fundEarned:9600,migratedIn:32,rareRecovered:11}),17:Object.freeze({stage:17,storyLevel:7,nextStage:18,nextLevel:7,expectedMinutes:98,expectedSessions:8,actions:12,strategicChoices:5,majorChoices:2,score:87,storyBeats:6,milestoneNeed:2,population:1200,fundEarned:10200,migratedIn:34,rareRecovered:12}),18:Object.freeze({stage:18,storyLevel:7,nextStage:19,nextLevel:7,expectedMinutes:104,expectedSessions:9,actions:13,strategicChoices:5,majorChoices:2,score:88,storyBeats:6,milestoneNeed:2,population:1260,fundEarned:10800,migratedIn:36,rareRecovered:12}),19:Object.freeze({stage:19,storyLevel:7,nextStage:20,nextLevel:7,expectedMinutes:110,expectedSessions:9,actions:14,strategicChoices:5,majorChoices:2,score:89,storyBeats:6,milestoneNeed:2,population:1320,fundEarned:11400,migratedIn:38,rareRecovered:13}),20:Object.freeze({stage:20,storyLevel:7,nextStage:20,nextLevel:7,expectedMinutes:120,expectedSessions:10,actions:16,strategicChoices:6,majorChoices:2,score:90,storyBeats:7,milestoneNeed:2,population:1400,fundEarned:12500,migratedIn:40,rareRecovered:14})}),task:Object.freeze({targetByLevel:Object.freeze({1:2,2:3,3:3,4:4,5:4,6:5,7:5}),fundRewardByLevel:Object.freeze({1:20,2:25,3:30,4:35,5:40,6:45,7:50})}),fundHealth:Object.freeze({1:Object.freeze({danger:300,healthyMin:500,healthyMax:1200,high:1600,projectCost:320}),2:Object.freeze({danger:450,healthyMin:700,healthyMax:1600,high:2200,projectCost:450}),3:Object.freeze({danger:650,healthyMin:950,healthyMax:2200,high:3e3,projectCost:600}),4:Object.freeze({danger:900,healthyMin:1300,healthyMax:2900,high:3900,projectCost:780}),5:Object.freeze({danger:1200,healthyMin:1700,healthyMax:3700,high:5e3,projectCost:980}),6:Object.freeze({danger:1500,healthyMin:2100,healthyMax:4500,high:6100,projectCost:1180}),7:Object.freeze({danger:1850,healthyMin:2500,healthyMax:5400,high:7300,projectCost:1400})}),supplyCaps:Object.freeze({dogFood:12,alarm:6,tranquilizer:8,fieldKit:5,medicalKit:5,evidenceTrap:4}),supplyBasePrices:Object.freeze({dogFood:75,alarm:115,tranquilizer:135,fieldKit:95,medicalKit:105,evidenceTrap:125}),supplyPricePressure:Object.freeze({guardianDayStep:.015,guardianDayCap:.3,stockStep:.045,stockCap:.18,highFundThreshold:2500,highFundStep:.04,highFundCap:.2}),repeatMultipliers:Object.freeze([1,.85,.7,.55]),metricDiminishing:Object.freeze([Object.freeze({min:95,multiplier:.25}),Object.freeze({min:85,multiplier:.5}),Object.freeze({min:75,multiplier:.7}),Object.freeze({min:0,multiplier:1})]),poacherDiminishing:Object.freeze([Object.freeze({max:9,multiplier:.3}),Object.freeze({max:24,multiplier:.55}),Object.freeze({max:40,multiplier:.8}),Object.freeze({max:100,multiplier:1})]),resourceAging:Object.freeze({pendingLifetimeActions:6,recoveryCooldownActions:8}),fragmentExchange:Object.freeze({fieldNote:Object.freeze({amount:6,fund:60,cooldown:3}),migrationTrace:Object.freeze({amount:5,fund:120,cooldown:5}),forestGift:Object.freeze({amount:3,cooldown:6}),coGuardShard:Object.freeze({amount:8,fund:200,discount:.2})}),highStockProject:Object.freeze({triggerActions:3,durationActions:8}),population:Object.freeze({maxGrowthPerAction:3,nearCapacityRatio:.9,nearCapacityGrowthMultiplier:.3,carryingCapacity:Object.freeze({1:260,2:360,3:500,4:680,5:850,6:980,7:1150})}),rarity:Object.freeze({baseChance:.03,trustBonus:.02,ecologyBonus:.02,seasonBonus:.01,maxChance:.08,pity:10})});const ECOLOGY_THRESHOLDS=Object.freeze({
+  criticalWater:35, lowWater:50, recoveryWater:62,
+  criticalGrass:35, lowGrass:48, recoveryGrass:58,
+  earlyDisease:24, warningDisease:40, criticalDisease:45, recoveryDisease:30,
+  earlyWater:60, earlyGrass:55
 });
-
-function levelOf(reserve) {
-  return Math.max(1, Math.min(5, Math.round((((reserve || {}).progression || {}).level) || 1)));
-}
-
-function chapterEconomy(reserveOrLevel) {
-  const level = typeof reserveOrLevel === "number" ? reserveOrLevel : levelOf(reserveOrLevel);
-  return BALANCE_V2.chapterEconomy[Math.max(1, Math.min(5, Math.round(level || 1)))];
-}
-
-function progressionGate(stage) {
-  return BALANCE_V2.progression[Math.max(1, Math.min(10, Math.round(stage || 1)))];
-}
-
-function roundToFive(value) {
-  return Math.max(0, Math.round(Number(value || 0) / 5) * 5);
-}
-
-function supplyPrice(id, reserveOrLevel) {
-  const economy = chapterEconomy(reserveOrLevel);
-  return roundToFive((BALANCE_V2.supplyBasePrices[id] || 0) * economy.supplyPriceMultiplier * BALANCE_V2.tuning.supplyPriceScale);
-}
-
-function fundHealth(level) {
-  return BALANCE_V2.fundHealth[Math.max(1, Math.min(5, Math.round(level || 1)))];
-}
-
-function metricGainMultiplier(value) {
-  const found = BALANCE_V2.metricDiminishing.find((band) => Number(value || 0) >= band.min);
-  return (found ? found.multiplier : 1) * BALANCE_V2.tuning.metricGainScale;
-}
-
-function poacherReductionMultiplier(value) {
-  const found = BALANCE_V2.poacherDiminishing.find((band) => Number(value || 0) <= band.max);
-  return (found ? found.multiplier : 1) * BALANCE_V2.tuning.metricPressureScale;
-}
-
-module.exports = {
-  BALANCE_V2,
-  levelOf,
-  chapterEconomy,
-  progressionGate,
-  supplyPrice,
-  fundHealth,
-  metricGainMultiplier,
-  poacherReductionMultiplier,
-  roundToFive
+const SPECIES_VITALS={
+  deer:{birthRate:.032,naturalMortality:.010,diseaseMortality:.018,migrationSensitivity:.72,waterUse:1.25,grassUse:1.35,diseaseSusceptibility:1.05},
+  antelope:{birthRate:.030,naturalMortality:.010,diseaseMortality:.017,migrationSensitivity:.68,waterUse:1.20,grassUse:1.30,diseaseSusceptibility:.95},
+  zebra:{birthRate:.026,naturalMortality:.011,diseaseMortality:.016,migrationSensitivity:.62,waterUse:1.35,grassUse:1.45,diseaseSusceptibility:.90},
+  hare:{birthRate:.080,naturalMortality:.030,diseaseMortality:.028,migrationSensitivity:.46,waterUse:.35,grassUse:.48,diseaseSusceptibility:1.20},
+  boar:{birthRate:.052,naturalMortality:.018,diseaseMortality:.022,migrationSensitivity:.50,waterUse:.62,grassUse:.58,diseaseSusceptibility:1.08},
+  wolf:{birthRate:.018,naturalMortality:.012,diseaseMortality:.020,migrationSensitivity:.84,waterUse:.70,grassUse:.10,diseaseSusceptibility:.82},
+  lion:{birthRate:.014,naturalMortality:.014,diseaseMortality:.018,migrationSensitivity:.88,waterUse:.85,grassUse:.08,diseaseSusceptibility:.78},
+  leopard:{birthRate:.016,naturalMortality:.014,diseaseMortality:.021,migrationSensitivity:.82,waterUse:.62,grassUse:.06,diseaseSusceptibility:.90},
+  crocodile:{birthRate:.012,naturalMortality:.012,diseaseMortality:.016,migrationSensitivity:.92,waterUse:1.10,grassUse:0,diseaseSusceptibility:1.10},
+  flamingo:{birthRate:.040,naturalMortality:.018,diseaseMortality:.026,migrationSensitivity:.94,waterUse:1.00,grassUse:.12,diseaseSusceptibility:1.16},
+  hippo:{birthRate:.020,naturalMortality:.012,diseaseMortality:.020,migrationSensitivity:.90,waterUse:1.55,grassUse:1.10,diseaseSusceptibility:1.06},
+  elephant:{birthRate:.012,naturalMortality:.009,diseaseMortality:.014,migrationSensitivity:.58,waterUse:2.20,grassUse:1.85,diseaseSusceptibility:.76},
+  giraffe:{birthRate:.018,naturalMortality:.010,diseaseMortality:.016,migrationSensitivity:.58,waterUse:1.15,grassUse:.72,diseaseSusceptibility:.82},
+  bear:{birthRate:.014,naturalMortality:.013,diseaseMortality:.018,migrationSensitivity:.70,waterUse:.72,grassUse:.18,diseaseSusceptibility:.88},
+  eagle:{birthRate:.026,naturalMortality:.022,diseaseMortality:.022,migrationSensitivity:.76,waterUse:.22,grassUse:.02,diseaseSusceptibility:.86},
+  owl:{birthRate:.032,naturalMortality:.024,diseaseMortality:.024,migrationSensitivity:.68,waterUse:.18,grassUse:.02,diseaseSusceptibility:.94},
+  crow:{birthRate:.060,naturalMortality:.035,diseaseMortality:.030,migrationSensitivity:.42,waterUse:.12,grassUse:.01,diseaseSusceptibility:1.10},
+  vulture:{birthRate:.024,naturalMortality:.024,diseaseMortality:.025,migrationSensitivity:.55,waterUse:.20,grassUse:.02,diseaseSusceptibility:1.00},
+  wildDog:{birthRate:.022,naturalMortality:.014,diseaseMortality:.021,migrationSensitivity:.76,waterUse:.72,grassUse:.08,diseaseSusceptibility:.88},
+  mink:{birthRate:.034,naturalMortality:.020,diseaseMortality:.025,migrationSensitivity:.88,waterUse:.78,grassUse:.10,diseaseSusceptibility:1.12},
+  fox:{birthRate:.045,naturalMortality:.026,diseaseMortality:.026,migrationSensitivity:.60,waterUse:.32,grassUse:.06,diseaseSusceptibility:1.04},
+  rhino:{birthRate:.010,naturalMortality:.008,diseaseMortality:.013,migrationSensitivity:.56,waterUse:2.00,grassUse:1.70,diseaseSusceptibility:.72},
+  pangolin:{birthRate:.028,naturalMortality:.020,diseaseMortality:.023,migrationSensitivity:.70,waterUse:.28,grassUse:.12,diseaseSusceptibility:1.08},
+  cheetah:{birthRate:.018,naturalMortality:.016,diseaseMortality:.021,migrationSensitivity:.84,waterUse:.55,grassUse:.06,diseaseSusceptibility:.90},
+  hyena:{birthRate:.030,naturalMortality:.018,diseaseMortality:.022,migrationSensitivity:.58,waterUse:.58,grassUse:.06,diseaseSusceptibility:.94},
+  otter:{birthRate:.040,naturalMortality:.019,diseaseMortality:.025,migrationSensitivity:.94,waterUse:.72,grassUse:.04,diseaseSusceptibility:1.16},
+  pelican:{birthRate:.032,naturalMortality:.020,diseaseMortality:.024,migrationSensitivity:.90,waterUse:.48,grassUse:.02,diseaseSusceptibility:1.10},
+  orangutan:{birthRate:.016,naturalMortality:.012,diseaseMortality:.018,migrationSensitivity:.72,waterUse:.42,grassUse:.38,diseaseSusceptibility:.86},
+  toucan:{birthRate:.046,naturalMortality:.030,diseaseMortality:.026,migrationSensitivity:.56,waterUse:.16,grassUse:.04,diseaseSusceptibility:1.02},
+  tapir:{birthRate:.024,naturalMortality:.014,diseaseMortality:.020,migrationSensitivity:.66,waterUse:.92,grassUse:.82,diseaseSusceptibility:.92},
+  fireflyBird:{birthRate:.050,naturalMortality:.032,diseaseMortality:.028,migrationSensitivity:.52,waterUse:.12,grassUse:.02,diseaseSusceptibility:1.05},
+  bison:{birthRate:.018,naturalMortality:.010,diseaseMortality:.016,migrationSensitivity:.60,waterUse:1.70,grassUse:1.55,diseaseSusceptibility:.84},
+  crane:{birthRate:.030,naturalMortality:.018,diseaseMortality:.022,migrationSensitivity:.86,waterUse:.60,grassUse:.04,diseaseSusceptibility:1.08}
 };
+function speciesVitalFor(id){
+  const roleDefaults={birthRate:.028,naturalMortality:.015,diseaseMortality:.020,migrationSensitivity:.65,waterUse:.45,grassUse:.35,diseaseSusceptibility:1};
+  return Object.assign({},roleDefaults,SPECIES_VITALS[id]||{});
+}
+function levelOf(e){return Math.max(1,Math.min(7,Math.round(((e||{}).progression||{}).level||1)))}function chapterEconomy(e){const t="number"==typeof e?e:levelOf(e);return BALANCE_V2.chapterEconomy[Math.max(1,Math.min(7,Math.round(t||1)))]}function progressionGate(e){return BALANCE_V2.progression[Math.max(1,Math.min(20,Math.round(e||1)))]}function roundToFive(e){return Math.max(0,5*Math.round(Number(e||0)/5))}function supplyPrice(e,t){const r=chapterEconomy(t),a=BALANCE_V2.supplyPricePressure,i=t&&"object"==typeof t?t:null,n=Math.max(1,Math.round(Number(((i||{}).guardianCycle||{}).day||1))),o=Math.max(0,Math.round(Number(((i||{}).supplies||{})[e]||0))),s=Math.max(0,Math.round(Number((i||{}).fund||0))),c=1+Math.min(a.guardianDayCap,Math.max(0,n-1)*a.guardianDayStep),l=1+Math.min(a.stockCap,o*a.stockStep),d=1+Math.min(a.highFundCap,Math.floor(Math.max(0,s-a.highFundThreshold)/1e3)*a.highFundStep);return roundToFive((BALANCE_V2.supplyBasePrices[e]||0)*r.supplyPriceMultiplier*BALANCE_V2.tuning.supplyPriceScale*c*l*d)}function fundHealth(e){return BALANCE_V2.fundHealth[Math.max(1,Math.min(7,Math.round(e||1)))]}function metricGainMultiplier(e){const t=BALANCE_V2.metricDiminishing.find(t=>Number(e||0)>=t.min);return(t?t.multiplier:1)*BALANCE_V2.tuning.metricGainScale}function poacherReductionMultiplier(e){const t=BALANCE_V2.poacherDiminishing.find(t=>Number(e||0)<=t.max);return(t?t.multiplier:1)*BALANCE_V2.tuning.metricPressureScale}module.exports={BALANCE_V2:BALANCE_V2,ECOLOGY_THRESHOLDS:ECOLOGY_THRESHOLDS,SPECIES_VITALS:SPECIES_VITALS,speciesVitalFor:speciesVitalFor,levelOf:levelOf,chapterEconomy:chapterEconomy,progressionGate:progressionGate,supplyPrice:supplyPrice,fundHealth:fundHealth,metricGainMultiplier:metricGainMultiplier,poacherReductionMultiplier:poacherReductionMultiplier,roundToFive:roundToFive};

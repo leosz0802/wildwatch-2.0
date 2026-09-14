@@ -57,8 +57,8 @@ const badgeSource = source.slice(badgeStart, badgeEnd);
 if (badgeSource.includes("iy + 4") || badgeSource.includes('"rgba(18,61,52,.18)"')) fail("ui badge restored the extra square shadow block");
 if (source.includes("const iconR = 30") || source.includes("this.roundRect(ctx, x + 9, y + 10, 32, 32")) fail("material cards restored a second icon backing plate");
 
-const iconFiles = fs.readdirSync(iconDir).filter((file) => file.endsWith(".png")).sort();
-if (iconFiles.length !== 29) fail(`expected 29 independent toy icons, got ${iconFiles.length}`);
+const iconFiles = fs.readdirSync(iconDir).filter((file) => /\.(png|webp)$/.test(file)).sort();
+if (iconFiles.length !== 23) fail(`expected 23 active UI icons, got ${iconFiles.length}`);
 
 let totalBytes = 0;
 iconFiles.forEach((file) => {
@@ -66,9 +66,19 @@ iconFiles.forEach((file) => {
   const buffer = fs.readFileSync(fullPath);
   totalBytes += buffer.length;
   if (buffer.length < 2000) fail(`${file} is unexpectedly small`);
-  if (buffer.toString("hex", 0, 8) !== "89504e470d0a1a0a") fail(`${file} is not a PNG`);
-  const width = buffer.readUInt32BE(16);
-  const height = buffer.readUInt32BE(20);
+  let width, height;
+  if (file.endsWith(".png")) {
+    if (buffer.toString("hex", 0, 8) !== "89504e470d0a1a0a") fail(`${file} is not a PNG`);
+    width = buffer.readUInt32BE(16);
+    height = buffer.readUInt32BE(20);
+  } else {
+    if (buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WEBP") fail(`${file} is not WebP`);
+    const chunk = buffer.toString("ascii", 12, 16);
+    if (chunk === "VP8 ") { width = buffer.readUInt16LE(26) & 0x3fff; height = buffer.readUInt16LE(28) & 0x3fff; }
+    else if (chunk === "VP8L") { const bits = buffer.readUInt32LE(21); width = (bits & 0x3fff) + 1; height = ((bits >>> 14) & 0x3fff) + 1; }
+    else if (chunk === "VP8X") { width = buffer.readUIntLE(24, 3) + 1; height = buffer.readUIntLE(27, 3) + 1; }
+    else fail(`${file} has unsupported WebP header`);
+  }
   if (width !== 96 || height !== 96) fail(`${file} must stay 96x96, got ${width}x${height}`);
 });
 

@@ -19,9 +19,6 @@ function run(command, state, random = 0.99) {
 function supply(state) {
   const reserve = state.world.reserve;
   reserve.fund = 10000;
-  reserve.actionPoints = 5;
-  reserve.intel = 6;
-  reserve.fieldPermits = 3;
   reserve.base.raidTickets = 3;
   reserve.supplies = { dogFood: 10, alarm: 6, tranquilizer: 6, fieldKit: 4 };
   reserve.safety = 72;
@@ -63,10 +60,8 @@ assert.strictEqual(chain.step, 2, "满足间隔和水源条件后应推进第2�
 
 // 前半章只要求2段，不能继续播放第3段导致后半章剧情被提前消耗。
 for (let index = 0; index < 10; index += 1) {
-  state.world.reserve.actionPoints = 5;
-  state.world.reserve.fund = 10000;
-  state.world.reserve.intel = 6;
-  state.world.reserve.supplies.dogFood = 10;
+    state.world.reserve.fund = 10000;
+    state.world.reserve.supplies.dogFood = 10;
   state.world.reserve.supplies.alarm = 6;
   state = run(index % 2 ? "派猎犬侦察：确认边界脚印" : "驱赶偷猎者：封锁可疑路线", state);
 }

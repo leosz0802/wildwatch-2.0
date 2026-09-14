@@ -87,9 +87,10 @@ reserve.supplies.fieldKit = 3;
 
 const alarmDetail = game.buildMaterialDetail("supply", "alarm");
 const dartDetail = game.buildMaterialDetail("supply", "tranquilizer");
+const alarmPurchase = require("../js/actions").supplyPurchaseById("alarm");
 assert(alarmDetail.actionLabel === "采购警报器", "alarm detail should replenish a specific supply from material page");
 assert(dartDetail.actionLabel === "采购麻醉弹", "tranquilizer detail should replenish a specific supply from material page");
-assert(alarmDetail.items.some((item) => item.tag === "执行后" && item.title.indexOf("警报器 +1") >= 0 && item.title.indexOf("基金 -65") >= 0), "supply detail should preview item-specific data changes");
+assert(alarmDetail.items.some((item) => item.tag === "执行后" && item.title.indexOf("警报器 +1") >= 0 && item.title.indexOf(`基金 -${alarmPurchase.cost}`) >= 0), "supply detail should preview item-specific data changes");
 
 game.useMaterialAction("buySupplies", "alarm");
 assert(game.screen === "role", "material action should stay on material screen before settlement");
@@ -99,7 +100,7 @@ withRandom(0.99, () => game.submitCommand());
 const after = game.state.world.reserve;
 assert(game.screen === "home" && game.mapConsequencePulse, "material action should reveal its consequence on the sandbox first");
 assert(game.settlementModal && game.settlementModal.returnScreen === "role", "material settlement should remember the material page while the sandbox reacts");
-assert(after.fund === 583, `fund should drop to 583, got ${after.fund}`);
+assert(after.fund === 648 - alarmPurchase.cost, `fund should drop to ${648 - alarmPurchase.cost}, got ${after.fund}`);
 assert(after.supplies.dogFood === 3, `dog food should stay 3, got ${after.supplies.dogFood}`);
 assert(after.supplies.tranquilizer === 4, `tranquilizer should stay 4, got ${after.supplies.tranquilizer}`);
 assert(after.supplies.alarm === 1, `alarm should become 1, got ${after.supplies.alarm}`);

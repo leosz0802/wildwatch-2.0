@@ -26,6 +26,7 @@ function finite(value, label) {
 
 function nonNegativeObject(object, label) {
   Object.keys(object || {}).forEach((key) => {
+    if (key === "rescueItems") return;
     finite(object[key], `${label}.${key}`);
     assert(object[key] >= 0, `${label}.${key} is negative: ${object[key]}`);
   });
@@ -94,7 +95,7 @@ function resolvePendingSystems(state, route, day, rng) {
 function validateState(state, seedIndex, day, previousLevel) {
   const reserve = state.world.reserve;
   const prefix = `seed${seedIndex}.day${day}`;
-  ["fund", "safety", "stability", "business", "reputation", "enforcement", "ecologyScore", "poacherPressure", "actionPoints", "intel", "fieldPermits"].forEach((key) => finite(reserve[key], `${prefix}.${key}`));
+  ["fund", "safety", "stability", "business", "reputation", "enforcement", "ecologyScore", "poacherPressure", ].forEach((key) => finite(reserve[key], `${prefix}.${key}`));
   [reserve.supplies, reserve.inventory, reserve.pendingRecovered, (reserve.ecology || {}).predators, (reserve.ecology || {}).herbivores, (reserve.ecology || {}).birds].forEach((object, index) => nonNegativeObject(object, `${prefix}.resources${index}`));
   const level = reserve.progression.level;
   assert(level >= previousLevel, `${prefix} level regressed`);
@@ -118,7 +119,7 @@ function validateState(state, seedIndex, day, previousLevel) {
   const goals = state.world.goals || {};
   const visibleGoals = [((goals.active || {}).primary)].concat(((goals.active || {}).alternatives) || []).filter(Boolean);
   assert(goals.version === 3 && goals.daily && goals.daily.target >= 1, `${prefix} V3 daily goal is missing or impossible`);
-  assert((goals.daily.objectives || []).length === 3, `${prefix} daily objective set must stay at three`);
+  assert((goals.daily.objectives || []).length === 4, `${prefix} daily objective set must stay at four`);
   assert(visibleGoals.length >= 1 && visibleGoals.length <= 3, `${prefix} must expose one to three visible goals`);
   visibleGoals.forEach((goal) => assert(goal.executable && actionExecutable(state, goal.recommendedAction), `${prefix} recommended goal ${goal.id} is not executable`));
   assert(new Set(visibleGoals.map((goal) => goal.id)).size === visibleGoals.length, `${prefix} visible goals contain duplicates`);

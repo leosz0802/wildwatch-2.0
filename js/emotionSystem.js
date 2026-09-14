@@ -92,12 +92,15 @@ function normalizeLifeMemory(world, now = Date.now()) {
     permanentConsequences: (saved.permanentConsequences || []).slice(-80),
     rareMoments: (saved.rareMoments || []).slice(),
     guardianLetters: (saved.guardianLetters || []).slice(-12),
+    animalLetters: (saved.animalLetters || []).slice(),
+    animalLetterDateKey: saved.animalLetterDateKey || "",
+    animalLetterPromptDateKey: saved.animalLetterPromptDateKey || "",
     lastSeenAt: saved.lastSeenAt || now,
     lastLetterKey: saved.lastLetterKey || ""
   };
   const existingIds = new Set(state.individuals.map((item) => item.id));
   const newlyMet = [];
-  getUnlockedSpecies(progression.level || 1).forEach((species) => {
+  getUnlockedSpecies(progression.level || 1, progression.stage || progression.level || 1).forEach((species) => {
     if (!state.individuals.some((item) => item.speciesId === species.id)) {
       const individual = baseIndividual(species, day, 0);
       state.individuals.push(individual);
@@ -234,7 +237,8 @@ function advanceLifeMemory(beforeWorld, afterWorld, context = {}) {
   const ecology = ecologyScore(reserve);
   const disease = ((reserve.ecology || {}).disease) || 0;
   const migration = (reserve.migration || {}).delta || 0;
-  const level = ((reserve.progression || {}).level) || 1;
+  const progression = reserve.progression || {};
+  const level = progression.level || 1;
   const season = (afterWorld && afterWorld.season) || ((reserve.seasonState || {}).name) || "雨季";
   const seasonalLife = seasonLifeModifiers(season);
   const promiseLife = lifeCycleModifiers(reserve);
@@ -327,7 +331,7 @@ function advanceLifeMemory(beforeWorld, afterWorld, context = {}) {
     return individual;
   });
 
-  getUnlockedSpecies(level).forEach((species) => {
+  getUnlockedSpecies(level, progression.stage || level).forEach((species) => {
     const friends = state.individuals.filter((item) => item.speciesId === species.id && item.status === "active");
     const allFriends = state.individuals.filter((item) => item.speciesId === species.id);
     const population = speciesPopulation(reserve, species.id);
@@ -667,7 +671,7 @@ function prepareGuardianReturnLetter(world, now = Date.now()) {
   };
   state.guardianLetters.push(letter);
   state.lastLetterKey = key;
-  state.memories.push({ id: `memory_${letter.id}`, day: letter.day, type: "guardian_letter", name: friend.name, title: letter.title, body: letter.body, tone: "warm" });
+  state.memories.push({ id: `memory_${letter.id}`, day: letter.day, type: "guardian_letter", name: friend.name, species: friend.species, title: letter.title, body: letter.body, tone: "warm" });
   state.memories = state.memories.slice(-240);
   return { state, letter };
 }

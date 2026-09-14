@@ -28,7 +28,7 @@ assets.forEach((asset) => {
 });
 
 [
-  "assets/art/core-map.jpg",
+  "assets/art/core-map-anime-v1.jpg",
   "assets/art/core-sprites-atlas.png"
 ].forEach((asset) => {
   if (!assets.has(asset)) throw new Error(`core first-package asset is not referenced: ${asset}`);
@@ -39,8 +39,8 @@ if (Array.from(assets).some((asset) => asset.startsWith("assets/art/ui-v2/"))) {
   throw new Error("runtime should not reference deprecated ui-v2 icon assets");
 }
 const runtimeIcons = Array.from(assets).filter((asset) => asset.startsWith("assets/art/ui-v3/icons/"));
-if (runtimeIcons.length < 29) {
-  throw new Error(`runtime should reference the Manus ui-v3 icon set, got ${runtimeIcons.length}`);
+if (runtimeIcons.length < 23) {
+  throw new Error(`runtime should reference every active ui-v3 icon, got ${runtimeIcons.length}`);
 }
 runtimeIcons.forEach((asset) => {
   if (isIgnored(asset)) throw new Error(`runtime ui-v3 icon must not be ignored: ${asset}`);

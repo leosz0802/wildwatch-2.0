@@ -1,13 +1,17 @@
 {
-  "description": "野境守护微信小游戏 v0.3.1",
+  "description": "荒野守望微信小游戏 v0.3.1",
   "appid": "wx0ad30effd406ea13",
-  "projectname": "野境守护 v0.3.1",
+  "projectname": "荒野守望 v0.3.1",
   "compileType": "game",
-  "libVersion": "3.8.0",
+  "libVersion": "3.8.6",
   "packOptions": {
     "ignore": [
       {
         "value": "scripts",
+        "type": "folder"
+      },
+      {
+        "value": "art-source",
         "type": "folder"
       },
       {
@@ -39,16 +43,16 @@
         "type": "file"
       },
       {
+        "value": "COMMERCIAL_REGRESSION_REPORT_2026-07-22.md",
+        "type": "file"
+      },
+      {
         "value": "VERSION.md",
         "type": "file"
       },
       {
         "value": "WECHAT_DEVTOOL_SETUP.md",
         "type": "file"
-      },
-      {
-        "value": "art-source",
-        "type": "folder"
       },
       {
         "value": "ART_DIRECTION_V4.md",
@@ -61,6 +65,34 @@
       {
         "value": "code.fortify.config.json",
         "type": "file"
+      },
+      {
+        "value": "assets/art/animal-portraits-atlas-v4.jpg",
+        "type": "file"
+      },
+      {
+        "value": "assets/art/core-map-anime-v1.webp",
+        "type": "file"
+      },
+      {
+        "value": "assets/audio/sfx-warning.m4a",
+        "type": "file"
+      },
+      {
+        "value": "server",
+        "type": "folder"
+      },
+      {
+        "value": "chapter-assets/share",
+        "type": "folder"
+      },
+      {
+        "value": "work",
+        "type": "folder"
+      },
+      {
+        "value": "docs",
+        "type": "folder"
       }
     ],
     "include": []

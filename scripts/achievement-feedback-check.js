@@ -54,8 +54,19 @@ reserve.poacherPressure = 72;
 game.drawSeasonMapDynamics(game.ctx, camera, false);
 assert(game.renderedSeasonTerrain.waterTier === "high" && game.renderedSeasonTerrain.grassTier === "high", "sandbox terrain must expose ecology tiers");
 assert(game.renderedSeasonTerrain.waterFeatures.length === 4, "abundant water must visibly expand into four water features");
-assert(game.renderedSeasonTerrain.vegetationPatches.length >= 18, "lush grass must visibly increase vegetation density");
+assert(game.renderedSeasonTerrain.vegetationPatches.length === 7, "lush grass should use seven broad accents without cluttering the clear map");
 assert(game.renderedSeasonTerrain.poacherWarning && game.renderedSeasonTerrain.poacherWarning.style === "edge-vignette", "high poaching pressure must create an edge warning");
+
+reserve.mastery.habitat.xp = 40;
+reserve.mastery.patrol.xp = 40;
+reserve.poacherPressure = 32;
+reserve.facilityConstruction.sites.migration_watch = Object.assign({}, reserve.facilityConstruction.sites.migration_watch, { buildStage: 2, buildSteps: 2 });
+game.drawPersistentSandboxConsequences(game.ctx, camera, false);
+const persistentTypes = game.renderedPersistentSandbox.visibleTypes;
+assert(!persistentTypes.includes("restored-water-channel") && persistentTypes.includes("meadow-flower-corridor"), "habitat work should leave a meadow trace without the redundant cyan water-channel line");
+assert(persistentTypes.includes("cleared-snare-line"), "successful patrol pressure must leave a cleared border trace");
+assert(persistentTypes.includes("facility-path") && persistentTypes.includes("migration-signal"), "operational facilities must connect to the sandbox with paths and working signals");
+assert(game.renderedPersistentSandbox.features.every((feature) => feature.permanent), "sandbox consequence traces must be marked as persistent rather than transient particles");
 
 const animal = game.state.world.knownCharacters[0];
 const detail = game.buildAnimalThoughtDetail(animal, game.createAnimalDialogueContext(animal));
@@ -81,8 +92,18 @@ after.safety = Math.min(100, before.safety + 4);
 after.pendingRecovered.recoveredTrap = (after.pendingRecovered.recoveredTrap || 0) + 1;
 const story = game.patrolNarrativeStory(before, after, "antiPoacher", animal, {});
 assert(/^你/.test(story.headline) && /阻止|发现/.test(story.beats.join(" ")), "patrol settlement must describe what the player changed");
+reserve.league.rivals = Array.from({ length: 8 }, (_, index) => ({
+  id: `real_neighbor_${index}`,
+  name: `玩家${index + 1}的邻区哨站`,
+  owner: `玩家${index + 1}`,
+  valuation: 1800 - index * 30,
+  shield: 34 + index * 4,
+  scope: "world",
+  simulated: false,
+  source: "player"
+}));
 const comparison = game.neighborSafetyComparison(after);
-assert(comparison && /%/.test(comparison.text) && /保护区/.test(comparison.text), "patrol settlement must include a labeled safety comparison");
+assert(comparison && !comparison.simulated && /%/.test(comparison.text) && /保护区/.test(comparison.text), "patrol settlement must compare only against enough real player protection zones");
 
 const replay = game.setMapPatrolReplay("antiPoacher");
 assert(replay && replay.points.length >= 4, "field patrol must create a route replay");
@@ -104,5 +125,21 @@ const revealModal = { breakthrough: { kind: "test" }, storyReplay: true };
 const revealStart = Date.now();
 game.configureSettlementReveal(revealModal, "home");
 assert(revealModal.revealAt >= revealStart + 4900, "major settlement must wait until route and map feedback have finished");
+
+game.mapPatrolReplay = { expiresAt: Date.now() + 180 };
+game.mapConsequencePulse = { startedAt: Date.now(), expiresAt: Date.now() + 3800 };
+const crisisModal = { breakthrough: { kind: "emergency_started", title: "偷猎团伙越界", body: "多组脚印越过边界。" }, storyReplay: true };
+game.configureSettlementReveal(crisisModal, "home");
+assert(crisisModal.crisisBurst && game.mapCrisisBurst && game.mapCrisisBurst.region === "西部边界", "a new crisis must schedule a region-specific sandbox burst");
+assert(game.mapConsequencePulse === null && crisisModal.revealAt > game.mapCrisisBurst.expiresAt, "the crisis burst must own the map layer before its decision card appears");
+game.mapCrisisBurst.startedAt = Date.now() - 500;
+game.mapCrisisBurst.expiresAt = Date.now() + 900;
+const crisisCamera = game.mapCrisisCameraInfo(camera);
+assert(crisisCamera.crisisFocus > 0 && crisisCamera.scale > camera.scale, "crisis presentation must focus and slightly tighten the sandbox camera");
+game.drawMapCrisisBurst(game.ctx, crisisCamera);
+assert(game.mapCrisisBurst.rendered && game.mapCrisisBurst.rendered.mapDimmed
+  && game.mapCrisisBurst.rendered.targetRing
+  && game.mapCrisisBurst.rendered.titleCard
+  && game.mapCrisisBurst.rendered.duration >= 1400, "crisis burst must combine map tone, target ring and short title card");
 
 console.log("achievement feedback check ok");

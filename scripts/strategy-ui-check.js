@@ -35,6 +35,7 @@ function makeGame(dilemmaId) {
   game.ctx = createFakeContext();
   game.render = () => {};
   game.state = createCharacter(null, "保护区卫士");
+  game.screen = "home";
   const dilemma = strategicDilemmaById(dilemmaId);
   game.state.world.reserve.strategy = normalizeStrategyState({
     pendingDilemma: { id: dilemma.id, tier: dilemma.tier, day: 10, actionIndex: 10, chapter: 1 }
@@ -56,10 +57,13 @@ function makeGame(dilemmaId) {
   });
   const initialLayout = game.infoDetailModal.renderedChoiceLayout || [];
   assert(initialLayout.length === 3, `three choice cards need independent layouts at ${width}x${height}`);
+  assert(game.infoDetailModal.renderedDecisionDensity && game.infoDetailModal.renderedDecisionDensity.mode === "summary-first", `strategy modal should use summary-first disclosure at ${width}x${height}`);
+  assert(game.infoDetailModal.renderedInfoFrame && game.infoDetailModal.renderedInfoFrame.h <= 430, `three-choice strategy modal should remain compact at ${width}x${height}`);
+  assert(initialLayout.every((item) => item.h <= 72), `unselected strategy cards should stay compact at ${width}x${height}`);
   assert(initialLayout.every((item) => item.routeSize >= 9 && item.riskSize >= 9 && item.labelSize >= 10), `strategy route, risk and option labels must remain readable at ${width}x${height}`);
   const initialSummaries = game.infoDetailModal.renderedChoiceSummaries || [];
   assert(initialSummaries.length === 3, `every unselected option must foreground benefit and cost at ${width}x${height}`);
-  assert(initialSummaries.every((item) => item.benefit.valueSize >= 11 && item.cost.valueSize >= 11 && !item.benefit.truncated && !item.cost.truncated), `strategy benefit or cost is too small or truncated at ${width}x${height}`);
+  assert(initialSummaries.every((item) => item.benefit.compact && item.cost.compact && item.benefit.valueSize >= 11 && item.cost.valueSize >= 11 && !item.benefit.truncated && !item.cost.truncated), `strategy benefit or cost is too small, dense or truncated at ${width}x${height}`);
   initialLayout.forEach((hit) => assert(hit.x >= 0 && hit.y >= 0 && hit.x + hit.w <= width && hit.y + hit.h <= height, `choice card should stay inside ${width}x${height}`));
   game.selectStrategicDilemmaChoice("water_access", "open_water");
   assert(game.state.world.reserve.strategy.pendingDilemma, "selecting should not settle before confirmation");

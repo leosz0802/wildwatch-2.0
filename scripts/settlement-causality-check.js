@@ -53,10 +53,10 @@ const display = game.settlementDisplayChanges({
     { label: "水源指数", before: 64, after: 68, delta: 4 }
   ]
 });
-if (!display.primary || display.primary.label !== "偷猎压力" || display.secondary.length !== 2) {
-  throw new Error("settlement should promote the most consequential risk and keep two secondary changes");
+if (!display.primary || display.primary.key !== "fund" || display.secondary.length !== 3) {
+  throw new Error("settlement should promote the core fund change and keep ecology as its supporting causes");
 }
-if (game.settlementChangeTone(display.primary).beneficial !== true) {
+if (game.settlementChangeTone(display.secondary.find((item) => item.label === "偷猎压力")).beneficial !== true) {
   throw new Error("falling poacher pressure must use positive semantics");
 }
 
@@ -92,7 +92,7 @@ if (routedAction !== "houndScout" || crisisRouteGame.settlementModal !== null) {
 }
 
 const commerce = game.settlementDisplayChanges({ commerce: { count: 2 }, fundBefore: 1000, fundAfter: 1230, guardianScore: 70, scoreDelta: 2, stats: [] });
-if (!commerce.primary || commerce.primary.label !== "基金" || commerce.primary.delta !== 230) {
+if (!commerce.primary || commerce.primary.label !== "保护基金" || commerce.primary.delta !== 230) {
   throw new Error("sale settlement should promote the exact fund change");
 }
 const exploration = game.settlementDisplayChanges({ materialExploration: { reward: { id: "trap", label: "陷阱证据", amount: 2 } }, fundBefore: 1000, fundAfter: 1000, stats: [] });

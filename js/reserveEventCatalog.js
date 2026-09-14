@@ -1,0 +1,43 @@
+// Additional stories share the existing map → response → result interaction.
+const response = (action, label, gain, preview) => ({ action, label, gain, preview });
+const event = (title, source, regionId, visualKind, story, impact, responses, effects) => ({
+  title, source, regionId, visualKind, startBody: story, impact, responses,
+  recommendedAction: responses[0].action, recommendLabel: responses[0].label,
+  target: 3, days: 3,
+  resolvedTitle: `${title} · 已处理`, failedTitle: `${title} · 未解决`,
+  resolvedBody: effects.resolvedBody, failedBody: effects.failedBody,
+  pressureEffects: effects.pressure, resolvedEffects: effects.resolved, failedEffects: effects.failed
+});
+
+module.exports = {
+  animal_water_conflict: event("兽群争占饮水点", "nature", "river", "animal-conflict",
+    "旱水把象群和小型食草动物挤到同一片浅滩，幼兽无法靠近，观赏线路暂时关闭。",
+    "争水降低种群稳定；动物退走会让游客失去看点。",
+    [response("habitat", "增设分散水点", 2, "工具包修复水点，较快恢复动物通行与游线。"), response("intervention", "引导兽群分流", 1, "先保护幼兽，争水仍需继续观察。")],
+    { pressure: { water: -1, stability: -1 }, resolved: { water: 4, stability: 3 }, failed: { water: -5, stability: -6 }, resolvedBody: "兽群错峰饮水，浅滩恢复观察，新客开始回流。", failedBody: "小型兽群离开浅滩，游客缩短行程并申请退款。" }),
+  visitor_litter: event("游客遗留物进入草场", "visitor", "meadow", "visitor-conflict",
+    "野餐区包装袋被风吹进草场，幼兽误食的消息让游客担心，向导暂停这段游线。",
+    "草场受损与误食风险会降低体验，带来离场和退款。",
+    [response("habitat", "清理并修复草场", 2, "使用工具包清理游线，从源头减少误食。"), response("houndScout", "排查遗留物", 1, "追查扩散范围，先标出安全游线。")],
+    { pressure: { grass: -1, disease: 1 }, resolved: { grass: 3, reputation: 3 }, failed: { disease: 5, reputation: -5 }, resolvedBody: "遗留物已清理，草场重新开放，游客愿意继续参访。", failedBody: "误食风险扩大，游线关闭，部分游客离场。" }),
+  visitor_queue: event("观景台排队冲突", "visitor", "center", "visitor-conflict",
+    "两个旅行团为观景位置争执，喧哗惊走动物。排队游客开始要求退款。",
+    "安全感和口碑下降，游客留存降低，保护基金承压。",
+    [response("houndScout", "向导分批带队", 2, "现场巡查配合错峰入场，尽快恢复秩序。"), response("habitat", "开辟等候缓冲区", 1, "工具包布置分流区，改善拥挤但恢复较慢。")],
+    { pressure: { reputation: -1, safety: -1 }, resolved: { reputation: 4, safety: 2 }, failed: { reputation: -6, safety: -3 }, resolvedBody: "游客按批次入场，动物回到视野，新客开始恢复。", failedBody: "争执引发差评和提前离场，游客贡献需要退还。" }),
+  neighbor_water: event("邻区上游截水", "neighbor", "river", "shared-water",
+    "相邻保护区维修水闸，下游饮水点水位骤降。双方需确认轮流放水的时段。",
+    "共用水源影响兽群停留；水边看点减少会压低客流。",
+    [response("habitat", "修复共用旁渠", 2, "使用工具包恢复共享供水，尽快重开游线。"), response("houndScout", "联合核验水线", 1, "核验双方用水点，逐步恢复轮换供水。")],
+    { pressure: { water: -2 }, resolved: { water: 6, stability: 2 }, failed: { water: -8, stability: -3 }, resolvedBody: "双方恢复轮换供水，动物重回水边，游客开始回流。", failedBody: "轮换供水未恢复，水边游线关闭，游客离场退款。" }),
+  neighbor_exchange: event("邻区提出种源交换", "neighbor", "center", "neighbor-exchange",
+    "邻区带来耐旱草种，希望共同完成样地修复。先核验种源，再决定如何接种。",
+    "交换成功改善草场和观赏线路；错过机会不会额外扣基金。",
+    [response("habitat", "共建种源样地", 2, "使用工具包完成试种，草场恢复后吸引新客。"), response("intervention", "检疫分批接种", 1, "医疗补给用于检疫，较慢但降低外来病害风险。")],
+    { pressure: {}, resolved: { grass: 6, disease: -2 }, failed: {}, resolvedBody: "共享草种通过试种，新的草场看点吸引游客，贡献进入保护基金。", failedBody: "本轮交换暂缓，种源留在邻区，游客和基金不变。" }),
+  neighbor_migration: event("跨区迁徙口拥堵", "neighbor", "north", "neighbor-dispute",
+    "邻区迁来的兽群被边界围栏挡住，两边动物挤在通道口。观赏车队也无法通行。",
+    "迁徙受阻影响种群和游线，游客规模与贡献同时下降。",
+    [response("habitat", "联通迁徙走廊", 2, "使用工具包修复通道，让兽群与游线分开。"), response("houndScout", "联合引导兽群", 1, "核验两侧路线，逐批疏导，需持续跟进。")],
+    { pressure: { stability: -2 }, resolved: { stability: 5, water: 2 }, failed: { stability: -6, safety: -4 }, resolvedBody: "双方错峰开放通道，兽群顺利通行，游客恢复参访。", failedBody: "迁徙拥堵持续，跨区游线停运，部分游客离场。" })
+};

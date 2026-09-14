@@ -132,6 +132,25 @@ function animalMapPosition(animal, index) {
 console.log("map interaction ok");
 
 const game = new Game();
+game.mapZoom = 0;
+if (Math.abs(game.currentMapScale() - 0.97) > 0.001) throw new Error("the default sandbox camera should start at the minimum map scale");
+[0, 0.35, 1, 1.35, 2].forEach((zoom, index, levels) => {
+  game.mapZoom = zoom;
+  const scale = game.currentMapScale();
+  if (index > 0) {
+    game.mapZoom = levels[index - 1];
+    if (scale <= game.currentMapScale()) throw new Error("continuous map zoom scale must increase monotonically");
+  }
+});
+game.mapZoom = 1;
+game.mapCameraFrame = game.mapCameraInfo(0, 0, 375, 500);
+const focalBefore = game.mapCamera;
+if (!game.setMapZoom(1.4, 280, 190, false) || game.mapZoom <= 1) throw new Error("pinch/button zoom should update the sandbox scale");
+if (!game.mapCamera || (game.mapCamera.cx === focalBefore.cx && game.mapCamera.cy === focalBefore.cy)) throw new Error("off-center zoom must preserve its focal point through camera adjustment");
+game.setMapZoom(-99, 180, 250, false);
+if (game.mapZoom !== 0) throw new Error("map zoom must clamp to minimum");
+game.setMapZoom(99, 180, 250, false);
+if (game.mapZoom !== 2) throw new Error("map zoom must clamp to maximum");
 [0, 1, 2].forEach((zoom, index) => {
   game.mapZoom = zoom;
   const animals = game.visibleSandAnimals(game.state.world);

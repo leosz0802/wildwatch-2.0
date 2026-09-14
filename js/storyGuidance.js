@@ -1,12 +1,13 @@
-function eventStepGuidance(reserve = {}, step = 1) {
+const { ECOLOGY_THRESHOLDS } = require("./balanceConfig");
+function eventStepGuidance(reserve = {}, step = 1, branch = "") {
   const eco = reserve.ecology || {};
   const supplies = reserve.supplies || {};
   const supplyTotal = Object.values(supplies).reduce((sum, value) => sum + (value || 0), 0);
   const riskAction = (reserve.poacherPressure || 0) > 35
     ? "antiPoacher"
-    : (eco.disease || 0) > 28
+    : (eco.disease || 0) >= ECOLOGY_THRESHOLDS.warningDisease
       ? "intervention"
-      : (eco.water || 0) < 65 || (eco.grass || 0) < 55
+      : (eco.water || 0) < ECOLOGY_THRESHOLDS.earlyWater || (eco.grass || 0) < ECOLOGY_THRESHOLDS.earlyGrass
         ? "habitat"
         : "houndScout";
   const definitions = {
@@ -17,7 +18,7 @@ function eventStepGuidance(reserve = {}, step = 1) {
     2: { recommendedAction: "habitat", validActions: ["habitat"] },
     3: { recommendedAction: "antiPoacher", validActions: ["antiPoacher", "houndScout"] },
     4: {
-      recommendedAction: (eco.disease || 0) > 36 ? "intervention" : "habitat",
+      recommendedAction: (eco.disease || 0) >= ECOLOGY_THRESHOLDS.criticalDisease ? "intervention" : "habitat",
       validActions: ["habitat", "intervention"]
     },
     5: {
@@ -33,7 +34,21 @@ function eventStepGuidance(reserve = {}, step = 1) {
       validActions: ["houndScout", "habitat", "antiPoacher", "intervention", "buySupplies", "salvage", "exploreMaterials"]
     }
   };
-  const found = definitions[step] || {
+  const branchOverrides = {
+    // The ledger branch is about supplies and sample handover. Its fifth
+    // beat must never fall back to the generic poacher-risk recommendation:
+    // the player completes it by selling/handing over the recovered sample.
+    ledger: {
+      1: { recommendedAction: "buySupplies", validActions: ["buySupplies", "salvage", "exploreMaterials"] },
+      2: { recommendedAction: "buySupplies", validActions: ["buySupplies", "salvage", "exploreMaterials"] },
+      3: { recommendedAction: "buySupplies", validActions: ["buySupplies", "salvage", "exploreMaterials"] },
+      4: { recommendedAction: "buySupplies", validActions: ["buySupplies", "salvage", "exploreMaterials"] },
+      5: { recommendedAction: "salvage", validActions: ["salvage"] },
+      6: { recommendedAction: "buySupplies", validActions: ["buySupplies", "salvage", "exploreMaterials"] },
+      7: { recommendedAction: "salvage", validActions: ["salvage", "buySupplies"] }
+    }
+  };
+  const found = (branchOverrides[branch] && branchOverrides[branch][step]) || definitions[step] || {
     recommendedAction: riskAction,
     validActions: ["houndScout", "habitat", "antiPoacher", "intervention"]
   };

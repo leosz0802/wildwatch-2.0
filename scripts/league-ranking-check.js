@@ -1,9 +1,11 @@
 const { Game } = require("../js/game");
 const { createCharacter } = require("../js/storage");
+const { top10Snapshot, compareTop10, formatTop10Broadcast } = require("../js/worldLeaderboardBroadcast");
 
 const game = Object.create(Game.prototype);
 game.state = createCharacter(null, "保护区卫士");
-game.leagueScope = "world";
+game.state.world.reserve.progression.totalActions = 2;
+game.leagueScope = "friends";
 game.selectedRivalId = null;
 game.toast = () => {};
 game.render = () => {};
@@ -17,17 +19,18 @@ if (!friendRows.find((row) => row.mine) || !worldRows.find((row) => row.mine)) {
 if (friendRows.length !== 1 || game.hasFriendLeagueMembers() || game.leagueRankOfMine("friends") !== 0) {
   throw new Error("an empty friend ranking should contain only my reserve and wait for a real friend");
 }
-if (worldRows.length !== 13) {
-  throw new Error("world ranking should use system guardians to maintain twelve opponents while real players are scarce");
+if (worldRows.length !== 1) {
+  throw new Error("world ranking should show only my reserve until real server players arrive");
 }
-if (!game.leagueOpponents("world").every((row) => row.scope === "world" && row.simulated === true && row.source === "system")) {
-  throw new Error("early world ranking fillers should be transparently marked as system guardians");
+if (game.leagueOpponents("world").length !== 0) {
+  throw new Error("world ranking must never fill empty seats with simulated guardians");
 }
 
 function assertSorted(rows, label) {
   rows.reduce((prev, row) => {
-    if ((row.rating || 0) > prev) throw new Error(`${label} ranking is not sorted by rating`);
-    return row.rating || 0;
+    const value = game.leagueRowValue(row);
+    if (value > prev) throw new Error(`${label} ranking is not sorted by reserve valuation`);
+    return value;
   }, Number.POSITIVE_INFINITY);
 }
 
@@ -43,20 +46,193 @@ if (friendRank !== 0 || worldRank < 1) {
 let shareCount = 0;
 let screenCount = 0;
 game.shareFriendLeagueInvite = () => { shareCount += 1; };
-game.setScreen = () => { screenCount += 1; };
-game.openReserveNetwork("friends");
-if (shareCount !== 1 || screenCount !== 0) {
-  throw new Error("opening an empty friend ranking should directly launch the share invite");
+let lastScreen = "";
+game.setScreen = (screen) => { screenCount += 1; lastScreen = screen; };
+game.openReserveNetwork();
+if (shareCount !== 0 || screenCount !== 1 || lastScreen !== "league" || game.leagueScope !== "friends") {
+  throw new Error("opening the ranking without a scope should default to the friend page");
 }
 
+game.leagueScope = "world";
+game.activateGuardianBeat("collectionInvestigation");
+if (screenCount !== 2 || lastScreen !== "survival" || !game.survivalArchiveOpen || game.leagueScope !== "world") {
+  throw new Error("collection investigation should enter the Survival archive without mutating the leaderboard scope");
+}
+
+game.openReserveNetwork("world");
+if (screenCount !== 3 || lastScreen !== "league" || game.leagueScope !== "world") {
+  throw new Error("the world ranking should remain available through an explicit world action");
+}
+
+const chapterEntry = game.buildChapterProgressDetail();
+if (chapterEntry.actionLabel !== "进入好友排行榜") {
+  throw new Error("the chapter detail should describe its default friend-ranking destination");
+}
+chapterEntry.action();
+if (screenCount !== 4 || game.leagueScope !== "friends") {
+  throw new Error("the chapter detail entry should reset a previous world page to friends");
+}
+
+let chapterToast = "";
+game.toast = (message) => { chapterToast = String(message || ""); };
+game.state.ui = {};
+game.infoDetailModal = null;
+const chapterProgressLevel = Math.max(1, Math.round(game.reserveProgression(game.state.world.reserve).stage || 1));
+if (!game.openChapterProgressDetail()) {
+  throw new Error("the chapter progress detail should open once for the current chapter");
+}
+if (!game.infoDetailModal || game.state.ui.chapterProgressSeenLevel !== chapterProgressLevel) {
+  throw new Error("the chapter progress detail should persist the chapter level it has shown");
+}
+game.infoDetailModal = null;
+if (game.openChapterProgressDetail() !== false || !/看过/.test(chapterToast)) {
+  throw new Error("the chapter progress detail should stay quiet after the same chapter has been viewed");
+}
+game.state.world.reserve.progression.stage = chapterProgressLevel + 1;
+chapterToast = "";
+if (!game.openChapterProgressDetail() || !game.infoDetailModal || game.state.ui.chapterProgressSeenLevel !== chapterProgressLevel + 1) {
+  throw new Error("a new chapter should reopen the progress detail exactly once");
+}
+
+game.leagueScope = "world";
+game.ensureSelectedRivalForScope("world");
+if (game.selectedRival() || game.selectedRivalId) {
+  throw new Error("an empty real-player world ranking should not invent a selectable target");
+}
+game.cloudService = {
+  feature(name) { return name === "worldLeaderboard"; },
+  myRank: 4,
+  rows: [{
+    id: "cloud_real_world_1",
+    name: "leo.liu的苔原哨站",
+    owner: "leo.liu",
+    reserveName: "苔原哨站",
+    valuation: 8538,
+    rating: 8538,
+    rank: 3,
+    shield: 37,
+    animals: 65,
+    style: "真实经营",
+    scope: "world",
+    simulated: false,
+    source: "cloud",
+    updatedAt: Date.now()
+  }]
+};
+const pureBefore = top10Snapshot([{ id: "a", name: "甲保护区", rank: 1, animals: 20, valuation: 900 }, { id: "b", name: "乙保护区", rank: 2, animals: 8, valuation: 800 }]);
+const pureAfter = top10Snapshot([{ id: "b", name: "乙保护区", rank: 1, animals: 11, valuation: 920 }, { id: "c", name: "丙保护区", rank: 2, animals: 4, valuation: 810 }]);
+const pureDiff = compareTop10(pureBefore, pureAfter);
+if (!pureDiff.changed || pureDiff.entered[0].name !== "丙保护区" || pureDiff.exited[0].name !== "甲保护区" || pureDiff.animalChanges[0].delta !== 3 || !/进榜/.test(formatTop10Broadcast(pureDiff))) {
+  throw new Error("Top 10 diff should report entrants, exits and integer animal changes");
+}
+let broadcastToast = "";
+game.toast = (message) => { broadcastToast = String(message || ""); };
+game.state.reports = [];
+const seededBroadcast = game.updateWorldLeaderboardBroadcast();
+if (seededBroadcast || !game.state.world.reserve.league.top10Snapshot) {
+  throw new Error("the first Top 10 sync should seed a silent snapshot");
+}
+game.state.world.reserve.league.top10Snapshot.push({ id: "old_world", name: "旧榜保护区", rank: 2, animals: 12, valuation: 8000 });
+game.cloudService.rows = [
+  { id: "cloud_real_world_2", name: "nova的雨林哨站", owner: "nova", reserveName: "雨林哨站", valuation: 9800, rating: 9800, rank: 1, shield: 55, animals: 77, scope: "world", simulated: false, source: "cloud" },
+  { id: "cloud_real_world_1", name: "leo.liu的苔原哨站", owner: "leo.liu", reserveName: "苔原哨站", valuation: 8538, rating: 8538, rank: 2, shield: 37, animals: 68, scope: "world", simulated: false, source: "cloud" }
+];
+game.state.world.reserve.progression = Object.assign({}, game.state.world.reserve.progression, { activeSeconds: 180 });
+const changedBroadcast = game.updateWorldLeaderboardBroadcast();
+if (!changedBroadcast || !/进榜/.test(changedBroadcast.body) || !/出榜/.test(changedBroadcast.body) || !/动物数量/.test(changedBroadcast.body) || broadcastToast) {
+  throw new Error("a changed Top 10 should create one readable broadcast without an on-screen toast");
+}
+if (changedBroadcast.sourceKind !== "leaderboard" || changedBroadcast.sourceLabel !== "世界榜播报" || changedBroadcast.readAt) {
+  throw new Error("a changed Top 10 should be persisted as an unread protection-area letter");
+}
+const leaderboardInbox = game.buildReserveLetterInbox();
+const leaderboardLetter = leaderboardInbox.letters.find((letter) => letter.id === changedBroadcast.id);
+if (!leaderboardLetter || leaderboardLetter.sourceKind !== "leaderboard" || leaderboardLetter.body !== changedBroadcast.body || !/保护区来信 · 未读 [1-9]\d*$/.test(leaderboardInbox.kicker)) {
+  throw new Error("the Top 10 broadcast should appear in the protection-area inbox with unread state");
+}
+const chipGame = Object.create(Game.prototype);
+chipGame.state = game.state;
+chipGame.drawUiIcon = () => true;
+chipGame.drawSmallGlyph = () => {};
+chipGame.roundRect = () => {};
+chipGame.text = () => {};
+chipGame.addMapRectHit = (_x, _y, _w, _h, action) => { chipGame.lastChipAction = action; };
+chipGame.animT = () => 0;
+chipGame.displayReserveNumber = (_kind, value) => value;
+chipGame.numberAnimationPulse = () => 0;
+chipGame.mapSignalSnapshot = { signature: "0|0|0|0", count: 0, letters: 0, unread: 0, at: 0 };
+chipGame.drawMapVisitorCountChip({}, { x: 0, y: 0, w: 300, h: 500 }, [], 1);
+if (chipGame.renderedMapVisitorCountChip.mode !== "reserveLetters" || !chipGame.renderedMapVisitorCountChip.unreadLeaderboard || !chipGame.lastChipAction) {
+  throw new Error("an unread Top 10 broadcast should keep the map inbox entry visible until opened");
+}
+if (!game.openVisitorLetterReader(leaderboardLetter) || game.infoDetailModal.title !== changedBroadcast.title || !/Top 10/.test(game.infoDetailModal.meta) || !/进榜/.test(game.infoDetailModal.prose)) {
+  throw new Error("the Top 10 inbox item should open a readable history detail");
+}
+if (!game.state.world.reserve.league.broadcasts.find((letter) => letter.id === changedBroadcast.id).readAt) {
+  throw new Error("opening a Top 10 inbox item should mark it read");
+}
+const duplicateBroadcast = game.updateWorldLeaderboardBroadcast();
+if (duplicateBroadcast || game.state.world.reserve.league.broadcasts.length !== 1) {
+  throw new Error("re-rendering the same Top 10 must not duplicate the broadcast");
+}
+game.cloudService.rows = [{
+  id: "cloud_real_world_1",
+  name: "leo.liu的苔原哨站",
+  owner: "leo.liu",
+  reserveName: "苔原哨站",
+  valuation: 8538,
+  rating: 8538,
+  rank: 3,
+  shield: 37,
+  animals: 65,
+  style: "真实经营",
+  scope: "world",
+  simulated: false,
+  source: "cloud",
+  updatedAt: Date.now()
+}];
 game.ensureSelectedRivalForScope("world");
 const worldTarget = game.selectedRival();
 if (!worldTarget || worldTarget.mine || worldTarget.scope !== "world") {
-  throw new Error("world ranking should provide a selectable rival reserve");
+  throw new Error("world ranking should select the first real server player");
+}
+game.openLeaguePlayerDetail(worldTarget, worldTarget.rank);
+if (!game.infoDetailModal || game.infoDetailModal.title !== "leo.liu的苔原哨站" || !/真实玩家/.test(game.infoDetailModal.kicker) || game.infoDetailModal.player !== worldTarget) {
+  throw new Error("clicking a real world player should open the full player and reserve detail");
+}
+const incompleteTarget = Object.assign({}, worldTarget, { animals: 31, shield: 48, profileComplete: false });
+game.openLeaguePlayerDetail(incompleteTarget, incompleteTarget.rank);
+const incompleteCopy = JSON.stringify(game.infoDetailModal.items);
+if (!/动物数据待同步/.test(incompleteCopy) || /31 只动物/.test(incompleteCopy) || /真实玩家完整数据/.test(incompleteCopy)) {
+  throw new Error("legacy score-only profiles must not expose a generated or zero animal count as real data");
+}
+const avatarA = game.leaguePlayerAvatarStyle(worldTarget);
+const avatarB = game.leaguePlayerAvatarStyle(Object.assign({}, worldTarget, { id: "cloud_real_world_2", owner: "Nicole.英" }));
+if (!avatarA.generated || !avatarA.initial || (avatarA.start === avatarB.start && avatarA.initial === avatarB.initial)) {
+  throw new Error("world players should receive stable, visually distinct privacy-safe avatars");
+}
+let selfAvatarCalls = 0;
+game.wechatFriends = {
+  drawSelfAvatar(ctx, x, y, size, reserve, valuation) {
+    selfAvatarCalls += 1;
+    return !!ctx && size === 40 && reserve === game.state.world.reserve && valuation === game.reserveRankingValue(reserve);
+  }
+};
+const avatarContext = {
+  createLinearGradient() { return { addColorStop() {} }; },
+  save() {}, restore() {}, beginPath() {}, arc() {}, clip() {}, fillRect() {}, fill() {}, stroke() {}
+};
+const savedText = game.text;
+game.text = () => {};
+const mineAvatar = game.drawLeaguePlayerAvatar(avatarContext, { id: "mine", owner: "我", mine: true }, 30, 30, 40, true);
+game.text = savedText;
+game.wechatFriends = null;
+if (selfAvatarCalls !== 1 || !mineAvatar.wechatAvatarRequested) {
+  throw new Error("the current player's world row should overlay the real WeChat avatar supplied by the open data domain");
 }
 
 const beforeWorldRivals = ((game.state.world.reserve.league || {}).rivals || []).filter((row) => row.scope === "world").length;
-game.selectedRivalId = "world_crown";
+game.selectedRivalId = "cloud_real_world_1";
 const originalRandom = Math.random;
 Math.random = () => 0;
 game.raidRival();
@@ -75,6 +251,7 @@ game.state.world.reserve.league.rivals.push({
   id: "friend_real_1",
   name: "好友的河湾保护区",
   owner: "真实好友",
+  valuation: 6190,
   rating: 1190,
   shield: 44,
   animals: 36,
@@ -88,30 +265,48 @@ if (!game.hasFriendLeagueMembers() || game.leagueRows("friends").length !== 2 ||
   throw new Error("an explicit real friend should replace the share-only empty state");
 }
 game.openReserveNetwork("friends");
-if (screenCount !== 1) {
+if (screenCount !== 5) {
   throw new Error("friend ranking should open normally once a real friend exists");
 }
 game.ensureSelectedRivalForScope("friends");
+if (!game.selectedRival() || game.selectedRival().id !== "friend_real_1") {
+  throw new Error("friend page should select the first available friend as the current target");
+}
 game.state.world.reserve.fund = 500;
+game.state.world.reserve.supplies.dogFood = 5;
+game.state.world.reserve.supplies.alarm = 5;
+game.state.world.reserve.inventory.recoveredTrap = 3;
+Math.random = () => 0;
+game.raidRival();
+Math.random = originalRandom;
+if ((game.state.world.reserve.social || {}).actorScope !== "friends" || (game.state.world.reserve.social || {}).actor !== "好友的河湾保护区") {
+  throw new Error("border patrol should keep the current friend as its target");
+}
 const beforeCoop = (game.state.world.reserve.social || {}).coop || 0;
+const tradeEntries = [];
+game.openWildernessTradeCenter = (itemId, scope) => { tradeEntries.push({ itemId, scope, target: game.selectedRival() }); };
 game.collaborateWithRival();
-if ((game.state.world.reserve.social || {}).action !== "协作" || (game.state.world.reserve.social || {}).coop <= beforeCoop) {
-  throw new Error("friend reserve should support a direct cooperation interaction");
+if (tradeEntries.length !== 1 || tradeEntries[0].scope !== "friends" || tradeEntries[0].target.id !== "friend_real_1" || ((game.state.world.reserve.social || {}).coop || 0) !== beforeCoop) {
+  throw new Error("friend exchange should open the real material exchange flow for the current friend without local fake settlement");
+}
+game.upgradeShield();
+if ((game.state.world.reserve.social || {}).action !== "加固" || (game.state.world.reserve.social || {}).actor !== "好友的河湾保护区") {
+  throw new Error("fortify should keep the current friend as its target");
 }
 
 game.leagueScope = "world";
 game.ensureSelectedRivalForScope("world");
 game.state.world.reserve.inventory.researchSample = 1;
 game.exchangeWithWorld();
-if ((game.state.world.reserve.social || {}).action !== "交换" || (game.state.world.reserve.intel || 0) < 1) {
-  throw new Error("world reserve should support a direct resource exchange interaction");
+if (tradeEntries.length !== 2 || tradeEntries[1].scope !== "world" || tradeEntries[1].target.scope !== "world") {
+  throw new Error("world reserve should open the real material exchange flow for the current world player");
 }
 
-game.state.world.reserve.league.rivals = Array.from({ length: 12 }, (_, index) => ({
+game.state.world.reserve.league.rivals = Array.from({ length: 120 }, (_, index) => ({
   id: `real_world_${index}`,
   name: `真实保护区${index + 1}`,
   owner: `玩家${index + 1}`,
-  rating: 1500 - index * 20,
+  rating: 20000 - index * 100,
   shield: 50,
   animals: 40,
   material: 120,
@@ -120,9 +315,22 @@ game.state.world.reserve.league.rivals = Array.from({ length: 12 }, (_, index) =
   simulated: false,
   source: "player"
 }));
+game.cloudService = null;
 const matureWorld = game.leagueOpponents("world");
-if (matureWorld.length !== 12 || matureWorld.some((row) => row.simulated)) {
-  throw new Error("system guardians should disappear after twelve real world players are available");
+if (matureWorld.length !== 100 || matureWorld.some((row) => row.simulated)) {
+  throw new Error("world ranking should contain at most one hundred real players");
+}
+const cappedRows = game.leagueRows("world");
+if (cappedRows.length !== 100 || !cappedRows.some((row) => row.mine)) {
+  throw new Error("the visible one-hundred-row ranking should keep the player's own reserve");
+}
+game.leaguePageByScope = { friends: 0, world: 9 };
+const lastPage = game.leaguePagination("world", cappedRows.length);
+if (lastPage.pageCount !== 10 || lastPage.page !== 9 || lastPage.start !== 90 || lastPage.end !== 100) {
+  throw new Error("one hundred ranking rows should be reachable through ten stable pages");
+}
+if (game.leaguePlayerTitle({ name: "卫士·YXNY的苔原哨站", owner: "卫士·YXNY", reserveName: "苔原哨站" }) !== "YXNY的苔原哨站") {
+  throw new Error("legacy guardian prefixes should not appear in world ranking titles");
 }
 
 console.log("league ranking check ok");

@@ -73,8 +73,8 @@ const game = new Game();
 game.stopLoop();
 game.render = () => {};
 const view = game.reserveViewForDisplay();
-if (!view.actionSystem || !/班次/.test(view.actionSystem.summary || "") || !/外勤/.test(view.actionSystem.summary || "")) {
-  throw new Error("reserveView should expose actionSystem summary with shifts/intel/field permits");
+if (!view.actionSystem || !/基金/.test(view.actionSystem.summary || "") || /巡护节奏|线索|现场凭据/.test(view.actionSystem.summary || "")) {
+  throw new Error("reserveView action summary should focus on fund and ecology, without deprecated shifts/intel/field permits");
 }
 
 const blockedReserve = game.state.world.reserve;
@@ -82,37 +82,27 @@ blockedReserve.poacherPressure = 66;
 blockedReserve.fieldPermits = 0;
 blockedReserve.supplies.alarm = 1;
 const blocked = game.actionResourceStatus("antiPoacher", blockedReserve);
-if (blocked.canRun || blocked.missing.indexOf("外勤证") < 0) {
-  throw new Error("high-risk anti-poacher action should require field permit");
+if (!blocked.canRun || blocked.missing.indexOf("现场凭据") >= 0) {
+  throw new Error("field permits must not block high-risk anti-poacher action");
 }
 
 const interventionStatus = game.actionResourceStatus("intervention", blockedReserve);
-if (interventionStatus.missing.indexOf("外勤证") < 0) {
-  throw new Error("intervention should require field permit");
+if (interventionStatus.missing.indexOf("现场凭据") >= 0) {
+  throw new Error("field permits must not affect intervention");
 }
 
 const routingGame = new Game();
 routingGame.stopLoop();
 routingGame.render = () => {};
 const routingReserve = routingGame.state.world.reserve;
-routingReserve.actionPoints = 4;
-routingReserve.fieldPermits = 3;
+routingReserve.actionPoints = 0;
+routingReserve.fieldPermits = 0;
 routingReserve.intel = 0;
 routingReserve.fund = 900;
 routingReserve.supplies.tranquilizer = 2;
-const intelBlocked = routingGame.actionResourceStatus("intervention", routingReserve);
-const intelRoute = routingGame.missingResourceRoute(intelBlocked);
-if (!intelRoute || intelRoute.kind !== "intel" || intelRoute.label !== "去侦察获取") {
-  throw new Error("missing intel should expose a direct hound-scout route");
-}
-routingGame.patrolTaskModal = routingGame.reserveActionOptions().find((item) => item.id === "intervention");
-routingGame.openMissingResourceRoute(intelBlocked);
-if (routingGame.screen !== "action" || routingGame.selectedReserveAction !== "houndScout"
-  || !routingGame.patrolTaskModal || routingGame.patrolTaskModal.id !== "houndScout") {
-  throw new Error("missing intel route should open the real hound-scout operation");
-}
-if (routingReserve.intel !== 0) {
-  throw new Error("opening an acquisition route must not grant intel before settlement");
+const interventionOpen = routingGame.actionResourceStatus("intervention", routingReserve);
+if (!interventionOpen.canRun || interventionOpen.missing.includes("线索") || interventionOpen.missing.includes("现场凭据")) {
+  throw new Error("intervention should only depend on its actual supply and fund costs");
 }
 
 // Non-patrol business actions must never be coerced into the default hound
@@ -124,19 +114,6 @@ if (routingGame.screen !== "role" || routingGame.selectedReserveAction !== "buyS
   throw new Error("business purchase route should open the material purchase modal, not hound scout");
 }
 
-const resourceGuides = [
-  ["actionPoints", "采购 +2", "现场行动 -1"],
-  ["intel", "侦察 +1~2", "情报 2 + 基金 60"],
-  ["fieldPermits", "完成当前目标 +1", "情报 2 + 基金 60"]
-];
-resourceGuides.forEach(([kind, gain, cost]) => {
-  const detail = routingGame.buildActionResourceDetail(kind);
-  const text = JSON.stringify(detail);
-  if (detail.resourceKind !== kind || !/用途/.test(text) || !text.includes(gain) || !text.includes(cost)) {
-    throw new Error(`${kind} guide must explain purpose, real gain and real consumption`);
-  }
-});
-
 const state = createCharacter(null, "保护区卫士");
 state.world.reserve.poacherPressure = 66;
 state.world.reserve.fieldPermits = 1;
@@ -144,26 +121,17 @@ state.world.reserve.base.raidTickets = 1;
 state.world.reserve.supplies.alarm = 2;
 state.world.reserve.intel = 2;
 const beforePermit = state.world.reserve.fieldPermits;
+const beforeIntel = state.world.reserve.intel;
 const result = withRandom(0.05, () => simulateDay("驱赶偷猎者：带白河去西部岩坡洞域排查可疑人影", state));
-if ((result.visual.authorization || {}).permitUsed !== true) {
-  throw new Error("high-risk anti-poacher simulation should consume field permit authorization");
+if ((result.visual.authorization || {}).permitUsed === true || (result.visual.authorization || {}).intelUsed === true) {
+  throw new Error("deprecated permit/intel authorization must not affect simulation");
 }
-if ((result.world.reserve.fieldPermits || 0) !== beforePermit - 1) {
-  throw new Error("high-risk action should spend one earned field permit without automatic daily refill");
+if (JSON.stringify(result.world.reserve.lastTaskReward || {}).includes("fieldPermits")
+  || JSON.stringify(result.world.reserve.economyLedger || {}).includes("现场凭据")) {
+  throw new Error("deprecated permit/intel values must not appear as action rewards or costs");
 }
-if (!result.world.reserveView.actionSystem || !result.world.reserveView.actionSystem.lastAuthorization) {
-  throw new Error("reserveView should carry last authorization");
-}
-
-const settlementGame = new Game();
-settlementGame.stopLoop();
-settlementGame.render = () => {};
-settlementGame.state = state;
-const before = settlementGame.reserveSnapshot(state.world.reserve);
-const after = settlementGame.reserveSnapshot(result.world.reserve);
-const modal = settlementGame.buildPatrolSettlement(before, after, result, "驱赶偷猎者：带白河去西部岩坡洞域排查可疑人影");
-if (!JSON.stringify(modal.rewards || []).includes("外勤证")) {
-  throw new Error("settlement should mention field permit cost");
+if (!result.world.reserveView.actionSystem || /巡护节奏|线索|现场凭据/.test(result.world.reserveView.actionSystem.summary || "")) {
+  throw new Error("reserveView should not surface deprecated permit/intel system");
 }
 
 console.log("action system check ok");

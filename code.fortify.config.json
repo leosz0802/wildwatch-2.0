@@ -1,6 +1,6 @@
 {
   "watermark": {
-    "name": "野境守护代码水印",
+    "name": "荒野守望代码水印",
     "files": [
       "js/game.js",
       "js/simulator.js",
@@ -17,31 +17,38 @@
     ]
   },
   "obfuscation": {
-    "name": "野境守护分级代码混淆",
+    "name": "荒野守望分级代码混淆",
     "tasks": [
       {
         "level": 3,
         "files": [
           "js/animalWorld.js",
+          "js/animalLetters.js",
           "js/animals.js",
           "js/balanceConfig.js",
           "js/collectionSystem.js",
+          "js/coreResourceSystem.js",
           "js/ecologyConsistency.js",
           "js/ecologyEconomy.js",
+          "js/ecologyNarrativeSystem.js",
           "js/emotionSystem.js",
           "js/forestDirector.js",
           "js/goalSystem.js",
           "js/guardianCycle.js",
           "js/guardianPromises.js",
           "js/materialExploration.js",
+          "js/wildernessKnowledge.js",
           "js/mysteryRecoveries.js",
+          "js/offlineBrief.js",
           "js/ordinaryMoments.js",
           "js/reserveFacilities.js",
+          "js/reserveValuation.js",
           "js/resourceLedger.js",
           "js/seasonSystem.js",
           "js/shareSystem.js",
           "js/storyGuidance.js",
           "js/strategySystem.js",
+          "js/worldEventSystem.js",
           "js/world.js"
         ]
       },
@@ -50,6 +57,7 @@
         "files": [
           "js/actionOperations.js",
           "js/actions.js",
+          "js/cloudService.js",
           "js/game.js",
           "js/reserveView.js",
           "js/simulator.js",
@@ -60,8 +68,11 @@
         "level": 1,
         "files": [
           "game.js",
+          "js/adSystem.js",
           "js/audioSystem.js",
-          "js/runtime.js"
+          "js/runtime.js",
+          "js/wechatFriendSystem.js",
+          "open-data/index.js"
         ]
       }
     ]

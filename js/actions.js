@@ -10,7 +10,8 @@ const SUPPLY_PURCHASES = [
     cost: 50,
     target: 6,
     command: "采购狗粮包",
-    use: "猎犬侦察"
+    use: "猎犬侦察",
+    saleEnabled: true
   },
   {
     id: "alarm",
@@ -21,7 +22,8 @@ const SUPPLY_PURCHASES = [
     cost: 65,
     target: 2,
     command: "采购警报器",
-    use: "驱赶偷猎"
+    use: "驱赶偷猎",
+    saleEnabled: true
   },
   {
     id: "tranquilizer",
@@ -32,7 +34,8 @@ const SUPPLY_PURCHASES = [
     cost: 75,
     target: 3,
     command: "采购麻醉弹",
-    use: "生态干预"
+    use: "生态干预",
+    saleEnabled: true
   },
   {
     id: "fieldKit",
@@ -43,7 +46,8 @@ const SUPPLY_PURCHASES = [
     cost: 45,
     target: 2,
     command: "采购野外工具包",
-    use: "修复栖息地"
+    use: "修复栖息地",
+    saleEnabled: true
   },
   {
     id: "medicalKit",
@@ -54,7 +58,20 @@ const SUPPLY_PURCHASES = [
     cost: 45,
     target: 2,
     command: "采购医疗包",
-    use: "救助护理"
+    use: "救助护理",
+    saleEnabled: true
+  },
+  {
+    id: "evidenceTrap",
+    label: "证据陷阱",
+    itemLabel: "证据陷阱",
+    icon: "eye",
+    amount: 1,
+    cost: 90,
+    target: 2,
+    command: "采购证据陷阱",
+    use: "布设后固定偷猎证据",
+    saleEnabled: true
   }
 ];
 
@@ -127,6 +144,22 @@ const RESERVE_ACTIONS = [
   }
 ];
 
+const ACTION_SUPPLY_IDS = {
+  houndScout: "dogFood",
+  antiPoacher: "alarm",
+  habitat: "fieldKit",
+  intervention: "tranquilizer"
+};
+
+function actionSupplyRequirement(action, reserve = {}) {
+  const emergencyType = ((((reserve.emergency || {}).active) || {}).type) || "";
+  const diseaseCare = action === "intervention" && (((reserve.ecology || {}).disease || 0) >= 28
+    || ["disease_outbreak", "water_contamination", "wildfire"].includes(emergencyType));
+  const id = diseaseCare ? "medicalKit" : ACTION_SUPPLY_IDS[action];
+  const item = id && SUPPLY_PURCHASES.find((entry) => entry.id === id);
+  return item ? { id, label: item.itemLabel, use: diseaseCare ? "隔离救治" : item.use } : null;
+}
+
 function reserveActionCatalog() {
   return RESERVE_ACTIONS.map((action) => Object.assign({}, action));
 }
@@ -145,8 +178,17 @@ function reserveActionMeta(id) {
   };
 }
 
-function pricedSupply(item, reserveOrLevel) {
-  if (!item) return null;
+function supplySaleEnabled(item, storeConfig = null) {
+  if (!item || item.saleEnabled !== true) return false;
+  const items = storeConfig && storeConfig.items && typeof storeConfig.items === "object" ? storeConfig.items : {};
+  const override = items[item.id];
+  if (override === false) return false;
+  if (override && typeof override === "object" && override.saleEnabled === false) return false;
+  return true;
+}
+
+function pricedSupply(item, reserveOrLevel, storeConfig = null) {
+  if (!supplySaleEnabled(item, storeConfig)) return null;
   return Object.assign({}, item, {
     baseCost: item.cost,
     cost: supplyPrice(item.id, reserveOrLevel),
@@ -154,12 +196,12 @@ function pricedSupply(item, reserveOrLevel) {
   });
 }
 
-function supplyPurchaseCatalog(reserveOrLevel) {
-  return SUPPLY_PURCHASES.map((item) => pricedSupply(item, reserveOrLevel));
+function supplyPurchaseCatalog(reserveOrLevel, storeConfig = null) {
+  return SUPPLY_PURCHASES.map((item) => pricedSupply(item, reserveOrLevel, storeConfig)).filter(Boolean);
 }
 
-function supplyPurchaseById(id, reserveOrLevel) {
-  return pricedSupply(SUPPLY_PURCHASES.find((item) => item.id === id) || null, reserveOrLevel);
+function supplyPurchaseById(id, reserveOrLevel, storeConfig = null) {
+  return pricedSupply(SUPPLY_PURCHASES.find((item) => item.id === id) || null, reserveOrLevel, storeConfig);
 }
 
 function roundPurchaseCost(value) {
@@ -214,5 +256,7 @@ module.exports = {
   supplyPurchaseCatalog,
   supplyPurchaseById,
   supplyPurchaseForQuantity,
-  supplyReplenishmentPlan
+  supplyReplenishmentPlan,
+  supplySaleEnabled,
+  actionSupplyRequirement
 };

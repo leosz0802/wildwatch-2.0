@@ -14,6 +14,9 @@ game.selectedReserveAction = "houndScout";
 
 const reserve = world.reserve;
 const before = game.reserveProsperitySummary(reserve, world);
+if (before.value !== 5346 || before.valuation.levelBase !== 1800 || before.valuation.animalValue !== 3546) {
+  throw new Error(`initial valuation must equal level base plus 197 live animals: ${before.value}`);
+}
 
 const upgradedWorld = clone(world);
 const upgradedReserve = upgradedWorld.reserve;
@@ -52,14 +55,20 @@ if (after.animalTotal <= before.animalTotal) {
 if (after.value <= before.value || after.score < before.score) {
   throw new Error("stronger reserve should not reduce prosperity value or score");
 }
-
-const steps = game.dailyCareSteps(reserve, world.goals.daily);
-if (steps.length !== 3 || !steps.every((step) => step.label && step.icon && typeof step.action === "function")) {
-  throw new Error("daily ten-minute loop should expose three actionable steps");
+const animalsOnlyWorld = clone(world);
+animalsOnlyWorld.reserve.ecology.herbivores.deer += 1;
+if (game.reserveProsperitySummary(animalsOnlyWorld.reserve, animalsOnlyWorld).value !== before.value + 18) {
+  throw new Error("one additional animal in the first band must add 18 valuation");
 }
-const stepText = steps.map((step) => `${step.label || ""}${step.short || ""}`).join(" ");
-if (!/听/.test(stepText) || !/库存|物资|卖|采购|补给/.test(stepText)) {
-  throw new Error("daily loop should include animal listening and material handling");
+const levelOnlyWorld = clone(world);
+levelOnlyWorld.reserve.progression.level = 2;
+if (game.reserveProsperitySummary(levelOnlyWorld.reserve, levelOnlyWorld).value <= before.value) {
+  throw new Error("a higher protection-zone level must increase valuation even at the same population");
+}
+
+const goals = game.currentGoalView(true);
+if (!goals.primary || !goals.primary.id || !goals.primary.buttonLabel || (goals.alternatives || []).length > 2) {
+  throw new Error("daily loop should expose one actionable primary goal and at most two alternatives");
 }
 
 const animatedGame = Object.create(Game.prototype);

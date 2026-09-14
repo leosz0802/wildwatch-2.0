@@ -17,13 +17,17 @@ const names = knownCharacters.map((animal) => animal.name);
   "条纹斑马",
   "跳星羚",
   "高枝鹿",
-  "云耳象"
+  "云耳象",
+  "阔角犀",
+  "环鳞甲",
+  "风点猎豹",
+  "鬣影狗"
 ].forEach((name) => {
   if (!names.includes(name)) throw new Error(`missing cartoon animal name: ${name}`);
 });
 
-if (knownCharacters.length !== 21) {
-  throw new Error(`expected one NPC template for all 21 species, got: ${knownCharacters.length}`);
+if (knownCharacters.length !== 25) {
+  throw new Error(`expected one NPC template for all 25 species, got: ${knownCharacters.length}`);
 }
 
 knownCharacters.forEach((animal) => {
@@ -37,8 +41,8 @@ if (JSON.stringify(initialSpecies) !== JSON.stringify(levelOneSpecies)) {
 
 const game = new Game();
 const portraitIndices = knownCharacters.map((animal) => game.animalPortraitIndex(animal.species));
-if (portraitIndices.some((index) => index < 0) || new Set(portraitIndices).size !== 21) {
-  throw new Error(`sandbox portraits must map all 21 species to unique new artwork: ${portraitIndices.join(",")}`);
+if (portraitIndices.some((index) => index < 0) || new Set(portraitIndices).size !== 25) {
+  throw new Error(`sandbox portraits must map all 25 species to unique new artwork: ${portraitIndices.join(",")}`);
 }
 if (!/drawAnimalSticker/.test(Game.prototype.drawGroundedAnimal.toString())
   || /drawAnimalPortraitAsset/.test(Game.prototype.drawGroundedAnimal.toString())) {

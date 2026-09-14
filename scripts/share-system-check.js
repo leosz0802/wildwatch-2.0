@@ -71,16 +71,26 @@ assert(returned.imageUrl === SHARE_IMAGES.warm && /回来了/.test(returned.titl
 
 const parsed = parseShareInvite({ query: queryObject(rescue.query) });
 assert(parsed && parsed.shareId === rescue.shareId && parsed.name === rescue.name && parsed.kind === "rescue", "share query should restore the exact friend invitation");
+const rawEncoded = Object.fromEntries(String(rescue.query).split("&").map((part) => {
+  const index = part.indexOf("=");
+  return [part.slice(0, index), part.slice(index + 1)];
+}));
+const encodedParsed = parseShareInvite({ query: rawEncoded });
+assert(encodedParsed && encodedParsed.name === rescue.name && encodedParsed.species === rescue.species, "raw percent-encoded launch values must never reach the UI");
+const doubleEncoded = Object.fromEntries(Object.entries(rawEncoded).map(([key, value]) => [key, encodeURIComponent(value)]));
+const doubleParsed = parseShareInvite({ query: doubleEncoded });
+assert(doubleParsed && doubleParsed.name === rescue.name && doubleParsed.species === rescue.species, "forwarded double-encoded share values must be decoded safely");
+const stringParsed = parseShareInvite({ query: rescue.query });
+assert(stringParsed && stringParsed.name === rescue.name, "string launch query should be supported");
 assert(!parseShareInvite({ query: { share: "other", sid: "x" } }), "unrelated launch query must not create a forest invitation");
 
 const receiver = createCharacter(null, "保护区卫士");
 receiver.world.knownCharacters[0].species = parsed.species;
-const intelBefore = receiver.world.reserve.intel;
 const reputationBefore = receiver.world.reserve.reputation;
 const trustBefore = receiver.world.knownCharacters[0].relation.trust;
 const assistance = applyShareAssistance(receiver, parsed);
 assert(assistance.applied, "first real share entry should apply assistance");
-assert(receiver.world.reserve.intel === intelBefore, "share assistance must not revive the retired intel resource");
+assert(!Object.prototype.hasOwnProperty.call(receiver.world.reserve, "intel"), "share assistance must not restore retired resource fields");
 assert(receiver.world.reserve.reputation === Math.min(100, reputationBefore + 1), "share assistance reputation change is wrong");
 assert(receiver.world.knownCharacters[0].relation.trust === Math.min(100, trustBefore + 1), "matching animal trust should respond to friend assistance");
 assert(receiver.world.lifeMemory.memories.some((item) => item.type === "friend_assist" && item.id.includes(parsed.shareId)), "friend assistance should enter permanent reserve memory");

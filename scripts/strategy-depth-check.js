@@ -233,6 +233,7 @@ const uiGame = new Game();
 uiGame.stopLoop();
 uiGame.render = () => {};
 uiGame.state = createCharacter(null, "保护区卫士");
+uiGame.screen = "home";
 uiGame.state.world.reserve.strategy = normalizeStrategyState({ pendingDilemma: { id: "water_access", tier: "major", day: 8, actionIndex: 8, chapter: 1 } });
 uiGame.infoDetailModal = null;
 assert(uiGame.openPendingStrategicDilemma(), "pending major decision should open a player-facing popup");

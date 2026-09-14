@@ -1,3 +1,5 @@
+const { FIRST_RETURN_HOOK_COPY } = require("./firstReturnHook");
+
 const PHASES = [
   { id: "morning", label: "上午", short: "晨", time: "08:20" },
   { id: "afternoon", label: "下午", short: "午", time: "13:40" },
@@ -40,7 +42,7 @@ const MASTERY_DEFS = {
 
 const SEVEN_DAY_BEATS = {
   1: { title: "干涸水点", prompt: "跟随晨角鹿，修复第一处水点。", actions: ["habitat"], highlight: "水面扩大，晨角鹿第一次回应。" },
-  2: { title: "陌生脚印", prompt: "派猎犬沿边界确认陌生脚印。", actions: ["houndScout", "antiPoacher"], highlight: "脚印消退，留下第一件回收物。" },
+  2: { title: "逆行脚印", prompt: "脚印属于陌生独狼，派猎犬确认它为何靠近水源。", actions: ["houndScout", "antiPoacher"], highlight: "独狼的来路被确认，泥岸留下第一件回收物。" },
   3: { title: "第一次周转", prompt: "移交回收物，再为巡护采购补给。", actions: ["salvage", "buySupplies"], highlight: "基金开始真正支撑巡护。" },
   4: { title: "水草取舍", prompt: "在修水源和保草场之间做出选择。", actions: ["habitat", "intervention"], highlight: "你的选择改变了动物路线。" },
   5: { title: "沉牙的危机", prompt: "找到沉牙，回应它正在面对的风险。", actions: ["houndScout", "antiPoacher", "intervention"], highlight: "沉牙记住了这次守护。" },
@@ -158,6 +160,19 @@ function normalizeGuardianCycle(saved, totalActions = 0) {
 function guardianContext(reserve) {
   const totalActions = (((reserve || {}).progression || {}).totalActions) || 0;
   const cycle = normalizeGuardianCycle((reserve || {}).guardianCycle, totalActions);
+  // 旧版即时出售绕过了巡护结算。只凭第3日的真实出售流水恢复移交进度，
+  // 不重新发钱、不把别日或其他收入误记为本次任务。
+  if (cycle.day === 3 && !cycle.sevenDay.completed[3]) {
+    const soldToday = ((reserve || {}).fundLedger || []).some((entry) =>
+      Number(entry.day) === 3 && entry.source === "样本出售收入" && Number(entry.amount) > 0);
+    if (soldToday) {
+      const done = Array.from(new Set((cycle.sevenDay.progress[3] || []).concat("salvage")));
+      cycle.sevenDay.progress[3] = done;
+      cycle.sevenDay.completed[3] = done.includes("buySupplies");
+      const highlight = SEVEN_DAY_BEATS[3].highlight;
+      if (cycle.sevenDay.completed[3] && !cycle.sevenDay.highlights.includes(highlight)) cycle.sevenDay.highlights.push(highlight);
+    }
+  }
   const phase = PHASES[cycle.actionIndex] || PHASES[0];
   return {
     cycle,
@@ -249,7 +264,7 @@ function advanceGuardianCycle(reserve, action, before, after, options = {}) {
       mapChange: options.mapChange || cycle.actionsToday.map((entry) => entry.change).filter(Boolean).join("；") || deltaSummary(before, after),
       animalResponse: actionRecord.animalResponse,
       reward: options.reward || "今日守护记录已写入保护区档案",
-      tomorrow: tomorrowText(cycle.day + 1)
+      tomorrow: cycle.day === 1 ? FIRST_RETURN_HOOK_COPY.closing : tomorrowText(cycle.day + 1)
     };
     cycle.lastNight = night;
     cycle.completedDays += 1;
@@ -299,7 +314,7 @@ function chooseMasteryBranch(reserve, trackId, level, branchId) {
   if (!def || ![5, 10].includes(milestone)) return { ok: false, error: "专长节点不存在" };
   reserve.mastery = normalizeMastery(reserve.mastery);
   const track = reserve.mastery[trackId];
-  if (track.level < milestone) return { ok: false, error: `达到Lv.${milestone}后解锁` };
+  if (track.level < milestone) return { ok: false, error: `达到等级${milestone}后解锁` };
   if (track.branches[milestone]) return { ok: false, error: "这个节点已经选择" };
   const branch = def.branches[milestone].find((entry) => entry.id === branchId);
   if (!branch) return { ok: false, error: "分支不存在" };
@@ -330,7 +345,7 @@ function masteryView(reserve) {
 
 function applyNamedAnimalSchedule(animals, reserve) {
   const context = guardianContext(reserve || {});
-  const chapter = Math.max(1, Math.min(5, Math.ceil(((((reserve || {}).progression || {}).stage) || 1) / 2)));
+  const chapter = Math.max(1, Math.min(7, Math.ceil(((((reserve || {}).progression || {}).stage) || 1) / 2)));
   const castById = {};
   MAIN_CAST.forEach((entry) => { castById[entry.id] = entry; });
   return (animals || []).map((animal) => {

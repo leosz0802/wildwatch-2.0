@@ -1,5 +1,8 @@
 const { normalizeLifeMemory } = require("./emotionSystem");
 
+// Keep share artwork in the uploaded game package. WeChat can render a
+// package-local image immediately, while a remote-only URL can leave the card
+// with a blank placeholder when the download domain is unavailable.
 const SHARE_IMAGES = {
   warm: "assets/art/share/share-warm.jpg",
   rescue: "assets/art/share/share-rescue.jpg",
@@ -12,15 +15,46 @@ function clean(value, max = 48) {
   return String(value || "").replace(/[\r\n&=?#]/g, " ").trim().slice(0, max);
 }
 
+function decodeShareValue(value) {
+  let decoded = String(value == null ? "" : value).replace(/\+/g, " ");
+  // Launch options differ between DevTools, QR preview and a real share entry:
+  // some provide decoded values, some keep one layer, and old forwarded links
+  // may contain two layers. Decode only while a valid percent escape remains.
+  for (let index = 0; index < 2 && /%[0-9a-fA-F]{2}/.test(decoded); index += 1) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    } catch (error) {
+      break;
+    }
+  }
+  return decoded;
+}
+
+function normalizeShareQuery(options = {}) {
+  const source = options && Object.prototype.hasOwnProperty.call(options, "query") ? options.query : options;
+  if (!source) return {};
+  if (typeof source !== "string") return source;
+  return source.split("&").reduce((result, part) => {
+    const separator = part.indexOf("=");
+    const key = separator >= 0 ? part.slice(0, separator) : part;
+    const value = separator >= 0 ? part.slice(separator + 1) : "";
+    if (key) result[decodeShareValue(key)] = decodeShareValue(value);
+    return result;
+  }, {});
+}
+
 function shareMoment(world, event = null, dailyLetter = null) {
   const day = (world && world.day) || 1;
+  const forceDaily = !!(dailyLetter && dailyLetter.forceDaily);
   const forestRemembers = !!((((world || {}).collection || {}).worldFlags || {}).forest_remembers);
   const memory = normalizeLifeMemory(world || {});
-  let source = event && SHARE_EVENT_TYPES.has(event.type) ? event : null;
-  if (!source) {
+  let source = !forceDaily && event && SHARE_EVENT_TYPES.has(event.type) ? event : null;
+  if (!source && !forceDaily) {
     source = memory.memories.slice().reverse().find((item) => SHARE_EVENT_TYPES.has(item.type) && day - (item.day || day) <= 3) || null;
   }
-  if (!source) {
+  if (!source && !forceDaily) {
     const urgent = memory.individuals
       .filter((item) => item.status === "departed" || (item.status === "active" && item.health < 46))
       .sort((a, b) => (a.health || 100) - (b.health || 100))[0];
@@ -37,7 +71,7 @@ function shareMoment(world, event = null, dailyLetter = null) {
       };
     }
   }
-  const individualId = clean((source && (source.individualId || (source.individual || {}).id)) || "forest", 36);
+  const individualId = clean((source && (source.individualId || (source.individual || {}).id)) || (dailyLetter && (dailyLetter.id || (dailyLetter.animal || {}).id)) || "forest", 36);
   const individual = memory.individuals.find((item) => item.id === individualId) || (source && source.individual) || null;
   const name = clean((source && source.name) || (individual && individual.name) || (dailyLetter && dailyLetter.animalName) || "森林居民", 16);
   const species = clean((source && source.species) || (individual && individual.species) || (dailyLetter && dailyLetter.animal && dailyLetter.animal.species) || "动物", 12);
@@ -140,17 +174,17 @@ function sharePayload(world, event = null, dailyLetter = null) {
 }
 
 function parseShareInvite(options = {}) {
-  const query = options.query || options || {};
-  if (query.share !== "guardian") return null;
-  const shareId = clean(query.sid, 64).replace(/[^a-zA-Z0-9_-]/g, "");
+  const query = normalizeShareQuery(options);
+  if (decodeShareValue(query.share) !== "guardian") return null;
+  const shareId = clean(decodeShareValue(query.sid), 64).replace(/[^a-zA-Z0-9_-]/g, "");
   if (!shareId) return null;
   return {
     shareId,
-    kind: clean(query.kind || "daily", 16),
-    type: clean(query.type || "daily", 24),
-    name: clean(query.name || "森林居民", 16),
-    species: clean(query.species || "动物", 12),
-    day: Math.max(1, Math.min(99999, Math.round(Number(query.day) || 1)))
+    kind: clean(decodeShareValue(query.kind || "daily"), 16),
+    type: clean(decodeShareValue(query.type || "daily"), 24),
+    name: clean(decodeShareValue(query.name || "森林居民"), 16),
+    species: clean(decodeShareValue(query.species || "动物"), 12),
+    day: Math.max(1, Math.min(99999, Math.round(Number(decodeShareValue(query.day)) || 1)))
   };
 }
 
@@ -185,6 +219,7 @@ function applyShareAssistance(state, invite) {
     day: state.world.day || 1,
     type: "friend_assist",
     name: invite.name,
+    species: invite.species,
     title: `好友为${invite.name}留下守护接力`,
     body: `这次接力让共护关系提升 ${reserve.reputation - before.reputation}${helpedAnimal ? `，也让${helpedAnimal}更愿意相信人类` : ""}。`,
     tone: "warm"
@@ -211,6 +246,8 @@ function recordShareSent(state, payload) {
 
 module.exports = {
   SHARE_IMAGES,
+  decodeShareValue,
+  normalizeShareQuery,
   shareMoment,
   sharePayload,
   parseShareInvite,

@@ -133,16 +133,9 @@ if (!modal.quickFeedback || !modal.houndGrowth || !modal.variableReward) {
   throw new Error("settlement modal should preserve quick feedback details");
 }
 
-const detail = game.buildHoundTeamDetail();
-if (!detail || !/猎犬队/.test(detail.title) || detail.actionLabel !== "派猎犬") {
-  throw new Error("hound team detail should be a playable growth entry");
-}
-const detailText = JSON.stringify(detail.items || []);
-if (/砾灰|白河|苔点|亲密/.test(detailText)) {
-  throw new Error("hound team detail should focus on squad growth, not individual dog growth");
-}
-if (!/追踪/.test(detailText) || !/驱赶/.test(detailText) || !/防护/.test(detailText)) {
-  throw new Error("hound team detail should expose squad training dimensions");
+const squad = game.houndTeamSummary();
+if (!/猎犬队/.test(squad.title) || !Number.isFinite(squad.tracking) || !Number.isFinite(squad.pursuit) || !Number.isFinite(squad.guard)) {
+  throw new Error("hound team summary should expose squad training dimensions");
 }
 
 console.log("hound team check ok");

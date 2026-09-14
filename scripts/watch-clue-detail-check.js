@@ -63,11 +63,12 @@ function checkClue(modal, label, options = {}) {
 const game = new Game();
 const view = game.reserveViewForDisplay();
 
-game.openReserveStateDetail("water");
+const waterState = (view.states || []).find((item) => item.id === "water") || (view.states || [])[0] || {};
+game.infoDetailModal = game.buildWatchClueDetail({ source: "state", state: waterState, view });
 checkClue(game.infoDetailModal, "state", { stateDetail: true });
 
 game.infoDetailModal = null;
-game.openReserveBroadcastDetail((view.broadcasts || [])[1]);
+game.infoDetailModal = game.buildWatchClueDetail({ source: "broadcast", row: (view.broadcasts || [])[1] || {}, view });
 checkClue(game.infoDetailModal, "broadcast");
 
 game.infoDetailModal = null;

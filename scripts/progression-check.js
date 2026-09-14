@@ -51,6 +51,10 @@ if (!recomputed.title || recomputed.level < 1) {
 }
 
 const gated = createInitialWorld().reserve;
+// This fixture isolates numeric/story progression. Rescue completion is covered
+// by the chapter-rescue suites; keep the legacy gate bypass explicit here so
+// the test does not accidentally depend on the starter rescue target.
+gated.chapterRescue = Object.assign({}, gated.chapterRescue || {}, { enforceCompletion: false });
 const stage = 2;
 gated.safety = 100;
 gated.stability = 100;
@@ -74,10 +78,38 @@ gated.progression = Object.assign({}, gated.progression || {}, {
 gated.eventChain = { chapterLevel: 1, step: 6, length: 7, completed: false };
 if (reserveProgressionFor(gated).stage !== 2) throw new Error("second stage must not upgrade before all seven story beats are complete");
 gated.eventChain = { chapterLevel: 1, step: 7, length: 7, completed: true };
+if (reserveProgressionFor(gated).stage !== 2) throw new Error("legacy stage 2 must also respect the five-minute first-play gate");
+gated.progression.activeSeconds = 300;
+
 if (reserveProgressionFor(gated).stage !== 3 || reserveProgressionFor(gated).level !== 2) throw new Error("completed story chain and numeric goals should enter the next story chapter together");
 
+// Both the full-goal route and the introductory shortcut require 300 seconds.
+const firstStage = JSON.parse(JSON.stringify(gated));
+// Bypass only the rescue requirement. enforceCompletion:false deliberately
+// bypasses the legacy first-stage time gate too, so it cannot test that gate.
+firstStage.chapterRescue.enforceCompletion = true;
+firstStage.chapterRescue.legacyGateBypass = true;
+firstStage.progression.stage = 1;
+firstStage.progression.stageStart.stage = 1;
+for (const seconds of [0, 179, 180, 240, 299, 299.99, 300, 301]) {
+  firstStage.progression.activeSeconds = seconds;
+  const result = reserveProgressionFor(firstStage);
+  if (result.stage !== (seconds < 300 ? 1 : 2)) throw new Error(`full-goal first-stage gate failed at ${seconds}s`);
+  if (seconds < 300 && !result.objectives.some(item => item.id === "expectedTime" && !item.optional && !item.complete)) throw new Error("time gate should be visible and required");
+}
+firstStage.progression.totalMeaningfulActions = 2;
+firstStage.progression.totalActions = 2;
+firstStage.progression.totalStrategicChoices = 1;
+firstStage.progression.totalMajorStrategicChoices = 0;
+firstStage.strategy = {};
+firstStage.eventChain = { chapterLevel: 1, step: 1, length: 7, completed: false };
+for (const seconds of [180, 299, 300]) {
+  firstStage.progression.activeSeconds = seconds;
+  if (reserveProgressionFor(firstStage).stage !== (seconds < 300 ? 1 : 2)) throw new Error(`intro shortcut gate failed at ${seconds}s`);
+}
+
 const completedFinal = JSON.parse(JSON.stringify(gated));
-completedFinal.progression = Object.assign({}, completedFinal.progression, { stage: 10, level: 5, chapterComplete: true });
+completedFinal.progression = Object.assign({}, completedFinal.progression, { stage: 14, level: 7, chapterComplete: true });
 completedFinal.ecology.water = 5;
 completedFinal.ecology.grass = 5;
 completedFinal.ecology.disease = 95;

@@ -45,9 +45,16 @@ function requireSource(fragment, message) {
   "surface: \"rgba(255,255,255,.94)\"",
   "separator: \"rgba(60,60,67,.16)\"",
   "tint: \"#2f7d62\"",
+  "brass: \"#d2ad58\"",
+  "leather: \"#173c2e\"",
+  "paper: \"#f6efdd\"",
   "const UI_FONT_STACK",
   "controlRole(fill, onTap)",
-  "controlStyle(role, fill, color)"
+  "controlStyle(role, fill, color)",
+  "drawPremiumParchmentPanel(ctx, x, y, w, h",
+  "drawPremiumLeatherPanel(ctx, x, y, w, h",
+  "drawPremiumBrassPlate(ctx, x, y, w, h",
+  "drawPremiumInfoCard(ctx, x, y, w, h"
 ].forEach((fragment) => requireSource(fragment, `missing iOS design token: ${fragment}`));
 
 [
@@ -59,9 +66,9 @@ function requireSource(fragment, message) {
   if (source.includes(fragment)) throw new Error(`legacy mixed UI style remains: ${fragment}`);
 });
 
-requireSource('this.roundRect(ctx, 0, y, this.width, navH, 0, "rgba(251,253,250,.96)"', "bottom tab bar is not using the shared translucent surface");
+requireSource('this.roundRect(ctx, 2, y, this.width - 4, navH + 8, 18, "#f5ecd7"', "bottom tab bar is not using the premium parchment frame");
 requireSource('ctx.fillStyle = "rgba(12,18,15,.48)"', "modal veil is not standardized");
-requireSource('this.roundRect(ctx, x, y, w, dockH, 20, "rgba(252,254,251,.94)"', "map information dock is not using the shared surface");
+requireSource('this.drawPremiumParchmentPanel(ctx, x, y, w, dockH, 18, { rivets: true })', "map information dock is not using the premium parchment surface");
 requireSource('this.roundRect(ctx, x, safeY, bubbleW, bubbleH, 8, "rgba(255,255,255,.94)"', "map dialogue bubbles are not standardized");
 
 const game = new Game();

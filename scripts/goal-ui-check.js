@@ -53,6 +53,10 @@ for (const [width, height] of [[320, 568], [375, 667], [430, 932]]) {
   game.drawInfoDetailModal();
   assert.strictEqual((modal.renderedGoalCards || []).length, 1, "默认只应展示唯一当前目标");
   assert.strictEqual(modal.renderedGoalCards[0].id, modal.currentGoalId, "默认卡片必须是当前追踪目标");
+  assert.deepStrictEqual((modal.renderedGoalGuides || []).map((item) => item.id), ["guideSandbox", "viewFund", "viewVisitors", "viewSurvival"], "目标卡下方必须提供低打扰的主动查看入口");
+  (modal.renderedGoalGuides || []).forEach((guide) => {
+    assert(guide.x >= 0 && guide.y >= 0 && guide.x + guide.w <= width && guide.y + guide.h <= height, `${width}x${height} 主动查看入口不得越界`);
+  });
   (modal.renderedGoalCards || []).forEach((card, index, cards) => {
     assert(card.x >= 0 && card.y >= 0 && card.x + card.w <= width && card.y + card.h <= height, `${width}x${height} 目标卡不得越界`);
     if (index) assert(card.y >= cards[index - 1].y + cards[index - 1].h, "目标卡不得互相遮挡");
@@ -101,5 +105,52 @@ for (let frame = 0; frame < 180; frame += 1) {
   assert.strictEqual(stableGame.state.world.goals, storedGoals, "纯绘制不得替换目标状态");
 }
 stableGame.stopLoop();
+
+// Navigation suggestions must be inspection-only: they open the requested
+// channel without creating a patrol task or consuming an action.
+const navigationGame = new Game();
+navigationGame.stopLoop();
+navigationGame.state = createCharacter(null, "主动查看入口测试");
+navigationGame.state.ui = { onboarding: { version: 2, completed: true, seen: {} } };
+navigationGame.screen = "home";
+const actionsBeforeBrowse = navigationGame.state.world.reserve.progression.totalActions || 0;
+assert(navigationGame.openGuidedChannel("viewFund"), "星币入口必须可打开收支明细");
+assert.strictEqual(navigationGame.infoDetailModal.kind, "fundLedger", "星币入口不得进入巡护页面");
+assert.strictEqual(navigationGame.state.world.reserve.progression.totalActions || 0, actionsBeforeBrowse, "查看星币不得消耗行动");
+assert(navigationGame.openGuidedChannel("viewVisitors"), "游客入口必须可打开游客频道");
+assert.strictEqual(navigationGame.screen, "collection");
+assert.strictEqual(navigationGame.discoveryTab, "visitors");
+assert(navigationGame.openGuidedChannel("viewSurvival"), "生存入口必须可打开生存频道");
+assert.strictEqual(navigationGame.screen, "survival");
+assert(navigationGame.openGuidedChannel("guideSandbox"), "沙盘入口必须可返回沙盘");
+assert.strictEqual(navigationGame.screen, "home");
+navigationGame.stopLoop();
+
+// Resource recovery goals should land on the Survival channel first, where
+// the player can choose exploration or a real player exchange without
+// consuming an action by accident.
+const survivalRouteGame = new Game();
+survivalRouteGame.stopLoop();
+survivalRouteGame.state = createCharacter(null, "生存引导测试");
+survivalRouteGame.state.ui = { onboarding: { version: 2, completed: true, seen: {} } };
+survivalRouteGame.screen = "home";
+survivalRouteGame.infoDetailModal = { kind: "missionPush" };
+assert(survivalRouteGame.executeGoalAction({ recommendedAction: "exploreMaterials", targetScreen: "survival" }), "补给剧情应能打开生存频道");
+assert.strictEqual(survivalRouteGame.screen, "survival", "需要探索补给的任务应先引导到生存频道");
+survivalRouteGame.stopLoop();
+
+// Animal-care goals must route to the sandbox and focus a named animal rather
+// than dumping the player into the population page with an empty selection.
+const animalGoalGame = new Game();
+animalGoalGame.stopLoop();
+animalGoalGame.state = createCharacter(null, "动物目标聚焦测试");
+animalGoalGame.state.ui = { onboarding: { version: 2, completed: true, seen: {} } };
+animalGoalGame.screen = "home";
+animalGoalGame.infoDetailModal = { kind: "missionPush" };
+assert(animalGoalGame.executeGoalAction({ id: "story:animal", recommendedAction: "animalCare" }), "动物目标应能执行");
+assert.strictEqual(animalGoalGame.screen, "home", "动物目标应返回沙盘而不是停在种群观察页");
+assert(animalGoalGame.speakingAnimalId && animalGoalGame.selectedTarget && animalGoalGame.selectedTarget.id === animalGoalGame.speakingAnimalId,
+  "动物目标应聚焦同一只命名动物");
+animalGoalGame.stopLoop();
 
 console.log("goal ui check ok");

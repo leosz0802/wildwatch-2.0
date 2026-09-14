@@ -1,4 +1,4 @@
-const { BALANCE_V2 } = require("./balanceConfig");
+const { BALANCE_V2, speciesVitalFor } = require("./balanceConfig");
 
 function clampRange(value, min, max) {
   return Math.max(min, Math.min(max, Number(value) || 0));
@@ -17,12 +17,12 @@ function habitatCapacitySnapshot(reserve = {}) {
   const predators = totalAnimals(ecology.predators);
   const birds = totalAnimals(ecology.birds);
   const totalPopulation = herbivores + predators + birds;
-  const level = clampRange(Math.round(((reserve.progression || {}).level) || 1), 1, 5);
-  const baseCapacity = BALANCE_V2.population.carryingCapacity[level] || BALANCE_V2.population.carryingCapacity[5];
+  const level = clampRange(Math.round(((reserve.progression || {}).level) || 1), 1, 7);
+  const baseCapacity = BALANCE_V2.population.carryingCapacity[level] || BALANCE_V2.population.carryingCapacity[7];
   const limitingResource = Math.min(water, grass);
   // 60 点水草约等于章节基础承载；低于 40 时短板会快速压缩承载，
   // 高水源不能再抵消严重缺草，反之亦然。
-  const resourceFactor = clampRange(0.55 + limitingResource * 0.0075 - Math.max(0, disease - 35) * 0.004, 0.35, 1.15);
+  const resourceFactor = clampRange(0.62 + limitingResource * 0.0065 - Math.max(0, disease - 50) * 0.003, 0.42, 1.15);
   const effectiveCapacity = Math.max(1, Math.round(baseCapacity * resourceFactor));
   const herbivoreShare = totalPopulation > 0 ? herbivores / totalPopulation : 0.78;
   const effectiveHerbivoreCapacity = Math.max(1, Math.round(effectiveCapacity * clampRange(herbivoreShare, 0.68, 0.84)));
@@ -57,11 +57,16 @@ function habitatMigrationAssessment(reserve = {}, beforeEcology) {
   const capacity = habitatCapacitySnapshot(reserve);
   const ecologyScore = habitatEcologyScore(capacity);
   const previousScore = Number.isFinite(Number(beforeEcology)) ? Number(beforeEcology) : ecologyScore;
-  const criticalGrass = capacity.grass <= 38;
-  const criticalWater = capacity.water <= 40;
-  const criticalDisease = capacity.disease >= 55;
+  const criticalGrass = capacity.grass <= 35;
+  const criticalWater = capacity.water <= 35;
+  const criticalDisease = capacity.disease >= 70;
   const criticalLoad = capacity.loadRatio >= 1.25;
   const forced = criticalGrass || criticalWater || criticalDisease || criticalLoad;
+  const speciesAtRisk = Object.entries(reserve.ecology || {}).reduce((sum, [group, members]) => {
+    if (!members || typeof members !== "object" || ["predators", "herbivores", "birds"].indexOf(group) < 0) return sum;
+    return sum + Object.entries(members).reduce((subtotal, [id, pop]) => subtotal + Math.max(0, Number(pop) || 0) * speciesVitalFor(id).migrationSensitivity, 0);
+  }, 0);
+  const migrationSensitivity = capacity.totalPopulation > 0 ? speciesAtRisk / capacity.totalPopulation : 0.65;
   let delta = 0;
   let reason = "水源、草场与种群承载暂时平衡，动物保持观望";
 
@@ -70,7 +75,7 @@ function habitatMigrationAssessment(reserve = {}, beforeEcology) {
     const diseasePressure = Math.max(0, capacity.disease - 54);
     const overloadPressure = Math.max(0, capacity.loadRatio - 1);
     delta = -clampRange(
-      2 + Math.ceil(resourceDeficit / 8) + Math.ceil(diseasePressure / 18) + Math.ceil(overloadPressure * 2),
+      Math.round((2 + Math.ceil(resourceDeficit / 8) + Math.ceil(diseasePressure / 18) + Math.ceil(overloadPressure * 2)) * (0.75 + migrationSensitivity * 0.45)),
       2,
       8
     );
@@ -97,6 +102,7 @@ function habitatMigrationAssessment(reserve = {}, beforeEcology) {
   return Object.assign({}, capacity, {
     ecologyScore,
     previousScore,
+    migrationSensitivity: Math.round(migrationSensitivity * 100) / 100,
     forced,
     allowIn: !forced && capacity.limitingResource >= 48 && capacity.disease <= 40 && capacity.loadRatio <= 1.02,
     trend: delta > 0 ? "in" : delta < 0 ? "out" : "stable",

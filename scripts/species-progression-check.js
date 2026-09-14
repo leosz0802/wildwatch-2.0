@@ -34,7 +34,7 @@ function nextState(state, command) {
 
 const speciesIds = Object.keys(SPECIES_DB);
 const chapterSpecies = CHAPTERS.flatMap((chapter) => chapter.newSpecies);
-assert(speciesIds.length === 21, `expected 21 species, got ${speciesIds.length}`);
+assert(speciesIds.length === 25, `expected 25 species, got ${speciesIds.length}`);
 assert(new Set(chapterSpecies).size === speciesIds.length, "chapter unlocks should cover every species exactly once");
 
 let state = makeState();
@@ -89,7 +89,7 @@ try {
 }
 
 const chapterMinutes = Object.values(CHAPTER_PROGRESSION_GATES).map((gate) => gate.expectedMinutes);
-assert(chapterMinutes.join(",") === "10,20,30,35,40,45,50,55,60,60", "operating stages should follow the agreed 10-to-60-minute staircase");
+assert(chapterMinutes.join(",") === "10,20,30,35,40,45,50,55,60,60,65,70,75,80", "operating stages should follow the agreed 14-step time staircase");
 Object.values(CHAPTER_PROGRESSION_GATES).forEach((gate) => {
   const fixture = makeState().world.reserve;
   fixture.safety = 100;
@@ -121,11 +121,11 @@ Object.values(CHAPTER_PROGRESSION_GATES).forEach((gate) => {
   fixture.strategy.totalMajorChoices = gate.majorChoices;
   fixture.eventChain = { chapterLevel: gate.storyLevel, step: gate.storyBeats, length: 7, completed: gate.storyBeats >= 7 };
   const completed = reserveProgressionFor(fixture);
-  if (gate.stage < 10) {
+  if (gate.stage < 14) {
     assert(completed.stage === gate.stage + 1, `stage ${gate.stage} should advance after operations, strategy, story and milestones are met`);
     assert(completed.level === Math.ceil((gate.stage + 1) / 2), `stage ${gate.stage} should map to the correct story level`);
   } else {
-    assert(completed.stage === 10 && completed.chapterComplete, "stage 10 should mark final completion after all gates are met");
+    assert(completed.stage === 14 && completed.chapterComplete, "stage 14 should mark final completion after all gates are met");
   }
   const expectedTime = (completed.objectives || []).find((item) => item.id === "expectedTime");
   assert(completed.stage !== gate.stage || completed.chapterComplete || (expectedTime && expectedTime.optional), `stage ${gate.stage} time forecast must never become a hard gate`);

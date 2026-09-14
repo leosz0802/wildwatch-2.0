@@ -6,9 +6,9 @@
 
 ## 首包包含
 
-- `assets/art/core-map.jpg`
-  - 约 650KB
-  - 首页沙盘和首屏英雄区域直接使用的新草原保护区地图
+- `assets/art/core-map-anime-v1.jpg`
+  - 约 241KB
+  - 首页沙盘直接使用的清新日漫风保护区地图，保留六块清晰活动区和克制光影
 - `assets/art/core-sprites-atlas.png`
   - 约 1MB
 - `assets/art/ui-v3/icons/`
@@ -58,7 +58,7 @@ version: "savanna-v3-20260707"
 
 ## 运行逻辑
 
-- 游戏启动：先加载 `core-map.jpg` + `core-sprites-atlas.png`，首屏就是正式美术效果。
+- 游戏启动：先加载微信端兼容的 `core-map-anime-v1.jpg` + `core-sprites-atlas.png`，首屏就是正式美术效果。
 - 检查缓存：如果本地已有同版本高清图集，直接切换。
 - 没有缓存：使用 `wx.downloadFile` 下载远程图集。
 - 下载成功：使用文件系统保存到用户目录，并记录到本地存储。

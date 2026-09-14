@@ -75,7 +75,7 @@ if ((game.primaryPatrolTaskChange("houndScout", scoutCards, { canRun: true }) ||
   throw new Error("hound scout modal should foreground poaching reduction instead of intel gain");
 }
 const scoutLayout = game.patrolTaskFocusLayout("houndScout", scoutCards, { canRun: true });
-if (!scoutLayout || scoutLayout.focusCards.map((item) => item.label).join("/") !== "偷猎/发现/猎犬XP") {
+if (!scoutLayout || scoutLayout.focusCards.map((item) => item.label).join("/") !== "偷猎/发现/猎犬经验") {
   throw new Error("hound scout modal should foreground three numeric outcomes");
 }
 if (!scoutLayout.focusCards.filter((item) => item.label !== "发现").every((item) => /\d/.test(item.value) && (/→/.test(item.value) || /^\+\d/.test(item.value)))) {
@@ -108,19 +108,19 @@ const interventionPrimary = game.primaryPatrolTaskChange("intervention", interve
 if (!interventionPrimary || interventionPrimary.label !== "草场" || !/\d+→\d+~\d+/.test(interventionPrimary.value || "")) {
   throw new Error("intervention modal should foreground a concrete grass recovery range");
 }
+reserve.ecology.disease = 40;
+const outbreakCards = game.patrolTaskChangeCards("intervention", reserve, { canRun: true });
+if ((game.primaryPatrolTaskChange("intervention", outbreakCards, { canRun: true }) || {}).label !== "疾病") {
+  throw new Error("intervention modal should foreground disease during an outbreak");
+}
+reserve.ecology.disease = 10;
 if (!/保护区$/.test(game.reserveDisplayName(reserve)) || /\d{4}号/.test(game.reserveDisplayName(reserve))) {
   throw new Error("home info dock title should use a named reserve rather than a random serial");
 }
 reserve.base.name = "金合欢王冠保护区";
-if (game.reserveDisplayName(reserve) !== "金合欢王冠保护区") throw new Error("assigned world-style reserve name should remain unchanged");
-const ecology = reserve.ecology || {};
-const cards = game.infoTickerCards(reserve, ecology, null, "", game.state.world.aiForest || {});
-if (cards.length !== 2 || cards[0].id !== "brief" || cards[1].id !== "world") {
-  throw new Error("info dock should only expose brief and world");
-}
-if (cards.some((card) => card.id === "mail" || card.title === "邮件")) {
-  throw new Error("mail entry should not be visible in info dock");
-}
+if (game.reserveDisplayName(reserve) !== "自然保护区") throw new Error("unauthorized players should see the generic reserve name");
+game.state.userProfile = { nickName: "保护区卫士", authorized: true };
+if (game.reserveDisplayName(reserve) !== "保护区卫士的自然保护区") throw new Error("authorized players should see nickname-based reserve name");
 game.hitAreas = [];
 game.infoDetailModal = null;
 game.scrollY = 0;
@@ -131,39 +131,135 @@ if (!game.renderedSandboxInfoDock || !game.renderedSandboxInfoDock.titleClickabl
 if (game.renderedSandboxInfoDock.stateMode !== "read-only-risk") {
   throw new Error("fund/water/grass should be rendered as a read-only risk dashboard");
 }
+if (game.renderedSandboxInfoDock.standaloneGoalRow !== false
+  || game.renderedSandboxInfoDock.primaryGoalMergedInto !== "map-opportunity-aggregate") {
+  throw new Error("home HUD should merge the primary goal into More Clues instead of rendering a third guidance row");
+}
 if (!Array.isArray(game.renderedSandboxStateTiles) || game.renderedSandboxStateTiles.length !== 3) {
   throw new Error("home HUD should render exactly three state tiles");
 }
-if (game.renderedSandboxStateTiles.some((tile) => !tile.clickable || !tile.readOnly || !tile.detailOnly || !tile.risk || !["›", "改善 ›"].includes(tile.affordance))) {
-  throw new Error("state tiles must open read-only details and visibly signal when a risk has an improvement guide");
+if (game.renderedSandboxStateTiles.some((tile) => !tile.readOnly || !tile.detailOnly || !tile.risk
+  || !tile.clickable
+  || tile.affordance !== (["warn", "bad"].includes(tile.riskTone) ? "改善 ›" : "查看 ›"))) {
+  throw new Error("fund/water/grass state tiles should always open details while only abnormal states request improvement");
 }
+const dashboardStateBefore = { fund: reserve.fund, water: reserve.ecology.water, grass: reserve.ecology.grass };
 [
-  { x: 58, title: /保护基金/ },
-  { x: 188, title: /水源/ },
-  { x: 298, title: /草场/ }
+  { x: 58, tileX: 32, state: { id: "fund", label: "基金", value: 0, tone: "bad" }, title: /保护基金/, prepare: () => { reserve.fund = 0; reserve.guardianCycle.day = 2; reserve.emergencyFundAd = {}; } },
+  { x: 188, tileX: 138, state: { id: "water", label: "水源", value: 30, tone: "bad" }, title: /水源/, prepare: () => { reserve.ecology.water = 30; } },
+  { x: 298, tileX: 244, state: { id: "grass", label: "草场", value: 30, tone: "bad" }, title: /草场/, prepare: () => { reserve.ecology.grass = 30; } }
 ].forEach((sample) => {
   game.infoDetailModal = null;
   game.hitAreas = [];
-  game.drawSandboxInfoDock(game.ctx, 18, dockY, game.width - 36);
+  sample.prepare();
+  game.reserveViewRenderCache = null;
+  game.drawCompactReserveStateTile(game.ctx, sample.state, sample.tileX, dockY + 25, 100, 32);
   game.handleTap(sample.x, dockY + 46);
-  if (!game.infoDetailModal || !game.infoDetailModal.readOnly || typeof game.infoDetailModal.action === "function" || !sample.title.test(game.infoDetailModal.title || "")) {
-    throw new Error("fund/water/grass tiles should open their matching read-only data details");
+  if (sample.state.id === "fund") {
+    if (!game.infoDetailModal || !/保护基金/.test(game.infoDetailModal.title || "")) {
+      throw new Error("fund tile should preserve the original fund detail interface");
+    }
+  } else if (!game.infoDetailModal || !sample.title.test(game.infoDetailModal.title || "")) {
+    throw new Error("water/grass tiles should open their matching data details");
+  } else if (!game.infoDetailModal.readOnly && typeof game.infoDetailModal.action !== "function") {
+    throw new Error("abnormal water/grass details must explain the risk or expose a recovery action");
   }
+  game.scrollY = 0;
 });
+reserve.ecology.water = 82;
+reserve.ecology.grass = 84;
+reserve.fund = 2400;
+game.reserveViewRenderCache = null;
+game.infoDetailModal = null;
+game.hitAreas = [];
+game.drawCompactReserveStateTile(game.ctx, { id: "water", label: "水源", value: 82, tone: "good" }, 138, dockY + 25, 100, 32);
+game.handleTap(188, dockY + 46);
+if (!game.infoDetailModal || !/水源/.test(game.infoDetailModal.title || "")) {
+  throw new Error("stable dashboard metrics should remain clickable and open their matching detail");
+}
+game.infoDetailModal = null;
+game.hitAreas = [];
+game.drawCompactReserveStateTile(game.ctx, { id: "fund", label: "基金", value: 2400, tone: "good" }, 32, dockY + 25, 100, 32);
+game.handleTap(58, dockY + 46);
+if (!game.infoDetailModal || !/保护基金/.test(game.infoDetailModal.title || "")) {
+  throw new Error("stable fund tile should remain clickable and open fund detail");
+}
+reserve.fund = dashboardStateBefore.fund;
+reserve.ecology.water = dashboardStateBefore.water;
+reserve.ecology.grass = dashboardStateBefore.grass;
+game.reserveViewRenderCache = null;
 game.infoDetailModal = null;
 game.hitAreas = [];
 game.handleTap(58, 438);
 if (game.infoDetailModal && /天气|边界安全|安全变薄|水线变紧|饮水点会变成风险窗口/.test(`${game.infoDetailModal.title || ""} ${game.infoDetailModal.kicker || ""}`)) {
   throw new Error("removed redundant environment broadcast should not remain in the home detail stream");
 }
-if (game.sandboxInfoDockHeight() !== 112) {
-  throw new Error("home info dock should reserve most of the first viewport for the sandbox map");
+const expectedDockHeight = 65;
+if (game.sandboxInfoDockHeight() !== expectedDockHeight) {
+  throw new Error("sandbox info dock should keep a compact 65px header; first-stage guidance is shown via clue modal");
 }
 game.hitAreas = [];
 game.drawReserveIdentityPill(game.ctx, 12, 12, game.width - 24, reserve);
-if (!game.renderedHomeIdentityPill || game.renderedHomeIdentityPill.mode !== "reserve-identity" || game.renderedHomeIdentityPill.displayName !== "金合欢王冠保护区" || game.renderedHomeIdentityPill.affordance !== "档案 ›") {
-  throw new Error("primary home strip should foreground reserve identity and valuation");
+if (!game.renderedHomeIdentityPill || game.renderedHomeIdentityPill.mode !== "reserve-identity" || game.renderedHomeIdentityPill.displayName !== "保护区卫士的自然保护区" || game.renderedHomeIdentityPill.affordance !== "好友榜 ›" || !game.renderedHomeIdentityPill.rankClickable || !game.renderedHomeIdentityPill.audioButton || game.renderedHomeIdentityPill.friendAudioGap < 6 || game.renderedHomeIdentityPill.rankButton.x >= game.renderedHomeIdentityPill.audioButton.x || !game.renderedHomeIdentityPill.avoidsSystemMenu) {
+  throw new Error("primary home strip should place the friend ranking left of a visible audio toggle without overlapping the WeChat menu capsule");
 }
+const originalMenuButtonRect = game.menuButtonRect;
+[
+  { width: 320, menuLeft: 226 },
+  { width: 375, menuLeft: 282 },
+  { width: 430, menuLeft: 335 }
+].forEach((viewport) => {
+  game.width = viewport.width;
+  game.menuButtonRect = { left: viewport.menuLeft, right: viewport.menuLeft + 82, top: 6, bottom: 38, width: 82, height: 32 };
+  game.hitAreas = [];
+  game.drawReserveIdentityPill(game.ctx, 12, 12, viewport.width - 24, reserve);
+  const header = game.renderedHomeIdentityPill;
+  if (!header.audioButton || header.rankButton.x + header.rankButton.w + 6 > header.audioButton.x
+    || header.audioButton.x + header.audioButton.w > header.menuSafeLeft - 8
+    || !game.hitAreas.some((hit) => hit.w >= 32 && hit.h >= 32 && hit.x <= header.audioButton.x && hit.x + hit.w >= header.audioButton.x + header.audioButton.w)) {
+    throw new Error(`home header audio toggle is clipped or crowded at ${viewport.width}px`);
+  }
+});
+game.width = 375;
+game.menuButtonRect = originalMenuButtonRect;
+game.screen = "league";
+game.leagueScope = "friends";
+game.scrollY = 20;
+game.renderedWechatFriendRank = { rankReady: true, view: { x: 18, y: 100, w: 300, h: 236 } };
+const friendRankPoint = game.wechatFriendRankTouchPoint(48, 110);
+if (!friendRankPoint || friendRankPoint.x !== 30 || friendRankPoint.y !== 30 || game.wechatFriendRankTouchPoint(10, 110)) {
+  throw new Error("friend ranking should convert only in-panel touches into open-data-local coordinates");
+}
+const originalHeight = game.height;
+game.height = 568;
+const compactFriendRankHeight = game.friendRankViewportHeight(112, true);
+game.height = 844;
+const tallFriendRankHeight = game.friendRankViewportHeight(112, true);
+game.height = originalHeight;
+if (compactFriendRankHeight !== 236 || tallFriendRankHeight <= compactFriendRankHeight || tallFriendRankHeight > 420) {
+  throw new Error("friend ranking should keep the short-screen minimum and expand into unused tall-screen space");
+}
+const savedWechatFriends = game.wechatFriends;
+const savedCloudService = game.cloudService;
+const savedRender = game.render;
+let requestedFriendRankSize = null;
+game.wechatFriends = {
+  isSupported() { return true; },
+  syncReserve() { return true; },
+  refresh(w, h) { requestedFriendRankSize = { w, h }; return true; }
+};
+game.cloudService = { feature() { return false; } };
+game.render = () => {};
+game.renderedWechatFriendRank = { view: { x: 30, y: 140, w: 315, h: 386 } };
+game.requestWechatFriendAuthorization();
+game.wechatFriends = savedWechatFriends;
+game.cloudService = savedCloudService;
+game.render = savedRender;
+if (!requestedFriendRankSize || requestedFriendRankSize.w !== 315 || requestedFriendRankSize.h !== 386) {
+  throw new Error("friend rank refresh should reuse the visible viewport instead of forcing and stretching a fixed-size canvas");
+}
+game.screen = "home";
+game.scrollY = 0;
 const cleanedView = game.normalizeReserveViewPresentation({
   states: [{ id: "ecology", subMetrics: [{ id: "water", label: "水源", value: 66, delta: -2 }] }],
   mapMarkers: [
@@ -203,18 +299,10 @@ const prosperity = game.reserveProsperitySummary(reserve, game.state.world);
 if (!prosperity.value || !prosperity.speciesCount || !prosperity.animalTotal) {
   throw new Error("home prosperity strip should expose reserve value, species and population");
 }
-const dailySteps = game.dailyCareSteps(reserve, ((game.state.world || {}).goals || {}).daily || {});
-if (dailySteps.length !== 3) {
-  throw new Error("home daily loop should keep exactly three quick actions");
+const goalView = game.currentGoalView(true);
+if (!goalView.primary || (goalView.alternatives || []).length > 2) {
+  throw new Error("home should keep one primary goal and no more than two alternatives");
 }
-dailySteps.forEach((step) => {
-  if (!step.label || step.label.length > 4) {
-    throw new Error(`home daily loop label should be compact: ${step.label}`);
-  }
-  if (Object.prototype.hasOwnProperty.call(step, "short")) {
-    throw new Error("home daily loop should not render a second cramped label");
-  }
-});
 
 const dailyLetter = game.dailyAnimalLetter();
 if (!dailyLetter.title || !dailyLetter.title.includes("来信") || !dailyLetter.quote || !dailyLetter.body) {
@@ -292,9 +380,42 @@ if ((brief.items.length > 6) || (world.items.length > 6)) {
   throw new Error("detail list should stay compact");
 }
 
-["fund", "water", "grass"].forEach((type) => {
+const savedDetailRender = game.render;
+game.render = () => {};
+game.leagueScope = "world";
+game.openLeaguePlayerDetail({
+  id: "cloud_layout_player",
+  name: "一位名字很长的真实玩家的苔原哨站",
+  owner: "一位名字很长的真实玩家",
+  reserveName: "苔原哨站",
+  valuation: 5900,
+  level: 3,
+  shield: 42,
+  animals: 39,
+  style: "自营",
+  profileComplete: true
+}, 27);
+game.render = savedDetailRender;
+game.hitAreas = [];
+game.drawInfoDetailModal();
+const leagueDetailItems = (game.infoDetailModal && game.infoDetailModal.renderedInfoItems) || [];
+if (!game.infoDetailModal.renderedPlayerAvatar || leagueDetailItems.length !== 4
+  || leagueDetailItems.some((entry) => !entry.layout.noTagTitleOverlap || entry.layout.tagBounds.x + entry.layout.tagBounds.w >= entry.layout.titleBounds.x)) {
+  throw new Error("league player detail should show a player avatar and keep every label clear of its value text");
+}
+game.infoDetailModal = null;
+
+reserve.fund = 520;
+reserve.guardianCycle.day = 2;
+reserve.emergencyFundAd = {};
+const fundDetail = game.buildReserveMetricDetail("fund");
+if (!fundDetail || fundDetail.readOnly || typeof fundDetail.action !== "function" || !/1000/.test(fundDetail.actionLabel || "")
+  || !fundDetail.items || fundDetail.items.length !== 3 || fundDetail.items.some((item) => item.tag === "广告")) {
+  throw new Error("fund detail should keep three useful data cards and one contextual 1000-star-coin action");
+}
+["water", "grass"].forEach((type) => {
   const detail = game.buildReserveMetricDetail(type);
-  if (!detail || !detail.readOnly || typeof detail.action === "function" || !detail.items || detail.items.length < 3) {
+  if (!detail || !detail.readOnly || !detail.items || detail.items.length < 3) {
     throw new Error(`${type} reserve metric detail should expose useful list items`);
   }
 });
@@ -318,7 +439,7 @@ game.patrolTaskModal = null;
 game.hitAreas = [];
 game.drawMaterialCompactHeader(game.ctx, 18, 520, game.width - 36, reserve);
 if (game.hitAreas.length < 4) {
-  throw new Error("material header should expose fund, water and grass data cards");
+  throw new Error("material header should expose fund, supplies and community data cards");
 }
 game.handleTap(50, 580);
 if (!game.infoDetailModal || game.infoDetailModal.title.indexOf("保护基金") < 0) {
@@ -328,8 +449,8 @@ game.infoDetailModal = null;
 game.hitAreas = [];
 game.drawMaterialCompactHeader(game.ctx, 18, 520, game.width - 36, reserve);
 game.handleTap(170, 580);
-if (!game.infoDetailModal || game.infoDetailModal.title.indexOf("水源") < 0) {
-  throw new Error("water header card should open water detail");
+if (!game.infoDetailModal || game.infoDetailModal.title.indexOf("补给") < 0) {
+  throw new Error("supply header card should open supply detail");
 }
 game.infoDetailModal = null;
 
@@ -338,6 +459,13 @@ reserve.supplies.dogFood = 0;
 reserve.supplies.alarm = 0;
 game.drawSupplyDepot(game.ctx, 18, 700, game.width - 36, reserve);
 game.handleTap(300, 720);
+if (!game.patrolTaskModal || game.patrolTaskModal.id !== "buySupplies" || game.patrolTaskModal.purchaseId !== "all") {
+  throw new Error("supply depot header should open all-shortages replenishment task");
+}
+game.patrolTaskModal = null;
+game.hitAreas = [];
+game.drawStickySuppliesHeader(game.ctx, 18, 100, game.width - 36, 66);
+game.handleTap(300, 120);
 if (!game.patrolTaskModal || game.patrolTaskModal.id !== "buySupplies" || game.patrolTaskModal.purchaseId !== "all") {
   throw new Error("supply depot action should open all-shortages replenishment task");
 }
@@ -351,7 +479,7 @@ if (!game.infoDetailModal || game.infoDetailModal.kind !== "supplyQuantity" || g
 game.infoDetailModal = null;
 game.hitAreas = [];
 game.drawSupplyDepot(game.ctx, 18, 700, game.width - 36, reserve);
-game.handleTap(50, 850);
+game.handleTap(270, 770);
 if (!game.infoDetailModal || game.infoDetailModal.title.indexOf("警报器") < 0) {
   throw new Error("alarm supply card should open material detail");
 }
@@ -359,6 +487,9 @@ game.infoDetailModal = null;
 
 game.hitAreas = [];
 game.drawRecoveredGoods(game.ctx, 18, 960, game.width - 36, reserve);
+if (!game.renderedRecoveredGoodsPanel || game.renderedRecoveredGoodsPanel.actionLabel !== "出售") {
+  throw new Error("recovered goods header action should use the clear commerce label 出售");
+}
 game.handleTap(300, 972);
 if (!game.infoDetailModal || game.infoDetailModal.kind !== "recoveredChoice") {
   throw new Error("recovered goods action should first ask for immediate transfer, appraisal or case use");
@@ -403,7 +534,7 @@ if (valueHits.length !== 2) {
   throw new Error(`reserve overview should expose exactly level/value cards, got ${valueHits.length}`);
 }
 game.handleTap(40, 440);
-if (!game.infoDetailModal || !/繁荣|Lv/.test(game.infoDetailModal.title || "")) {
+if (!game.infoDetailModal || !/繁荣|等级/.test(game.infoDetailModal.title || "")) {
   throw new Error("reserve overview level card should open reserve level detail");
 }
 game.infoDetailModal = null;

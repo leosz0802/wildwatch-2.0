@@ -55,7 +55,8 @@ global.wx = {
   showToast() {}
 };
 
-const { createCharacter } = require("../js/storage");
+const { createCharacter, normalizeReserve } = require("../js/storage");
+const { createReserveState } = require("../js/world");
 const { simulateDay, reserveProgressionFor } = require("../js/simulator");
 const { Game } = require("../js/game");
 
@@ -88,9 +89,10 @@ function withRandomSequence(values, fn) {
 }
 
 function checkReserve(reserve, label) {
-  assert(reserve.actionPoints === 0, `${label}.actionPoints旧资源不得重新生效`);
-  assert(reserve.intel === 0, `${label}.intel旧资源不得重新生效`);
-  assert(reserve.fieldPermits === 0, `${label}.fieldPermits旧资源不得重新生效`);
+  assert(!Object.prototype.hasOwnProperty.call(reserve, "starCoins"), `${label}.starCoins不应作为独立资源存在`);
+  assert(!Object.prototype.hasOwnProperty.call(reserve, "actionPoints"), `${label}.actionPoints旧资源不得重新生效`);
+  assert(!Object.prototype.hasOwnProperty.call(reserve, "intel"), `${label}.intel旧资源不得重新生效`);
+  assert(!Object.prototype.hasOwnProperty.call(reserve, "fieldPermits"), `${label}.fieldPermits旧资源不得重新生效`);
   inRange(reserve.fund, 0, 5000, `${label}.fund`);
   ["safety", "stability", "reputation", "enforcement", "poacherPressure"].forEach((key) => {
     inRange(reserve[key], 0, 100, `${label}.${key}`);
@@ -110,6 +112,10 @@ function checkReserve(reserve, label) {
   inRange(progression.level, 1, 5, `${label}.progression.level`);
   inRange(progression.score, 0, 100, `${label}.progression.score`);
 }
+
+const legacyCurrency = normalizeReserve({ fund: 520, starCoins: 35 }, createReserveState());
+assert(legacyCurrency.fund === 555 && legacyCurrency.coreResources.fund === 555, "旧星币数值应一次性并入保护基金");
+assert(!Object.prototype.hasOwnProperty.call(legacyCurrency, "starCoins"), "迁移后不得保留独立星币字段");
 
 let state = createCharacter(null, "保护区卫士");
 state.world.reserve.supplies.dogFood = Math.max(state.world.reserve.supplies.dogFood, 8);

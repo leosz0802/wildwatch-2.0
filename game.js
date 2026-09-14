@@ -1,3 +1,3 @@
-const { Game } = require("./js/game");
+const { Game } = require("./js/game.js");
 
 new Game();

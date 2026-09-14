@@ -1,0 +1,36 @@
+[Unit]
+Description=Wild Guard API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=wildguard
+Group=wildguard
+WorkingDirectory=/opt/wild-guard-api
+Environment=NODE_ENV=production
+Environment=NODE_NO_WARNINGS=1
+Environment=HOST=127.0.0.1
+Environment=PORT=3117
+Environment=WILD_DB_PATH=/var/lib/wild-guard-api/wild.sqlite
+Environment=WILD_CONFIG_PATH=/opt/wild-guard-api/config/default.json
+EnvironmentFile=/etc/wild-guard-api.env
+ExecStart=/usr/local/bin/node /opt/wild-guard-api/server.js
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/var/lib/wild-guard-api
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=450M
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target
