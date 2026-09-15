@@ -95,7 +95,7 @@ function rescueTargetScore(itemId, recurring = false) {
   if (!rescueItemById(itemId)) return 0;
   // Chapter rescue items use one clear cumulative target across every chapter.
   // Recurring poacher rescues remain shorter and keep their own record.
-  return recurring ? 10 : 20;
+  return recurring ? 10 : 15;
 }
 function ownsRescueItem(record, itemId) {
   if (!record || record.status === 'rescued' || !(record.requiredItems || []).includes(itemId)) return false;

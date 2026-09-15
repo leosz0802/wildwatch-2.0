@@ -23,8 +23,8 @@ assert.deepStrictEqual(recurringState.active[0].requiredItems, ['rescue_field_ke
 
 const points = {};
 for (const roll of [4, 4, 4, 4, 4]) {
-  const result = resolveMaterialExploration(points, [], 'rescue_field_key', () => 0, 4, null, { rescueRequiredScore: 20 });
-  assert(result.collectionProgress.current >= 0 && result.collectionProgress.current <= 20);
+  const result = resolveMaterialExploration(points, [], 'rescue_field_key', () => 0, 4, null, { rescueRequiredScore: 15 });
+  assert(result.collectionProgress.current >= 0 && result.collectionProgress.current <= 15);
 }
-assert.strictEqual(points.materialExplorationProgress.rescue_field_key, 20);
+assert.strictEqual(points.materialExplorationProgress.rescue_field_key, 15);
 console.log('rescue single material check ok: legacy two-item records migrate to one track and arrow points accumulate');
