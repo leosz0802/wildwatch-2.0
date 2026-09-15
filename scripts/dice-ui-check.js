@@ -39,6 +39,8 @@ for (const [width, height] of [[320, 568], [375, 667], [430, 932]]) {
         const event = /EventDice|IncidentDice/.test(kind);
         const modal = {
           kind, phase: event && phase === "resolved" ? "result" : phase, displayRoll: face,
+          explorationMode: kind === "materialExploration" ? "archery" : "animalDice",
+          archeryAimStartedAt: Date.now(),
           title: "探索自然遗留物", kicker: "动物引路 · 物资与知识", icon: "eye",
           actionLabel: phase === "ready" ? "探索" : phase === "rolling" ? "点数生成中" : "点数已锁定", action() {},
           footer: "点数与结果同步 · 每次只结算一次",
@@ -152,7 +154,7 @@ try {
     for (const cancel of [false, true]) {
       let settlements = 0;
       queue = [];
-      game.infoDetailModal = { kind, phase: "ready", displayRoll: 1 };
+      game.infoDetailModal = { kind, phase: "ready", displayRoll: 1, explorationMode: kind === "materialExploration" ? "archery" : "animalDice", archeryAimStartedAt: clock, archeryAimValue: kind === "materialExploration" ? .4 : undefined };
       const modal = game.infoDetailModal;
       game.executeMaterialExploration = (_, roll) => { assert.strictEqual(roll, 5); settlements++; };
       game.finishCollectionInvestigation = (roll) => { assert.strictEqual(roll, 5); settlements++; };

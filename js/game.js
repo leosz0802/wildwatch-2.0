@@ -7486,8 +7486,14 @@ class Game {
     const bowCx = x + w / 2;
     const aimStarted = Number(modal.archeryAimStartedAt) || Date.now();
     const aimPhase = ((Date.now() - aimStarted) * .0042) % (Math.PI * 2);
-    const aimValue = (Math.sin(aimPhase) + 1) / 2;
-    const aimScore = Math.max(1, Math.min(6, Math.floor(aimValue * 6) + 1));
+    // The launcher sweeps left/right while ready. Once fired, keep the exact
+    // selected angle so the flight path and target impact use the same value.
+    const aimValue = Number.isFinite(Number(modal.archeryAimValue))
+      ? Math.max(0, Math.min(1, Number(modal.archeryAimValue)))
+      : (Math.sin(aimPhase) + 1) / 2;
+    const hitOffset = (aimValue * 2 - 1) * .36;
+    const aimScore = Math.max(1, Math.min(6, 6 - Math.floor(Math.abs(hitOffset) * 14)));
+    const impactX = cx + hitOffset * target.size;
     ctx.save(); ctx.globalAlpha = .88; ctx.strokeStyle = "rgba(245,239,203,.80)"; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(bowCx, bowY - 9, compassR, Math.PI, Math.PI * 2); ctx.stroke();
     for (let i = 0; i <= 6; i++) { const a = Math.PI + Math.PI * i / 6; ctx.beginPath(); ctx.moveTo(bowCx + Math.cos(a) * (compassR - 5), bowY - 9 + Math.sin(a) * (compassR - 5)); ctx.lineTo(bowCx + Math.cos(a) * compassR, bowY - 9 + Math.sin(a) * compassR); ctx.stroke(); }
@@ -7514,10 +7520,12 @@ class Game {
     ctx.fillStyle = arrowHead; ctx.beginPath(); ctx.moveTo(bowCx, bowY - 84); ctx.lineTo(bowCx - 5, bowY - 68); ctx.lineTo(bowCx + 5, bowY - 68); ctx.closePath(); ctx.fill();
     ctx.strokeStyle = "rgba(255,243,170,.82)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(bowCx, bowY - 81); ctx.lineTo(bowCx, bowY - 70); ctx.stroke();
     if (phase === "rolling") {
-      const ax = bowCx + (cx - bowCx) * flight; const ay = bowY - 70 + (top + target.size * .4 - (bowY - 70)) * flight;
-      ctx.save(); ctx.globalAlpha = .28 * (1 - flight); ctx.strokeStyle = "#fff3c4"; ctx.lineWidth = 2; ctx.setLineDash([4, 5]); ctx.beginPath(); ctx.moveTo(bowCx, bowY - 70); ctx.quadraticCurveTo(cx - 18, top + target.size * .75, cx, top + target.size * .4); ctx.stroke(); ctx.restore();
+      const ax = bowCx + (impactX - bowCx) * flight; const ay = bowY - 70 + (top + target.size * .4 - (bowY - 70)) * flight;
+      ctx.save(); ctx.globalAlpha = .28 * (1 - flight); ctx.strokeStyle = "#fff3c4"; ctx.lineWidth = 2; ctx.setLineDash([4, 5]); ctx.beginPath(); ctx.moveTo(bowCx, bowY - 70); ctx.quadraticCurveTo(impactX - 18, top + target.size * .75, impactX, top + target.size * .4); ctx.stroke(); ctx.restore();
       ctx.strokeStyle = "rgba(69,42,22,.52)"; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(ax + 2, ay); ctx.lineTo(ax + 2, ay - 22); ctx.stroke();
       ctx.strokeStyle = "#fff3c4"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax, ay - 22); ctx.stroke();
+    } else if (phase === "resolved") {
+      ctx.save(); ctx.strokeStyle = "#fff3c4"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(impactX, top + target.size * .4 - 16); ctx.lineTo(impactX, top + target.size * .4 + 16); ctx.stroke(); ctx.restore();
     } else if (phase === "ready") {
       ctx.save(); ctx.globalAlpha = .55 + charge * .35; ctx.fillStyle = "#fff1a8"; ctx.beginPath(); ctx.arc(bowCx, bowY - 82, 4 + charge * 2, 0, Math.PI * 2); ctx.fill(); ctx.restore();
     }
@@ -15734,31 +15742,26 @@ class Game {
     return true;
   }
 
+  archeryAimValueFor(modal = {}, now = Date.now()) {
+    if (Number.isFinite(Number(modal.archeryAimValue))) return Math.max(0, Math.min(1, Number(modal.archeryAimValue)));
+    const started = Number(modal.archeryAimStartedAt);
+    if (!started) return .5;
+    return (Math.sin((now - started) * .0042) + 1) / 2;
+  }
+
   archeryScoreFor(modal = {}) {
-    const reserve = (this.state && this.state.world && this.state.world.reserve) || {};
-    const activeSeconds = Number(((reserve.progression || {}).activeSeconds) || 0);
-    if (!modal.archeryAimStartedAt) {
-      if (activeSeconds < 600 && Math.random() < 0.65) return 3 + Math.floor(Math.random() * 4);
-      return Math.max(1, Math.min(6, Math.floor(Math.random() * 6) + 1));
-    }
-    const started = Number(modal.archeryAimStartedAt) || Date.now();
-    const swing = (Math.sin((Date.now() - started) * .0042) + 1) / 2;
-    let score = Math.max(1, Math.min(6, Math.floor(swing * 6) + 1));
-    // Give a new player a forgiving first ten minutes: at least 65% of the
-    // low (1–2) outcomes are lifted into the 3–6 band, keeping the visible
-    // aim timing meaningful while making high scores exceed 60% in aggregate.
-    // Active play time is persisted on the reserve, so background time does
-    // not consume this onboarding protection.
-    if (activeSeconds < 600 && score < 3 && Math.random() < 0.65) {
-      score = 3 + Math.floor(Math.random() * 4);
-    }
-    return score;
+    const aim = this.archeryAimValueFor(modal);
+    const hitOffset = (aim * 2 - 1) * .36;
+    return Math.max(1, Math.min(6, 6 - Math.floor(Math.abs(hitOffset) * 14)));
   }
 
   rollMaterialExplorationDice(targetId = "") {
     const modal = this.infoDetailModal;
     if (!modal || modal.kind !== "materialExploration" || modal.phase !== "ready") return;
     this.playSfx("dice");
+    if (modal.explorationMode !== "animalDice") {
+      modal.archeryAimValue = this.archeryAimValueFor(modal);
+    }
     const finalRoll = modal.explorationMode === "animalDice"
       ? Math.max(1, Math.min(6, Math.floor(Math.random() * 6) + 1))
       : this.archeryScoreFor(modal);
@@ -24479,6 +24482,7 @@ class Game {
     const reserve = ((this.state.world || {}).reserve) || {};
     const active = reserve.emergency && reserve.emergency.active;
     if (!active) { this.toast("邻区事件已处理"); this.dismissInfoDetailModal(); return false; }
+    modal.archeryAimValue = this.archeryAimValueFor(modal);
     const roll = this.archeryScoreFor(modal); const success = roll >= (modal.threshold || 4);
     const action = active.recommendedAction || "habitat";
     let outcome = null;
@@ -24566,6 +24570,7 @@ class Game {
       return false;
     }
     const beforeState = JSON.parse(JSON.stringify(this.state));
+    if (!modal.dailyRoutine) modal.archeryAimValue = this.archeryAimValueFor(modal);
     const roll = modal.dailyRoutine ? 6 : this.archeryScoreFor(modal);
     const beforeVisitors = Math.max(0, Number(today.visitors) || 0) + Math.max(0, Number(today.recruitedVisitors) || 0);
     const success = roll >= 3;
