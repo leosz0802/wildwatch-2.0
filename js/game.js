@@ -8089,7 +8089,9 @@ class Game {
     this.reserveDisplayTargetRefreshLeft = 0;
     // Start a visible 600ms count-up for the three core resources together.
     // The settlement card has already shown the before/after explanation.
-    this.numberAnimationBurstUntil = Date.now() + 900;
+    // Keep the post-settlement transition long enough for fund, water and
+    // grass to visibly roll together after the result is acknowledged.
+    this.numberAnimationBurstUntil = Date.now() + 1800;
     this.maybeShowInterstitialForSettlement(modal, returnScreen);
   }
 
@@ -27961,6 +27963,9 @@ class Game {
       this.selectedPurchaseQuantity = 1;
       this.pendingTaskOriginScreen = null;
       this.reserveViewRenderCache = null;
+      this.reserveDisplayTargetCache = null;
+      this.reserveDisplayTargetRefreshLeft = 0;
+      this.numberAnimationBurstUntil = Date.now() + 1800;
       this.playSfx("success");
       this.maybeShowInterstitialForSettlement(settlement, returnScreen, { preserveCurrentScreen: true })
         .then(() => this.toast(option.id === "salvage" ? "移交完成，结果已更新" : "采购完成，库存已更新"));
