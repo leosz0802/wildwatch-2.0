@@ -32,6 +32,11 @@ async function main() {
   assert.strictEqual(controller.shouldShow({ guardianNight: true, guardianDay: 2, majorMoment: true }), false, "重大剧情与突破不得被广告打断");
   assert.strictEqual(controller.shouldShow({ guardianNight: true, guardianDay: 2 }), true, "第二个普通守护日应允许首次展示");
 
+  // Chapter 3+ patrols carry routine ecology narrative beats. They must not
+  // disable the same ad cadence used in chapters 1-2.
+  const routineEcology = new InterstitialAdController(runtime, { now: () => now });
+  assert.strictEqual(routineEcology.shouldShow({ settlement: true, guardianDay: 3, actionCount: 2, breakthrough: { kind: "ecology_habitat" } }), true, "常规生态叙事不得关闭第3章插屏节奏");
+
   let resolved = false;
   const firstShow = controller.show({ guardianNight: true, guardianDay: 1 }).then((result) => {
     resolved = true;

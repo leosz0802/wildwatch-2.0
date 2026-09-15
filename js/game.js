@@ -8071,6 +8071,11 @@ class Game {
   interstitialContextForSettlement(modal = {}) {
     const guardianNight = modal.guardianNight || null;
     const emotionMajor = !!(modal.emotionEvent && modal.emotionEvent.isMajor);
+    // From chapter 3 onward, routine ecology narrative beats are attached to
+    // nearly every patrol settlement. They are story flavor, not a major
+    // interruption; treating them as breakthroughs silently disabled the
+    // interstitial cadence for the rest of the game.
+    const routineEcologyBeat = !!(modal.breakthrough && /^ecology_/.test(String(modal.breakthrough.kind || "")));
     const actionCount = Math.max(0, Number(((modal.progression || {}).totalActions) || 0));
     return {
       eligible: true,
@@ -8084,7 +8089,7 @@ class Game {
       activeSeconds: this.missionExperienceSeconds(),
       onboarding: !!modal.onboardingFirstAction,
       majorMoment: !!(
-        modal.breakthrough
+        (modal.breakthrough && !routineEcologyBeat)
         || modal.chapterTransition
         || modal.finalChapterEnding
         || modal.mysteryRecovery
