@@ -137,6 +137,7 @@ survivalRouteGame.screen = "home";
 survivalRouteGame.infoDetailModal = { kind: "missionPush" };
 assert(survivalRouteGame.executeGoalAction({ recommendedAction: "exploreMaterials", targetScreen: "survival" }), "补给剧情应能打开生存频道");
 assert.strictEqual(survivalRouteGame.screen, "survival", "需要探索补给的任务应先引导到生存频道");
+assert(survivalRouteGame.survivalExploreFocusUntil > Date.now(), "进入生存频道后应聚焦探索入口");
 survivalRouteGame.stopLoop();
 
 // Animal-care goals must route to the sandbox and focus a named animal rather

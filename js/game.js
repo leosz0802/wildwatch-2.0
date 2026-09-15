@@ -10243,7 +10243,10 @@ class Game {
         id: goal.id, kind: "daily",
         // A daily exploration needs a playable action, not a bare channel
         // visit that leaves the progress counter unchanged on every retry.
-        targetScreen: objective.recommendedAction === "exploreMaterials" ? "materials" : objective.targetScreen
+        // Exploration tasks are completed from the survival channel.  Keep
+        // this route explicit so a stale objective cannot fall through to the
+        // materials inventory page.
+        targetScreen: objective.recommendedAction === "exploreMaterials" ? "survival" : objective.targetScreen
       });
     }
     const world = this.state.world || (this.state.world = {});
@@ -10309,6 +10312,7 @@ class Game {
     }
     if (action === "exploreMaterials") {
       if (goal.targetScreen === "survival") {
+        this.survivalExploreFocusUntil = Date.now() + 6000;
         this.setScreen("survival");
         this.prepareLocalAssetsForScreen("survival");
         this.toast("已进入生存频道 · 探索或交换补给，再回来执行任务");
@@ -10385,6 +10389,7 @@ class Game {
       return true;
     }
     if (action === "viewSurvival") {
+      this.survivalExploreFocusUntil = Date.now() + 6000;
       this.setScreen("survival");
       this.prepareLocalAssetsForScreen("survival");
       this.render();
@@ -14659,8 +14664,19 @@ class Game {
     bar.addColorStop(0, "#c54838");
     bar.addColorStop(1, "#d59b36");
     if (progressRatio > 0) this.roundRect(ctx, barX, y + 53, Math.max(8, barW * progressRatio), 8, 4, bar);
+    const exploreFocused = Number(this.survivalExploreFocusUntil || 0) > Date.now();
+    if (exploreFocused) {
+      const pulse = 0.68 + 0.32 * Math.sin(Date.now() / 180);
+      this.roundRect(ctx, this.width - 110, y + 70, 88, 54, 12, `rgba(255,83,58,${0.16 * pulse})`);
+      ctx.save();
+      ctx.strokeStyle = `rgba(255,92,63,${pulse})`;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(this.width - 110, y + 70, 88, 54);
+      ctx.restore();
+      this.text(ctx, "请从这里探索", this.width - 66, y + 68, 9, "#ff5c3f", "800", "center");
+    }
     this.drawSectionActionButton(ctx, this.width - 104, y + 76, 76, "去探索", "#d8c27a", () => this.openMaterialExploration(), false);
-    this.renderedSurvivalHero = { x: 12, y, w: this.width - 24, h: heroH, unlocked: summary.unlocked, total: summary.total, progressRatio, style: "green-achievement-progress-card" };
+    this.renderedSurvivalHero = { x: 12, y, w: this.width - 24, h: heroH, unlocked: summary.unlocked, total: summary.total, progressRatio, exploreFocused, style: "green-achievement-progress-card" };
     y += heroH + 12;
 
     const entryGap = 10;
