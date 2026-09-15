@@ -8156,6 +8156,11 @@ class Game {
     else this.setScreen(targetScreen);
     this.deferQueuedMissionPush = false;
     if (this.openPendingFirstPatrolTransfer()) return;
+    if (!this.chapterStoryModal && this.screen === "home" && modal.chapterTransition) {
+      // A chapter transition is always a dedicated interstitial. Do not let
+      // normal story pacing postpone or skip the promotion scene.
+      this.openQueuedChapterStory();
+    }
     if (!this.chapterStoryModal && this.screen === "home") {
       const reserve = (this.state.world || {}).reserve || {};
       const actions = Number((reserve.progression || {}).totalActions) || 0;
