@@ -2351,8 +2351,32 @@ class Game {
   openPendingPoacherRescueEvent() {
     const reserve = (this.state.world || {}).reserve || {};
     const event = reserve.poacherRescue && reserve.poacherRescue.pendingEvent;
-    if (!event || event.seen || this.infoDetailModal) return false;
+    if (!event || this.infoDetailModal) return false;
     const speciesName = event.speciesName || "动物";
+    const showStoryCard = () => {
+      this.infoDetailModal = {
+        kind: "poacherStoryCard",
+        kicker: "现场记录 · 盗猎痕迹",
+        title: `${speciesName}被困了`,
+        icon: "paw",
+        highlightName: speciesName,
+        prose: `绳套勒进了${speciesName}的皮毛。它已经不再挣扎，只把目光投向你。你先记下现场，再决定要不要把这件事列入当前任务。`,
+        actionLabel: "加入任务区",
+        action: () => {
+          const record = findPoacherRescue(reserve, event.targetId || event.speciesId);
+          if (record) record.taskVisible = true;
+          reserve.poacherRescue.pendingEvent = null;
+          saveState(this.state);
+          this.infoDetailModal = null;
+          this.render();
+        }
+      };
+      this.render();
+    };
+    if (event.storyShown) {
+      showStoryCard();
+      return true;
+    }
     event.seen = true;
     this.infoDetailModal = {
       kind: "poacherEventNotice",
@@ -2361,12 +2385,11 @@ class Game {
       icon: "paw",
       highlightName: speciesName,
       prose: `林下传来一声闷响。你拨开枝叶，发现${speciesName}被盗猎者的绳套困住；它一挣扎，绳子便绷得更紧。\n“别怕，我在这里。”你蹲下身。${speciesName}停了下来，仍警惕地望着你。得找来工具，把它带出去。`,
-      actionLabel: "查看解救任务",
+      actionLabel: "查看现场剧情",
       action: () => {
-        reserve.poacherRescue.pendingEvent = null;
+        event.storyShown = true;
         saveState(this.state);
-        this.infoDetailModal = null;
-        this.openChapterRescueTask(event.targetId || event.speciesId);
+        showStoryCard();
       }
     };
     saveState(this.state);
@@ -5059,7 +5082,7 @@ class Game {
 
   infoDetailModalHeight(modal = {}) {
     if (modal.kind === "chapterProgress") return 660;
-    if (modal.kind === "poacherEventNotice") return 620;
+    if (["poacherEventNotice", "poacherStoryCard"].includes(modal.kind)) return 620;
     if (modal.kind === "resourceShortfall") return 390;
     if (modal.kind === "guardianPromise") return 520;
     if (modal.kind === "fundRelief" || modal.kind === "animalLetterPrompt" || modal.kind === "visitorLetterReader") return 470;
@@ -5166,7 +5189,7 @@ class Game {
     const titleY = y + (goalHero ? 86 : heroModal ? (compactHero ? 73 : 82) : 60);
     this.text(ctx, this.truncateTextToWidth(ctx, header.kicker, header.textW, header.kickerSize, "700"), header.textX, kickerY, header.kickerSize, "#e7d7ab", "700");
     const headerTitle = this.truncateTextToWidth(ctx, header.title, header.textW, header.titleSize, "700");
-    if (modal.kind === "poacherEventNotice") {
+    if (["poacherEventNotice", "poacherStoryCard"].includes(modal.kind)) {
       this.drawFittedTextBlock(ctx, headerTitle, header.textX, titleY, header.textW, header.titleSize + 5, {
         size: header.titleSize, minSize: header.titleSize, keepSize: true, weight: "700", color: "#fff9e9",
         highlightText: modal.highlightName, highlightColor: "#ff8070"
@@ -5289,7 +5312,7 @@ class Game {
         this.text(ctx, this.animalDisplayName(modal.animal), x + 58, bodyY + 101, 10, "#49604e", "700", "center");
       }
       const preserveNarrative = ["chapterStory", "ecologyNarrativeDecision", "animalLetterReader", "lifeMemory"].includes(modal.kind);
-      if (modal.kind === "poacherEventNotice") {
+      if (["poacherEventNotice", "poacherStoryCard"].includes(modal.kind)) {
         modal.renderedNarrative = this.drawFittedTextBlock(ctx, modal.prose, proseX, bodyY + 44, proseW, proseH - 32, {
           size: 18, minSize: 18, keepSize: true, lineHeight: 24, color: "#26352b",
           highlightText: modal.highlightName, highlightColor: "#c54838", compact: false
@@ -17472,7 +17495,9 @@ class Game {
       return;
     }
     const dailyPending = checklist.remaining > 0;
-    const rescueTask = nextRescueTask((this.state.world || {}).reserve || {}, (getCurrentChapter((this.state.world || {}).reserve || {}) || {}).chapter || 1);
+    const poacherTask = nextPoacherRescue((this.state.world || {}).reserve || {});
+    const rescueTask = (poacherTask && poacherTask.taskVisible !== false) ? poacherTask
+      : nextRescueTask((this.state.world || {}).reserve || {}, (getCurrentChapter((this.state.world || {}).reserve || {}) || {}).chapter || 1);
     const uiState = this.state.ui || (this.state.ui = {});
     // Rescue is a chapter gate, not a prerequisite for today's other work.
     // Keep ordinary daily tasks as the default map entry; the rescue marker
@@ -18826,7 +18851,7 @@ class Game {
     // Only normalized chapter targets and active poacher records get map icons.
     const legacyPending = [];
     const poacherPending = (((this.state.world || {}).reserve || {}).poacherRescue || {}).active || [];
-    const pendingCandidates = targetPending.concat(legacyPending, poacherPending.filter((record) => record && record.status !== "rescued"));
+    const pendingCandidates = targetPending.concat(legacyPending, poacherPending.filter((record) => record && record.status !== "rescued" && record.taskVisible !== false));
     // A species is a single map subject. Older saves can contain both a
     // chapter rescue alias and a recurring poacher record for the same
     // species; keep one marker, preferring the active poacher event.
@@ -23868,7 +23893,7 @@ class Game {
     let mergedMarkers = taskVisible
       ? [animalTask].concat(normalizedMarkers.filter((marker) => marker.id !== animalTask.id))
       : normalizedMarkers;
-    const poacherRescues = ((reserve.poacherRescue || {}).active || []).filter((record) => record && record.status !== "rescued");
+    const poacherRescues = ((reserve.poacherRescue || {}).active || []).filter((record) => record && record.status !== "rescued" && record.taskVisible !== false);
     if (poacherRescues.length) {
       const rescueMarkers = poacherRescues.map((record) => ({
         id: record.targetId,
