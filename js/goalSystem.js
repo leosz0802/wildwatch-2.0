@@ -18,8 +18,8 @@ const GOAL_BALANCE = Object.freeze({
   goalRewardScale: 1,
   instantRefreshActions: 1,
   dailyResetHour: 4,
-  dailyGoalCount: 4,
-  dailyRequiredCount: 4,
+  dailyGoalCount: 3,
+  dailyRequiredCount: 3,
   maxVisibleGoals: 3,
   fallbackCooldownActions: 3,
   rerouteAfterNoProgress: 2,
@@ -241,7 +241,7 @@ function createDailyState(state, now = Date.now()) {
     schemaVersion: 2,
     dateKey: goalDateKey(now),
     chapterNumber: chapter,
-    objectives: ["guard", "economy", "animal", "visitor"].map((kind) => objectiveFor(kind, state)),
+    objectives: ["guard", "economy", "animal"].slice(0, GOAL_BALANCE.dailyGoalCount).map((kind) => objectiveFor(kind, state)),
     required: GOAL_BALANCE.dailyRequiredCount,
     coreClaimed: false,
     fullClaimed: false,
@@ -296,7 +296,7 @@ function normalizeGoalState(saved, state = {}, now = Date.now()) {
   next.history = (saved.history || []).slice(-80);
   next.daily = Object.assign(createDailyState(state, now), clone(saved.daily));
   const savedObjectives = saved.daily.objectives || [];
-  next.daily.objectives = ["guard", "economy", "animal", "visitor"].map((kind, index) => {
+  next.daily.objectives = ["guard", "economy", "animal"].slice(0, GOAL_BALANCE.dailyGoalCount).map((kind, index) => {
     const objective = savedObjectives.find((item) => item.kind === kind) || {};
     const base = objectiveFor(kind, state);
     // 存档只继承本类进度，文案与动作始终取同一份定义，避免旧游客任务被配上修复动作。
