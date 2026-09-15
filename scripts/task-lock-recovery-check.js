@@ -23,6 +23,28 @@ function startAnimalDaily(game) {
   return game.state.world.goals.daily.objectives.find(item => item.id === 'daily_animal');
 }
 
+// Channel-only story tasks complete when the requested channel opens. They
+// have no result card to close, so a stale lock must not survive the route.
+for (const channel of ['viewSurvival', 'viewDiscovery']) {
+  const game = makeGame();
+  game.prepareLocalAssetsForScreen = () => {};
+  game.state.world.goals.active.primary = {
+    id: `channel:${channel}`,
+    kind: 'story',
+    title: channel === 'viewSurvival' ? '进入生存频道' : '进入发现频道',
+    recommendedAction: channel,
+    targetScreen: channel === 'viewSurvival' ? 'survival' : 'animalworld',
+    executable: true,
+    complete: false,
+    progress: 0,
+    target: 1
+  };
+  game.activeTaskLock = { id: `channel:${channel}`, kind: 'story', startedAt: Date.now() };
+  assert(game.openGuidedChannel(channel));
+  assert.equal(game.screen, channel === 'viewSurvival' ? 'survival' : 'animalworld');
+  assert.equal(game.activeTaskLock, null, `${channel} should release its lock after entry`);
+}
+
 // Real goal dispatch creates the lock. X must work both before settlement and
 // on the result page; the old test covered only the separate confirm button.
 for (const phase of ['approach', 'result']) {

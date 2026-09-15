@@ -4977,7 +4977,7 @@ class Game {
 
   infoDetailHeaderLayout(ctx, modal, x, y, w) {
     const goalHero = modal && (modal.kind === "goalCenter" || (modal.kind === "missionPush" && modal.goals));
-    const heroModal = modal && (["livingReserveNode", "livingReserveChoiceConfirm", "developmentBuildingStory", "developmentBuildingUpgrade", "goalCenter", "reserveProsperity"].includes(modal.kind) || (modal.kind === "missionPush" && modal.goals));
+    const heroModal = modal && (["livingReserveNode", "livingReserveChoiceConfirm", "developmentBuildingStory", "developmentBuildingUpgrade", "goalCenter", "reserveProsperity", "chapterProgress"].includes(modal.kind) || (modal.kind === "missionPush" && modal.goals));
     const compactHero = modal && ["livingReserveNode", "livingReserveChoiceConfirm"].includes(modal.kind);
     const close = { x: x + w - (goalHero ? 54 : heroModal ? 56 : 54), y: y + (goalHero ? 26 : heroModal ? (compactHero ? 25 : 31) : 23), w: goalHero ? 44 : heroModal ? 44 : 36, h: goalHero ? 44 : heroModal ? 44 : 36 };
     const icon = { cx: x + (goalHero ? Math.min(60, w * .15) : heroModal ? 52 : 44), cy: y + (goalHero ? 56 : heroModal ? (compactHero ? 49 : 55) : 48), size: goalHero ? Math.min(78, Math.max(64, this.width * .12)) : heroModal ? (compactHero ? 62 : 70) : 50 };
@@ -5001,6 +5001,7 @@ class Game {
   }
 
   infoDetailModalHeight(modal = {}) {
+    if (modal.kind === "chapterProgress") return 660;
     if (modal.kind === "poacherEventNotice") return 620;
     if (modal.kind === "resourceShortfall") return 390;
     if (modal.kind === "guardianPromise") return 520;
@@ -5088,7 +5089,7 @@ class Game {
     const inlineAnimalCare = modal.kind === "animalComfort";
     const goalHero = modal.kind === "goalCenter" || (modal.kind === "missionPush" && modal.goals);
     const reserveHero = modal.kind === "reserveProsperity";
-    const heroModal = ["livingReserveNode", "livingReserveChoiceConfirm", "developmentBuildingStory", "developmentBuildingUpgrade", "goalCenter", "reserveProsperity"].includes(modal.kind) || (modal.kind === "missionPush" && modal.goals);
+    const heroModal = ["livingReserveNode", "livingReserveChoiceConfirm", "developmentBuildingStory", "developmentBuildingUpgrade", "goalCenter", "reserveProsperity", "chapterProgress"].includes(modal.kind) || (modal.kind === "missionPush" && modal.goals);
     const compactHero = ["livingReserveNode", "livingReserveChoiceConfirm"].includes(modal.kind);
     const headerHeight = goalHero ? Math.min(122, Math.max(108, Math.round(this.width * .25))) : reserveHero ? 132 : heroModal ? (compactHero ? 96 : 108) : 72;
     // Preserve enough vertical room for dense dashboard and construction
@@ -5216,6 +5217,8 @@ class Game {
       this.drawTourismProgressContent(ctx, modal, x, bodyY, w, bodyH);
     } else if (modal.kind === "reserveProsperity") {
       this.drawReserveProsperityContent(ctx, modal, x, bodyY, w, bodyH);
+    } else if (modal.kind === "chapterProgress") {
+      this.drawChapterProgressContent(ctx, modal, x, bodyY, w, bodyH);
     } else if (modal.layout === "metricDashboard") {
       this.drawMetricDashboardDetailContent(ctx, modal, x, bodyY, w, bodyH);
     } else if (modal.prose) {
@@ -6182,6 +6185,89 @@ class Game {
     ctx.fill();
     ctx.restore();
     this.roundRect(ctx, x, y, w, h, 12, null, "rgba(69,108,70,.26)");
+  }
+
+  drawChapterProgressContent(ctx, modal, x, bodyY, w, bodyH) {
+    const panelX = x + 24;
+    const panelW = w - 48;
+    const compact = bodyH < 360;
+    const gap = 7;
+    const metricH = compact ? 54 : 68;
+    const metricY = bodyY + 10;
+    const metricW = (panelW - gap * 2) / 3;
+    const core = modal.core || {};
+    const metrics = [
+      { id: "visitors", label: "游客", value: core.visitors, target: (modal.nextGoals || {}).visitors, icon: "community", color: "#a77a18", fill: "#fff0b4" },
+      { id: "species", label: "种群", value: core.species, target: (modal.nextGoals || {}).species, icon: "leaf", color: "#2f805e", fill: "#d8f1df" },
+      { id: "animals", label: "动物", value: core.animals, target: (modal.nextGoals || {}).animals, icon: "paw", color: "#2d7894", fill: "#dff3fb" }
+    ];
+    modal.renderedChapterProgress = { metrics: [], rows: [], speciesNeeded: modal.speciesNeeded || [] };
+    metrics.forEach((metric, index) => {
+      const mx = panelX + index * (metricW + gap);
+      this.drawPremiumInfoCard(ctx, mx, metricY, metricW, metricH, 13, { active: true });
+      this.roundRect(ctx, mx + 7, metricY + 7, metricW - 14, metricH - 14, 10, metric.fill, "rgba(73,102,77,.24)");
+      const iconSize = compact ? 18 : 22;
+      const iconX = mx + (compact ? 18 : 22);
+      const iconY = metricY + metricH / 2;
+      this.drawUiIcon(ctx, metric.icon, iconX, iconY, iconSize, false) || this.drawSmallGlyph(ctx, metric.icon, iconX, iconY, metric.color, .8);
+      const textX = mx + (compact ? 32 : 39);
+      const textW = metricW - (textX - mx) - 6;
+      this.text(ctx, metric.label, textX, metricY + (compact ? 21 : 25), compact ? 9 : 10, "#365344", "700");
+      const valueText = `${Number(metric.value) || 0}`;
+      const valueSize = this.fitTextSize(ctx, valueText, textW, compact ? 18 : 23, 13, "700");
+      this.text(ctx, valueText, textX, metricY + (compact ? 43 : 51), valueSize, metric.color, "700");
+      const percent = Math.min(100, Math.round((Number(metric.value) || 0) / Math.max(1, Number(metric.target) || 1) * 100));
+      this.text(ctx, `${percent}%`, mx + metricW - 8, metricY + metricH - 8, compact ? 8 : 9, metric.color, "700", "right");
+      const bounds = { x: mx, y: metricY, w: metricW, h: metricH, id: metric.id };
+      modal.renderedChapterProgress.metrics.push(bounds);
+      this.addHit(mx, metricY, metricW, metricH, () => {
+        const detail = modal.metricDetails && modal.metricDetails[metric.id];
+        if (detail) {
+          this.infoDetailModal = Object.assign({}, detail);
+          this.render();
+        }
+      }, "tap");
+    });
+
+    const promoY = metricY + metricH + gap;
+    const promoH = compact ? 58 : 78;
+    this.drawPremiumInfoCard(ctx, panelX, promoY, panelW, promoH, 13, { active: true });
+    const path = Math.max(0, Math.min(100, Number(modal.pathPercent) || 0));
+    this.text(ctx, "晋级路径", panelX + 14, promoY + (compact ? 21 : 25), compact ? 10 : 11, "#356946", "700");
+    this.text(ctx, `${path}% ›`, panelX + panelW - 14, promoY + (compact ? 22 : 26), compact ? 14 : 16, "#177255", "700", "right");
+    this.drawFittedTextBlock(ctx, `下一站 · ${modal.nextTitle || `第${modal.nextChapter}章`}`, panelX + 14, promoY + (compact ? 40 : 48), panelW - 28, compact ? 15 : 19, {
+      size: compact ? 11 : 14, minSize: 10, lineHeight: compact ? 14 : 18, weight: "700", color: "#173d34", maxChars: 34
+    });
+    const barY = promoY + promoH - (compact ? 10 : 14);
+    this.roundRect(ctx, panelX + 14, barY, panelW - 28, 6, 3, "#d9dfc7");
+    if (path > 0) this.roundRect(ctx, panelX + 14, barY, (panelW - 28) * path / 100, 6, 3, "#2f886a");
+
+    const rowsY = promoY + promoH + gap;
+    const remaining = Math.max(120, bodyY + bodyH - rowsY - 6);
+    const rowGap = compact ? 5 : 7;
+    const rowH = Math.max(compact ? 42 : 50, Math.floor((remaining - rowGap * 2) / 3));
+    const rowMeta = [
+      { id: "visitors", label: "游客", icon: "community", title: `累计 ${core.visitors || 0}/${(modal.nextGoals || {}).visitors || 0}`, body: `还需 ${Math.max(0, (modal.nextGoals || {}).visitors - (core.visitors || 0))} 人` },
+      { id: "species", label: "种群", icon: "leaf", title: `解锁 ${core.species || 0}/${(modal.nextGoals || {}).species || 0}`, body: modal.speciesNeeded && modal.speciesNeeded.length ? `需要解锁：${modal.speciesNeeded.join("、")}` : "本章需要解锁的种群已满足" },
+      { id: "animals", label: "动物总数", icon: "paw", title: `数量 ${core.animals || 0}/${(modal.nextGoals || {}).animals || 0}`, body: `还需 ${Math.max(0, (modal.nextGoals || {}).animals - (core.animals || 0))} 只` }
+    ];
+    rowMeta.forEach((row, index) => {
+      const ry = rowsY + index * (rowH + rowGap);
+      this.drawPremiumInfoCard(ctx, panelX, ry, panelW, rowH, 12, { active: false });
+      const iconX = panelX + 24;
+      this.roundRect(ctx, iconX - 15, ry + rowH / 2 - 15, 30, 30, 15, "#e2f1dc", "rgba(95,117,73,.28)");
+      this.drawUiIcon(ctx, row.icon, iconX, ry + rowH / 2, 21, false) || this.drawSmallGlyph(ctx, row.icon, iconX, ry + rowH / 2, "#2f805e", .8);
+      const rowX = panelX + 48;
+      const rowW = panelW - 70;
+      this.text(ctx, row.label, rowX, ry + (compact ? 18 : 21), compact ? 10 : 11, "#356946", "700");
+      this.drawFittedTextBlock(ctx, row.title, rowX, ry + (compact ? 35 : 41), rowW, compact ? 14 : 17, { size: compact ? 11 : 13, minSize: 9, lineHeight: compact ? 13 : 16, weight: "700", color: "#173d34", maxChars: 34 });
+      if (!compact && rowH >= 65) this.drawFittedTextBlock(ctx, row.body, rowX, ry + rowH - 10, rowW, 13, { size: 9, minSize: 8, lineHeight: 11, color: "#637068", compact: true, maxChars: 42 });
+      this.text(ctx, "›", panelX + panelW - 15, ry + rowH / 2 + 6, compact ? 18 : 21, "#2f805e", "700", "center");
+      const bounds = { x: panelX, y: ry, w: panelW, h: rowH, id: row.id };
+      modal.renderedChapterProgress.rows.push(bounds);
+      const detail = modal.metricDetails && modal.metricDetails[row.id];
+      if (detail) this.addHit(panelX, ry, panelW, rowH, () => { this.infoDetailModal = Object.assign({}, detail); this.render(); }, "tap");
+    });
   }
 
   drawReserveProsperityContent(ctx, modal, x, bodyY, w, bodyH) {
@@ -10473,7 +10559,14 @@ class Game {
     // Entering a channel completes channel guidance; no extra card click is required.
     if (["viewDiscovery", "viewSurvival"].includes(action)) {
       const beforeState = JSON.parse(JSON.stringify(this.state));
-      this.syncSandboxGoalState(beforeState, action);
+      const progress = this.syncSandboxGoalState(beforeState, action);
+      // Channel-entry objectives finish at the moment the channel opens. The
+      // old task lock was left behind because the channel has no result card,
+      // so reopening the daily list immediately resumed an already completed
+      // task. Release it as soon as the completion is recorded.
+      if (progress && (progress.completions || []).length) {
+        this.activeTaskLock = null;
+      }
     }
     this.infoDetailModal = null;
     if (action === "viewFund") {
@@ -24273,10 +24366,63 @@ class Game {
     ];
     const unfinishedCore = coreItems.filter((item) => item.value < item.target);
     const nextChapter = chapter < 20 ? chapter + 1 : chapter;
+    const nextGoals = chapterTargets(nextChapter);
+    const nextReserve = Object.assign({}, reserve, {
+      progression: Object.assign({}, reserve.progression || {}, {
+        stage: nextChapter,
+        displayChapter: nextChapter
+      })
+    });
+    const currentSpecies = new Set(getUnlockedSpecies(progression.level || 1, chapter).map((species) => species.id));
+    const nextSpecies = getUnlockedSpecies(progression.level || 1, nextChapter);
+    const rescueSpecies = (rescue.animals || [])
+      .filter((animal) => animal && animal.status !== "rescued")
+      .map((animal) => animal.speciesName)
+      .filter(Boolean);
+    const newlyUnlockedSpecies = nextSpecies
+      .filter((species) => !currentSpecies.has(species.id))
+      .map((species) => species.name);
+    const nextInfo = getCurrentChapter(nextReserve) || {};
+    const fallbackSpecies = String(nextInfo.newSpeciesLabel || info.newSpeciesLabel || "").split(/[、,，]/).map((name) => name.trim()).filter(Boolean);
+    const speciesNeeded = chapter >= 20
+      ? []
+      : Array.from(new Set(rescueSpecies.concat(newlyUnlockedSpecies, fallbackSpecies))).slice(0, 6);
+    const metricDetails = {};
+    coreItems.forEach((item) => {
+      const nextTarget = nextGoals[item.id] || item.target;
+      const current = Number(item.value) || 0;
+      const remaining = Math.max(0, nextTarget - current);
+      metricDetails[item.id] = {
+        kicker: `第${chapter}章 · 下一章晋级要求`,
+        title: item.id === "species" ? "种群解锁" : item.id === "animals" ? "动物总数" : "游客累计",
+        icon: item.id === "species" ? "leaf" : item.id === "animals" ? "paw" : "community",
+        items: [{
+          tag: "下一章门槛",
+          title: `${current}/${nextTarget} · ${Math.min(100, Math.round(current / Math.max(1, nextTarget) * 100))}%`,
+          body: item.id === "species"
+            ? (speciesNeeded.length ? `还需解锁：${speciesNeeded.join("、")}` : "本章物种已满足，继续维持种群稳定即可。")
+            : remaining ? `还需 ${remaining}${item.unit}，完成地图事件、任务和玩法后会自动累计。` : "已达到下一章所需数量。"
+        }],
+        footer: "这是下一章的晋级门槛，当前章节的运营动作都会汇入这里。",
+        actionLabel: "知道了",
+        action: () => { this.infoDetailModal = null; this.render(); }
+      };
+    });
     return {
-      kicker: `第${chapter}章 · 晋级条件`,
-      title: chapter >= 20 ? "无限守护 · 繁荣概览" : `${info.title} · 下一章${nextChapter} · 繁荣进度`,
+      kind: "chapterProgress",
+      kicker: "我的保护区",
+      title: `第${chapter}章 · 章节进度`,
       icon: "reserve_level",
+      chapter,
+      chapterTitle: info.title,
+      nextChapter,
+      nextTitle: nextChapter === chapter ? info.title : (nextInfo.title || `第${nextChapter}章`),
+      core,
+      nextGoals,
+      speciesNeeded,
+      metricDetails,
+      pathPercent: Math.min(core.percentages.species, core.percentages.animals, core.percentages.visitors),
+      coreItems,
       items: [
         ...coreItems.map((item) => ({
           tag: item.value >= item.target ? "已完成" : "核心目标",

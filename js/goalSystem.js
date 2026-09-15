@@ -331,9 +331,13 @@ function normalizeGoalState(saved, state = {}, now = Date.now()) {
 
 function actionMatchesObjective(action, objective) {
   if (!objective) return false;
-  if (objective.kind === "guard") return ["houndScout", "antiPoacher", "habitat", "intervention", "patrol", "exploreMaterials"].includes(action) || action === objective.recommendedAction;
-  if (objective.kind === "economy") return ["buySupplies", "salvage", "facilityBuild", "collectRecovered", "exploreMaterials"].includes(action);
-  if (objective.kind === "animal" || objective.kind === "discovery") return ["exploreMaterials", "animalCare", "collectionInvestigate", "careAnimal", "guideMigration", "rescueCare"].includes(action) || action === objective.recommendedAction;
+  // Channel-entry tasks are intentionally one-step tasks: arriving at the
+  // requested channel is the completion event.  Older saves only listed the
+  // playable action (for example exploreMaterials), which left the task lock
+  // active after the player had already reached 生存/发现 and caused a loop.
+  if (objective.kind === "guard") return ["houndScout", "antiPoacher", "habitat", "intervention", "patrol", "exploreMaterials", "viewSurvival"].includes(action) || action === objective.recommendedAction;
+  if (objective.kind === "economy") return ["buySupplies", "salvage", "facilityBuild", "collectRecovered", "exploreMaterials", "viewSurvival"].includes(action);
+  if (objective.kind === "animal" || objective.kind === "discovery") return ["exploreMaterials", "animalCare", "collectionInvestigate", "careAnimal", "guideMigration", "rescueCare", "viewSurvival", "viewDiscovery"].includes(action) || action === objective.recommendedAction;
   if (objective.kind === "visitor") return action === "visitorAdjust";
   if (objective.kind === "ecology") return ["habitat", "intervention"].includes(action);
   return action === objective.recommendedAction;

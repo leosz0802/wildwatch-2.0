@@ -42,4 +42,10 @@ assert.strictEqual(coreOnlyProgression.stage, 2, "core goals should replace lega
 
 const opening = game.buildChapterStory(2, "start");
 assert(/种群/.test(opening.goalLine) && /动物总数/.test(opening.goalLine) && /游客累计/.test(opening.goalLine), "chapter opening must show all three core goals");
+const chapterDetail = game.buildChapterProgressDetail();
+assert.strictEqual(chapterDetail.kind, "chapterProgress", "chapter title should open the dedicated progress view");
+assert(chapterDetail.metricDetails && chapterDetail.metricDetails.visitors && chapterDetail.metricDetails.species && chapterDetail.metricDetails.animals, "all three core metrics need click-through details");
+assert(/下一章/.test(chapterDetail.metricDetails.visitors.kicker), "visitor detail should describe the next chapter gate");
+assert(Array.isArray(chapterDetail.speciesNeeded), "species detail should expose the species still to unlock");
+assert(/下一章门槛/.test(chapterDetail.metricDetails.animals.items[0].tag), "animal detail should expose the next chapter animal threshold");
 console.log("chapter goals check ok (20 chapters, 30% pacing, gated promotion)");
