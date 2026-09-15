@@ -8,6 +8,7 @@ const { supplyPurchaseCatalog, actionSupplyRequirement } = require("./actions");
 const { recordFundChange } = require("./fundLedger");
 const { eventCategory } = require("./eventEconomy");
 const { chapterRescueSummary, nextRescueTask, nextPoacherRescue } = require("./chapterRescueSystem");
+const { CHAPTERS } = require("./animalWorld");
 
 const GOAL_BALANCE = Object.freeze({
   version: 3,
@@ -92,6 +93,10 @@ function dailyGuardAction(state) {
   if ((reserve.poacherPressure || 0) >= 35 && !recentActions.includes("antiPoacher")) return "antiPoacher";
   if ((eco.disease || 0) >= ECOLOGY_THRESHOLDS.warningDisease) return "intervention";
   if ((eco.water || 0) < ECOLOGY_THRESHOLDS.lowWater || (eco.grass || 0) < ECOLOGY_THRESHOLDS.lowGrass) return "habitat";
+  const stage = Math.max(1, Number((reserve.progression || {}).stage) || 1);
+  const chapterAction = (CHAPTERS.find((chapter) => chapter.chapter === stage) || {}).actionId;
+  if (["antiPoacher", "habitat", "intervention"].includes(chapterAction)) return chapterAction;
+  if (recentActions.filter((action) => action === "houndScout").length >= 1) return "intervention";
   return "houndScout";
 }
 
