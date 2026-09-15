@@ -99,7 +99,7 @@ const {
   markAnimalLetterPrompted
 } = require("./animalLetters");
 const { mergedFundLedgerView, ensureRecoverableFundLedger } = require("./fundLedger");
-const { RESCUE_ITEM_CATALOG, rescueItemById, chapterDefinition, normalizeChapterRescue, poacherRescueState, nextRescueTask, nextPoacherRescue, findPoacherRescue, rescueItemCount, rescueItemCountFor, canRescueAnimal, rescueAnimal, rescuePoacherAnimal, chapterRescueSummary, rescueStoryFor, findRecord, recordRescueExploration, rescueGuaranteeReady } = require("./chapterRescueSystem");
+const { RESCUE_ITEM_CATALOG, rescueItemById, rescuePointTarget, chapterDefinition, normalizeChapterRescue, poacherRescueState, nextRescueTask, nextPoacherRescue, findPoacherRescue, rescueItemCount, rescueItemCountFor, canRescueAnimal, rescueAnimal, rescuePoacherAnimal, chapterRescueSummary, rescueStoryFor, findRecord, recordRescueExploration, rescueGuaranteeReady } = require("./chapterRescueSystem");
 
 const DESCRIPTION_TEXT_MIN = 10;
 const MAX_CHAPTER_STORY_QUEUE = 1;
@@ -5705,7 +5705,7 @@ class Game {
       const item = rescueItemById(itemId) || { label: itemId, source: "生存频道" };
       const count = rescueItemCountFor(reserve, record, itemId);
       const itemScore = record && (record.requiredItems || []).includes(itemId)
-        ? (record.recurring ? POACHER_RESCUE_TARGET_SCORE : Math.max(1, explorationTargetScore(explorationGoodById(itemId)))) : 0;
+        ? rescuePointTarget(record, itemId) : 0;
       const recordPoint = record.pointProgress && Object.prototype.hasOwnProperty.call(record.pointProgress, itemId)
         ? Number(record.pointProgress[itemId]) || 0
         : 0;
@@ -16028,14 +16028,23 @@ class Game {
     }
     const reserve = (this.state.world || {}).reserve || {};
     const target = explorationGoodById(targetId);
-    const rescuePointTarget = rescueRecord && (rescueRecord.requiredItems || []).includes(targetId)
-      ? (rescueRecord.recurring ? POACHER_RESCUE_TARGET_SCORE : Math.max(1, explorationTargetScore(target))) : 0;
+    const rescueRequiredScore = rescueRecord && (rescueRecord.requiredItems || []).includes(targetId)
+      ? rescuePointTarget(rescueRecord, targetId) : 0;
     const savedRescuePoints = rescueRecord && rescueRecord.pointProgress
       ? Math.max(0, Number(rescueRecord.pointProgress[targetId]) || 0)
       : 0;
-    const collectionProgress = rescueRecord && rescuePointTarget
-      ? { current: Math.min(savedRescuePoints, rescuePointTarget), required: rescuePointTarget, completed: savedRescuePoints >= rescuePointTarget }
-      : explorationProgressFor(reserve, targetId, { requiredScore: rescuePointTarget });
+    // A rescue record is the source of truth. The material map is only a
+    // compatibility mirror for ordinary exploration and old saves.
+    const mirroredRescuePoints = !rescueRecord && targetId
+      ? Math.max(0, Number(reserve.materialExplorationProgress && reserve.materialExplorationProgress[targetId]) || 0)
+      : 0;
+    // Once a rescue task is active, never read another animal's shared
+    // material mirror. The per-record ledger is what makes later chapters
+    // and repeated species-safe tasks independent.
+    const effectiveRescuePoints = rescueRecord ? savedRescuePoints : mirroredRescuePoints;
+    const collectionProgress = rescueRecord && rescueRequiredScore
+      ? { current: Math.min(effectiveRescuePoints, rescueRequiredScore), required: rescueRequiredScore, completed: effectiveRescuePoints >= rescueRequiredScore }
+      : explorationProgressFor(reserve, targetId, { requiredScore: rescueRequiredScore });
     const preview = previewMaterialExploration(reserve, (this.state.world || {}).knownCharacters || [], (this.state.world || {}).lifeMemory || null);
     const helper = preview.relationship.helper;
     this.infoDetailModal = {
@@ -16134,12 +16143,9 @@ class Game {
     // use the fixed 10 point rule; chapter rescues use the item's configured
     // target.  Leaving chapter rescues at 0 makes the simulator treat a shot
     // as an ordinary exploration and can never settle the rescue item.
-    const rescueRequiredScore = rescueTarget && (rescueTarget.requiredItems || []).includes(targetId)
-      ? (rescueTarget.recurring
-        ? POACHER_RESCUE_TARGET_SCORE
-        : explorationTargetScore(explorationGoodById(targetId)))
-      : 0;
-    const rescueHint = rescueRequiredScore ? ` rescueTask:${rescueTarget.recurring ? "poacher" : "chapter"} rescueScore:${rescueRequiredScore}` : "";
+    const rescueScoreTarget = rescueTarget && (rescueTarget.requiredItems || []).includes(targetId)
+      ? rescuePointTarget(rescueTarget, targetId) : 0;
+    const rescueHint = rescueScoreTarget ? ` rescueTask:${rescueTarget.recurring ? "poacher" : "chapter"} rescueScore:${rescueScoreTarget}` : "";
     const originScreen = (this.infoDetailModal || {}).originScreen;
     const returnScreen = originScreen === "action" ? "home" : originScreen || "role";
     const safeRoll = diceRoll === null ? Math.floor(Math.random() * 6) + 1 : Math.max(1, Math.min(6, Math.round(diceRoll)));
@@ -16195,7 +16201,8 @@ class Game {
       const targetReserve = result.world.reserve || {};
       targetReserve.materialExplorationProgress = targetReserve.materialExplorationProgress || {};
       if (rescuePointRecord) {
-        rescuePointRecord.pointProgress = Object.assign({}, rescuePointRecord.pointProgress || {}, { [targetId]: explorationCard.collectionProgress.current });
+        const clonedRescueRecord = this.activeRescueRecord(targetReserve);
+        if (clonedRescueRecord) clonedRescueRecord.pointProgress = Object.assign({}, clonedRescueRecord.pointProgress || {}, { [targetId]: explorationCard.collectionProgress.current });
         // Keep the legacy aggregate mirror updated for existing UI/tests, but
         // never use it as the source of truth for a new rescue record.
         targetReserve.materialExplorationProgress[targetId] = explorationCard.collectionProgress.current;
@@ -29794,9 +29801,7 @@ class Game {
     const items = (record.requiredItems || []).map((itemId) => {
       const item = rescueItemById(itemId) || { label: itemId, story: "收集解救物品" };
       const count = rescueItemCountFor(reserve, record, itemId);
-      const pointTarget = explorationTargetScore(explorationGoodById(itemId), {
-        requiredScore: record.recurring && (record.requiredItems || []).includes(itemId) ? POACHER_RESCUE_TARGET_SCORE : 0
-      }) || 0;
+      const pointTarget = rescuePointTarget(record, itemId);
       const points = { current: Math.min(pointTarget, Math.max(0, Number((record.pointProgress || {})[itemId]) || 0)), required: pointTarget };
       const pointCurrent = Math.max(0, Number(points.current) || 0);
       const pointText = `点数：已获得 ${pointCurrent} / 需要 ${points.required || pointTarget}（每件物品需累计 ${points.required || pointTarget} 点）`;
