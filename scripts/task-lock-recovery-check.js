@@ -36,7 +36,7 @@ for (const phase of ['approach', 'result']) {
   assert.equal(game.infoDetailModal, null);
   assert.equal(JSON.stringify(game.state.world.reserve), before, 'close must not settle or rescue again');
   assert(game.openDailyEvents());
-  assert.equal(game.infoDetailModal.activeDailyId, phase === 'result' ? 'daily_visitor' : 'daily_animal');
+  assert.equal(game.infoDetailModal.activeDailyId, phase === 'result' ? null : 'daily_animal');
 }
 
 // A map-based task can have no modal while waiting for its animal click.
@@ -49,7 +49,9 @@ for (const phase of ['approach', 'result']) {
   assert.equal(game.activeTaskLock.id, firstLock.id);
   assert.equal(objective.complete, false);
   assert(game.focusedAnimal);
-  assert(!game.infoDetailModal, 'resuming must preserve the animal map route');
+  assert.equal(game.infoDetailModal.kind, 'dailyEvents', 'opening checklist must not auto-run the unfinished task');
+  assert(game.executeDailyEvent('daily_animal', game.infoDetailModal.checklist.dateKey));
+  assert(!game.infoDetailModal, 'explicit continue must preserve the animal map route');
 }
 
 // Reproduce the video: the third daily is done but its lock survived, and the
@@ -86,6 +88,9 @@ for (const phase of ['approach', 'result']) {
   game.activeTaskLock = { id: `rescue:${rescue.targetId}`, kind: 'chapterRescue', animalId: rescue.speciesId, targetId: rescue.targetId };
   const before = JSON.stringify(reserve.inventory);
   assert(game.openDailyEvents());
+  assert.equal(game.infoDetailModal.kind, 'dailyEvents', 'opening daily list must not jump into a pending rescue');
+  game.infoDetailModal = null;
+  assert(game.resumeActiveTask());
   assert.equal(game.infoDetailModal.kind, 'chapterRescueTask');
   assert.equal(game.activeTaskLock.targetId, rescue.targetId);
   assert.equal(JSON.stringify(reserve.inventory), before, 'resuming must not consume rescue materials');

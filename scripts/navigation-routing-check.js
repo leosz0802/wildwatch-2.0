@@ -85,12 +85,12 @@ for (const action of ["houndScout", "antiPoacher", "habitat", "intervention"]) {
     direct.state.world.reserve.fund = 10000;
     direct.state.world.reserve.supplies = { dogFood: 10, alarm: 5, fieldKit: 5, medicalKit: 5, tranquilizer: 5 };
     direct.infoDetailModal = { kind: "story" };
-    const before = JSON.stringify(direct.state);
+    const before = JSON.stringify(direct.state.world.reserve);
     direct.executeGoalAction({ recommendedAction: action, kind: "stage" });
     assert(direct.screen === "action" && direct.patrolTaskModal.id === action && !direct.infoDetailModal,
       `${origin}/${action}: story click should open the requested operation on the task page`);
     assert(direct.actionScreenOrigin === origin && direct.pendingTaskOriginScreen === "action", "task page should retain its origin while settlement is attached to that page");
-    assert(JSON.stringify(direct.state) === before, "opening the operation must not spend resources or advance a task");
+    assert(JSON.stringify(direct.state.world.reserve) === before, "opening the operation may record click timing but must not spend resources or advance a task");
     const task = direct.patrolTaskModal;
     assert(direct.openPatrolOperationScreen("houndScout") === false && direct.patrolTaskModal === task,
       "a second trigger must not replace an active task");
@@ -129,6 +129,7 @@ for (const conflict of [false, true]) {
   const savedDaily = dailyGame.state.world.goals.daily;
   delete savedDaily.schemaVersion;
   savedDaily.objectives.forEach((item) => { item.complete = item.kind !== "visitor"; item.progress = item.complete ? item.target : 0; });
+  savedDaily.objectives.push({ id: "daily_visitor", kind: "visitor", progress: 0, target: 1, complete: false });
   const oldVisitor = savedDaily.objectives.find(item => item.kind === "visitor");
   Object.assign(oldVisitor, { title: "修复游客现场", recommendedAction: "habitat", buttonLabel: "修复栖息地" });
   savedDaily.objectives.reverse(); // Migrate by identity, not saved row position.
@@ -138,17 +139,22 @@ for (const conflict of [false, true]) {
   dailyGame.openDailyEvents();
   assert(dailyGame.infoDetailModal.kind === "dailyEvents", "the intermediate daily list must stay");
   const checklist = dailyGame.infoDetailModal.checklist;
-  const visitor = checklist.objectives.find(item => !item.complete);
-  assert(visitor.kind === "visitor" && visitor.recommendedAction === "visitorAdjust", "legacy visitor progress must retain its category with the correct operation");
+  assert(checklist.total === 3 && checklist.remaining === 0, "migration must discard the retired fourth task");
   assert(checklist.complete === 3, "migration must preserve completed task progress");
-  dailyGame.executeDailyEvent(visitor.id, checklist.dateKey);
+  assert(dailyGame.executeDailyEvent('daily_visitor', checklist.dateKey) === false, "retired visitor button must not execute habitat or patrol");
+  dailyGame.infoDetailModal = null;
+  const openedVisitor = dailyGame.openVisitorIncidentDice({ type: "visitorIncident" });
+  if (!conflict) {
+    assert(openedVisitor === false && !dailyGame.patrolTaskModal, "no incident must not manufacture a visitor or patrol task");
+    continue;
+  }
   assert(dailyGame.screen === "home" && !dailyGame.patrolTaskModal
-    && dailyGame.infoDetailModal.kind === (conflict ? "visitorIncidentDice" : "visitorRoutine"),
-    "daily visitor task must never route to habitat repair or the patrol selector");
+    && dailyGame.infoDetailModal.kind === "visitorIncidentDice",
+    "independent visitor event must never route to habitat repair or the patrol selector");
   dailyGame.animateInlineDiceRoll = (_modal, _roll, _key, done) => done();
   dailyGame.infoDetailModal.action();
   assert(dailyGame.infoDetailModal.phase === "result" && dailyGame.dailyEventChecklist().remaining === 0,
-    "one visitor operation must finish task four even when the site has no incident");
+    "visitor settlement must not regenerate the retired fourth daily task");
   const after = JSON.stringify(dailyGame.state);
   assert(dailyGame.resolveVisitorIncidentDice() === false && JSON.stringify(dailyGame.state) === after,
     "repeated confirmation must not duplicate income, progress or rewards");

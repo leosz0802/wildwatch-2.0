@@ -1,4 +1,4 @@
-const { BALANCE_V2, ECOLOGY_THRESHOLDS, chapterEconomy, levelOf } = require("./balanceConfig");
+const { BALANCE_V2, chapterEconomy, levelOf } = require("./balanceConfig");
 const { collectionSummary } = require("./collectionSystem");
 const { facilityStates } = require("./reserveFacilities");
 const { reserveDevelopmentViews } = require("./reserveDevelopment");
@@ -8,7 +8,7 @@ const { supplyPurchaseCatalog, actionSupplyRequirement } = require("./actions");
 const { recordFundChange } = require("./fundLedger");
 const { eventCategory } = require("./eventEconomy");
 const { chapterRescueSummary, nextRescueTask, nextPoacherRescue } = require("./chapterRescueSystem");
-const { CHAPTERS } = require("./animalWorld");
+const { criticalPatrolRisk } = require("./patrolTriggerPolicy");
 
 const GOAL_BALANCE = Object.freeze({
   version: 3,
@@ -20,6 +20,7 @@ const GOAL_BALANCE = Object.freeze({
   dailyResetHour: 4,
   dailyGoalCount: 3,
   dailyRequiredCount: 3,
+  dailySchemaVersion: 3,
   maxVisibleGoals: 3,
   fallbackCooldownActions: 3,
   rerouteAfterNoProgress: 2,
@@ -83,23 +84,12 @@ function inventoryTotal(reserve) {
 
 function dailyGuardAction(state) {
   const reserve = reserveFor(state);
-  const eco = reserve.ecology || {};
   const emergency = ((reserve.emergency || {}).active) || null;
   if (emergency && emergency.recommendedAction) return emergency.recommendedAction;
-  // 偷猎线索不应连续占满每日剧情；连续处理后让动物、生态和游客线
-  // 先获得一次触发机会，只有压力继续升高才再次强制回到边界行动。
-  const recentActions = (reserve.actionHistory || []).slice(-2).map((item) => item && item.action).filter(Boolean);
-  // 只有边界风险已经极端偏离时才自动派发驱赶任务；中等压力交给
-  // 剧情节点或玩家主动选择，避免每日目标变成无剧情的巡逻清单。
-  if ((reserve.poacherPressure || 0) >= 65) return "antiPoacher";
-  if ((eco.disease || 0) >= ECOLOGY_THRESHOLDS.warningDisease) return "intervention";
-  if ((eco.water || 0) < ECOLOGY_THRESHOLDS.lowWater || (eco.grass || 0) < ECOLOGY_THRESHOLDS.lowGrass) return "habitat";
-  const stage = Math.max(1, Number((reserve.progression || {}).stage) || 1);
-  const chapterAction = (CHAPTERS.find((chapter) => chapter.chapter === stage) || {}).actionId;
-  if (["antiPoacher", "habitat", "intervention"].includes(chapterAction)) return chapterAction;
-  if (recentActions.filter((action) => action === "houndScout").length >= 1) return "intervention";
-  // 生态稳定且没有剧情节点时，推进探索线索，不制造额外巡逻任务。
-  return "exploreMaterials";
+  const risk = criticalPatrolRisk(reserve);
+  // Story patrols belong to the actual pending story step, not a duplicate
+  // daily task selected from the chapter number or the previous action.
+  return risk ? risk.action : "exploreMaterials";
 }
 
 function dailyEconomyAction(state) {
@@ -120,7 +110,8 @@ function dailyEconomyAction(state) {
 function dailyAnimalAction(state) {
   const collection = (((state || {}).world || {}).collection) || {};
   const active = ((collection.discovery || {}).active) || null;
-  if (active && active.status === "hinted") return active.actionId || "houndScout";
+  if (active && active.status === "located") return "collectionInvestigate";
+  if (active && active.status === "hinted") return ["animalCare", "careAnimal"].includes(active.actionId) ? "exploreMaterials" : active.actionId || "exploreMaterials";
   return "animalCare";
 }
 
@@ -131,9 +122,9 @@ function objectiveFor(kind, state) {
     guard: {
       id: "daily_guard",
       kind: "guard",
-      title: "稳住当前最高风险",
-      story: "先稳住最高风险。",
-      description: "完成2次巡护、驱赶、修复或干预。",
+      title: action === "exploreMaterials" ? "记录今天的生态线索" : "处理当前风险",
+      story: action === "exploreMaterials" ? "跟随动物，留下今天的观察记录。" : "回应现场的危险信号。",
+      description: action === "exploreMaterials" ? "完成2次动物引路探索。" : "完成2次相关行动或动物引路探索。",
       target: Math.max(1, Math.round(2 * GOAL_BALANCE.dailyDifficultyScale)),
       reward: "研究样本待收 +1 · 基金 +8"
     },
@@ -238,7 +229,7 @@ function createDailyState(state, now = Date.now()) {
   const chapter = clamp((((reserveFor(state).progression || {}).stage) || 1), 1, 10);
   return syncDailyProjection({
     version: 3,
-    schemaVersion: 2,
+    schemaVersion: GOAL_BALANCE.dailySchemaVersion,
     dateKey: goalDateKey(now),
     chapterNumber: chapter,
     objectives: ["guard", "economy", "animal"].slice(0, GOAL_BALANCE.dailyGoalCount).map((kind) => objectiveFor(kind, state)),
@@ -310,7 +301,7 @@ function normalizeGoalState(saved, state = {}, now = Date.now()) {
     }
     return merged;
   });
-  next.daily.schemaVersion = 2;
+  next.daily.schemaVersion = GOAL_BALANCE.dailySchemaVersion;
   next.daily.required = GOAL_BALANCE.dailyRequiredCount;
   next.daily = syncDailyProjection(next.daily);
   if (next.daily.dateKey !== goalDateKey(now)) {
@@ -340,7 +331,7 @@ function normalizeGoalState(saved, state = {}, now = Date.now()) {
 
 function actionMatchesObjective(action, objective) {
   if (!objective) return false;
-  if (objective.kind === "guard") return ["houndScout", "antiPoacher", "habitat", "intervention", "patrol"].includes(action) || action === objective.recommendedAction;
+  if (objective.kind === "guard") return ["houndScout", "antiPoacher", "habitat", "intervention", "patrol", "exploreMaterials"].includes(action) || action === objective.recommendedAction;
   if (objective.kind === "economy") return ["buySupplies", "salvage", "facilityBuild", "collectRecovered", "exploreMaterials"].includes(action);
   if (objective.kind === "animal" || objective.kind === "discovery") return ["exploreMaterials", "animalCare", "collectionInvestigate", "careAnimal", "guideMigration", "rescueCare"].includes(action) || action === objective.recommendedAction;
   if (objective.kind === "visitor") return action === "visitorAdjust";
@@ -438,15 +429,8 @@ function candidate(id, kind, title, body, action, basePriority, state, extras = 
 
 function criticalEcologyCandidate(state) {
   const reserve = reserveFor(state);
-  const eco = reserve.ecology || {};
-  const risks = [
-    { id: "water", value: eco.water || 0, score: Math.max(0, ECOLOGY_THRESHOLDS.earlyWater - (eco.water || 0)) * 1.2, action: "habitat", title: "水源接近危险线", body: "修复水点，先阻止健康下降和动物迁出。" },
-    { id: "grass", value: eco.grass || 0, score: Math.max(0, ECOLOGY_THRESHOLDS.earlyGrass - (eco.grass || 0)) * 1.2, action: "habitat", title: "草场接近危险线", body: "恢复草场产能，减轻种群承载压力。" },
-    { id: "disease", value: eco.disease || 0, score: Math.max(0, (eco.disease || 0) - ECOLOGY_THRESHOLDS.warningDisease), action: "intervention", title: "疾病正在扩散", body: "执行生态干预，避免健康和迁徙继续恶化。" },
-    { id: "poacher", value: reserve.poacherPressure || 0, score: Math.max(0, (reserve.poacherPressure || 0) - 50) * 0.9, action: "antiPoacher", title: "边界偷猎风险过高", body: "驱赶靠近保护区的偷猎者，让动物重新回到安全路线。" }
-  ].sort((a, b) => b.score - a.score);
-  const risk = risks[0];
-  if (!risk || risk.score <= 0) return null;
+  const risk = criticalPatrolRisk(reserve);
+  if (!risk) return null;
   let action = risk.action;
   let preparing = false;
   let purchaseId = "";
@@ -558,15 +542,11 @@ function stageCandidate(state) {
     actions: dailyGuardAction(state),
     strategicChoices: dailyGuardAction(state),
     majorStrategicChoices: dailyGuardAction(state),
-    score: ((reserve.ecology || {}).disease || 0) >= ECOLOGY_THRESHOLDS.warningDisease
-      ? "intervention"
-      : Math.min(((reserve.ecology || {}).water || 0), ((reserve.ecology || {}).grass || 0)) < Math.min(ECOLOGY_THRESHOLDS.lowWater, ECOLOGY_THRESHOLDS.lowGrass)
-        ? "habitat"
-        : "exploreMaterials",
+    score: dailyGuardAction(state),
     chapterStory: dailyGuardAction(state),
-    population: "habitat",
+    population: dailyGuardAction(state),
     fundEarned: inventoryTotal(reserve) ? "salvage" : "buySupplies",
-    migratedIn: "habitat",
+    migratedIn: dailyGuardAction(state),
     rareRecovered: "exploreMaterials"
   };
   const chain = reserve.eventChain || {};
@@ -603,7 +583,6 @@ function stageCandidate(state) {
       preparingStory = true;
       const recoveryActions = [
         (inventoryTotal(reserve) > 0 || Object.values(reserve.pendingRecovered || {}).some((value) => Number(value) > 0)) ? "salvage" : "",
-        actionExecutable(state, "houndScout") ? "houndScout" : "",
         affordableSupplyId(reserve) ? "buySupplies" : "",
         "exploreMaterials"
       ].filter(Boolean);
@@ -722,6 +701,9 @@ function resolveGoals(state, suppliedGoals = null, trigger = "refresh") {
     objectives: (daily.objectives || []).map((objective) => {
       const live = objectiveFor(objective.kind, state);
       return Object.assign({}, objective, {
+        title: live.title,
+        story: live.story,
+        description: live.description,
         recommendedAction: live.recommendedAction,
         buttonLabel: live.buttonLabel,
         icon: live.icon,

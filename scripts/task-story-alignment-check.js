@@ -112,9 +112,9 @@ assert(preparedPrimary.storyAligned, "旧存档剧情目标必须自动恢复对
 assert(["antiPoacher", "houndScout"].includes(preparedPrimary.recommendedAction), "旧存档第3段应恢复为侦察/驱赶动作");
 assert(preparedPrimary.storyValidActions.includes(preparedPrimary.recommendedAction), "旧存档恢复动作必须属于剧情有效集合");
 
-// 十个经营章节逐项核对：奇数章前半段只需2段，偶数章接续到7段；
+// 二十个经营章节逐项核对，以实际章节配置指定的剧情段数为准；
 // 每个未完成节点都必须给出剧情接受且真实可执行的动作。
-for (let stage = 1; stage <= 10; stage += 1) {
+for (let stage = 1; stage <= 20; stage += 1) {
   const gate = progressionGate(stage);
   const startStep = gate.storyBeats === 7 ? 2 : 0;
   for (let step = startStep; step < gate.storyBeats; step += 1) {
@@ -123,14 +123,14 @@ for (let stage = 1; stage <= 10; stage += 1) {
     const guidance = eventStepGuidance(reserve, step + 1);
     reserve.progression = Object.assign({}, reserve.progression, {
       stage,
-      level: Math.ceil(stage / 2),
+      level: gate.storyLevel,
       objectives: [
         { id: "chapterStory", label: "阶段剧情", current: step, target: gate.storyBeats, unit: "段", complete: false },
         { id: "actions", label: "有效经营操作", current: gate.actions, target: gate.actions, unit: "次", complete: true }
       ]
     });
     reserve.eventChain = {
-      chapterLevel: Math.ceil(stage / 2),
+      chapterLevel: gate.storyLevel,
       step,
       length: 7,
       completed: false,

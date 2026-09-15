@@ -25,7 +25,7 @@ game.render = () => {};
 game.maybeOpenMissionPush = () => false;
 game.prepareChapterArt = () => {};
 
-[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].forEach((chapterNumber) => {
+Array.from({ length: 20 }, (_, index) => index + 1).forEach((chapterNumber) => {
   const start = game.buildChapterStory(chapterNumber, "start");
   const ending = game.buildChapterStory(chapterNumber, "end", { population: 100 + chapterNumber, daysManaged: chapterNumber * 7 });
   assert(start.level === chapterNumber && start.phase === "start", `chapter ${chapterNumber} start metadata is invalid`);
@@ -33,7 +33,7 @@ game.prepareChapterArt = () => {};
   assert(start.body && ending.body, `chapter ${chapterNumber} should have start and ending prose`);
   assert(start.speaker && start.quote && start.objective, `chapter ${chapterNumber} opening dialogue is incomplete`);
   assert(start.speciesLine.includes("本章出现") || start.speciesLine.includes("本章收束") || /首巡/.test(start.speciesLine), `chapter ${chapterNumber} species line missing`);
-  assert(ending.speciesLine.includes(`${getUnlockedSpecies(Math.min(7, chapterNumber)).length} 种动物`), `chapter ${chapterNumber} ending species count is wrong`);
+  assert(ending.speciesLine.includes(`${getUnlockedSpecies(chapterNumber, chapterNumber).length} 种动物`), `chapter ${chapterNumber} ending species count is wrong`);
   if (!(chapterNumber === 1 && start.firstRun)) assert(/待结案|支线/.test(start.body), `chapter ${chapterNumber} start should acknowledge an unresolved preceding case`);
   assert(/未解证据/.test(ending.body), `chapter ${chapterNumber} ending should preserve unresolved case continuity`);
 });

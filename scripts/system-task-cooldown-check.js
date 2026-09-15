@@ -13,7 +13,9 @@ const realNow = Date.now; let now = 1_000_000; Date.now = () => now;
 try {
   game.markUserTaskTrigger();
   assert.strictEqual(game.maybeOpenMissionPush('settlement', { force: true }), false, '系统任务必须等待用户任务结束后30秒');
-  now += 30_001;
+  now += 30_000;
+  assert.strictEqual(game.maybeOpenMissionPush('settlement', { force: true }), false, '恰好30秒仍不能触发，必须超过30秒');
+  now += 1;
   assert.strictEqual(game.maybeOpenMissionPush('settlement', { force: true }), true, '30秒后系统任务应可触发');
   assert.strictEqual(opened, 1);
   game.markUserTaskTrigger();

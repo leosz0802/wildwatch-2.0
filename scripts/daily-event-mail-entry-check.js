@@ -26,20 +26,20 @@ g.drawSandboxOpportunityAggregate({}, camera, plan);
 assert.equal(g.renderedMapOpportunityAggregate.mode, 'dailyEvents', '没有隐藏线索也必须显示每日入口');
 g.lastHit();
 assert.equal(g.infoDetailModal.kind, 'dailyEvents');
-assert.equal(g.infoDetailModal.checklist.total, 4, '每日任务按四个类型展示');
+assert.equal(g.infoDetailModal.checklist.total, 3, '每日任务只展示前三项');
 const objective = g.infoDetailModal.checklist.objectives.find(item => !item.complete);
 let routed;
 g.executeGoalAction = goal => { routed = goal; return true; };
 g.executeDailyEvent(objective.id, g.infoDetailModal.checklist.dateKey);
 assert.equal(routed.recommendedAction, objective.recommendedAction);
 // 使用正式目标结算更新每日进度，重复打开入口不能提前完成目标。
-for (const action of ['houndScout', 'houndScout', 'buySupplies', 'animalCare', 'visitorAdjust']) {
+for (const action of ['exploreMaterials', 'exploreMaterials', 'buySupplies', 'animalCare']) {
   const before = JSON.parse(JSON.stringify(g.state));
   g.state = applyGoalProgress(before, g.state, { action }).state;
 }
 assert.equal(g.dailyEventChecklist().remaining, 0);
 assert(g.state.world.goals.daily.fullClaimed, '全部每日任务应领取额外奖励');
-assert((g.state.world.reserve.lastTaskReward || {}).fund >= 32, '每项任务奖励应累计进入保护基金');
+assert((g.state.world.reserve.lastTaskReward || {}).fund >= 24, '三项任务奖励应累计进入保护基金');
 g.drawSandboxOpportunityAggregate({}, camera, plan);
 assert.equal(g.renderedMapOpportunityAggregate.mode, 'clues');
 const pendingChapterRescue = g.chapterRescueState().targets.find(target => target.status !== 'rescued');
@@ -58,7 +58,7 @@ Date.now = () => clock;
 try {
   const yesterdayKey = g.dailyEventChecklist().dateKey;
   clock += 86400000;
-assert.equal(g.dailyEventChecklist().remaining, 4, '下一自然日恢复每日事项');
+assert.equal(g.dailyEventChecklist().remaining, 3, '下一自然日恢复三项每日事项');
   g.executeDailyEvent(objective.id, yesterdayKey);
   assert.equal(routed, null, '跨日的旧清单必须先刷新');
 
@@ -148,7 +148,7 @@ for (const [width, height] of [[320,568], [375,667], [430,932]]) {
   const bodyH = Math.min(ui.infoDetailModalHeight(ui.infoDetailModal), height - 34) - 178;
   ui.drawDailyEventsContent(ctx, ui.infoDetailModal, 20, 112, width - 40, bodyH);
   const rows = ui.infoDetailModal.renderedDailyItems;
-  assert.equal(rows.length, bodyH >= 400 ? 4 : 2);
+  assert.equal(rows.length, bodyH >= 400 ? 3 : 2);
   assert.equal(rows.filter(row => row.button).length, 1, '只有当前任务具有执行按钮');
   for (let i = 0; i < rows.length; i++) {
     assert(rows[i].y + rows[i].h <= 112 + bodyH);
@@ -164,7 +164,7 @@ for (const [width, height] of [[320,568], [375,667], [430,932]]) {
   if (ui.infoDetailModal.renderedDailyPagination.pageCount > 1) {
     buttons.find(button => button.label === '下一页').action();
     ui.drawDailyEventsContent(ctx, ui.infoDetailModal, 20, 112, width - 40, bodyH);
-    assert.equal(ui.infoDetailModal.renderedDailyItems.length, 2);
+    assert.equal(ui.infoDetailModal.renderedDailyItems.length, 1);
     assert(ui.infoDetailModal.renderedDailyItems.every(row => !row.button), '后续任务保持锁定');
   }
   ui.hitAreas = [];

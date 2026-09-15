@@ -5,6 +5,7 @@ const { createCharacter } = require("../js/storage");
 function setup() {
   const game = new Game();
   game.stopLoop();
+  game.render = () => {};
   game.state = createCharacter(null, "保护区卫士");
   game.state.ui = { onboarding: { version: 2, completed: true, seen: {} } };
   game.state.world.reserve.progression.totalActions = 30;
@@ -16,26 +17,32 @@ function setup() {
   return game;
 }
 
+const realNow = Date.now;
+let clock = realNow();
+Date.now = () => clock;
+try {
 const game = setup();
 assert(game.maybeOpenMissionPush("login"), "first task push should remain available");
 game.infoDetailModal = null;
 game.state.ui.missionPushSeenKey = "";
 game.state.ui.lastMissionAutoPushAt = Date.now();
 assert(!game.maybeOpenMissionPush("home"), "a second task must wait inside the 30 second window");
-game.state.ui.lastMissionAutoPushAt = Date.now() - 30001;
+// Advance the clock, not just one timestamp: both user/system quiet windows
+// and the current 65-second card cadence must actually have elapsed.
+clock += 65001;
 game.state.ui.missionPushSeenKey = "";
 game.state.ui.lastMissionAutoAction = 0;
-assert(game.maybeOpenMissionPush("home"), "task push should resume after the 30 second window");
+assert(game.maybeOpenMissionPush("home"), "task push should resume after shared quiet time and card cadence");
 
 const highLevel = setup();
 highLevel.state.world.reserve.progression.level = 3;
 highLevel.state.ui.lastMissionAutoPushAt = Date.now();
 highLevel.state.ui.missionPushSeenKey = "old";
-assert(!highLevel.maybeOpenMissionPush("home"), "level 3 should use the 40 second interval");
-highLevel.state.ui.lastMissionAutoPushAt = Date.now() - 40001;
+assert(!highLevel.maybeOpenMissionPush("home"), "level 3 must retain its longer card interval");
+clock += 81001;
 highLevel.state.ui.missionPushSeenKey = "";
 highLevel.state.ui.lastMissionAutoAction = 0;
-assert(highLevel.maybeOpenMissionPush("home"), "level 3 task push should resume after 40 seconds");
+assert(highLevel.maybeOpenMissionPush("home"), "level 3 task push should resume after 65 + 2*8 seconds");
 
 const syncGame = setup();
 syncGame.pendingMissionPush = { key: "old", reason: "settlement" };
@@ -53,3 +60,4 @@ animalGame.openAnimalThought((animalGame.state.world.knownCharacters || [])[0]);
 assert(animalGame.state.ui.lastSandboxTaskSync && animalGame.state.ui.lastSandboxTaskSync.action === "story-sync", "animal map interaction should refresh the shared story task");
 
 console.log("sandbox task sync check ok");
+} finally { Date.now = realNow; }

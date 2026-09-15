@@ -1,0 +1,750 @@
+{
+  "startedAt": "2026-09-15T05:17:52.439Z",
+  "rounds": 2,
+  "testsPerRound": 37,
+  "results": [
+    {
+      "round": 1,
+      "target": "patrol-trigger-policy-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 2322,
+      "stdout": "patrol trigger policy check ok (300 stable chapter/history/milestone cases; 100 threshold cases; four explicit patrols; legacy daily resume; 20 daily completions without patrol)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "patrol-single-step-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 2285,
+      "stdout": "patrol single-step check ok: 20 chapters x 4 actions, real settlement, no duplicate execution, confirmation releases values, stale draft reset\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "daily-third-task-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 279,
+      "stdout": "daily third task check ok (animal route, result close releases lock, three tasks complete)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "daily-event-mail-entry-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 390,
+      "stdout": "daily event/mail entry check ok (daily completion/reset, single slot, 5s expiry, read return, full mailbox, retention, reload, 3 sizes)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "task-lock-recovery-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 289,
+      "stdout": "task lock recovery check ok (X close, unfinished resume, completed stale lock, real goal-card hit, single-task ownership, nested return)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "goal-system-v3-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 270,
+      "stdout": "goal system v3 check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "goal-ui-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 362,
+      "stdout": "goal ui check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "goal-material-routing-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 202,
+      "stdout": "goal material routing check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "navigation-routing-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 487,
+      "stdout": "navigation routing check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "sandbox-task-navigation-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 241,
+      "stdout": "sandbox task navigation check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "sandbox-task-sync-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 251,
+      "stdout": "sandbox task sync check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "system-task-cooldown-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 213,
+      "stdout": "system task cooldown check ok: user/system triggers keep a 30-second gap\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "nonlinear-task-routing-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 1267,
+      "stdout": "nonlinear task routing check ok (4 permutations × 32 days, stable resolver, stage monotonicity, independent rescue gate)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "mixed-task-deadlock-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 3476,
+      "stdout": "mixed task deadlock check ok: 4 completion orders, 34 arrows, 24 visitor/disaster interruptions, restart after interruptions, independent materials, old-save recovery, bounded completion\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "task-resource-pipeline-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 876,
+      "stdout": "task/resource pipeline check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "task-story-alignment-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 495,
+      "stdout": "task/story alignment check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "story-system-consistency-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 353,
+      "stdout": "story/system consistency check ok (20 story chapters / 20 operating stages, 45 collectibles, 5 promises, 6 mission paths)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "story-activation-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 163,
+      "stdout": "story activation check ok (collection order, visible gates, deterministic survival, reserve feedback)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "chapter-story-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 210,
+      "stdout": "chapter story check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "chapter-gate-order-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 242,
+      "stdout": "chapter gate order check ok: 20 chapters × forward/reverse rescue order; no premature promotion, no blocked completed gate, final chapter completion\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "ledger-story-task-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 154,
+      "stdout": "ledger story task check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "task-story-resource-match-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 256,
+      "stdout": "task/story/resource match check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "map-task-story-dedupe-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 217,
+      "stdout": "map task/story dedupe check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "reserve-presentation-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 184,
+      "stdout": "reserve presentation check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "action-system-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 253,
+      "stdout": "action system check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "season-emergency-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 365,
+      "stdout": "season emergency check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "world-event-system-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 207,
+      "stdout": "world event system check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "world-event-idle-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 148,
+      "stdout": "world event idle check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "threat-action-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 216,
+      "stdout": "threat action check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "water-grass-guidance-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 413,
+      "stdout": "已定位草场修复任务\nwater grass guidance check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "task-social-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 195,
+      "stdout": "task social check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "settlement-causality-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 242,
+      "stdout": "settlement causality check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "numeric-feedback-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 223,
+      "stdout": "numeric feedback check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "early-entry-task-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 199,
+      "stdout": "early entry task check ok (first 5 minutes tourism guidance and normal follow-up)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "recent-ui-regression-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 235,
+      "stdout": "recent UI regression ok (notifications, letters, buildings, ad touch protection; 3 viewports)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "loop-safety-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 278,
+      "stdout": "loop safety check ok (queues, stale recovery, collectible reachability, hit priority, bounded guardian days)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 1,
+      "target": "long-run-soak-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 9144,
+      "stdout": "long run soak check ok (4 seeds × 120 guardian days × 3 actions)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "patrol-trigger-policy-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 1780,
+      "stdout": "patrol trigger policy check ok (300 stable chapter/history/milestone cases; 100 threshold cases; four explicit patrols; legacy daily resume; 20 daily completions without patrol)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "patrol-single-step-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 1742,
+      "stdout": "patrol single-step check ok: 20 chapters x 4 actions, real settlement, no duplicate execution, confirmation releases values, stale draft reset\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "daily-third-task-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 213,
+      "stdout": "daily third task check ok (animal route, result close releases lock, three tasks complete)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "daily-event-mail-entry-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 306,
+      "stdout": "daily event/mail entry check ok (daily completion/reset, single slot, 5s expiry, read return, full mailbox, retention, reload, 3 sizes)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "task-lock-recovery-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 258,
+      "stdout": "task lock recovery check ok (X close, unfinished resume, completed stale lock, real goal-card hit, single-task ownership, nested return)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "goal-system-v3-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 252,
+      "stdout": "goal system v3 check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "goal-ui-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 378,
+      "stdout": "goal ui check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "goal-material-routing-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 329,
+      "stdout": "goal material routing check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "navigation-routing-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 492,
+      "stdout": "navigation routing check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "sandbox-task-navigation-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 216,
+      "stdout": "sandbox task navigation check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "sandbox-task-sync-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 260,
+      "stdout": "sandbox task sync check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "system-task-cooldown-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 216,
+      "stdout": "system task cooldown check ok: user/system triggers keep a 30-second gap\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "nonlinear-task-routing-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 1335,
+      "stdout": "nonlinear task routing check ok (4 permutations × 32 days, stable resolver, stage monotonicity, independent rescue gate)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "mixed-task-deadlock-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 3402,
+      "stdout": "mixed task deadlock check ok: 4 completion orders, 34 arrows, 24 visitor/disaster interruptions, restart after interruptions, independent materials, old-save recovery, bounded completion\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "task-resource-pipeline-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 993,
+      "stdout": "task/resource pipeline check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "task-story-alignment-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 710,
+      "stdout": "task/story alignment check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "story-system-consistency-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 374,
+      "stdout": "story/system consistency check ok (20 story chapters / 20 operating stages, 45 collectibles, 5 promises, 6 mission paths)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "story-activation-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 163,
+      "stdout": "story activation check ok (collection order, visible gates, deterministic survival, reserve feedback)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "chapter-story-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 209,
+      "stdout": "chapter story check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "chapter-gate-order-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 235,
+      "stdout": "chapter gate order check ok: 20 chapters × forward/reverse rescue order; no premature promotion, no blocked completed gate, final chapter completion\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "ledger-story-task-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 149,
+      "stdout": "ledger story task check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "task-story-resource-match-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 256,
+      "stdout": "task/story/resource match check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "map-task-story-dedupe-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 219,
+      "stdout": "map task/story dedupe check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "reserve-presentation-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 186,
+      "stdout": "reserve presentation check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "action-system-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 252,
+      "stdout": "action system check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "season-emergency-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 369,
+      "stdout": "season emergency check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "world-event-system-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 204,
+      "stdout": "world event system check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "world-event-idle-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 150,
+      "stdout": "world event idle check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "threat-action-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 215,
+      "stdout": "threat action check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "water-grass-guidance-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 407,
+      "stdout": "已定位草场修复任务\nwater grass guidance check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "task-social-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 192,
+      "stdout": "task social check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "settlement-causality-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 231,
+      "stdout": "settlement causality check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "numeric-feedback-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 198,
+      "stdout": "numeric feedback check ok\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "early-entry-task-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 197,
+      "stdout": "early entry task check ok (first 5 minutes tourism guidance and normal follow-up)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "recent-ui-regression-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 231,
+      "stdout": "recent UI regression ok (notifications, letters, buildings, ad touch protection; 3 viewports)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "loop-safety-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 278,
+      "stdout": "loop safety check ok (queues, stale recovery, collectible reachability, hit priority, bounded guardian days)\n",
+      "stderr": "",
+      "error": ""
+    },
+    {
+      "round": 2,
+      "target": "long-run-soak-check.js",
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 8951,
+      "stdout": "long run soak check ok (4 seeds × 120 guardian days × 3 actions)\n",
+      "stderr": "",
+      "error": ""
+    }
+  ],
+  "finishedAt": "2026-09-15T05:18:46.596Z",
+  "passed": 74,
+  "failed": 0
+}

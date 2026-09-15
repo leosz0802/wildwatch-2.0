@@ -3,9 +3,13 @@ const assert = require('node:assert/strict');
 function fake() { const gradient={addColorStop(){}}; return new Proxy({}, {get(t,p){ if(p==='measureText') return x=>({width:String(x||'').length*7}); if(p==='createLinearGradient'||p==='createRadialGradient') return ()=>gradient; if(!t[p]) t[p]=()=>{}; return t[p]; }}); }
 global.wx={getSystemInfoSync:()=>({windowWidth:375,windowHeight:667,pixelRatio:1}),createCanvas:()=>({width:375,height:667,getContext:()=>fake()}),createImage:()=>({loaded:true,set src(v){this._src=v;if(this.onload)this.onload()}}),getStorageSync:()=>null,setStorageSync(){},onTouchStart(){},onTouchMove(){},onTouchEnd(){},onTouchCancel(){},onKeyboardConfirm(){},onAppHide(){},onAppShow(){},showToast(){}};
 const {Game}=require('../js/game'); const {createCharacter}=require('../js/storage');
+const { progressionGate } = require('../js/balanceConfig');
 function make(){const g=new Game();g.stopLoop();g.render=()=>{};g.state=createCharacter(null,'单步巡护回归');g.state.world.reserve.fund=10000;g.state.world.reserve.supplies={dogFood:10,alarm:10,fieldKit:10,tranquilizer:10,medicalKit:10,evidenceTrap:2};g.screen='home';return g;}
-for (const id of ['houndScout','antiPoacher','habitat','intervention']) {
- const g=make(); assert(g.openPatrolOperationScreen(id)); assert.equal(g.patrolTaskModal.id,id);
+for (const { stage, id } of Array.from({ length: 20 }, (_, i) => i + 1)
+ .flatMap(stage => ['houndScout','antiPoacher','habitat','intervention'].map(id => ({ stage, id })))) {
+ const g=make();
+ Object.assign(g.state.world.reserve.progression, { stage, displayChapter: stage, level: progressionGate(stage).storyLevel });
+ assert(g.openPatrolOperationScreen(id)); assert.equal(g.patrolTaskModal.id,id);
  const before=g.state.world.reserve.progression.totalActions;
  const beforeFund=g.state.world.reserve.fund;
  const beforeWater=g.state.world.reserve.ecology.water;
@@ -45,4 +49,4 @@ for (const id of ['houndScout','antiPoacher','habitat','intervention']) {
 }
 const board=make(); board.drawPatrolExecuteBoard=board.drawPatrolExecuteBoard.bind(board); board.text=()=>{}; board.panel=()=>{}; board.drawPatrolActionTile=()=>{}; board.currentGoalView=()=>({primary:{recommendedAction:'houndScout'}}); board.recommendedPatrolAction=()=> 'houndScout'; const boardView=board.drawPatrolExecuteBoard(fake(),12,40,351,board.state.world.reserve); assert.equal(board.renderedPatrolExecuteBoard.choiceCount,1); assert(boardView>0);
 const stale=make(); stale.openPatrolOperationScreen('houndScout'); const staleOption=stale.patrolTaskModal; stale.patrolTaskModal=null; stale.openPatrolOperationScreen('habitat'); assert.equal(stale.patrolTaskModal.id,'habitat'); stale.command=staleOption.placeholder.replace('例如：',''); stale.openPatrolTaskModal(stale.patrolTaskModal); assert.match(stale.command,/东部河岸湿地|水源/);
-console.log('patrol single-step check ok: four task modals retained, four-choice board removed, direct real settlement, no duplicate execution, stale draft reset');
+console.log('patrol single-step check ok: 20 chapters x 4 actions, real settlement, no duplicate execution, confirmation releases values, stale draft reset');

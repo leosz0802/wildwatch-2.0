@@ -1,4 +1,5 @@
 const { fundHealth, ECOLOGY_THRESHOLDS, levelOf } = require("./balanceConfig");
+const { criticalPatrolRisk, PATROL_ACTIONS } = require("./patrolTriggerPolicy");
 
 function clamp(value) {
   return Math.max(0, Math.min(100, Math.round(value || 0)));
@@ -148,7 +149,18 @@ function primaryReasons(before = {}, reserve = {}, context = {}) {
   }
   if (migrationDelta > 0) reasons.push({ id: "migration_in", priority: 48, label: "动物回流", body: (reserve.migration && reserve.migration.reason) || "动物开始靠近核心区", action: "habitat", marker: "recovery", regionId: "meadow", presentation: "resource-flow", metric: "migration", metricLabel: "迁徙", delta: migrationDelta - beforeMigrationDelta, value: migrationDelta, flowKind: "production", beneficial: true });
   if (!reasons.length) reasons.push({ id: "stable", priority: 10, label: `${actionLabel(action)}后局面稳定`, body: "今天没有爆出大危机，但仍要听动物线索", action: action || "houndScout", marker: "question", regionId: context.regionId || "center" });
-  return reasons.sort((a, b) => b.priority - a.priority);
+  const critical = criticalPatrolRisk(reserve);
+  return reasons.map(reason => {
+    // A recovery notification or a moderate metric fluctuation is information,
+    // not a second patrol assignment. Real event narratives keep their action.
+    if (reason.eventType || reason.id === "reserve_network") return reason;
+    if (reason.id === "disease") reason.action = "intervention";
+    if (PATROL_ACTIONS.includes(reason.action)
+      && (reason.marker === "recovery" || reason.id === "stable" || !critical || critical.action !== reason.action)) {
+      return Object.assign({}, reason, { action: "", readOnly: true });
+    }
+    return reason;
+  }).sort((a, b) => b.priority - a.priority);
 }
 
 function weatherEffects(weather, season, dynamics = {}) {
@@ -297,6 +309,7 @@ function buildReserveView(beforeReserve, reserve, context = {}) {
     beneficial: typeof reason.beneficial === "boolean" ? reason.beneficial : undefined,
     impact: reason.body,
     recommendAction: reason.action,
+    readOnly: !!reason.readOnly,
     recommendLabel: reason.recommendLabel || actionLabel(reason.action),
     responseOptions: (reason.responseOptions || []).map((item) => Object.assign({}, item)),
     eventType: reason.eventType || "",

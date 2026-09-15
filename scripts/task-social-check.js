@@ -51,8 +51,14 @@ if (!daily.story || !daily.recommendedAction || !daily.buttonLabel || !daily.cha
   throw new Error("next daily mission should remain guided and story-driven");
 }
 const privateReport = result.reports.find((report) => report.type === "private");
-if (!privateReport || !/联动：/.test(privateReport.body)) {
-  throw new Error("private report should explain social influence");
+if (!privateReport || !privateReport.body || /undefined|NaN/.test(privateReport.body)) {
+  throw new Error("patrol should retain a valid action report");
+}
+// Social feedback now has its own settlement data; the compact private report
+// no longer repeats the retired literal “联动：” prefix.
+if (!result.visual.social || result.visual.social.log !== reserve.social.log
+  || result.visual.social.marketDelta !== reserve.social.marketDelta) {
+  throw new Error("social outcome must reach settlement with the same narrative and value change");
 }
 
 console.log("task social check ok");

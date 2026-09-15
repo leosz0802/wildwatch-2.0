@@ -47,10 +47,11 @@ assert.equal(game.infoDetailModal, null);
 assert.equal(game.screen, 'home');
 assert(focusedAnimal && focusedAnimal.id, '动物任务应已进入沙盘目标');
 
-// 锁释放后，第四项应立即成为唯一可执行的每日任务，不能卡在第三项。
+// 每日只保留三项，第三项完成后不再生成第四项或恢复旧巡护入口。
 assert(game.openDailyEvents());
-assert.equal(game.infoDetailModal.activeDailyId, 'daily_visitor');
-assert.equal(game.infoDetailModal.checklist.remaining, 1);
+assert.equal(game.infoDetailModal.activeDailyId, null);
+assert.equal(game.infoDetailModal.checklist.remaining, 0);
+assert.equal(game.infoDetailModal.checklist.total, 3);
 
 delete global.wx;
-console.log('daily third task check ok (animal route, result close releases lock, visitor advances)');
+console.log('daily third task check ok (animal route, result close releases lock, three tasks complete)');

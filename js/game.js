@@ -1,4 +1,5 @@
 const { getRuntime } = require("./runtime");
+const { criticalPatrolRisk } = require("./patrolTriggerPolicy");
 const { eventCategory, eventBusinessFactors, visitorContributionRate, applyEventBusinessOutcome, applyNarrativeBusinessOutcome, eventBusinessSummary } = require("./eventEconomy");
 const { worldEventDefinition } = require("./worldEventSystem");
 const { animals } = require("./animals");
@@ -52,7 +53,7 @@ const { AudioSystem, normalizeAudioSettings } = require("./audioSystem");
 const { promiseByChapter, normalizeGuardianPromises, selectGuardianPromiseChoice, applyGuardianPromiseChoice, chosenPromiseChoices } = require("./guardianPromises");
 const { FRAGMENT_CATALOG, normalizeEcologyEconomy, collectEcologyDrop, ecologyCompetitionReward } = require("./ecologyEconomy");
 const { BALANCE_V2, chapterEconomy } = require("./balanceConfig");
-const { buildGoalView, normalizeGoalState, resolveGoals, applyGoalProgress, goalDateKey, selectActiveGoal } = require("./goalSystem");
+const { GOAL_BALANCE, buildGoalView, normalizeGoalState, resolveGoals, applyGoalProgress, goalDateKey, selectActiveGoal } = require("./goalSystem");
 const { guardianContext, advanceGuardianCycle, awardMastery, masteryView, chooseMasteryBranch, recordSevenDayProgress } = require("./guardianCycle");
 const { addPendingRecovered } = require("./resourceLedger");
 const { ensureFundLedger, recordFundChange } = require("./fundLedger");
@@ -10065,7 +10066,7 @@ class Game {
       || !saved
       || saved.version !== 3
       || !saved.daily
-      || saved.daily.schemaVersion !== 2
+      || saved.daily.schemaVersion !== GOAL_BALANCE.dailySchemaVersion
       || saved.daily.dateKey !== goalDateKey(now)
       || !saved.active
       || !saved.active.primary
@@ -10143,7 +10144,10 @@ class Game {
       return true;
     }
     const goals = world.goals || {};
-    const daily = goals.daily || {};
+    // Resolve the live recommendation before resuming an old daily lock.
+    // Its stored patrol action may no longer correspond to a real risk.
+    if (String(lock.id || "").startsWith("daily:")) this.currentGoalView(true);
+    const daily = (world.goals || {}).daily || {};
     let goal;
     if (String(lock.id || "").startsWith("daily:")) {
       const objective = (daily.objectives || []).find(item => `daily:${daily.dateKey}:${item.id}` === lock.id);
@@ -10226,12 +10230,28 @@ class Game {
   executeGoalAction(goal = this.selectedGoalFromModal()) {
     if (!goal) return false;
     if (this.resumeActiveTask()) return true;
+    if (String(goal.id || "").startsWith("daily:")) {
+      this.currentGoalView(true);
+      const daily = ((this.state.world || {}).goals || {}).daily || {};
+      const objective = (daily.objectives || []).find(item => `daily:${daily.dateKey}:${item.id}` === goal.id);
+      if (!objective || objective.complete) {
+        this.activeTaskLock = null;
+        this.toast("这项每日任务已完成或更新，请查看今日清单");
+        return false;
+      }
+      goal = Object.assign({}, goal, objective, {
+        id: goal.id, kind: "daily",
+        // A daily exploration needs a playable action, not a bare channel
+        // visit that leaves the progress counter unchanged on every retry.
+        targetScreen: objective.recommendedAction === "exploreMaterials" ? "materials" : objective.targetScreen
+      });
+    }
     const world = this.state.world || (this.state.world = {});
     if (world.goals && ((world.goals.active || {}).primary || {}).id !== goal.id) {
       world.goals = selectActiveGoal(world.goals, goal.id);
       saveState(this.state);
     }
-    const action = goal.recommendedAction || "houndScout";
+    const action = goal.recommendedAction || "exploreMaterials";
     this.infoDetailModal = null;
     if (["guideSandbox", "viewFund", "viewVisitors", "viewSurvival", "viewDiscovery"].includes(action)) {
       return this.openGuidedChannel(action);
@@ -10671,9 +10691,9 @@ class Game {
     // closely. Player actions remain unrestricted; only the next system push
     // waits for the shared 30-second quiet window.
     const lastUserTaskAt = Number(ui.lastUserTaskTriggerAt || 0);
-    if (lastUserTaskAt > 0 && Date.now() - lastUserTaskAt < SYSTEM_TASK_TRIGGER_GAP_MS) return false;
+    if (lastUserTaskAt > 0 && Date.now() - lastUserTaskAt <= SYSTEM_TASK_TRIGGER_GAP_MS) return false;
     const lastSystemTaskAt = Number(ui.lastSystemTaskTriggerAt || 0);
-    if (lastSystemTaskAt > 0 && Date.now() - lastSystemTaskAt < SYSTEM_TASK_TRIGGER_GAP_MS) return false;
+    if (lastSystemTaskAt > 0 && Date.now() - lastSystemTaskAt <= SYSTEM_TASK_TRIGGER_GAP_MS) return false;
     if (!options.force && ui.missionPushSeenKey === key) return false;
     const progression = reserve.progression || {};
     const totalActions = progression.totalActions || 0;
@@ -11445,13 +11465,19 @@ class Game {
   }
 
   drawPatrolExecuteBoard(ctx, x, y, w, reserve) {
-    const primary = this.currentGoalView && this.currentGoalView().primary;
-    const actionId = primary && primary.recommendedAction && this.isPatrolTaskAction(primary.recommendedAction)
-      ? primary.recommendedAction : this.recommendedPatrolAction(reserve);
-    const option = this.reserveActionOptions().find(item => item.id === actionId) || this.reserveActionOptions()[0];
+    if (this.currentGoalView) this.currentGoalView();
+    const actionId = this.recommendedPatrolAction(reserve);
+    const option = this.reserveActionOptions().find(item => item.id === actionId);
     const h = 168;
     this.renderedPatrolActionTiles = [];
     this.panel(ctx, x, y, w, h);
+    if (!option) {
+      this.text(ctx, "暂无需要处理的巡护现场", x + 16, y + 32, 16, "#1c3325", "700");
+      this.text(ctx, "可回沙盘继续剧情或跟随动物探索", x + 16, y + 62, 12, "#66715f", "600");
+      this.button(ctx, x + 16, y + 92, w - 32, 42, "返回沙盘", "#1c3325", () => this.closePatrolOperationScreen());
+      this.renderedPatrolExecuteBoard = { x, y, w, h, choiceCount: 0, advancedRouteHidden: true };
+      return h;
+    }
     this.text(ctx, "当前任务", x + 16, y + 28, 18, "#1c3325", "700");
     this.text(ctx, "触发后直接进入任务并结算", x + w - 16, y + 27, 10, "#66715f", "600", "right");
     this.drawPatrolActionTile(ctx, option, x + 16, y + 46, w - 32, 86, reserve);
@@ -11758,16 +11784,15 @@ class Game {
   }
 
   recommendedPatrolAction(reserve) {
+    const emergency = ((reserve || {}).emergency || {}).active;
+    if (emergency && this.isPatrolTaskAction(emergency.recommendedAction)) return emergency.recommendedAction;
+    const risk = criticalPatrolRisk(reserve);
+    if (risk) return risk.action;
     const primary = (((((this.state.world || {}).goals || {}).active || {}).primary) || {});
-    if (this.isPatrolTaskAction(primary.recommendedAction)) return primary.recommendedAction;
-    const daily = ((this.state.world || {}).goals || {}).daily || {};
-    const ecology = (reserve && reserve.ecology) || {};
-    if ((reserve.poacherPressure || 0) > 50) return "antiPoacher";
-    if ((ecology.water || 0) < 48 || (ecology.grass || 0) < 48) return "habitat";
-    if ((ecology.disease || 0) > 32) return "intervention";
-    if ((reserve.safety || 0) < 52) return "houndScout";
-    if (daily.recommendedAction && this.isPatrolTaskAction(daily.recommendedAction)) return daily.recommendedAction;
-    return "houndScout";
+    if ((primary.storyAligned || primary.evidenceAligned) && this.isPatrolTaskAction(primary.recommendedAction)) return primary.recommendedAction;
+    const discovery = (((this.state.world || {}).collection || {}).discovery || {}).active;
+    if (discovery && discovery.status === "hinted" && this.isPatrolTaskAction(discovery.actionId)) return discovery.actionId;
+    return "";
   }
 
   isPatrolTaskAction(id) {
@@ -11775,7 +11800,7 @@ class Game {
   }
 
   coercePatrolTaskAction(id) {
-    return this.isPatrolTaskAction(id) ? id : "houndScout";
+    return this.isPatrolTaskAction(id) ? id : "";
   }
 
   patrolEffectText(id) {
@@ -16198,7 +16223,11 @@ class Game {
     if (this.patrolTaskModal || this.settlementBlocksCurrentScreen()) return false;
     const reserve = (this.state.world || {}).reserve || {};
     const actionId = this.coercePatrolTaskAction(preferredActionId || this.recommendedPatrolAction(reserve));
-    const option = this.reserveActionOptions().find((item) => item.id === actionId) || this.selectedReserveActionOption();
+    const option = this.reserveActionOptions().find((item) => item.id === actionId);
+    if (!option) {
+      this.toast("当前没有对应巡护现场，可继续剧情或动物探索");
+      return false;
+    }
     this.infoDetailModal = null;
     this.patrolTaskModal = null;
     this.patrolOperationPlan = null;
@@ -16216,6 +16245,7 @@ class Game {
   closePatrolOperationScreen() {
     const target = this.actionScreenOrigin && this.actionScreenOrigin !== "action" ? this.actionScreenOrigin : "home";
     this.patrolTaskModal = null;
+    this.activeTaskLock = null;
     this.patrolOperationPlan = null;
     this.infoDetailModal = null;
     this.command = "";
@@ -16970,9 +17000,15 @@ class Game {
   }
 
   openDailyEvents() {
-    if (this.resumeActiveTask()) return true;
+    // Opening the checklist must not automatically execute a saved task.
+    // Keep any unfinished task for the explicit “continue” click instead.
+    if (this.activeTaskLock && (this.patrolTaskModal || this.settlementModal || this.chapterStoryModal
+      || (this.infoDetailModal && this.infoDetailModal.kind !== "dailyEvents"))) return this.resumeActiveTask();
+    this.currentGoalView(true);
     const checklist = this.dailyEventChecklist();
     const active = checklist.objectives.find((item) => !item.complete) || null;
+    if (this.activeTaskLock && String(this.activeTaskLock.id || "").startsWith("daily:")
+      && !checklist.objectives.some(item => item.goalId === this.activeTaskLock.id && !item.complete)) this.activeTaskLock = null;
     this.infoDetailModal = {
       kind: "dailyEvents", title: "每日事件", icon: "signal",
       kicker: `今日必做 · ${checklist.complete}/${checklist.total}`,
@@ -17021,6 +17057,8 @@ class Game {
   }
 
   executeDailyEvent(id, dateKey) {
+    if (this.patrolTaskModal || this.settlementModal || this.chapterStoryModal
+      || (this.infoDetailModal && this.infoDetailModal.kind !== "dailyEvents")) return false;
     const checklist = this.dailyEventChecklist();
     const objective = checklist.objectives.find((item) => item.id === id);
     const active = checklist.objectives.find((item) => !item.complete);
@@ -17040,6 +17078,8 @@ class Game {
       this.toast("请先完成当前进行中的每日任务");
       return false;
     }
+    if (this.activeTaskLock && this.activeTaskLock.id === objective.goalId) this.activeTaskLock = null;
+    this.infoDetailModal = null;
     const fallbackAction = objective.kind === "visitor" ? "visitorAdjust"
       : objective.kind === "economy" ? "buySupplies"
         : objective.kind === "animal" ? "animalCare"
@@ -20411,6 +20451,7 @@ class Game {
     const events = [];
     const addEvent = (event) => {
       if (!event) return;
+      if (this.isPassivePatrolMarker(event)) return;
       const type = String(event.eventType || event.type || "");
       const visualKind = String(event.visualKind || "");
       const region = String(event.regionId || "center");
@@ -23401,6 +23442,7 @@ class Game {
     const activeEmergency = (((world.reserve || {}).emergency || {}).active || null);
     const activeEmergencyType = activeEmergency ? String(activeEmergency.type || "") : "";
     return (this.reserveViewForDisplay().mapMarkers || [])
+      .filter(marker => !this.isPassivePatrolMarker(marker) || marker.presentation === "resource-flow")
       // Recurring rescue events have their own animal-shaped captive marker;
       // do not also render the generic task marker from reserveView.
       .filter((marker) => marker.type !== "poacherRescue" && marker.kind !== "rescue" && !marker.rescueTargetId)
@@ -24233,7 +24275,7 @@ class Game {
       this.patrolOperationPlan = null;
     }
     if (this.patrolTaskModal || this.settlementBlocksCurrentScreen()) return false;
-    const requestedAction = actionId || "houndScout";
+    const requestedAction = actionId || "exploreMaterials";
     this.infoDetailModal = null;
     if (requestedAction === "buySupplies") {
       this.setScreen("role");
@@ -24281,8 +24323,8 @@ class Game {
       // 所有正式剧情事件都在当前界面完成一次掷骰处理，避免误跳入猎犬侦查任务。
       return this.openNeighborEventDice(marker);
     }
-    const crisisMarker = marker.type === "crisis"
-      || marker.visualKind === "wildfire";
+    const crisisMarker = !this.isPassivePatrolMarker(marker) && (marker.type === "crisis"
+      || marker.visualKind === "wildfire");
     if (crisisMarker && marker.recommendAction && !(marker.responseOptions || []).length) {
       this.suppressNextHomeMission = true;
       this.toast(`${marker.title || "紧急事件"}：进入处理方案`);
@@ -24733,6 +24775,14 @@ class Game {
     return true;
   }
 
+  isPassivePatrolMarker(marker = {}) {
+    if (marker.readOnly) return true;
+    if (!/^rv_/.test(marker.id || "") || marker.eventType || /reserve_network/.test(marker.id || "")) return false;
+    const risk = criticalPatrolRisk(((this.state.world || {}).reserve) || {});
+    return marker.type === "recovery" || (this.isPatrolTaskAction(marker.recommendAction)
+      && (!risk || risk.action !== marker.recommendAction));
+  }
+
   buildWatchClueDetail(input = {}) {
     const view = input.view || this.reserveViewForDisplay();
     const marker = input.marker || this.relatedWatchMarker(input, view);
@@ -24741,7 +24791,7 @@ class Game {
     const actionId = (input.source === "state" && ["water", "grass"].includes(state.id) && state.outcome && state.outcome.action)
       || state.action || row.action || marker.recommendAction || (view.primaryReason && view.primaryReason.action) || "houndScout";
     const actionText = reserveActionLabel(actionId);
-    const readOnlyState = input.source === "state";
+    const readOnlyState = input.source === "state" || this.isPassivePatrolMarker(marker);
     const regionName = marker.regionId ? ((this.findRegion(marker.regionId) || {}).name || "保护区") : "保护区";
     const happening = this.watchClueHappening(input, state, row, marker, view);
     const responseOptions = Array.isArray(marker.responseOptions) ? marker.responseOptions.slice(0, 2) : [];

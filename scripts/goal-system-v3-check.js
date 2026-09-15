@@ -28,9 +28,9 @@ assert.strictEqual(goalDateKey(Date.parse("2026-07-16T20:00:00Z")), "2026-07-17"
 const state = createCharacter(null, "目标闭环测试");
 let goals = normalizeGoalState(state.world.goals, state, Date.parse("2026-07-17T04:30:00Z"));
 assert.strictEqual(goals.version, 3);
-assert.strictEqual(goals.daily.objectives.length, 4);
-assert.deepStrictEqual(goals.daily.objectives.map((item) => item.kind), ["guard", "economy", "animal", "visitor"]);
-assert.strictEqual(goals.daily.required, 4);
+assert.strictEqual(goals.daily.objectives.length, 3);
+assert.deepStrictEqual(goals.daily.objectives.map((item) => item.kind), ["guard", "economy", "animal"]);
+assert.strictEqual(goals.daily.required, 3);
 assert.strictEqual(goals.longTerm.tracks.length, 4);
 assert.strictEqual(goals.longTerm.tracks.find((item) => item.id === "guardian_journey").current, 0, "初始存档不能误算为已完成第一章");
 
@@ -42,7 +42,7 @@ state.world.goals = goals;
 let view = buildGoalView(state);
 assert(view.primary && view.primary.executable, "任意时刻必须存在可执行主目标");
 assert(view.alternatives.length <= 2, "最多只能显示两个备选目标");
-assert.strictEqual(view.primary.recommendedAction, "houndScout", "健康初始局面应先引导处理守护风险");
+assert.strictEqual(view.primary.recommendedAction, "exploreMaterials", "健康局面没有待执行剧情时应引导探索，不制造巡护风险");
 assert(!(view.primary.storyAligned && view.alternatives.some((goal) => goal.id === "story:animal")), "主线推进时不得再并列生成第二条剧情发现");
 
 // 使用真实目标日验证手动改派，避免跨日刷新本身合法地重建日常目标。
@@ -102,11 +102,11 @@ assert(futureAttempt.goals.daily.objectives.every((item) => !item.complete), "�
 assert(!futureAttempt.rewards.some((item) => item.source === "daily_objective"), "未解锁任务不应领取每日奖励");
 
 let current = state;
-let result = advance(current, "houndScout");
+let result = advance(current, "exploreMaterials");
 current = result.state;
 assert.strictEqual(current.world.goals.daily.objectives[0].progress, 1);
 assert(!current.world.goals.daily.coreClaimed, "未完成全部每日任务不能领取全清奖励");
-result = advance(current, "houndScout");
+result = advance(current, "exploreMaterials");
 current = result.state;
 assert(current.world.goals.daily.objectives[0].complete, "守护目标需要两次有效行动完成");
 assert(!current.world.goals.daily.coreClaimed, "只完成守护任务时不能领取全清奖励");
@@ -126,11 +126,10 @@ assert(current.world.reserve.fund - fundAfterCore <= GOAL_BALANCE.instantRewardB
 
 result = advance(current, "exploreMaterials");
 current = result.state;
-assert(!current.world.goals.daily.fullClaimed, "仍有游客任务时不能发放全清奖励");
-result = advance(current, "visitorAdjust");
-current = result.state;
-assert(current.world.goals.daily.fullClaimed, "完成4/4必须发放补给和动物关系奖励");
+assert(current.world.goals.daily.fullClaimed, "完成3/3必须发放补给和动物关系奖励");
 assert(result.completions.some((item) => item.type === "daily_full"));
+result = advance(current, "visitorAdjust");
+assert(!result.completions.some((item) => item.type === "daily_full"), "已移除的第四项不得重复发放奖励");
 
 const stale = clone(state);
 stale.world.goals.noProgressActions = GOAL_BALANCE.rerouteAfterNoProgress;
