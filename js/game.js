@@ -845,7 +845,9 @@ class Game {
         // Core reserve changes and supply consumption need visible feedback
         // together; otherwise a fund change would cause safety/supplies to
         // snap instantly and their delta badges would disappear.
-        const mayAnimate = !activeKey || key === "safety" || key === "poacherPressure" || key.startsWith("supply:");
+        const resourceBurst = Date.now() < (this.numberAnimationBurstUntil || 0)
+          && ["fund", "water", "grass"].includes(key);
+        const mayAnimate = resourceBurst || !activeKey || key === "safety" || key === "poacherPressure" || key.startsWith("supply:");
         if (mayAnimate && target !== current) {
           animation = { from: current, target, delta: target - current, elapsed: 0, duration: 600, hold: 220 };
           this.numberAnimations[key] = animation;
@@ -8085,6 +8087,9 @@ class Game {
     this.activeTaskLock = null;
     this.reserveDisplayTargetCache = null;
     this.reserveDisplayTargetRefreshLeft = 0;
+    // Start a visible 600ms count-up for the three core resources together.
+    // The settlement card has already shown the before/after explanation.
+    this.numberAnimationBurstUntil = Date.now() + 900;
     this.maybeShowInterstitialForSettlement(modal, returnScreen);
   }
 
