@@ -792,6 +792,15 @@ class Game {
       marketHide: (reserve.market && reserve.market.hideSalvage) || 0,
       marketResearch: (reserve.market && reserve.market.researchSample) || 0
     };
+    // Keep headline resource values at their pre-task values while the result
+    // card is open. The task has already calculated its outcome, but the player
+    // should see the numbers move only after acknowledging that outcome.
+    const pendingBefore = this.settlementModal && this.settlementModal.pendingDisplayBefore;
+    if (pendingBefore) {
+      targets.fund = Number(pendingBefore.fund) || 0;
+      targets.water = Number((pendingBefore.ecology || {}).water) || 0;
+      targets.grass = Number((pendingBefore.ecology || {}).grass) || 0;
+    }
     Object.keys(reserve.supplies || {}).forEach((key) => { targets[`supply:${key}`] = reserve.supplies[key] || 0; });
     Object.keys(reserve.inventory || {}).forEach((key) => { targets[`inventory:${key}`] = reserve.inventory[key] || 0; });
     Object.keys(reserve.pendingRecovered || {}).forEach((key) => { targets[`pending:${key}`] = reserve.pendingRecovered[key] || 0; });
@@ -8074,6 +8083,8 @@ class Game {
     const modal = this.settlementModal || {};
     this.settlementModal = null;
     this.activeTaskLock = null;
+    this.reserveDisplayTargetCache = null;
+    this.reserveDisplayTargetRefreshLeft = 0;
     this.maybeShowInterstitialForSettlement(modal, returnScreen);
   }
 
@@ -15934,6 +15945,7 @@ class Game {
       delayMs: patrolReplay ? 1200 : 0
     });
     this.settlementModal = this.buildPatrolSettlement(beforeReserve, afterReserve, result, command);
+    this.settlementModal.pendingDisplayBefore = beforeReserve;
     this.settlementModal.storyReplay = !!patrolReplay;
     this.configureSettlementReveal(this.settlementModal, returnScreen);
     this.playSettlementSfx(this.settlementModal);
@@ -27952,6 +27964,7 @@ class Game {
       delayMs: patrolReplay ? 1200 : 0
     });
     this.settlementModal = this.buildPatrolSettlement(beforeReserve, afterReserve, result, command);
+    this.settlementModal.pendingDisplayBefore = beforeReserve;
     this.settlementModal.storyReplay = !!patrolReplay;
     this.configureSettlementReveal(this.settlementModal, returnScreen);
     this.playSettlementSfx(this.settlementModal);
