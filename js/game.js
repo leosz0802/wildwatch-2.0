@@ -10636,6 +10636,8 @@ class Game {
     // waits for the shared 30-second quiet window.
     const lastUserTaskAt = Number(ui.lastUserTaskTriggerAt || 0);
     if (lastUserTaskAt > 0 && Date.now() - lastUserTaskAt < SYSTEM_TASK_TRIGGER_GAP_MS) return false;
+    const lastSystemTaskAt = Number(ui.lastSystemTaskTriggerAt || 0);
+    if (lastSystemTaskAt > 0 && Date.now() - lastSystemTaskAt < SYSTEM_TASK_TRIGGER_GAP_MS) return false;
     if (!options.force && ui.missionPushSeenKey === key) return false;
     const progression = reserve.progression || {};
     const totalActions = progression.totalActions || 0;
