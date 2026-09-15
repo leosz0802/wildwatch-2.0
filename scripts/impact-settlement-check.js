@@ -24,6 +24,16 @@ const base = {
 const quiet = game.configureSettlementReveal(Object.assign({}, base), "home");
 assert(quiet.silent === true, "small settlement changes should stay silent");
 
+for (const actionType of ["houndScout", "antiPoacher", "habitat", "intervention"]) {
+  for (const storyReplay of [false, true]) {
+    const result = game.configureSettlementReveal(Object.assign({}, base, { actionType, storyReplay, autoFinishAt: 1 }), "home");
+    assert(!result.impactSummary.major, "fixture must exercise small changes, not a breakthrough");
+    assert(result.silent === false, `${actionType}: small patrol results must remain visible`);
+    assert(result.autoFinishAt === undefined, `${actionType}: results must wait for acknowledgement`);
+    assert(game.settlementPresentationActive(result, result.revealAt), `${actionType}: result must be shown after replay`);
+  }
+}
+
 const thresholdCases = [
   Object.assign({}, base, { fundAfter: 580 }),
   Object.assign({}, base, { scoreDelta: 3 }),

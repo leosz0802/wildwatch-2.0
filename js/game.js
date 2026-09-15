@@ -17930,8 +17930,11 @@ class Game {
       modal.valueRevealAt = modal.revealAt;
       modal.animalRevealAt = modal.revealAt + 450;
       modal.crisisBurst = burst;
-    } else if (major) {
+    } else if (major || this.isPatrolTaskAction(modal.actionType)) {
+      // Every patrol needs an explicit result, even when its numeric changes
+      // are small. Keep the map replay, then wait for player acknowledgement.
       modal.silent = false;
+      delete modal.autoFinishAt;
       modal.revealAt = now + (storyReplay ? 5000 : 900);
       modal.valueRevealAt = modal.revealAt;
       modal.animalRevealAt = modal.revealAt + 600;

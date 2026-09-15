@@ -128,13 +128,10 @@ if (!patrolGame.settlementModal || patrolGame.settlementModal.returnScreen !== "
 if (!patrolGame.mapConsequencePulse) {
   throw new Error("every action resolution must expose sandbox causality first");
 }
-if (patrolGame.settlementModal.silent) {
-  if (!(patrolGame.settlementModal.autoFinishAt > Date.now())) throw new Error("ordinary sandbox feedback must auto-finish without a full-screen popup");
-} else {
-  const major = patrolGame.settlementModal.breakthrough || patrolGame.settlementModal.chapterTransition || patrolGame.settlementModal.finalChapterEnding || patrolGame.settlementModal.mysteryRecovery || (patrolGame.settlementModal.emotionEvent && patrolGame.settlementModal.emotionEvent.isMajor);
-  if (!major || !(patrolGame.settlementModal.revealAt > Date.now()) || !(patrolGame.settlementModal.animalRevealAt > patrolGame.settlementModal.revealAt)) {
-    throw new Error("only a real breakthrough may retain the delayed full-screen settlement");
-  }
+if (patrolGame.settlementModal.silent || patrolGame.settlementModal.autoFinishAt
+  || !(patrolGame.settlementModal.revealAt > Date.now())
+  || !(patrolGame.settlementModal.animalRevealAt > patrolGame.settlementModal.revealAt)) {
+  throw new Error("patrol must show an explicit result after map feedback and wait for acknowledgement");
 }
 if (!(patrolGame.mapConsequencePulse.expiresAt > patrolGame.mapConsequencePulse.startedAt + 2000)) {
   throw new Error("sandbox causality should have time to show environment, numbers and animal response in order");
