@@ -304,12 +304,12 @@ function reserveTotalVisitors(reserve = {}) {
 }
 
 function chapterVisitorTotal(reserve = {}) {
-  const progression = reserve.progression || {};
-  const start = progression.stageStart || progression.chapterStart || {};
-  const baseline = Number(start.totalVisitors);
-  // Legacy saves are migrated in storage.js. Keeping a zero fallback here
-  // also makes fresh in-memory reserves behave like chapter one.
-  return Math.max(0, reserveTotalVisitors(reserve) - (Number.isFinite(baseline) ? Math.max(0, baseline) : 0));
+  // Chapter goals use the cumulative visitor ledger. The header, chapter
+  // progress card and gate must all read the same lifetime total; subtracting
+  // the chapter-start checkpoint made the progress card reset to 0 after a
+  // chapter transition while the header correctly showed the accumulated
+  // visitors.
+  return reserveTotalVisitors(reserve);
 }
 
 function chapterCoreMetrics(reserve = {}, chapter = 1) {
