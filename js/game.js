@@ -23947,13 +23947,8 @@ class Game {
     const animationKey = { fund: "fund", water: "water", grass: "grass" }[state.id] || "";
     const displayValue = animationKey ? this.displayReserveNumber(animationKey, state.value) : state.value;
     this.text(ctx, state.label, x + 8, y + 12, 9, "#66715f", "700");
-    this.text(ctx, risk.label, x + w - 8, y + 12, 8, risk.color, "700", "right");
     this.text(ctx, `${displayValue}`, x + 8, y + 27, this.fitTextSize(ctx, `${displayValue}`, w - 34, 16, 13, "700"), color, "700");
-    if (risk.tone === "bad" || risk.tone === "warn") this.text(ctx, "改善 ›", x + w - 8, y + 27, 10, risk.color, "700", "right");
     const clickable = true;
-    if (risk.tone !== "bad" && risk.tone !== "warn") {
-      this.text(ctx, "查看 ›", x + w - 8, y + 27, 10, UI_THEME.tint, "700", "right");
-    }
     this.addHit(x, y - this.scrollY, w, h, () => this.openReserveMetricDetail(state.id), "tap");
     return {
       id: state.id,
