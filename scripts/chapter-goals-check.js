@@ -42,6 +42,12 @@ assert.strictEqual(coreOnlyProgression.stage, 2, "core goals should replace lega
 
 const opening = game.buildChapterStory(2, "start");
 assert(/种群/.test(opening.goalLine) && /动物总数/.test(opening.goalLine) && /游客累计/.test(opening.goalLine), "chapter opening must show all three core goals");
+for (let chapter = 1; chapter <= 20; chapter += 1) {
+  const story = game.buildChapterStory(chapter, "start");
+  assert(Array.isArray(story.goalItems) && story.goalItems.length === 3, `chapter ${chapter} opening should expose three goal tiles`);
+  assert(story.goalItems.every((item) => item.target > 0 && item.current >= 0), `chapter ${chapter} goal tiles should have numeric progress`);
+  assert(Array.isArray(story.rescueNames) && story.rescueNames.length > 0 && /本章必救：/.test(story.rescueLine), `chapter ${chapter} opening should name required rescue animals`);
+}
 const chapterDetail = game.buildChapterProgressDetail();
 assert.strictEqual(chapterDetail.kind, "chapterProgress", "chapter title should open the dedicated progress view");
 assert(chapterDetail.metricDetails && chapterDetail.metricDetails.visitors && chapterDetail.metricDetails.species && chapterDetail.metricDetails.animals, "all three core metrics need click-through details");

@@ -857,6 +857,19 @@ viewports.forEach((viewport) => {
   reserveForTerrain.migration.delta = 3;
   const homeAudit = runRenderAudit(game, viewport, "home", 0);
   checkPremiumSkin(game, "home", `${viewport.name}/home-premium-skin`);
+  const stateTileLayout = game.renderedSandboxStateTiles || [];
+  if (stateTileLayout.length === 6) {
+    const firstColumn = stateTileLayout[0];
+    const secondColumn = stateTileLayout[1];
+    if (!(firstColumn.w < secondColumn.w && firstColumn.x + firstColumn.w <= secondColumn.x)) {
+      fail(`${viewport.name}/home`, "基金信息栏没有为后两列让出文字安全宽度");
+    }
+  }
+  const opportunity = game.renderedMapOpportunityAggregate || {};
+  const goalBar = game.renderedSandboxGoalBar || {};
+  if (opportunity.visible && goalBar.visible && opportunity.y < goalBar.y + goalBar.h + 6) {
+    fail(`${viewport.name}/home`, "每日事件入口仍与主任务信息框重叠");
+  }
   if (homeAudit.texts.some((item) => item.text === "展开" || item.text === "分享" || /的来信$/.test(item.text))) {
     fail(`${viewport.name}/home`, "sandbox home should not render daily letter hero");
   }

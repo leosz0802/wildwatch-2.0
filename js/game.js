@@ -99,7 +99,7 @@ const {
   markAnimalLetterPrompted
 } = require("./animalLetters");
 const { mergedFundLedgerView, ensureRecoverableFundLedger } = require("./fundLedger");
-const { RESCUE_ITEM_CATALOG, rescueItemById, normalizeChapterRescue, poacherRescueState, nextRescueTask, nextPoacherRescue, findPoacherRescue, rescueItemCount, rescueItemCountFor, canRescueAnimal, rescueAnimal, rescuePoacherAnimal, chapterRescueSummary, rescueStoryFor, findRecord, recordRescueExploration, rescueGuaranteeReady } = require("./chapterRescueSystem");
+const { RESCUE_ITEM_CATALOG, rescueItemById, chapterDefinition, normalizeChapterRescue, poacherRescueState, nextRescueTask, nextPoacherRescue, findPoacherRescue, rescueItemCount, rescueItemCountFor, canRescueAnimal, rescueAnimal, rescuePoacherAnimal, chapterRescueSummary, rescueStoryFor, findRecord, recordRescueExploration, rescueGuaranteeReady } = require("./chapterRescueSystem");
 
 const DESCRIPTION_TEXT_MIN = 10;
 const MAX_CHAPTER_STORY_QUEUE = 1;
@@ -4049,7 +4049,20 @@ class Game {
       ? (chapter.newSpeciesLabel ? `本章出现：${chapter.newSpeciesLabel}` : "本章收束：生态进入自运转")
       : `阶段记录：${getUnlockedSpecies(level, level).length} 种动物 · ${population} 只 · 经营 ${daysManaged} 天`;
     const goals = chapterTargets(chapter.chapter);
-    const goalLine = `晋级目标：种群 ${goals.species} · 动物总数 ${goals.animals} · 游客累计 ${goals.visitors}`;
+    const core = chapterCoreMetrics(reserve, chapter.chapter);
+    const goalItems = [
+      { id: "visitors", label: "游客累计", current: core.visitors, target: goals.visitors, unit: "人" },
+      { id: "animals", label: "动物总数", current: core.animals, target: goals.animals, unit: "只" },
+      { id: "species", label: "种群数量", current: core.species, target: goals.species, unit: "种" }
+    ];
+    // 用纯章节定义取得必救物种，避免在展示下一章过场时改写当前存档。
+    const rescueDefinition = chapterDefinition(chapter.chapter);
+    const rescueNames = (rescueDefinition.targets || [])
+      .map((speciesId) => getSpeciesById(speciesId))
+      .filter(Boolean)
+      .map((species) => species.name);
+    const rescueLine = rescueNames.length ? `本章必救：${rescueNames.join("、")}` : "本章必救：无新增解救物种";
+    const goalLine = `本章目标：游客累计 ${goals.visitors} · 动物总数 ${goals.animals} · 种群数量 ${goals.species}`;
     return {
       level,
       phase,
@@ -4064,6 +4077,9 @@ class Game {
       objective: phase === "start" ? `行动 · ${(narrativeBeat.threshold || {}).label || CHAPTER_OPENING_OBJECTIVES[chapter.chapter] || CHAPTER_OPENING_OBJECTIVES[1]}` : "",
       speciesLine: firstRun ? "首巡：做选择，看结果" : `${chapterRecordLine}${anchorLine ? ` · ${anchorLine}` : ""}`,
       goalLine,
+      goalItems,
+      rescueLine,
+      rescueNames,
       buttonLabel: firstRun ? "查看水边警报" : phase === "start" ? "进入章节" : (chapter.chapter < CHAPTERS.length ? "走向下一章" : "继续守护"),
       firstRun,
       storyAnchor: anchor,
@@ -4256,8 +4272,8 @@ class Game {
     // Chapter cards use the same visual rhythm as the first-time guide:
     // one dark-green story card, one concise explanation and one primary action.
     const panelH = isOpening
-      ? Math.min(306, Math.max(276, this.height * 0.37))
-      : Math.min(252, Math.max(220, this.height * 0.26));
+      ? Math.min(356, Math.max(320, this.height * 0.43))
+      : Math.min(286, Math.max(250, this.height * 0.30));
     // Chapter text follows the boot screen: keep the copy at the top so the
     // shared opening illustration remains the visual anchor for every chapter.
     const panelY = Math.max(top + headerH + headerGap, 86);
@@ -4275,10 +4291,28 @@ class Game {
       compact: true,
       maxChars: 24
     });
+    const goalItems = Array.isArray(modal.goalItems) ? modal.goalItems : [];
+    const goalHeadingY = panelY + 106;
+    this.text(ctx, "本章晋级目标", 40, goalHeadingY, 11, "#b8d9b0", "700");
+    const metricGap = 6;
+    const metricY = panelY + 114;
+    const metricW = (this.width - 80 - metricGap * 2) / 3;
+    const metricH = 42;
+    goalItems.slice(0, 3).forEach((item, index) => {
+      const mx = 40 + index * (metricW + metricGap);
+      const current = Math.max(0, Number(item.current) || 0);
+      const target = Math.max(1, Number(item.target) || 1);
+      const percent = Math.min(100, Math.round(current / target * 100));
+      this.roundRect(ctx, mx, metricY, metricW, metricH, 9, "rgba(255,248,223,.12)", "rgba(240,211,118,.28)");
+      this.text(ctx, this.truncateTextToWidth(ctx, item.label, metricW - 10, 9, "700"), mx + metricW / 2, metricY + 15, 9, "#dfe5da", "700", "center");
+      this.text(ctx, `${current}/${target}${item.unit || ""}`, mx + metricW / 2, metricY + 32, 12, "#fff0a6", "700", "center");
+      if (percent >= 100) this.text(ctx, "✓", mx + metricW - 8, metricY + 13, 9, "#b8e1a7", "700", "center");
+    });
     const buttonY = this.height - 72;
     const speciesY = Math.min(panelY + panelH - 18, buttonY - 18);
-    const bodyY = panelY + 148;
-    this.drawFittedTextBlock(ctx, isOpening ? `${modal.businessGuide || ""}${modal.body}` : modal.body, 30, bodyY, this.width - 60, Math.max(30, panelY + panelH - bodyY - 34), {
+    const bodyY = panelY + 166;
+    const footerReserve = isOpening ? 58 : 54;
+    this.drawFittedTextBlock(ctx, isOpening ? `${modal.businessGuide || ""}${modal.body}` : modal.body, 30, bodyY, this.width - 60, Math.max(30, speciesY - bodyY - footerReserve), {
       size: 13,
       minSize: 10,
       lineHeight: 17,
@@ -4287,10 +4321,14 @@ class Game {
       maxChars: 58
     });
     const statusLine = isOpening
-      ? (modal.goalLine || modal.objective || "继续守护")
-      : (modal.speciesLine || "本章记录已保存");
-    this.roundRect(ctx, 28, speciesY - 13, this.width - 56, 20, 7, "rgba(216,194,122,0.15)");
-      this.text(ctx, this.truncateTextToWidth(ctx, statusLine, this.width - 76, 11, "700"), 38, speciesY + 1, 11, "#f0d376", "700");
+      ? (modal.rescueLine || "本章必救：请查看地图标记")
+      : (modal.speciesLine || modal.rescueLine || "本章记录已保存");
+    this.roundRect(ctx, 28, speciesY - 31, this.width - 56, 20, 7, "rgba(216,194,122,0.15)");
+    this.text(ctx, this.truncateTextToWidth(ctx, statusLine, this.width - 76, 11, "700"), 38, speciesY - 17, 11, "#f0d376", "700");
+    if (isOpening && modal.objective) {
+      this.roundRect(ctx, 28, speciesY - 7, this.width - 56, 18, 7, "rgba(216,194,122,0.10)");
+      this.text(ctx, this.truncateTextToWidth(ctx, modal.objective, this.width - 76, 10, "700"), 38, speciesY + 6, 10, "#b8d9b0", "700");
+    }
     if (!painted && this.chapterArtLoad && this.chapterArtLoad.status === "loading") {
       this.text(ctx, `插画加载 ${this.chapterArtLoad.progress || 0}%`, this.width / 2, top + headerH + 8, 11, "#fff8df", "700", "center");
     }
@@ -17434,7 +17472,15 @@ class Game {
     const mainW = dailyShortcut ? w - 42 : w;
     const h = 30;
     const x = camera.x + 12;
-    const y = Math.min(camera.y + camera.h - h - 12, camera.y + 122);
+    // 主任务卡紧接在指标栏下方绘制；每日事件入口必须再留出间距，
+    // 避免它被主任务卡的圆角和阴影覆盖。
+    const dock = this.renderedSandboxInfoDock || {};
+    const goalY = Number.isFinite(dock.y) && Number.isFinite(dock.h) ? dock.y + dock.h : camera.y + 62;
+    const goalH = this.sandboxLedMode() ? 44 : 52;
+    const preferredY = camera.y + 122;
+    const minY = goalY + goalH + 8;
+    const maxY = camera.y + camera.h - h - 12;
+    const y = Math.min(maxY, Math.max(preferredY, minY));
     this.roundRect(ctx, x, y + 3, w, h, 14, `rgba(16,34,26,${(.30 * blink).toFixed(3)})`);
     this.roundRect(ctx, x, y, w, h, 14, idleNudge ? `rgba(255,226,216,${(.96 * blink).toFixed(3)})` : "rgba(255,249,230,.96)", idleNudge ? "rgba(196,72,58,.82)" : "rgba(190,147,60,.72)");
     this.drawSmallGlyph(ctx, "signal", x + 16, y + h / 2, idleNudge ? "#c54838" : UI_THEME.goldDeep, .42);
@@ -24018,7 +24064,13 @@ class Game {
 
     const stateY = y + 4;
     const stateGap = 6;
-    const stateW = (w - 16 - stateGap * 2) / 3;
+    const availableStateW = w - 16 - stateGap * 2;
+    const stateW = availableStateW / 3;
+    // 基金的内容最短，给第一列略小的宽度，把多出的空间让给第二、三列。
+    // 第二排的长标签和百分比因此拥有稳定的安全区，不需要遮罩文字。
+    const firstColW = Math.max(92, Math.min(stateW - 6, Math.round(availableStateW * .30)));
+    const otherColW = (availableStateW - firstColW) / 2;
+    const stateColWidths = [firstColW, otherColW, otherColW];
     const prosperity = this.reserveProsperitySummary(reserve, this.state.world || {});
     const core = chapterCoreMetrics(reserve, progress.stage || chapter.chapter);
     const target = core.target;
@@ -24030,9 +24082,18 @@ class Game {
       { id: "speciesCount", label: "种群数量", value: core.species, tone: "good", target: target.species, showProgress: true, percentage: core.percentages.species },
       { id: "animalTotal", label: "动物总数", value: core.animals, tone: "good", target: target.animals, showProgress: true, percentage: core.percentages.animals }
     ];
-    this.renderedSandboxStateTiles = headerStates.map((state, index) =>
-      this.drawCompactReserveStateTile(ctx, state, x + 8 + (index % 3) * (stateW + stateGap), stateY + Math.floor(index / 3) * 35, stateW, 30)
-    );
+    this.renderedSandboxStateTiles = headerStates.map((state, index) => {
+      const column = index % 3;
+      const tileX = x + 8 + stateColWidths.slice(0, column).reduce((sum, width) => sum + width + stateGap, 0);
+      return this.drawCompactReserveStateTile(
+        ctx,
+        state,
+        tileX,
+        stateY + Math.floor(index / 3) * 35,
+        stateColWidths[column],
+        30
+      );
+    });
     this.renderedSandboxInfoDock.coreGoals = target;
     this.renderedSandboxInfoDock.coreMetrics = core;
 
@@ -24119,6 +24180,10 @@ class Game {
       id: state.id,
       label: state.label,
       value: displayValue,
+      x,
+      y,
+      w,
+      h,
       target: state.target || null,
       percentage: state.showProgress ? Number(state.percentage) || 0 : null,
       progressText: state.showProgress ? `${state.value}/${state.target}` : null,
