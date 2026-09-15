@@ -6274,7 +6274,10 @@ class Game {
       const valueSize = this.fitTextSize(ctx, valueText, textW, compact ? 18 : 23, 13, "700");
       this.text(ctx, valueText, textX, metricY + (compact ? 43 : 51), valueSize, metric.color, "700");
       const percent = Math.min(100, Math.round((Number(metric.value) || 0) / Math.max(1, Number(metric.target) || 1) * 100));
-      this.text(ctx, `${percent}%`, mx + metricW - 8, metricY + metricH - 8, compact ? 8 : 9, metric.color, "700", "right");
+      // Keep the progress percentage readable on compact cards; 8px was
+      // easily lost against the parchment texture and failed the shared HUD
+      // typography rule.
+      this.text(ctx, `${percent}%`, mx + metricW - 8, metricY + metricH - 8, compact ? 10 : 11, metric.color, "700", "right");
       const bounds = { x: mx, y: metricY, w: metricW, h: metricH, id: metric.id };
       modal.renderedChapterProgress.metrics.push(bounds);
       this.addHit(mx, metricY, metricW, metricH, () => {
