@@ -1,6 +1,9 @@
 'use strict';
-const { CHAPTERS, getSpeciesById, speciesPopulationGroup, getUnlockedSpecies } = require('./animalWorld');
-const RESCUE_VERSION = 4;
+const { CHAPTERS, getSpeciesById, speciesPopulationGroup } = require('./animalWorld');
+// Version 5 removes historical-candidate backfilling. A chapter can only
+// create rescue tasks for its own newly introduced captive species, so a
+// completed animal cannot be generated again by a later chapter.
+const RESCUE_VERSION = 5;
 const RESCUE_ITEM_CATALOG = Object.freeze([
  {id:'rescue_reed_cord',label:'芦苇绳',icon:'leaf',source:'浅滩探索',story:'柔韧的芦苇绳可以固定笼门，又不会割伤动物。'},
  {id:'rescue_quiet_water_tag',label:'安静水标',icon:'water',source:'水源观察',story:'安静水标能让巡护队避开动物幼崽藏身的水线。'},
@@ -12,8 +15,7 @@ const RESCUE_ITEM_CATALOG = Object.freeze([
 function rescueItemById(id){return RESCUE_ITEM_CATALOG.find(x=>x.id===id)||null;}
 function rescueStoryFor(record={}){const name=record.speciesName||record.speciesId||'这只动物';return {title:`${name}的回家路`,paragraphs:[`地图边缘发现了${name}留下的求救痕迹。它不是自然迁徙，而是被旧围栏和人类遗留物困住。`,`你收集齐${(record.requiredItems||[]).map(id=>(rescueItemById(id)||{}).label||id).join('、')}后，才能在不惊扰它的情况下打开出口。`,`解救完成后，${name}会回到保护区，并在后续日结算中影响水源、草场与游客观察记录。`]};}
 function targetCount(chapter){return chapter<=5?1:chapter<=12?2:3;}
-function candidateSpecies(chapterNumber){const n=Number(chapterNumber)||1,out=[];const add=id=>{if(id&&getSpeciesById(id)&&!out.includes(id))out.push(id);};const cur=CHAPTERS.find(c=>c.chapter===n)||CHAPTERS[0];(cur.newSpecies||[]).forEach(add);for(let c=n-1;c>=1&&out.length<12;c--){const item=CHAPTERS.find(x=>x.chapter===c);(item&&item.newSpecies||[]).forEach(add);}return out;}
-function chapterDefinition(chapterNumber=1){const n=Number(chapterNumber)||1,chapter=CHAPTERS.find(x=>x.chapter===n)||CHAPTERS[0],current=Array.isArray(chapter.newSpecies)?chapter.newSpecies.slice():[],starter=current.length?[current[0]]:(chapter.keyAnimal?[chapter.keyAnimal]:[]),targets=candidateSpecies(n).filter(id=>!starter.includes(id)).slice(0,targetCount(n));return {chapter:chapter.chapter,title:chapter.title,starter,targets,captive:current.filter(id=>!starter.includes(id))};}
+function chapterDefinition(chapterNumber=1){const n=Number(chapterNumber)||1,chapter=CHAPTERS.find(x=>x.chapter===n)||CHAPTERS[0],current=Array.isArray(chapter.newSpecies)?chapter.newSpecies.slice():[],starter=current.length?[current[0]]:(chapter.keyAnimal?[chapter.keyAnimal]:[]),captive=current.filter(id=>!starter.includes(id)),targets=captive.slice(0,targetCount(n));return {chapter:chapter.chapter,title:chapter.title,starter,targets,captive};}
 // Every rescue uses one material track so all arrow points accumulate in one place.
 function requiredItemsFor(speciesId,chapterNumber=1,index=0){const first=RESCUE_ITEM_CATALOG[(Number(chapterNumber)+index)%RESCUE_ITEM_CATALOG.length];return [first.id];}
 function findRecord(state,id){const animals=state.animals||{};if(animals[id])return animals[id];return Object.values(animals).find(r=>r&&(r.targetId===id||r.speciesId===id))||null;}

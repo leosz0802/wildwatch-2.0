@@ -112,6 +112,7 @@ const supplementalChecks = [
   "reserve-development-check.js",
   "building-operation-cooldown-check.js",
   "visitor-recruitment-check.js",
+  "chapter-balance-check.js",
   "visitor-incident-check.js",
   "world-event-idle-check.js",
   "sticky-table-header-check.js"

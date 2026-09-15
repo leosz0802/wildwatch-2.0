@@ -7,8 +7,8 @@ assert.strictEqual(CHAPTER_TARGETS.length, 20, "there must be one target row per
 for (let chapter = 1; chapter <= 20; chapter += 1) {
   const current = chapterTargets(chapter);
   assert(current.species > 0 && current.animals > 0 && current.visitors > 0, `chapter ${chapter} target is empty`);
-  if (chapter <= 5) assert(current.expectedMinutes >= 3 && current.expectedMinutes <= 5, `chapter ${chapter} should take 3–5 minutes`);
-  if (chapter >= 6) {
+  if (chapter <= 6) assert(current.expectedMinutes >= 3 && current.expectedMinutes <= 5, `chapter ${chapter} should take 3–5 minutes`);
+  if (chapter >= 7) {
     const previous = chapterTargets(chapter - 1);
     assert(Math.abs(current.expectedMinutes / previous.expectedMinutes - 1.3) < 0.001, `chapter ${chapter} duration should grow by 30%`);
   }
@@ -58,7 +58,7 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
   const story = game.buildChapterStory(chapter, "start");
   assert(Array.isArray(story.goalItems) && story.goalItems.length === 3, `chapter ${chapter} opening should expose three goal tiles`);
   assert(story.goalItems.every((item) => item.target > 0 && item.current >= 0), `chapter ${chapter} goal tiles should have numeric progress`);
-  assert(Array.isArray(story.rescueNames) && story.rescueNames.length > 0 && /本章必救：/.test(story.rescueLine), `chapter ${chapter} opening should name required rescue animals`);
+  assert(Array.isArray(story.rescueNames) && /本章必救：/.test(story.rescueLine), `chapter ${chapter} opening should describe rescue requirements`);
 }
 const chapterDetail = game.buildChapterProgressDetail();
 assert.strictEqual(chapterDetail.kind, "chapterProgress", "chapter title should open the dedicated progress view");
@@ -66,4 +66,4 @@ assert(chapterDetail.metricDetails && chapterDetail.metricDetails.visitors && ch
 assert(/下一章/.test(chapterDetail.metricDetails.visitors.kicker), "visitor detail should describe the next chapter gate");
 assert(Array.isArray(chapterDetail.speciesNeeded), "species detail should expose the species still to unlock");
 assert(/下一章门槛/.test(chapterDetail.metricDetails.animals.items[0].tag), "animal detail should expose the next chapter animal threshold");
-console.log("chapter goals check ok (20 chapters, 30% pacing, gated promotion)");
+console.log("chapter goals check ok (20 chapters, six-chapter onboarding pacing, gated promotion)");
