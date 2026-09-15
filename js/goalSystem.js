@@ -558,11 +558,11 @@ function stageCandidate(state) {
     actions: dailyGuardAction(state),
     strategicChoices: dailyGuardAction(state),
     majorStrategicChoices: dailyGuardAction(state),
-    score: ((reserve.ecology || {}).disease || 0) > 10
+    score: ((reserve.ecology || {}).disease || 0) >= ECOLOGY_THRESHOLDS.warningDisease
       ? "intervention"
-      : Math.min(((reserve.ecology || {}).water || 0), ((reserve.ecology || {}).grass || 0)) < 82
+      : Math.min(((reserve.ecology || {}).water || 0), ((reserve.ecology || {}).grass || 0)) < Math.min(ECOLOGY_THRESHOLDS.lowWater, ECOLOGY_THRESHOLDS.lowGrass)
         ? "habitat"
-        : "houndScout",
+        : "exploreMaterials",
     chapterStory: dailyGuardAction(state),
     population: "habitat",
     fundEarned: inventoryTotal(reserve) ? "salvage" : "buySupplies",
