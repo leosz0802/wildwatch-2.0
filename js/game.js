@@ -10341,6 +10341,11 @@ class Game {
   }
 
   openGuidedChannel(action = "guideSandbox") {
+    // Entering a channel completes channel guidance; no extra card click is required.
+    if (["viewDiscovery", "viewSurvival"].includes(action)) {
+      const beforeState = JSON.parse(JSON.stringify(this.state));
+      this.syncSandboxGoalState(beforeState, action);
+    }
     this.infoDetailModal = null;
     if (action === "viewFund") {
       this.openFundLedger();
