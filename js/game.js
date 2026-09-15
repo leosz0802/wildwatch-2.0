@@ -14500,8 +14500,11 @@ class Game {
     let y = topInset + 40;
     this.drawMaterialCompactHeader(ctx, 12, y, this.width - 24, reserve);
     y += 86;
-    this.drawRescueSupplies(ctx, 12, y, this.width - 24, reserve);
-    y += 296;
+    const rescueSuppliesHeight = this.drawRescueSupplies(ctx, 12, y, this.width - 24, reserve);
+    // Completed chapter rescues intentionally hide this panel. Do not keep
+    // reserving its old fixed height or the materials page shows a large blank
+    // region before patrol supplies (especially noticeable on iPhone 14).
+    y += rescueSuppliesHeight || 0;
     this.drawSupplyDepot(ctx, 12, y, this.width - 24, reserve);
     y += 364;
     this.drawRecoveredGoods(ctx, 12, y, this.width - 24, reserve);
@@ -15257,7 +15260,7 @@ class Game {
     // 章节目标全部完成后，物资页不再保留空的解救引导卡。
     if (!target) {
       this.renderedRescueSupplies = null;
-      return;
+      return 0;
     }
     this.drawPremiumInfoCard(ctx, x, y, w, 284, 14, { active: true });
     this.drawSmallGlyph(ctx, "paw", x + 25, y + 25, "#aa7b25", .7);
@@ -15292,8 +15295,9 @@ class Game {
       this.text(ctx, `库存 ${count} · 点数 ${this.animatedRescuePoints(item.id, progress.current)}/${progress.required}`, cx + 10, cy + 40, 11, progress.completed ? "#2f765c" : "#b07a16", "700");
       this.text(ctx, progress.required && !progress.completed ? "继续射箭 ›" : (needed ? "本次需要 ›" : "去收集 ›"), cx + cardW - 8, cy + 20, 8, "#946e20", "700", "right");
       this.addHit(cx, cy - this.scrollY, cardW, 52, () => this.startRescueMaterialExploration(item.id));
-      this.renderedRescueSupplies.cards.push({ id: item.id, x: cx, y: cy, w: cardW, h: 52, count, needed, progress });
+    this.renderedRescueSupplies.cards.push({ id: item.id, x: cx, y: cy, w: cardW, h: 52, count, needed, progress });
     });
+    return 284;
   }
 
   startRescueMaterialExploration(itemId = "") {

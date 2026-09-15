@@ -1,0 +1,13 @@
+'use strict';
+const assert = require('assert');
+const ctx = new Proxy({}, { get(t,p){ if (p==='measureText') return () => ({width: 10}); if (p==='createLinearGradient'||p==='createRadialGradient') return () => ({addColorStop(){}}); if (!t[p]) t[p]=()=>{}; return t[p]; }, set(t,p,v){t[p]=v;return true;} });
+global.wx = { getSystemInfoSync:()=>({windowWidth:390,windowHeight:844,pixelRatio:3,statusBarHeight:47,safeArea:{top:47,bottom:810},menuButtonBoundingClientRect:{top:59,bottom:97}}), createCanvas:()=>({width:390,height:844,getContext:()=>ctx}), createImage:()=>({loaded:true}), getStorageSync:()=>null,setStorageSync(){}, onTouchStart(){},onTouchMove(){},onTouchEnd(){},onTouchCancel(){},onKeyboardConfirm(){},onAppHide(){},onAppShow(){},showToast(){} };
+const { Game } = require('../js/game');
+const { createCharacter } = require('../js/storage');
+const game = new Game(); game.stopLoop(); game.state = createCharacter(null, '物资布局'); game.ctx = ctx; game.width = 390; game.height = 844; game.screen = 'role'; game.hitAreas = [];
+const rescue = game.state.world.reserve.chapterRescue;
+Object.values(rescue.animals || {}).forEach(record => { record.status = 'rescued'; });
+game.drawRole(ctx);
+assert.strictEqual(game.renderedRescueSupplies, null, '已完成章节不应绘制空解救卡');
+assert(game.renderedSupplyCards && game.renderedSupplyCards[0].y < 260, '巡护补给不得因隐藏解救卡留下大段空白');
+console.log('material layout check ok: iPhone 14-sized viewport has no hidden rescue-card gap');
