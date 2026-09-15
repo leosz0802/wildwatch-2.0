@@ -977,9 +977,8 @@ viewports.forEach((viewport) => {
   if (actionAudit.texts.some((item) => ["Safety", "Water", "Poacher", "Migration"].includes(item.text))) {
     fail(`${viewport.name}/action`, "威胁卡仍显示不参与决策的英文副标题");
   }
-  if (actionTiles.length !== 4 || actionTiles.some((item) => !item.primaryLabel || !item.primaryValue || item.valueSize < 12 || !item.costText)
-    || !["houndScout", "antiPoacher", "habitat", "intervention"].every((id) => actionTiles.some((item) => item.id === id))) {
-    fail(`${viewport.name}/action`, "四张巡护任务卡没有同时展示真实主变化与次级资源消耗");
+  if (actionTiles.length !== 1 || actionTiles.some((item) => !item.primaryLabel || !item.primaryValue || item.valueSize < 12 || !item.costText)) {
+    fail(`${viewport.name}/action`, "巡护页必须只展示当前任务，并保留真实变化与资源消耗");
   }
   if (!["资金", "承载", "社区"].every((label) => actionAudit.texts.some((item) => item.text === label))
     || actionAudit.texts.some((item) => item.text === "巡护点" || /巡护节奏|现场/.test(item.text))) {
@@ -1223,8 +1222,9 @@ viewports.forEach((viewport) => {
     g.patrolTaskModal = g.selectedReserveActionOption();
   });
   checkPatrolTaskModal(game, patrolTaskAudit, `${viewport.name}/patrol-task`);
-  if (!patrolTaskAudit.buttons.some((button) => button.label === "规划路线")) {
-    fail(`${viewport.name}/patrol-task`, "可交互巡护没有把下一步明确为规划路线");
+  if (!patrolTaskAudit.buttons.some((button) => button.label === "执行结算")
+    || patrolTaskAudit.buttons.some((button) => /规划路线|按路线出发/.test(button.label))) {
+    fail(`${viewport.name}/patrol-task`, "巡护任务必须直接结算且不显示路线第二步");
   }
   const plannerAudit = runRenderAudit(game, viewport, "action", 0, (g) => {
     g.state.world.reserve.actionPoints = 4;
@@ -1233,10 +1233,8 @@ viewports.forEach((viewport) => {
     g.patrolTaskModal = g.selectedReserveActionOption();
     g.patrolOperationPlan = { actionId: "houndScout", nodeIds: ["scent", "ridge"] };
   });
-  if (!["气味线", "兽群边缘", "高地捷径", "稳健巡线", "强攻追踪", "护群截击", "高风险"].every((label) => plannerAudit.texts.some((item) => item.text === label || item.text.startsWith(`${label} ·`)))
-    || !plannerAudit.buttons.some((button) => button.label === "返回调整")
-    || !plannerAudit.buttons.some((button) => button.label === "按路线出发")) {
-    fail(`${viewport.name}/patrol-planner`, "三节点路线缺少三种策略、风险提示或返回/确认操作");
+  if (plannerAudit.buttons.some((button) => /返回调整|按路线出发|规划路线/.test(button.label))) {
+    fail(`${viewport.name}/patrol-single-step`, "旧路线规划按钮仍然可见");
   }
   const directRouteAudit = runRenderAudit(game, viewport, "action", 0, (g) => {
     g.state.world.reserve.actionPoints = 4;

@@ -96,57 +96,20 @@ const result = simulateDay(`猎犬侦察：沿河岸确认陌生气味 [路线:s
 assert(result.visual.patrolOperation && result.visual.patrolOperation.nodeIds.join(",") === "scent,ridge", "simulation should settle the player's selected route");
 assert(result.world.reserve.lastActionOperation.summary === "先到气味线 → 后到高地捷径", "selected route should be stored in the reserve save");
 assert(result.visual.patrolOperation.strategyLabel === "强攻追踪", "simulation should retain the pair strategy, not only node order");
-assert(result.visual.patrolConditions && result.visual.patrolConditions.strategyBonus === -3
-  && result.visual.authorization.chanceBonus === result.visual.patrolConditions.chanceBonus, "route risk should participate in the real action success chance");
 assert(result.visual.patrolOperation.changes.some((item) => item.key === "poacherPressure" && item.delta < 0), "route should create a concrete anti-poaching effect without reviving retired intel");
 assert(result.world.reserve.poacherPressure < before.poacherPressure, "route effects should reach the shared poacher value");
 
-// UI: choose two nodes in order, change the secondary node, encode the route, and settle it.
-const game = new Game();
-game.stopLoop();
-game.render = () => {};
+// The former four-choice route planner is retired. Existing action IDs still open their
+// task card and settle immediately through the real command path.
+const game = new Game(); game.stopLoop(); game.render = () => {};
 game.state = createCharacter(null, "保护区卫士");
-const option = game.reserveActionOptions().find((item) => item.id === "houndScout");
-game.openPatrolTaskModal(option);
-assert(game.startPatrolOperation(option), "patrol confirmation should enter route planning");
-game.togglePatrolOperationNode("scent");
-game.togglePatrolOperationNode("herd");
-assert(game.patrolOperationPlan.nodeIds.join(",") === "scent,herd", "tap order should be recorded");
-game.togglePatrolOperationNode("ridge");
-assert(game.patrolOperationPlan.nodeIds.join(",") === "scent,ridge", "third tap should replace the secondary node without losing the primary choice");
-assert(/\[路线:scent>ridge\]/.test(game.buildSubmittedCommand()), "submitted command should carry the player's graphical route");
-
-const sizes = [[320, 568], [375, 667], [430, 932]];
-sizes.forEach(([width, height]) => {
-  game.width = width;
-  game.height = height;
-  game.scrollY = 0;
-  game.hitAreas = [];
-  game.drawPatrolOperationPlanner(option, game.actionResourceStatus(option.id, game.state.world.reserve));
-  assert((game.renderedOperationNodes || []).length === 3
-    && game.renderedOperationNodes.every((node) => node.graphical && node.icon && node.iconSize >= 30 && node.h >= 72), `${width}x${height} should show three pictorial field nodes, not text-only cards`);
-  assert((game.renderedOperationStrategies || []).length === 3
-    && new Set(game.renderedOperationStrategies.map((strategy) => strategy.label)).size === 3
-    && game.renderedOperationStrategies.filter((strategy) => strategy.active).length === 1, `${width}x${height} should compare all three pair strategies and highlight the chosen one`);
-  assert(game.renderedOperationStrategy && game.renderedOperationStrategy.risk === "高风险"
-    && game.renderedOperationStrategy.chanceBonus === -3
-    && /偷猎/.test(game.renderedOperationStrategy.deltaText), `${width}x${height} should expose the selected route's risk, odds, and concrete outcome`);
-  const actionable = game.hitAreas.filter((area) => area.w < width || area.h < height);
-  assert(actionable.length >= 5, `${width}x${height} should expose three nodes and two buttons`);
-  actionable.forEach((area) => {
-    assert(area.x >= 0 && area.y >= 0 && area.x + area.w <= width + 0.01 && area.y + area.h <= height + 0.01, `${width}x${height} operation hit area is out of bounds`);
-  });
-});
-
-game.width = 375;
-game.height = 667;
-assert(game.confirmPatrolOperation(), "two selected nodes should execute the action");
-assert(!game.infoDetailModal, "route confirmation should settle directly instead of asking for a second choice");
-assert(!game.patrolOperationPlan, "operation plan should clear after settlement");
-assert(game.settlementModal && game.settlementModal.patrolOperation, "settlement should retain the route operation result");
-assert((game.settlementModal.rewards || []).some((line) => /路线：强攻追踪 · 先到气味线/.test(line)), "settlement should clearly show strategy, route, and concrete deltas");
-assert((game.settlementModal.narrativeBeat || {}).animalLine
-  && (game.settlementModal.narrativeBeat.animalLine || "").replace(/[，。！？、“”]/g, "").length <= 22,
-"animal response should stay instinctive and short; route order is reported separately in the settlement ledger");
-
-console.log("action operation check ok (4 boards, 3 distinct strategies each, one decision, ordered route, real values, settlement, 3 sizes)");
+game.state.world.reserve.fund = 10000;
+game.state.world.reserve.supplies = { dogFood: 10, alarm: 10, fieldKit: 10, tranquilizer: 10, medicalKit: 10, evidenceTrap: 2 };
+for (const actionId of actionIds) {
+  const option = game.reserveActionOptions().find(item => item.id === actionId);
+  game.openPatrolTaskModal(option);
+  assert(game.confirmPatrolTask(option), `${actionId} should settle directly`);
+  assert(game.settlementModal && !game.patrolOperationPlan, `${actionId} must not open a route second step`);
+  game.settlementModal = null;
+}
+console.log("action operation check ok (legacy simulation data, four task cards, direct one-step settlement)");

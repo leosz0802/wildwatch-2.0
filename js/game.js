@@ -26,7 +26,6 @@ const {
   settleWildernessTrade,
   applyWildernessTradeInbox
 } = require("./wildernessKnowledge");
-const { operationConfig, operationProfiles, operationPlanPreview, normalizeOperationPlan, encodeOperationPlan } = require("./actionOperations");
 const { SHARE_IMAGES, sharePayload, parseShareInvite, hasAssistedShare, applyShareAssistance, recordShareSent } = require("./shareSystem");
 const { CASES: COLLECTION_CASES, CATALOG: COLLECTION_CATALOG, METHODS: COLLECTION_METHODS, ENDINGS: COLLECTION_ENDINGS, caseById: collectionCaseById, collectionItemById, itemsForCase: collectionItemsForCase, normalizeCollectionState, updateCollectionAfterAction, offerAnimalCollectionLead, startInvestigation, resolveInvestigation, submitCaseEnding, collectionSummary, collectStoryDiscovery, storyDiscoverySummary, discoveryStatusLabel, collectionDiscoveryActivation } = require("./collectionSystem");
 const { ROUTE_KITS, facilityById, facilityByCaseId, facilityStates, effectText: facilityEffectText, applyFacilityBuildStep, applyFacilitySpecialization } = require("./reserveFacilities");
@@ -4211,6 +4210,7 @@ class Game {
     // 插屏广告由微信原生层覆盖；隐藏底层任务关闭按钮，避免与广告关闭控件重叠。
     if (this.interstitialAds && this.interstitialAds.showing) return;
     if (!option || this.settlementModal || !this.ctx) return;
+    this.patrolOperationPlan = null;
     if (option.id === "habitat") {
       this.drawHabitatRepairTaskModal(option);
       return;
@@ -4355,9 +4355,7 @@ class Game {
         this.toast(this.actionBlockedToast(resourceStatus));
         return;
       }
-      const lockedOption = purchase ? this.lockedSupplyPurchaseOption(option, reserve) : option;
-      this.patrolTaskModal = lockedOption;
-      this.submitCommand(purchase ? purchase.command : "");
+      this.confirmPatrolTask(option);
     });
     ctx.restore();
   }
@@ -4451,12 +4449,12 @@ class Game {
     this.drawPremiumLeatherPanel(ctx, bx, nextY, bw, 38, 10, { light: true });
     this.text(ctx, "下一步", bx + 16, nextY + 25, 12, "#fff8df", "700");
     this.text(ctx, "确认后立即结算", bx + 105, nextY + 25, 12, "#fff8df", "700");
-    this.renderedPatrolTask = { id: option.id, style: "anti-poacher-v2", x, y, w, h, header, contentBottom: nextY + 38, buttonY: y + h - 58, metricLayouts: [["poacher", poacher, after], ["grass", grass, "+0~1"], ["animals", "return"]] };
+    this.renderedPatrolTask = { id: option.id, style: "anti-poacher-v2", x, y, w, h, header, contentBottom: nextY + 38, buttonY: y + h - 58, metricLayouts: [["poacher", poacher, after], ["grass", grass, "+0~1"], ["animals", "return"]], nextText: status.canRun ? "确认后立即结算" : (missingRoute ? missingRoute.nextText : "先补齐资源") };
     const buttonY = y + h - 58;
     this.modalButton(ctx, x + 18, buttonY, (w - 48) / 2, 42, "取消", "#e8ddbd", () => { this.patrolTaskModal = null; this.patrolOperationPlan = null; this.activeTaskLock = null; this.render(); }, "#26352b");
     this.modalButton(ctx, x + 30 + (w - 48) / 2, buttonY, (w - 48) / 2, 42, status.canRun ? "执行结算" : (missingRoute ? missingRoute.label : "资源不足"), status.canRun || missingRoute ? "#1c3325" : "#9aa093", () => {
       if (!status.canRun) { this.openMissingResourceRoute(status); return; }
-      this.patrolTaskModal = option; this.submitCommand("");
+      this.confirmPatrolTask(option);
     });
     ctx.restore();
   }
@@ -4529,6 +4527,7 @@ class Game {
       style: "habitat-repair-v1",
       x, y, w, h,
       header,
+      nextText: status.canRun ? "确认后立即结算" : (missingRoute ? missingRoute.nextText : "先补齐资源"),
       contentBottom: nextY + 38,
       buttonY: y + h - 58,
       metricLayouts: cards,
@@ -4538,277 +4537,48 @@ class Game {
     this.modalButton(ctx, x + 18, buttonY, (w - 48) / 2, 42, "取消", "#e8ddbd", () => { this.patrolTaskModal = null; this.patrolOperationPlan = null; this.activeTaskLock = null; this.render(); }, "#26352b");
     this.modalButton(ctx, x + 30 + (w - 48) / 2, buttonY, (w - 48) / 2, 42, status.canRun ? "执行修复" : (missingRoute ? missingRoute.label : "资源不足"), status.canRun || missingRoute ? "#1c3325" : "#9aa093", () => {
       if (!status.canRun) { this.openMissingResourceRoute(status); return; }
-      this.patrolTaskModal = option; this.submitCommand("");
+      this.confirmPatrolTask(option);
     });
     ctx.restore();
+  }
+
+  confirmPatrolTask(option = this.patrolTaskModal) {
+    // The confirmation belongs to the currently open task. A stale/double tap
+    // cannot recreate it or spend its supply a second time.
+    if (!option || this.patrolTaskModal !== option || option.resolving || this.settlementModal) return false;
+    this.patrolOperationPlan = null;
+    option.resolving = true;
+    try {
+      this.submitCommand("");
+      return !!this.settlementModal || this.patrolTaskModal !== option;
+    } finally { option.resolving = false; }
   }
 
   startPatrolOperation(option) {
-    const selected = option || this.patrolTaskModal || this.selectedReserveActionOption();
-    if (!selected) return false;
-    // 兼容旧版外部调用方传入的最小 {id} 结构；真实 UI 始终传入完整操作卡，
-    // 走下面的单步执行分支。
-    if (!selected.placeholder) {
-      const ecology = ((this.state.world || {}).reserve || {}).ecology || {};
-      this.patrolOperationPlan = {
-        actionId: selected.id,
-        nodeIds: selected.id === "habitat"
-          ? [((ecology.water || 0) <= (ecology.grass || 0) ? "spring" : "meadow")]
-          : []
-      };
-      return true;
+    if (this.settlementModal) return false;
+    if (option && this.patrolTaskModal && option.id !== this.patrolTaskModal.id) return false;
+    if (!this.patrolTaskModal) {
+      if (!option) return false;
+      const canonical = this.reserveActionOptions().find(item => item.id === option.id);
+      if (!canonical) return false;
+      this.openPatrolTaskModal(Object.assign({}, canonical, option));
     }
-    const reserve = (this.state.world || {}).reserve || {};
-    const status = this.actionResourceStatus(selected.id, reserve);
-    if (!status.canRun) {
-      this.toast(this.actionBlockedToast(status));
-      return false;
-    }
-    // 保留旧入口名以兼容旧存档/调用方，但不再打开路线规划器。
-    this.patrolOperationPlan = null;
-    this.patrolTaskModal = selected;
-    this.submitCommand("");
-    return true;
+    return this.confirmPatrolTask(this.patrolTaskModal);
   }
 
-  togglePatrolOperationNode(nodeId) {
-    const plan = this.patrolOperationPlan;
-    const config = plan && operationConfig(plan.actionId);
-    if (!plan || !config || !config.nodes.some((node) => node.id === nodeId)) return false;
-    const selected = (plan.nodeIds || []).slice();
-    const existing = selected.indexOf(nodeId);
-    if (existing >= 0) selected.splice(existing, 1);
-    else if (selected.length < 2) selected.push(nodeId);
-    else selected[1] = nodeId;
-    this.patrolOperationPlan = { actionId: plan.actionId, nodeIds: selected };
-    this.render();
-    return true;
-  }
+  confirmPatrolOperation() { return this.confirmPatrolTask(this.patrolTaskModal); }
 
-  confirmPatrolOperation() {
-    // 兼容旧调用方：确认即执行当前操作，不再校验或编码路线组合。
-    return this.startPatrolOperation(this.patrolTaskModal || this.selectedReserveActionOption());
-  }
-
-  resolvePatrolIncident(choice) {
-    if (!this.infoDetailModal || this.infoDetailModal.kind !== "patrolIncident" || this.patrolIncidentResolving) return false;
-    this.patrolIncidentResolving = true;
-    this.patrolIncidentChoice = choice === "investigate" ? "investigate" : "steady";
-    const option = this.patrolTaskModal || this.selectedReserveActionOption();
-    const command = this.buildSubmittedCommand(option);
-    this.infoDetailModal = null;
-    this.patrolTaskModal = null;
-    this.patrolIncidentResolving = false;
-    this.submitCommand(command);
-    return true;
-  }
-
-  drawPatrolIncidentContent(ctx, modal, x, bodyY, w, bodyH) {
-    const innerX = x + 28;
-    const innerW = w - 56;
-    const sceneY = bodyY + 14;
-    const sceneH = 92;
-    const scene = ctx.createLinearGradient(innerX, sceneY, innerX + innerW, sceneY + sceneH);
-    scene.addColorStop(0, "#10291f");
-    scene.addColorStop(.68, "#245039");
-    scene.addColorStop(1, "#6f6a3d");
-    this.roundRect(ctx, innerX, sceneY + 5, innerW, sceneH, 16, "rgba(12,24,17,.16)");
-    this.roundRect(ctx, innerX, sceneY, innerW, sceneH, 16, scene, "rgba(216,194,122,.42)");
-    ctx.save();
-    ctx.globalAlpha = .24;
-    ctx.fillStyle = "#d9d39c";
-    for (let i = 0; i < 5; i += 1) {
-      ctx.beginPath();
-      ctx.arc(innerX + innerW - 82 + i * 13, sceneY + 35 + (i % 2) * 12, 4 + (i % 2), 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
-    this.drawUiIconBadge(ctx, "signal", innerX + 42, sceneY + 45, 52, 44, true)
-      || this.drawSmallGlyph(ctx, "signal", innerX + 42, sceneY + 45, "#f0d376", 1);
-    this.text(ctx, "巡护队伍突然停步", innerX + 78, sceneY + 31, 15, "#fff8df", "700");
-    this.text(ctx, this.truncateTextToWidth(ctx, `主路线 · ${modal.routeLabel || "既定路线"}`, innerW - 96, 11, "700"), innerX + 78, sceneY + 54, 11, "#e8d491", "700");
-    this.text(ctx, "路线附近传来短促异响", innerX + 78, sceneY + 75, 10, "#d6dfd2", "700");
-
-    const promptY = sceneY + sceneH + 12;
-    this.text(ctx, "你要怎么处理？", innerX, promptY + 18, 14, "#173d34", "700");
-    this.text(ctx, "选择会改变本次路线收益与风险。", innerX, promptY + 39, 10, "#66715f", "700");
-
-    const cardsY = promptY + 52;
-    const gap = DISCOVERY_ITEM_CARD_GAP;
-    const cardW = (innerW - gap) / 2;
-    const cardH = Math.min(118, Math.max(96, bodyY + bodyH - cardsY - 14));
-    const cards = [
-      { title: "稳住路线", badge: "低风险", icon: "shield", fill: "#eef7e8", accent: "#43845f", lines: ["保持既定收益", "不被假线索拖慢"] },
-      { title: "追查异响", badge: "中风险", icon: "trail", fill: "#fff3cf", accent: "#a87423", lines: ["可能发现额外资源", "也可能降低路线效率"] }
-    ];
-    modal.renderedIncidentChoices = [];
-    cards.forEach((card, index) => {
-      const cx = innerX + index * (cardW + gap);
-      this.roundRect(ctx, cx, cardsY + 4, cardW, cardH, 15, "rgba(18,61,52,.10)");
-      this.roundRect(ctx, cx, cardsY, cardW, cardH, 15, card.fill, this.rgba(card.accent, .36));
-      this.drawUiIcon(ctx, card.icon, cx + 26, cardsY + 28, 30, true)
-        || this.drawSmallGlyph(ctx, card.icon, cx + 26, cardsY + 28, card.accent, .82);
-      this.text(ctx, card.title, cx + 48, cardsY + 25, 12, "#173d34", "700");
-      this.roundRect(ctx, cx + 10, cardsY + 46, cardW - 20, 20, 8, this.rgba(card.accent, .12), this.rgba(card.accent, .18));
-      this.text(ctx, card.badge, cx + cardW / 2, cardsY + 60, 10, card.accent, "700", "center");
-      this.text(ctx, `· ${card.lines[0]}`, cx + 12, cardsY + 82, 9, "#52665b", "700");
-      if (cardH >= 108) this.text(ctx, `· ${card.lines[1]}`, cx + 12, cardsY + 101, 9, "#52665b", "700");
-      modal.renderedIncidentChoices.push({ label: card.title, risk: card.badge, x: cx, y: cardsY, w: cardW, h: cardH });
-      // The cards are the primary affordance; keep the footer buttons as a
-      // redundant large-target fallback for accessibility and small screens.
-      this.addHit(cx, cardsY, cardW, cardH, () => this.resolvePatrolIncident(index === 1 ? "investigate" : "steady"), "tap");
-    });
-  }
-
-  drawPatrolOperationPlanner(option, resourceStatus) {
-    const ctx = this.ctx;
-    const plan = this.patrolOperationPlan || { actionId: option.id, nodeIds: [] };
-    const config = operationConfig(option.id);
-    if (!ctx || !config) return;
-    const selected = plan.nodeIds || [];
-    const profiles = operationProfiles(option.id);
-    const preview = selected.length === 2 ? operationPlanPreview(option.id, selected) : null;
-    const x = 18;
-    const w = this.width - 36;
-    const h = Math.min(430, this.height - 76);
-    const y = Math.max(30, Math.round((this.height - h) / 2) - 2);
-    ctx.save();
-    ctx.scale(this.dpr, this.dpr);
-    ctx.fillStyle = "rgba(5,12,8,0.78)";
-    ctx.fillRect(0, 0, this.width, this.height);
-    this.addHit(0, 0, this.width, this.height, () => {});
-    this.roundRect(ctx, x, y + 6, w, h, 12, "rgba(0,0,0,0.28)");
-    const background = ctx.createLinearGradient(x, y, x + w, y + h);
-    background.addColorStop(0, "#153524");
-    background.addColorStop(0.7, "#234a31");
-    background.addColorStop(1, "#c9b66f");
-    this.roundRect(ctx, x, y, w, h, 12, background, "rgba(240,211,118,0.52)");
-    this.text(ctx, "亲手规划 · 约10秒", x + 18, y + 28, 11, "#e8d491", "700");
-    this.text(ctx, this.truncateTextToWidth(ctx, config.title, w - 118, 22, "700"), x + 18, y + 57, 22, "#fff8df", "700");
-    this.roundRect(ctx, x + w - 92, y + 18, 72, 34, 10, "rgba(240,211,118,0.18)", "rgba(240,211,118,0.42)");
-    this.text(ctx, `${selected.length}/2 节点`, x + w - 56, y + 40, 11, "#f0d376", "700", "center");
-    this.wrapText(ctx, config.instruction, x + 18, y + 78, w - 36, 11, 14, "#d9dfce", 2);
-
-    const boardX = x + 14;
-    const boardY = y + 105;
-    const boardW = w - 28;
-    const boardH = 178;
-    this.roundRect(ctx, boardX, boardY, boardW, boardH, 10, "rgba(8,24,16,0.72)", "rgba(240,211,118,0.20)");
-    const nodeW = Math.min(88, Math.floor((boardW - 18) / 3));
-    const nodeH = 74;
-    const positions = [
-      { x: boardX + 8, y: boardY + 14 },
-      { x: boardX + boardW - nodeW - 8, y: boardY + 14 },
-      { x: boardX + Math.round((boardW - nodeW) / 2), y: boardY + 96 }
-    ];
-    const centers = positions.map((position) => ({ x: position.x + nodeW / 2, y: position.y + nodeH / 2 }));
-    ctx.save();
-    ctx.strokeStyle = "rgba(232,212,145,0.26)";
-    ctx.lineWidth = 2;
-    if (ctx.setLineDash) ctx.setLineDash([5, 5]);
-    ctx.beginPath();
-    ctx.moveTo(centers[0].x, centers[0].y);
-    ctx.lineTo(centers[2].x, centers[2].y);
-    ctx.lineTo(centers[1].x, centers[1].y);
-    ctx.stroke();
-    if (selected.length === 2) {
-      const firstIndex = config.nodes.findIndex((node) => node.id === selected[0]);
-      const secondIndex = config.nodes.findIndex((node) => node.id === selected[1]);
-      if (firstIndex >= 0 && secondIndex >= 0) {
-        if (ctx.setLineDash) ctx.setLineDash([]);
-        ctx.strokeStyle = "#f0d376";
-        ctx.lineWidth = 5;
-        ctx.beginPath();
-        ctx.moveTo(centers[firstIndex].x, centers[firstIndex].y);
-        ctx.lineTo(centers[secondIndex].x, centers[secondIndex].y);
-        ctx.stroke();
-      }
-    }
-    ctx.restore();
-    this.renderedOperationNodes = [];
-    config.nodes.forEach((node, index) => {
-      const position = positions[index];
-      const order = selected.indexOf(node.id);
-      const active = order >= 0;
-      this.drawPatrolOperationSceneNode(ctx, node, position.x, position.y, nodeW, nodeH, active, order);
-      this.renderedOperationNodes.push({ id: node.id, icon: node.icon || "trail", x: position.x, y: position.y, w: nodeW, h: nodeH, iconSize: 30, graphical: true, active, order });
-      this.addHit(position.x - 4, position.y - 4, nodeW + 8, nodeH + 8, () => this.togglePatrolOperationNode(node.id));
-    });
-
-    const routeY = y + 294;
-    const routeX = x + 18;
-    const routeW = w - 36;
-    this.roundRect(ctx, routeX, routeY, routeW, 72, 9, "rgba(255,248,223,0.94)", "rgba(36,64,46,0.16)");
-    const chipGap = 4;
-    const chipW = (routeW - 16 - chipGap * 2) / 3;
-    this.renderedOperationStrategies = [];
-    profiles.forEach((profile, index) => {
-      const active = !!(preview && preview.profile && preview.profile.id === profile.id);
-      const chipX = routeX + 8 + index * (chipW + chipGap);
-      const riskColor = profile.risk === "高风险" ? "#b9553f" : profile.risk === "中风险" ? "#9a6a20" : "#2d7f5b";
-      this.roundRect(ctx, chipX, routeY + 6, chipW, 22, 7, active ? riskColor : "rgba(39,75,53,.08)", active ? riskColor : "rgba(39,75,53,.18)");
-      this.text(ctx, this.truncateTextToWidth(ctx, profile.label, chipW - 8, 9, "700"), chipX + chipW / 2, routeY + 20, 9, active ? "#fff8df" : riskColor, "700", "center");
-      this.renderedOperationStrategies.push({ id: profile.id, label: profile.label, risk: profile.risk, pairKey: profile.pairKey, active, x: chipX, y: routeY + 6, w: chipW, h: 22 });
-    });
-    if (preview && preview.profile) {
-      const chance = preview.profile.chanceBonus;
-      const riskColor = preview.profile.risk === "高风险" ? "#b9553f" : preview.profile.risk === "中风险" ? "#9a6a20" : "#2d7f5b";
-      const resultText = `${preview.profile.risk} · 成功率${chance >= 0 ? "+" : ""}${chance}% · ${preview.deltaText}`;
-      this.text(ctx, this.truncateTextToWidth(ctx, resultText, routeW - 20, 10, "700"), routeX + 10, routeY + 45, 10, riskColor, "700");
-      const orderText = `①${config.nodes.find((node) => node.id === selected[0]).label}100% → ②${config.nodes.find((node) => node.id === selected[1]).label}60%`;
-      this.text(ctx, this.truncateTextToWidth(ctx, `${preview.profile.promise} · ${orderText}`, routeW - 20, 10, "700"), routeX + 10, routeY + 64, 10, "#536258", "700");
-      this.renderedOperationStrategy = { id: preview.profile.id, label: preview.profile.label, risk: preview.profile.risk, promise: preview.profile.promise, chanceBonus: chance, deltaText: preview.deltaText, orderText };
+  drawPatrolTaskHeroPill(ctx, id, reserve, status, x, y, w, h) {
+    const blocked = status && !status.canRun;
+    const text = blocked ? `缺${(status.missing || [])[0] || "资源"}` : this.patrolTaskHeroText(id, reserve);
+    const color = blocked ? "#fff8df" : "#60451f";
+    if (blocked) {
+      this.roundRect(ctx, x, y + 3, w, h, 10, "rgba(0,0,0,0.18)");
+      this.roundRect(ctx, x, y, w, h, 10, "#c45b42", "rgba(255,248,223,0.28)");
     } else {
-      this.text(ctx, "任意两点形成一种策略", routeX + 10, routeY + 46, 10, "#315a45", "700");
-      this.text(ctx, "先选主目标 100% · 再选兼顾点 60%", routeX + 10, routeY + 64, 9, "#6c746b", "700");
-      this.renderedOperationStrategy = null;
+      this.drawPremiumBrassPlate(ctx, x, y, w, h, 10, { rivets: false });
     }
-
-    const buttonY = y + h - 56;
-    this.modalButton(ctx, x + 18, buttonY, (w - 48) / 2, 40, "返回调整", "#e8ddbd", () => {
-      this.patrolOperationPlan = null;
-      this.render();
-    }, "#26352b");
-    this.modalButton(ctx, x + 30 + (w - 48) / 2, buttonY, (w - 48) / 2, 40, selected.length === 2 ? "按路线出发" : "返回单步操作", selected.length === 2 && resourceStatus.canRun ? "#1c3325" : "#778078", () => {
-      if (selected.length !== 2) {
-        this.toast("该操作已改为单步执行");
-        return;
-      }
-      this.confirmPatrolOperation();
-    });
-    ctx.restore();
-  }
-
-  drawPatrolOperationSceneNode(ctx, node, x, y, w, h, active, order) {
-    const bg = active ? "#f5e5a8" : "#173b2f";
-    const ink = active ? UI_THEME.forest900 : UI_THEME.ivory;
-    const secondary = active ? UI_THEME.goldDeep : "#d7ddcf";
-    this.roundRect(ctx, x, y + 4, w, h, 12, "rgba(0,0,0,0.24)");
-    this.roundRect(ctx, x, y, w, h, 12, bg, active ? "#fff1b8" : "rgba(240,211,118,0.30)");
-    ctx.save();
-    ctx.globalAlpha = active ? .78 : .34;
-    ctx.fillStyle = active ? "rgba(103,142,91,.30)" : "rgba(143,172,144,.22)";
-    ctx.beginPath();
-    ctx.moveTo(x + 5, y + 37);
-    ctx.quadraticCurveTo(x + w * .30, y + 24, x + w * .54, y + 35);
-    ctx.quadraticCurveTo(x + w * .78, y + 21, x + w - 5, y + 35);
-    ctx.lineTo(x + w - 5, y + 42);
-    ctx.lineTo(x + 5, y + 42);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-    const iconX = x + w / 2;
-    const iconY = y + 21;
-    this.drawUiIconBadge(ctx, node.icon || "trail", iconX, iconY, 32, 28, active)
-      || this.drawSmallGlyph(ctx, node.icon || "trail", iconX, iconY, active ? UI_THEME.forest800 : UI_THEME.gold, .86);
-    if (active) {
-      this.roundRect(ctx, x + 5, y + 5, 20, 20, 7, order === 0 ? UI_THEME.danger : "#5f8390");
-      this.text(ctx, `${order + 1}`, x + 15, y + 19, 10, UI_THEME.ivory, "700", "center");
-    }
-    this.roundRect(ctx, x + w - 30, y + 5, 25, 15, 6, active ? "rgba(23,61,52,.16)" : "rgba(240,211,118,.12)");
-    this.text(ctx, node.role || "节点", x + w - 17.5, y + 16, 8, active ? UI_THEME.forest800 : "#e8d491", "700", "center");
-    this.text(ctx, this.truncateTextToWidth(ctx, node.label, w - 12, 12, "700"), x + w / 2, y + 50, 12, ink, "700", "center");
-    this.text(ctx, this.truncateTextToWidth(ctx, node.short, w - 8, 9, "700"), x + w / 2, y + 67, 9, secondary, "700", "center");
+    this.text(ctx, this.truncateTextToWidth(ctx, text, w - 16, 12, "700"), x + w / 2, y + h / 2 + 4, 12, color, "700", "center");
   }
 
   patrolTaskChangeCards(id, reserve, status) {
@@ -5107,7 +4877,6 @@ class Game {
     if (modal.kind === "poacherEventNotice") return 620;
     if (modal.kind === "resourceShortfall") return 390;
     if (modal.kind === "guardianPromise") return 520;
-    if (modal.kind === "patrolIncident") return 500;
     if (modal.kind === "fundRelief" || modal.kind === "animalLetterPrompt" || modal.kind === "visitorLetterReader") return 470;
     if (modal.kind === "fundLedger") return 590;
     if (modal.kind === "mapAnimalAction") return 560;
@@ -5177,7 +4946,7 @@ class Game {
     const modal = this.infoDetailModal;
     // 插屏展示期间不绘制底层弹窗，防止广告关闭按钮与任务关闭按钮视觉融合。
     if (this.interstitialAds && this.interstitialAds.showing) return;
-    if (!modal || this.settlementModal || (this.patrolTaskModal && modal.kind !== "patrolIncident") || !this.ctx) return;
+    if (!modal || this.settlementModal || this.patrolTaskModal || !this.ctx) return;
     if (modal.revealAt && Date.now() < modal.revealAt) return;
     const ctx = this.ctx;
     ctx.save();
@@ -5226,7 +4995,6 @@ class Game {
       this.roundRect(ctx, header.close.x + 4, header.close.y + 4, header.close.w - 8, header.close.h - 8, (header.close.w - 8) / 2, "#f6edda", "rgba(87,59,24,.38)");
       this.text(ctx, modal.returnInfoDetailModal ? "‹" : "×", header.close.x + header.close.w / 2, header.close.y + 25, 18, UI_THEME.ink, "600", "center");
       this.addHit(header.closeHit.x, header.closeHit.y, header.closeHit.w, header.closeHit.h, () => {
-        if (modal.kind === "patrolIncident" && modal.returnPatrolTask) this.patrolTaskModal = modal.returnPatrolTask;
         this.dismissInfoDetailModal();
       });
     }
@@ -5242,8 +5010,6 @@ class Game {
     this.drawPremiumParchmentPanel(ctx, x + 16, bodyY, w - 32, bodyH, 18, { active: false });
     if (modal.kind === "mapAnimalAction") {
       this.drawMapAnimalActionModalContent(ctx, modal, x, bodyY, w, bodyH);
-    } else if (modal.kind === "patrolIncident") {
-      this.drawPatrolIncidentContent(ctx, modal, x, bodyY, w, bodyH);
     } else if (modal.kind === "animalComfort") {
       this.drawAnimalComfortContent(ctx, modal, x, bodyY, w, bodyH);
     } else if (modal.kind === "visitorRecruitment") {
@@ -5700,22 +5466,6 @@ class Game {
       const outboxChoice = modal.choices[1];
       this.modalButton(ctx, x + 18, buttonY, (w - 48) / 2, 36, inboxChoice.label, inboxActive ? "#1c3325" : "#e8ddbd", () => inboxChoice.action(), inboxActive ? "#fff8df" : "#26352b", 10);
       this.modalButton(ctx, x + 30 + (w - 48) / 2, buttonY, (w - 48) / 2, 36, outboxChoice.label, inboxActive ? "#e8ddbd" : "#1c3325", () => outboxChoice.action(), inboxActive ? "#26352b" : "#fff8df", 10);
-    } else if (modal.kind === "patrolIncident" && modal.choices && modal.choices.length >= 2) {
-      const leftChoice = modal.choices[0];
-      const rightChoice = modal.choices[1];
-      const resolving = !!this.patrolIncidentResolving;
-      const leftBounds = { x: x + 18, y: buttonY, w: (w - 48) / 2, h: 36 };
-      const rightBounds = { x: x + 30 + (w - 48) / 2, y: buttonY, w: (w - 48) / 2, h: 36 };
-      this.modalButton(ctx, leftBounds.x, leftBounds.y, leftBounds.w, leftBounds.h, resolving ? "处理中…" : leftChoice.label, resolving ? "#9aa093" : "#e8ddbd", () => {
-        if (!resolving) leftChoice.action();
-      }, resolving ? "#f5f1df" : "#26352b", 10);
-      this.modalButton(ctx, rightBounds.x, rightBounds.y, rightBounds.w, rightBounds.h, resolving ? "请稍候" : rightChoice.label, resolving ? "#9aa093" : "#1c3325", () => {
-        if (!resolving) rightChoice.action();
-      }, "#fff8df", 10);
-      modal.renderedChoiceButtons = [
-        Object.assign({ id: "steady", label: leftChoice.label }, leftBounds),
-        Object.assign({ id: "investigate", label: rightChoice.label }, rightBounds)
-      ];
     } else if (modal.kind === "animalInteractionStory") {
       if (modal.phase === "result") {
         this.modalButton(ctx, x + 18, buttonY, w - 36, 36, "记录完成", "#1c3325", () => this.dismissInfoDetailModal(), "#fff8df", 13);
@@ -11624,61 +11374,20 @@ class Game {
   }
 
   drawPatrolExecuteBoard(ctx, x, y, w, reserve) {
-    const groups = this.patrolActionGroups(reserve);
-    const rowH = 118;
-    const rowGap = 8;
-    const guideH = 76;
-    const h = 52 + groups.length * (rowH + rowGap) + guideH;
+    const primary = this.currentGoalView && this.currentGoalView().primary;
+    const actionId = primary && primary.recommendedAction && this.isPatrolTaskAction(primary.recommendedAction)
+      ? primary.recommendedAction : this.recommendedPatrolAction(reserve);
+    const option = this.reserveActionOptions().find(item => item.id === actionId) || this.reserveActionOptions()[0];
+    const h = 168;
     this.renderedPatrolActionTiles = [];
     this.panel(ctx, x, y, w, h);
-    this.text(ctx, "选择1项任务", x + 16, y + 28, 18, "#1c3325", "700");
-    this.text(ctx, "点击卡片查看并执行单步操作", x + w - 16, y + 27, 10, "#66715f", "600", "right");
-    ctx.fillStyle = "rgba(36,64,46,0.10)";
-    ctx.fillRect(x + 16, y + 40, w - 32, 1);
-    const tileGap = 10;
-    const tileW = (w - tileGap - 32) / 2;
-    groups.forEach((group, index) => {
-      const rowY = y + 52 + index * (rowH + rowGap);
-      this.drawSectionMarker(ctx, x + 18, rowY + 14, group.color);
-      this.text(ctx, group.label, x + 34, rowY + 18, 12, "#26352b", "700");
-      group.options.forEach((option, optionIndex) => {
-        const tx = x + 16 + optionIndex * (tileW + tileGap);
-        this.drawPatrolActionTile(ctx, option, tx, rowY + 28, tileW, rowH - 34, reserve);
-      });
-    });
-    const guideY = y + 52 + groups.length * (rowH + rowGap) + 2;
-    this.text(ctx, "主动查看 · 不消耗行动", x + 16, guideY + 13, 10, "#66715f", "700");
-    const guides = [
-      { id: "guideSandbox", label: "回沙盘", hint: "看现场", icon: "nav_sandbox" },
-      { id: "viewFund", label: "看星币", hint: "收支明细", icon: "fund" },
-      { id: "viewVisitors", label: "游客运营", hint: "游客频道", icon: "community" },
-      { id: "viewSurvival", label: "生存频道", hint: "交换与知识", icon: "leaf" }
-    ];
-    const guideGap = 6;
-    const guideW = (w - 32 - guideGap) / 2;
-    this.renderedPatrolGuides = [];
-    guides.forEach((guide, index) => {
-      const row = Math.floor(index / 2);
-      const col = index % 2;
-      const gx = x + 16 + col * (guideW + guideGap);
-      const gy = guideY + 20 + row * 26;
-      this.roundRect(ctx, gx, gy + 2, guideW, 23, 8, "rgba(20,31,26,.10)");
-      this.roundRect(ctx, gx, gy, guideW, 23, 8, "rgba(247,242,224,.96)", "rgba(139,111,42,.24)");
-      this.drawSmallGlyph(ctx, guide.icon, gx + 13, gy + 11, "#2f765c", .68);
-      this.text(ctx, guide.label, gx + 25, gy + 11, 10, "#1c3325", "700");
-      this.text(ctx, guide.hint, gx + guideW - 8, gy + 14, 10, "#8b6f2a", "600", "right");
-      this.addHit(gx, gy - this.scrollY, guideW, 23, () => this.openGuidedChannel(guide.id));
-      this.renderedPatrolGuides.push({ id: guide.id, x: gx, y: gy, w: guideW, h: 23 });
-    });
-    this.renderedPatrolExecuteBoard = {
-      x, y, w, h,
-      title: "选择1项任务",
-      instruction: "点击卡片查看并执行单步操作",
-      guideInstruction: "也可主动查看沙盘、星币、游客和生存频道",
-      advancedRouteHidden: true
-    };
+    this.text(ctx, "当前任务", x + 16, y + 28, 18, "#1c3325", "700");
+    this.text(ctx, "触发后直接进入任务并结算", x + w - 16, y + 27, 10, "#66715f", "600", "right");
+    this.drawPatrolActionTile(ctx, option, x + 16, y + 46, w - 32, 86, reserve);
+    this.renderedPatrolExecuteBoard = { x, y, w, h, title: "当前任务", instruction: "触发后直接进入任务并结算", choiceCount: 1, advancedRouteHidden: true };
     return h;
   }
+
   drawPatrolActionTile(ctx, option, x, y, w, h, reserve) {
     const active = option.id === this.selectedReserveAction;
     const resourceStatus = this.actionResourceStatus(option.id, reserve);
@@ -11949,51 +11658,6 @@ class Game {
       actionLabel: option.label,
       ctaLabel: `执行${shortMap[actionId] || option.label}`
     });
-  }
-
-  patrolMissionOptions(reserve) {
-    const options = this.reserveActionOptions().filter((option) => this.isPatrolTaskAction(option.id));
-    const preferred = this.recommendedPatrolAction(reserve);
-    const preferredStatus = this.actionResourceStatus(preferred, reserve);
-    const fallback = options.find((option) => this.actionResourceStatus(option.id, reserve).canRun);
-    const recommended = preferredStatus.canRun ? preferred : (fallback ? fallback.id : preferred);
-    return options.map((option) => Object.assign({}, option, {
-      recommended: option.id === recommended,
-      effect: this.patrolEffectText(option.id)
-    }));
-  }
-
-  patrolActionGroups(reserve) {
-    const options = this.patrolMissionOptions(reserve);
-    const byId = {};
-    options.forEach((option) => { byId[option.id] = option; });
-    const decorate = (id, shortLabel, color) => Object.assign({}, byId[id], { shortLabel, color });
-    return [
-      {
-        id: "defense",
-        label: "防卫巡护",
-        hint: "先保安全线",
-        icon: "signal",
-        color: "#d8a13a",
-        fill: "rgba(255, 248, 223, 0.72)",
-        options: [
-          decorate("houndScout", "侦察", "#1c3325"),
-          decorate("antiPoacher", "驱赶", "#d8a13a")
-        ]
-      },
-      {
-        id: "ecology",
-        label: "生态调节",
-        hint: "稳水草与种群",
-        icon: "leaf",
-        color: "#5f8f42",
-        fill: "rgba(240, 247, 219, 0.68)",
-        options: [
-          decorate("habitat", "修复", "#5f8f42"),
-          decorate("intervention", "干预", "#2f7c8f")
-        ]
-      }
-    ].map((group) => Object.assign({}, group, { options: group.options.filter((option) => option && option.id) }));
   }
 
   patrolButtonValue(id, reserve) {
@@ -12435,7 +12099,9 @@ class Game {
       this.selectedPurchaseId = "";
       this.selectedPurchaseQuantity = 1;
     }
-    if (!this.command) this.command = selected.placeholder.replace("例如：", "");
+    const previousDraft = String(this.command || "").replace(/\[(?:路线|途中):[^\]]*\]/g, "").trim();
+    const belongsToOtherTask = this.reserveActionOptions().some(item => item.id !== selected.id && previousDraft === String(item.placeholder || "").replace("例如：", "").trim());
+    this.command = !previousDraft || belongsToOtherTask ? selected.placeholder.replace("例如：", "") : previousDraft;
     // 任务因资源不足把玩家带到物资页时，补充完成应回到沙盘继续任务。
     // 普通从物资页发起的采购仍保留原来的返回位置。
     this.pendingTaskOriginScreen = this.pendingGuidedSupplyReturnScreen
@@ -28155,7 +27821,7 @@ class Game {
     }
     const originScreen = this.pendingTaskOriginScreen || this.screen || "action";
     const returnScreen = originScreen === "action" ? "home" : originScreen;
-    const command = String(prebuiltCommand || this.buildSubmittedCommand(option));
+    const command = String(prebuiltCommand || this.buildSubmittedCommand(option)).replace(/\[(?:路线|途中):[^\]]*\]/g, "").trim();
     this.patrolIncidentChoice = "";
     this.patrolTaskModal = null;
     this.patrolOperationPlan = null;
@@ -28323,10 +27989,7 @@ class Game {
       : typed.indexOf(option.template) >= 0 || typed.indexOf(option.label) >= 0
         ? typed
         : `${option.template}：${typed}`;
-    const operation = encodeOperationPlan(this.patrolOperationPlan);
-    if (operation) command = `${command} ${operation}`;
-    if (operation) command = `${command} [途中:${this.patrolIncidentChoice || "steady"}]`;
-    return command;
+    return command.replace(/\[(?:路线|途中):[^\]]*\]/g, "").trim();
   }
 
   resetGame() {

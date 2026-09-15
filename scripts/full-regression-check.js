@@ -36,6 +36,7 @@ runtimeFiles.forEach((file) => {
 });
 
 run(["scripts/chapter-rescue-strict-cache-check.js"], "WeChat strict-mode rescue cache regression");
+run(["scripts/patrol-single-step-check.js"], "four patrol cards direct settlement regression");
 run(["scripts/task-lock-recovery-check.js"], "task close and sandbox continuation regression");
 run(["scripts/recurring-rescue-task-routing-check.js"], "recurring rescue collection and real button routing regression");
 run(["scripts/rescue-point-feedback-check.js"], "rescue cumulative points and count-up feedback regression");

@@ -53,8 +53,8 @@ lowWaterGame.state.world.reserve.ecology.grass = 85;
 lowWaterGame.state.world.reserve.fund = 1000;
 lowWaterGame.state.world.reserve.supplies.fieldKit = 4;
 assert(/水源 52/.test(lowWaterGame.patrolButtonValue("habitat", lowWaterGame.state.world.reserve)), "低水源时栖息地任务按钮必须显示水源而不是草场");
-lowWaterGame.startPatrolOperation({ id: "habitat" });
-assert.deepStrictEqual(lowWaterGame.patrolOperationPlan.nodeIds, ["spring"], "低水源进入路线规划时必须默认聚焦暗泉保水路线");
+assert(lowWaterGame.startPatrolOperation({ id: "habitat" }), "低水源旧入口必须直接完成修复");
+assert(!lowWaterGame.patrolOperationPlan && lowWaterGame.settlementModal, "修复不应停留在已删除的路线第二步");
 const lowWaterResult = withRandom(.1, () => simulateDay("去东部河岸湿地修复水源，观察鹿群迁移", lowWaterGame.state));
 assert(lowWaterResult.world.reserve.ecology.water > 52, "低水源修复任务完成后必须真实提高水源");
 const settlementDisplay = lowWaterGame.settlementDisplayChanges({
