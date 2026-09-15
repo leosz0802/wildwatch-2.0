@@ -579,7 +579,7 @@ function stageCandidate(state) {
     action = activeDiscovery && activeDiscovery.status === "located"
       ? "collectionInvestigate"
       : activeDiscovery
-        ? (activeDiscovery.actionId || "houndScout")
+        ? (["animalCare", "careAnimal"].includes(activeDiscovery.actionId) ? "exploreMaterials" : (activeDiscovery.actionId || "houndScout"))
         : "animalCare";
   }
   if (goal.id === "chapterStory") {
