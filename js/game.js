@@ -965,11 +965,13 @@ class Game {
         // Core reserve changes and supply consumption need visible feedback
         // together; otherwise a fund change would cause safety/supplies to
         // snap instantly and their delta badges would disappear.
-        const resourceBurst = Date.now() < (this.numberAnimationBurstUntil || 0)
+        const taskBurst = Date.now() < (this.numberAnimationBurstUntil || 0)
+          && this.numberAnimationBurstCause === "task";
+        const resourceBurst = taskBurst
           && ["fund", "water", "grass"].includes(key);
         const mayAnimate = resourceBurst || !activeKey || key === "safety" || key === "poacherPressure" || key.startsWith("supply:");
         if (mayAnimate && target !== current) {
-          animation = { from: current, target, delta: target - current, elapsed: 0, duration: 600, hold: 220 };
+          animation = { from: current, target, delta: target - current, elapsed: 0, duration: 600, hold: 220, cause: taskBurst ? "task" : "system", arrowDelay: taskBurst ? 360 : 0 };
           this.numberAnimations[key] = animation;
           activeKey = key;
         } else {
@@ -979,11 +981,12 @@ class Game {
           return;
         }
       }
-      if (animation.elapsed < animation.duration) {
-        animation.elapsed = Math.min(animation.duration, animation.elapsed + elapsed);
-        const p = animation.duration ? animation.elapsed / animation.duration : 1;
+      const numberElapsed = Math.max(0, animation.elapsed - (animation.arrowDelay || 0));
+      if (numberElapsed < animation.duration) {
+        animation.elapsed = Math.min(animation.duration + (animation.arrowDelay || 0), animation.elapsed + elapsed);
+        const p = animation.duration ? numberElapsed / animation.duration : 1;
         const eased = 1 - Math.pow(1 - p, 3);
-        this.displayReserveStats[key] = animation.from + (animation.target - animation.from) * eased;
+        this.displayReserveStats[key] = numberElapsed <= 0 ? animation.from : animation.from + (animation.target - animation.from) * eased;
       } else {
         this.displayReserveStats[key] = animation.target;
         animation.elapsed += elapsed;
@@ -1018,6 +1021,11 @@ class Game {
     return Math.sin(Math.PI * p);
   }
 
+  numberAnimationArrowPhase(key) {
+    const animation = this.numberAnimations && this.numberAnimations[key];
+    return !!(animation && animation.cause === "task" && animation.arrowDelay && animation.elapsed < animation.arrowDelay);
+  }
+
   drawChangeTag(ctx, x, y, delta, align = "left", options = {}) {
     if (!delta) return;
     const positive = options.inverse ? delta < 0 : delta > 0;
@@ -1025,10 +1033,14 @@ class Game {
     const w = Math.max(26, 12 + text.length * 7);
     const tx = align === "right" ? x - w : x;
     const pulse = options.key ? this.numberAnimationPulse(options.key) : 0;
+    const arrowPhase = options.key ? this.numberAnimationArrowPhase(options.key) : false;
     ctx.save();
     ctx.globalAlpha = 0.82 + pulse * 0.18;
     this.roundRect(ctx, tx, y, w, 16, 7, positive ? "rgba(92,184,122,0.22)" : "rgba(196,91,66,0.18)", positive ? "rgba(92,184,122,0.34)" : "rgba(196,91,66,0.32)");
     this.text(ctx, text, tx + w / 2, y + 12, 9, positive ? "#1f5a3f" : "#c45b42", "700", "center");
+    if (arrowPhase) {
+      this.text(ctx, delta > 0 ? "↑" : "↓", tx + w + 8, y + 13, 14, "#d84b42", "700", "center");
+    }
     ctx.restore();
   }
 
@@ -8365,6 +8377,7 @@ class Game {
     // Keep the post-settlement transition long enough for fund, water and
     // grass to visibly roll together after the result is acknowledged.
     this.numberAnimationBurstUntil = Date.now() + 1800;
+    this.numberAnimationBurstCause = "task";
     this.maybeShowInterstitialForSettlement(modal, returnScreen);
   }
 
@@ -24225,6 +24238,12 @@ class Game {
     const percentText = state.showProgress ? `${Math.max(0, Math.min(100, Number(state.percentage) || 0))}%` : "";
     const valueSize = this.fitTextSize(ctx, valueText, Math.max(18, w - (valueX - x) - (percentText ? 30 : 8)), 13, 10, "700");
     this.text(ctx, valueText, valueX, baseline, valueSize, color, "700");
+    // Task/story changes announce direction first; automatic system drift only
+    // uses the regular count-up and never adds an arrow.
+    if (animationKey && this.numberAnimationArrowPhase(animationKey)) {
+      const delta = this.reserveDisplayDelta(animationKey, state.value);
+      this.text(ctx, delta >= 0 ? "↑" : "↓", valueX + ctx.measureText(valueText).width + 9, baseline + 1, 14, "#d84b42", "700", "center");
+    }
     if (percentText) this.text(ctx, percentText, x + w - 7, baseline, 8, color, "700", "right");
     const clickable = true;
     this.addHit(x, y - this.scrollY, w, h, () => ["visitors", "speciesCount", "animalTotal"].includes(state.id)
@@ -28449,6 +28468,7 @@ class Game {
       this.reserveDisplayTargetCache = null;
       this.reserveDisplayTargetRefreshLeft = 0;
       this.numberAnimationBurstUntil = Date.now() + 1800;
+      this.numberAnimationBurstCause = "task";
       this.playSfx("success");
       this.maybeShowInterstitialForSettlement(settlement, returnScreen, { preserveCurrentScreen: true })
         .then(() => this.toast(option.id === "salvage" ? "移交完成，结果已更新" : "采购完成，库存已更新"));
