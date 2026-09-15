@@ -294,6 +294,24 @@ const CHAPTER_OPENING_OBJECTIVES = {
  15: "目标 · 让共同体继续写下去"
 };
 
+function reserveTotalVisitors(reserve = {}) {
+  const operations = ((reserve.development || {}).operations || {});
+  const visitorLedger = operations.visitorLedger || {};
+  const direct = Number(operations.totalVisitors);
+  const ledger = Number(visitorLedger.totalVisitors);
+  const values = [direct, ledger].filter((value) => Number.isFinite(value));
+  return Math.max(0, Math.round(values.length ? Math.max(...values) : 0));
+}
+
+function chapterVisitorTotal(reserve = {}) {
+  const progression = reserve.progression || {};
+  const start = progression.stageStart || progression.chapterStart || {};
+  const baseline = Number(start.totalVisitors);
+  // Legacy saves are migrated in storage.js. Keeping a zero fallback here
+  // also makes fresh in-memory reserves behave like chapter one.
+  return Math.max(0, reserveTotalVisitors(reserve) - (Number.isFinite(baseline) ? Math.max(0, baseline) : 0));
+}
+
 function chapterCoreMetrics(reserve = {}, chapter = 1) {
   const ecology = reserve.ecology || {};
   const species = new Set();
@@ -304,9 +322,9 @@ function chapterCoreMetrics(reserve = {}, chapter = 1) {
   });
   const animals = [ecology.predators, ecology.herbivores, ecology.birds]
     .reduce((sum, group) => sum + Object.values(group || {}).reduce((n, value) => n + Math.max(0, Number(value) || 0), 0), 0);
-  const operations = ((reserve.development || {}).operations || {});
-  const visitorLedger = operations.visitorLedger || {};
-  const visitors = Math.max(0, Math.round(Number(operations.totalVisitors) || Number(visitorLedger.totalVisitors) || 0));
+  // The chapter gate is based on visitors who have arrived during this
+  // chapter, rather than the current live headcount or lifetime ledger.
+  const visitors = chapterVisitorTotal(reserve);
   const target = chapterTargets(chapter);
   const percentage = (value, goal) => goal > 0 ? Math.min(100, Math.round((value / goal) * 100)) : 100;
   return {
@@ -347,7 +365,8 @@ function reserveProgressionFor(reserve = {}) {
       activeSeconds: Math.max(0, Number(computed.activeSeconds) || 0),
       totalFundEarned: Math.max(0, Math.round(Number(computed.totalFundEarned) || 0)),
       totalMigratedIn: Math.max(0, Math.round(Number(computed.totalMigratedIn) || 0)),
-      totalRareRecovered: Math.max(0, Math.round(Number(computed.totalRareRecovered) || 0))
+      totalRareRecovered: Math.max(0, Math.round(Number(computed.totalRareRecovered) || 0)),
+      totalVisitors: reserveTotalVisitors(reserve)
     };
     return Object.assign({}, computed, {
       stage: nextStage,
@@ -24160,7 +24179,7 @@ class Game {
     this.roundRect(ctx, x + 3, y + 3, w - 6, h - 6, 8, fill.replace(".92", ".58"), `${color}55`);
     const animationKey = { fund: "fund", water: "water", grass: "grass" }[state.id] || "";
     const displayValue = animationKey ? this.displayReserveNumber(animationKey, state.value) : state.value;
-    const icon = { fund: "fund", water: "water", grass: "grass", visitors: "community", speciesCount: "paw", animalTotal: "paw" }[state.id] || "leaf";
+    const icon = { fund: "fund", water: "water", grass: "grass", visitors: "people", speciesCount: "paw", animalTotal: "paw" }[state.id] || "leaf";
     this.drawSmallGlyph(ctx, icon, x + 13, y + h / 2, color, .52);
     const labelSize = this.fitTextSize(ctx, state.label, 45, 9, 8, "700");
     const labelX = x + 23;
@@ -24180,6 +24199,7 @@ class Game {
       id: state.id,
       label: state.label,
       value: displayValue,
+      icon,
       x,
       y,
       w,
@@ -27330,6 +27350,27 @@ class Game {
       ctx.beginPath();
       ctx.arc(x, y, 7 * scale, 0, Math.PI * 2);
       ctx.fill();
+    } else if (kind === "people" || kind === "community") {
+      // Compact human mark for visitor metrics when no atlas asset is loaded.
+      ctx.beginPath();
+      ctx.arc(x, y - 4 * scale, 3.4 * scale, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x - 6.5 * scale, y + 7 * scale);
+      ctx.quadraticCurveTo(x - 5.5 * scale, y - 1 * scale, x, y - 1 * scale);
+      ctx.quadraticCurveTo(x + 5.5 * scale, y - 1 * scale, x + 6.5 * scale, y + 7 * scale);
+      ctx.closePath();
+      ctx.fill();
+    } else if (kind === "paw") {
+      // Paw silhouette for the species and animal-total metrics.
+      ctx.beginPath();
+      ctx.ellipse(x, y + 4 * scale, 6 * scale, 5 * scale, 0, 0, Math.PI * 2);
+      ctx.fill();
+      [-5, -1.7, 1.7, 5].forEach((dx, index) => {
+        ctx.beginPath();
+        ctx.ellipse(x + dx * scale, y - (index % 2 ? 5.8 : 6.6) * scale, 2.1 * scale, 3 * scale, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
     } else if (kind === "signal") {
       [12, 22, 32].forEach((r) => {
         ctx.beginPath();
@@ -27414,6 +27455,27 @@ class Game {
       ctx.beginPath();
       ctx.arc(x, y, 2 * scale, 0, Math.PI * 2);
       ctx.fill();
+    } else if (kind === "people" || kind === "community") {
+      // Compact human mark for visitor metrics when no atlas asset is loaded.
+      ctx.beginPath();
+      ctx.arc(x, y - 4 * scale, 3.4 * scale, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x - 6.5 * scale, y + 7 * scale);
+      ctx.quadraticCurveTo(x - 5.5 * scale, y - 1 * scale, x, y - 1 * scale);
+      ctx.quadraticCurveTo(x + 5.5 * scale, y - 1 * scale, x + 6.5 * scale, y + 7 * scale);
+      ctx.closePath();
+      ctx.fill();
+    } else if (kind === "paw") {
+      // Paw silhouette for the species and animal-total metrics.
+      ctx.beginPath();
+      ctx.ellipse(x, y + 4 * scale, 6 * scale, 5 * scale, 0, 0, Math.PI * 2);
+      ctx.fill();
+      [-5, -1.7, 1.7, 5].forEach((dx, index) => {
+        ctx.beginPath();
+        ctx.ellipse(x + dx * scale, y - (index % 2 ? 5.8 : 6.6) * scale, 2.1 * scale, 3 * scale, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
     } else if (kind === "signal") {
       ctx.beginPath();
       ctx.arc(x, y + 5 * scale, 5 * scale, Math.PI * 1.15, Math.PI * 1.85);

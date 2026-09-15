@@ -33,6 +33,18 @@ reserve.development.operations.totalVisitors = chapterTargets(1).visitors;
 const advanced = game.reserveProgression(reserve);
 assert.strictEqual(advanced.stage, 2, "chapter advances after all core metrics are met");
 
+// Visitor progress is chapter-scoped: a new chapter starts from the current
+// lifetime ledger and only later arrivals count toward its target.
+const chapterVisitors = createReserveState();
+chapterVisitors.development.operations.totalVisitors = 100;
+chapterVisitors.progression.chapterStart.totalVisitors = 100;
+chapterVisitors.progression.stageStart.totalVisitors = 100;
+const visitorBefore = game.reserveProgression(chapterVisitors).coreMetrics.visitors;
+assert.strictEqual(visitorBefore, 0, "chapter visitor metric should ignore visitors from earlier chapters");
+chapterVisitors.development.operations.totalVisitors = 104;
+const visitorAfter = game.reserveProgression(chapterVisitors).coreMetrics.visitors;
+assert.strictEqual(visitorAfter, 4, "chapter visitor metric should count arrivals after the chapter checkpoint");
+
 // Core metrics are the chapter gate; the legacy operation counters must not
 // be required once the three readable goals are complete.
 const coreOnly = createReserveState();

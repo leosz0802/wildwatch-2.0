@@ -143,6 +143,9 @@ if (game.renderedSandboxStateTiles.map((tile) => tile.label).join("/") !== "基�
   || game.renderedSandboxStateTiles.slice(3).some((tile) => typeof tile.percentage !== "number" || !tile.inline)) {
   throw new Error("home HUD metrics should use the two-row order and show chapter percentages on row two");
 }
+if (game.renderedSandboxStateTiles.map((tile) => tile.icon).join("/") !== "fund/water/grass/people/paw/paw") {
+  throw new Error("home HUD should use a human icon for visitors and animal paw icons for the two animal metrics");
+}
 if (game.renderedSandboxStateTiles.some((tile) => !tile.readOnly || !tile.detailOnly || !tile.risk
   || !tile.clickable
   || tile.affordance !== (["warn", "bad"].includes(tile.riskTone) ? "改善 ›" : "查看 ›"))) {

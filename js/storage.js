@@ -218,6 +218,11 @@ function normalizeReserve(saved, fallback) {
   normalizeFacilityConstruction(reserve);
   reserve.development = Object.assign({}, base.development || {}, (saved && saved.development) || {});
   normalizeReserveDevelopment(reserve);
+  const normalizedOperations = ((reserve.development || {}).operations || {});
+  const currentTotalVisitors = Math.max(0, Math.round(Math.max(
+    Number(normalizedOperations.totalVisitors) || 0,
+    Number((normalizedOperations.visitorLedger || {}).totalVisitors) || 0
+  )));
   reserve.supplies = Object.assign({}, base.supplies, (saved && saved.supplies) || {});
   reserve.emergencySupplyAd = Object.assign(
     {},
@@ -279,6 +284,7 @@ function normalizeReserve(saved, fallback) {
     lastSettlement: processing.lastSettlement || null
   };
   const savedChapterStart = saved && saved.progression && (saved.progression.stageStart || saved.progression.chapterStart);
+  const savedHasVisitorBaseline = !!(savedChapterStart && Object.prototype.hasOwnProperty.call(savedChapterStart, "totalVisitors"));
   reserve.progression.chapterStart = Object.assign({}, base.progression.chapterStart || {}, savedChapterStart || {});
   if (!savedChapterStart || reserve.progression.chapterStart.stage !== reserve.progression.stage) {
     reserve.progression.chapterStart = {
@@ -292,9 +298,13 @@ function normalizeReserve(saved, fallback) {
       activeSeconds: reserve.progression.activeSeconds,
       totalFundEarned: reserve.progression.totalFundEarned,
       totalMigratedIn: reserve.progression.totalMigratedIn,
-      totalRareRecovered: reserve.progression.totalRareRecovered
+      totalRareRecovered: reserve.progression.totalRareRecovered,
+      totalVisitors: currentTotalVisitors
     };
   }
+  // Old saves had no chapter visitor checkpoint. Start them at their current
+  // lifetime total so a migration does not award past visitors twice.
+  if (!savedHasVisitorBaseline && saved) reserve.progression.chapterStart.totalVisitors = currentTotalVisitors;
   reserve.progression.stageStart = Object.assign({}, reserve.progression.chapterStart);
   reserve.progression.fundEarningMode = "compliant_gross_v2";
   reserve.balanceVersion = 2;
