@@ -16,7 +16,8 @@ function rescueItemById(id){return RESCUE_ITEM_CATALOG.find(x=>x.id===id)||null;
 function rescueStoryFor(record={}){const name=record.speciesName||record.speciesId||'这只动物';return {title:`${name}的回家路`,paragraphs:[`地图边缘发现了${name}留下的求救痕迹。它不是自然迁徙，而是被旧围栏和人类遗留物困住。`,`你收集齐${(record.requiredItems||[]).map(id=>(rescueItemById(id)||{}).label||id).join('、')}后，才能在不惊扰它的情况下打开出口。`,`解救完成后，${name}会回到保护区，并在后续日结算中影响水源、草场与游客观察记录。`]};}
 function targetCount(chapter){return chapter<=5?1:chapter<=12?2:3;}
 function chapterDefinition(chapterNumber=1){const n=Number(chapterNumber)||1,chapter=CHAPTERS.find(x=>x.chapter===n)||CHAPTERS[0],current=Array.isArray(chapter.newSpecies)?chapter.newSpecies.slice():[],starter=current.length?[current[0]]:(chapter.keyAnimal?[chapter.keyAnimal]:[]),captive=current.filter(id=>!starter.includes(id)),targets=captive.slice(0,targetCount(n));return {chapter:chapter.chapter,title:chapter.title,starter,targets,captive};}
-// Every rescue uses one material track so all arrow points accumulate in one place.
+// Every rescue uses one material item. Its points live on the rescue record;
+// the material-level progress map remains only as a legacy compatibility mirror.
 function requiredItemsFor(speciesId,chapterNumber=1,index=0){const first=RESCUE_ITEM_CATALOG[(Number(chapterNumber)+index)%RESCUE_ITEM_CATALOG.length];return [first.id];}
 // Point rules belong to the rescue record, not to the shared material id.  This
 // keeps two animals that happen to require the same item from sharing progress.
