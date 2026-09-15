@@ -23704,8 +23704,11 @@ class Game {
     const displayName = this.reserveDisplayName(reserve);
     const marketValueTarget = Math.max(0, Math.round(Number(prosperity.value) || 0));
     const visitorTarget = this.reserveVisitorCount(reserve);
+    const ecology = reserve.ecology || {};
     const marketValue = this.displayReserveNumber("valuation", marketValueTarget);
     const visitors = this.displayReserveNumber("visitors", visitorTarget);
+    const water = this.displayReserveNumber("water", Math.max(0, Math.round(Number(ecology.water) || 0)));
+    const grass = this.displayReserveNumber("grass", Math.max(0, Math.round(Number(ecology.grass) || 0)));
     this.drawPremiumParchmentPanel(ctx, x, y, stageW, pillH, 7);
     const audioSize = 22;
     const audioX = interactiveRight - audioSize;
@@ -23713,8 +23716,8 @@ class Game {
     const rankAudioGap = 8;
     const rankButtonX = audioX - rankAudioGap - rankButtonW;
     const identityWidth = Math.max(52, rankButtonX - x - 21);
-    const valueText = `市值 ${marketValue}`;
-    const visitorText = `游客 ${visitors}`;
+    const valueText = `水源 ${water}`;
+    const visitorText = `草场 ${grass}`;
     ctx.font = "700 11px sans-serif";
     const valueW = ctx.measureText(valueText).width;
     const visitorW = ctx.measureText(visitorText).width;
@@ -23747,11 +23750,13 @@ class Game {
       fund: this.displayReserveNumber("fund", Math.max(0, Math.round(Number(reserve.fund) || 0))),
       marketValue,
       visitors,
+      water,
+      grass,
       clickable: true,
       valueClickable: true,
       visitorClickable: true,
-      valueLabel: "市值",
-      visitorLabel: "游客",
+      valueLabel: "水源",
+      visitorLabel: "草场",
       affordance: "好友榜 ›",
       rankScope: "friends",
       rankClickable: true,
@@ -23818,12 +23823,9 @@ class Game {
     const grade = this.reserveOperatingGrade(reserve);
     const tourism = grade.tourism || { stars: 1, title: "初探之地" };
     const protection = this.protectionLevelSummary(reserve);
-    const chapterLabel = `第${chapter.chapter}章 · ${chapter.title}`;
-    const guideLabel = progressSeen ? "进度 ›" : "查看条件 ›";
-    const guideW = progressSeen ? 52 : 82;
-    this.text(ctx, this.truncateTextToWidth(ctx, chapterLabel, titleBoxW - guideW - 18, 10, "700"), x + 14, y + 18, 10, UI_THEME.ink, "700");
-    this.roundRect(ctx, x + titleBoxW - guideW - 2, y + 6, guideW, 16, 8, progressSeen ? "rgba(255,250,232,.25)" : `rgba(218,193,103,${(.22 + .18 * guidePulse).toFixed(2)})`, progressSeen ? "rgba(139,107,50,.18)" : "rgba(171,126,42,.55)");
-    this.text(ctx, guideLabel, x + titleBoxW - 4, y + 17, 8, progressSeen ? UI_THEME.tint : UI_THEME.goldDeep, "700", "right");
+    const fundValue = Math.max(0, Math.round(Number(reserve.fund) || 0));
+    const chapterLabel = `第${chapter.chapter}章 · ${chapter.title} · 基金 ${fundValue}`;
+    this.text(ctx, this.truncateTextToWidth(ctx, chapterLabel, titleBoxW - 18, 10, "700"), x + 14, y + 18, 10, UI_THEME.ink, "700");
     const world = this.state.world || {};
     const seasonState = reserve.seasonState || {};
     const activeEmergency = reserve.emergency && reserve.emergency.active;
@@ -23852,10 +23854,10 @@ class Game {
       title: chapter.title,
       titleClickable: true,
       titleHitW: titleBoxW + 10,
-      titleButtonBounds: { x: x + titleBoxW - 64, y: y + 3, w: 62, h: 22 },
-      affordance: "进度 ›",
-      guideAffordance: guideLabel,
-      guidePulse: progressSeen ? 0 : guidePulse,
+      titleButtonBounds: null,
+      affordance: "章节进度",
+      guideAffordance: "",
+      guidePulse: 0,
       guardianDay: guardian.day,
       guardianPhase: guardian.phase.id,
       guardianActionIndex: guardian.cycle.actionIndex,
@@ -23871,12 +23873,15 @@ class Game {
     const stateY = y + 25;
     const stateGap = 6;
     const stateW = (w - 16 - stateGap * 2) / 3;
-    this.renderedSandboxStateTiles = [];
-    (reserveView.states || []).slice(0, 3).forEach((state, index) => {
-      this.renderedSandboxStateTiles.push(
-        this.drawCompactReserveStateTile(ctx, state, x + 8 + index * (stateW + stateGap), stateY, stateW, 32)
-      );
-    });
+    const prosperity = this.reserveProsperitySummary(reserve, this.state.world || {});
+    const headerStates = [
+      { id: "visitors", label: "游客", value: this.reserveVisitorCount(reserve), tone: "good" },
+      { id: "speciesCount", label: "种群数量", value: prosperity.speciesCount || 0, tone: "good" },
+      { id: "animalTotal", label: "动物总数", value: prosperity.animalTotal || 0, tone: "good" }
+    ];
+    this.renderedSandboxStateTiles = headerStates.map((state, index) =>
+      this.drawCompactReserveStateTile(ctx, state, x + 8 + index * (stateW + stateGap), stateY, stateW, 32)
+    );
 
   }
 
