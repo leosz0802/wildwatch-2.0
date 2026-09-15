@@ -1719,6 +1719,7 @@ class Game {
         actionHit: !!actionHit,
         blockActionDrag: !!actionHit && insideMapViewport,
         mapPan: !actionHit && insideMapViewport,
+        insideMapViewport,
         axis: null
       };
     });
@@ -1786,6 +1787,16 @@ class Game {
         this.gesture.lastX = point.x;
         this.gesture.lastY = point.y;
         if (modalOpen) return;
+        // A swipe that starts on a map marker/card must still pan the map once
+        // it has clearly become a drag.  Previously the marker's hit area kept
+        // blockActionDrag=true for the entire gesture, so map swipes appeared
+        // to do nothing.  The same promotion lets content pages scroll when a
+        // swipe starts on a tappable card, while short taps remain tappable.
+        if (this.gesture.blockActionDrag && (Math.abs(totalDx) + Math.abs(totalDy) > 18)) {
+          this.gesture.blockActionDrag = false;
+          this.gesture.actionHit = false;
+          this.gesture.mapPan = !!this.gesture.insideMapViewport;
+        }
         if (this.gesture.blockActionDrag) return;
         if (this.gesture.mapPan) {
           this.panMapBy(dx, dy);

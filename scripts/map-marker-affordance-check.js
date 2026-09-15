@@ -85,6 +85,20 @@ assert(game.gesture && game.gesture.actionHit && !game.gesture.mapPan && !game.g
 touchHandlers.end();
 assert(game.infoDetailModal && /侦察/.test(game.infoDetailModal.actionLabel || ""), "真机轻触侦察按钮必须打开任务详情");
 
+// A swipe beginning on a tappable map marker must promote to a pan once the
+// movement is clearly intentional; otherwise the marker hit area swallows the
+// gesture and the map appears frozen.
+game.infoDetailModal = null;
+game.hitAreas = [];
+game.mapCameraFrame = { x: 0, y: 0, w: 375, h: 667, worldW: 900, worldH: 900, worldSize: 900, scale: 1.2 };
+game.mapCamera = { cx: 0.5, cy: 0.5 };
+game.addMapRectHit(120, 260, 120, 100, () => {});
+const beforeSwipeCamera = Object.assign({}, game.mapCamera);
+touchHandlers.start({ touches: [{ clientX: 170, clientY: 300 }] });
+touchHandlers.move({ touches: [{ clientX: 170, clientY: 390 }] });
+touchHandlers.end();
+assert(Math.abs(game.mapCamera.cy - beforeSwipeCamera.cy) > 0.001, "从地图任务点开始的明确上滑/下滑必须推动沙盘");
+
 game.mapViewport = { x: 0, y: 0, w: 375, h: 667 };
 game.renderedAnimalFocusMarkers = [];
 game.drawAnimalFocusMarker(fakeContext(), 180, {
