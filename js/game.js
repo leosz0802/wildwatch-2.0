@@ -117,6 +117,7 @@ const MISSION_AUTOPUSH_EARLY_DELAY_SECONDS = 60;
 // Map activity has grown, so routine card tasks should leave a clear window
 // for players to notice and handle sandbox events between prompts.
 const MISSION_AUTOPUSH_MIN_INTERVAL_MS = 65 * 1000;
+const SYSTEM_TASK_TRIGGER_GAP_MS = 30 * 1000;
 const MISSION_AUTOPUSH_INTERVAL_STEP_MS = 8 * 1000;
 const MISSION_AUTOPUSH_COOLDOWN_MS = 120 * 1000;
 // Only three of every five routine push opportunities may become cards. The
@@ -10630,6 +10631,11 @@ class Game {
     if (!daily.title && !daily.story && !daily.recommendedAction) return false;
     const key = this.missionPushKey();
     const ui = this.state.ui || {};
+    // System-generated task cards must never follow a player-started task too
+    // closely. Player actions remain unrestricted; only the next system push
+    // waits for the shared 30-second quiet window.
+    const lastUserTaskAt = Number(ui.lastUserTaskTriggerAt || 0);
+    if (lastUserTaskAt > 0 && Date.now() - lastUserTaskAt < SYSTEM_TASK_TRIGGER_GAP_MS) return false;
     if (!options.force && ui.missionPushSeenKey === key) return false;
     const progression = reserve.progression || {};
     const totalActions = progression.totalActions || 0;
@@ -10676,7 +10682,18 @@ class Game {
     if (!options.force && !firstMission && !chapterIntro && reason !== "login" && routinePatrol
       && totalActions - (ui.lastMissionAutoAction || 0) < routinePatrolGap) return false;
     this.markMissionPushSeen(key, totalActions);
+    ui.lastSystemTaskTriggerAt = Date.now();
+    this.state.ui = ui;
+    saveState(this.state);
     return this.openGoalCenter();
+  }
+
+  markUserTaskTrigger() {
+    if (!this.state) return 0;
+    const now = Date.now();
+    this.state.ui = Object.assign({}, this.state.ui || {}, { lastUserTaskTriggerAt: now });
+    saveState(this.state);
+    return now;
   }
 
   updateDailyHeroAutoCollapse() {
@@ -12104,6 +12121,7 @@ class Game {
   }
 
   openPatrolTaskModal(option) {
+    this.markUserTaskTrigger();
     let selected = option || this.selectedReserveActionOption();
     this.patrolOperationPlan = null;
     this.selectedReserveAction = selected.id;
@@ -29257,6 +29275,7 @@ class Game {
   }
 
   openChapterRescueTask(animalId = "", options = {}) {
+    if (!(options && options.autoRun)) this.markUserTaskTrigger();
     const reserve = (this.state.world || {}).reserve || {};
     const chapter = getCurrentChapter(reserve) || {};
     const state = normalizeChapterRescue(reserve, chapter.chapter || 1);
