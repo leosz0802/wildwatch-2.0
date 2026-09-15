@@ -45,6 +45,20 @@ for (const channel of ['viewSurvival', 'viewDiscovery']) {
   assert.equal(game.activeTaskLock, null, `${channel} should release its lock after entry`);
 }
 
+// The first daily task routes to 生存频道 and then starts animal exploration.
+// The daily lock must allow that exact exploration entry; otherwise the card
+// sends the player to the channel and every material tap is rejected.
+{
+  const game = makeGame();
+  game.prepareLocalAssetsForScreen = () => {};
+  const dateKey = game.state.world.goals.daily.dateKey;
+  assert(game.executeDailyEvent('daily_guard', dateKey));
+  assert.equal(game.screen, 'survival');
+  assert(game.activeTaskLock && game.activeTaskLock.goal.recommendedAction === 'exploreMaterials');
+  assert(game.openMaterialExploration('researchSample'), 'daily guard should open exploration from survival');
+  assert.equal(game.infoDetailModal.kind, 'materialExploration');
+}
+
 // Real goal dispatch creates the lock. X must work both before settlement and
 // on the result page; the old test covered only the separate confirm button.
 for (const phase of ['approach', 'result']) {

@@ -15960,7 +15960,9 @@ class Game {
   openMaterialExploration(targetId = "") {
     const lock = this.activeTaskLock;
     const rescueRecord = this.activeRescueRecord();
-    if (lock && !(rescueRecord && rescueRecord.status !== "rescued" && rescueRecord.requiredItems.includes(targetId))) {
+    const lockedGoalAction = lock && lock.goal && String(lock.goal.recommendedAction || "");
+    const explorationTask = !!(lock && ["exploreMaterials", "viewSurvival"].includes(lockedGoalAction));
+    if (lock && !explorationTask && !(rescueRecord && rescueRecord.status !== "rescued" && rescueRecord.requiredItems.includes(targetId))) {
       this.toast("请先完成或关闭当前任务");
       return false;
     }
