@@ -97,8 +97,8 @@ game.scrollY = 0;
   game.infoDetailModal = { kicker: "保护区数据", title: "水源变化", icon: "water", lines: ["只展示数据与风险。"] };
   game.drawInfoDetailModal();
 
-  if (!game.renderedSandboxStateTiles || game.renderedSandboxStateTiles.length !== 3) {
-    throw new Error(`${width}x${height}: map dock lost its three read-only metrics`);
+  if (!game.renderedSandboxStateTiles || game.renderedSandboxStateTiles.length !== 6) {
+    throw new Error(`${width}x${height}: map dock lost its six two-row metrics`);
   }
   if (!ctx.fonts.length || ctx.fonts.some((font) => !String(font).includes("PingFang SC"))) {
     throw new Error(`${width}x${height}: a rendered label did not use the shared system font stack`);

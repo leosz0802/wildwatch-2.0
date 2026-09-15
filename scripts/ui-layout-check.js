@@ -135,8 +135,13 @@ if (game.renderedSandboxInfoDock.standaloneGoalRow !== false
   || game.renderedSandboxInfoDock.primaryGoalMergedInto !== "map-opportunity-aggregate") {
   throw new Error("home HUD should merge the primary goal into More Clues instead of rendering a third guidance row");
 }
-if (!Array.isArray(game.renderedSandboxStateTiles) || game.renderedSandboxStateTiles.length !== 3) {
-  throw new Error("home HUD should render exactly three state tiles");
+if (!Array.isArray(game.renderedSandboxStateTiles) || game.renderedSandboxStateTiles.length !== 6) {
+  throw new Error("home HUD should render two rows of three state tiles");
+}
+if (game.renderedSandboxStateTiles.map((tile) => tile.label).join("/") !== "基金/水源/草场/游客/种群数量/动物总数"
+  || game.renderedSandboxStateTiles.slice(0, 3).some((tile) => tile.percentage !== null)
+  || game.renderedSandboxStateTiles.slice(3).some((tile) => typeof tile.percentage !== "number" || !tile.inline)) {
+  throw new Error("home HUD metrics should use the two-row order and show chapter percentages on row two");
 }
 if (game.renderedSandboxStateTiles.some((tile) => !tile.readOnly || !tile.detailOnly || !tile.risk
   || !tile.clickable
@@ -194,9 +199,9 @@ game.handleTap(58, 438);
 if (game.infoDetailModal && /天气|边界安全|安全变薄|水线变紧|饮水点会变成风险窗口/.test(`${game.infoDetailModal.title || ""} ${game.infoDetailModal.kicker || ""}`)) {
   throw new Error("removed redundant environment broadcast should not remain in the home detail stream");
 }
-const expectedDockHeight = 65;
+const expectedDockHeight = 78;
 if (game.sandboxInfoDockHeight() !== expectedDockHeight) {
-  throw new Error("sandbox info dock should keep a compact 65px header; first-stage guidance is shown via clue modal");
+  throw new Error("sandbox info dock should fit two rows of three inline metrics");
 }
 game.hitAreas = [];
 game.drawReserveIdentityPill(game.ctx, 12, 12, game.width - 24, reserve);

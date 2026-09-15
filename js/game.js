@@ -4,7 +4,7 @@ const { eventCategory, eventBusinessFactors, visitorContributionRate, applyEvent
 const { worldEventDefinition } = require("./worldEventSystem");
 const { animals } = require("./animals");
 const { loadState, saveState, resetState, createCharacter } = require("./storage");
-const { simulateDay, reserveProgressionFor, advanceIdleEmergency, updateReserveEmergency, sellRecoveredGoodsBatch, advanceLedgerSampleHandover } = require("./simulator");
+const { simulateDay, reserveProgressionFor: computeReserveProgression, advanceIdleEmergency, updateReserveEmergency, sellRecoveredGoodsBatch, advanceLedgerSampleHandover } = require("./simulator");
 const { habitatCapacitySnapshot, habitatMigrationAssessment, consistentMigrationSnapshot } = require("./ecologyConsistency");
 const { reserveActionCatalog, reserveActionById, supplyPurchaseCatalog, supplyPurchaseById, supplyPurchaseForQuantity, supplyReplenishmentPlan, actionSupplyRequirement } = require("./actions");
 const { buildReserveView, actionLabel: reserveActionLabel } = require("./reserveView");
@@ -53,6 +53,7 @@ const { AudioSystem, normalizeAudioSettings } = require("./audioSystem");
 const { promiseByChapter, normalizeGuardianPromises, selectGuardianPromiseChoice, applyGuardianPromiseChoice, chosenPromiseChoices } = require("./guardianPromises");
 const { FRAGMENT_CATALOG, normalizeEcologyEconomy, collectEcologyDrop, ecologyCompetitionReward } = require("./ecologyEconomy");
 const { BALANCE_V2, chapterEconomy } = require("./balanceConfig");
+const { chapterTargets } = require("./chapterTargets");
 const { GOAL_BALANCE, buildGoalView, normalizeGoalState, resolveGoals, applyGoalProgress, goalDateKey, selectActiveGoal } = require("./goalSystem");
 const { guardianContext, advanceGuardianCycle, awardMastery, masteryView, chooseMasteryBranch, recordSevenDayProgress } = require("./guardianCycle");
 const { addPendingRecovered } = require("./resourceLedger");
@@ -292,6 +293,105 @@ const CHAPTER_OPENING_OBJECTIVES = {
  14: "目标 · 看见系统自己运转起来",
  15: "目标 · 让共同体继续写下去"
 };
+
+function chapterCoreMetrics(reserve = {}, chapter = 1) {
+  const ecology = reserve.ecology || {};
+  const species = new Set();
+  [ecology.predators, ecology.herbivores, ecology.birds].forEach((group) => {
+    Object.keys(group || {}).forEach((id) => {
+      if (Number(group[id]) > 0) species.add(id);
+    });
+  });
+  const animals = [ecology.predators, ecology.herbivores, ecology.birds]
+    .reduce((sum, group) => sum + Object.values(group || {}).reduce((n, value) => n + Math.max(0, Number(value) || 0), 0), 0);
+  const operations = ((reserve.development || {}).operations || {});
+  const visitorLedger = operations.visitorLedger || {};
+  const visitors = Math.max(0, Math.round(Number(operations.totalVisitors) || Number(visitorLedger.totalVisitors) || 0));
+  const target = chapterTargets(chapter);
+  const percentage = (value, goal) => goal > 0 ? Math.min(100, Math.round((value / goal) * 100)) : 100;
+  return {
+    species: species.size,
+    animals: Math.round(animals),
+    visitors,
+    target,
+    percentages: {
+      species: percentage(species.size, target.species),
+      animals: percentage(animals, target.animals),
+      visitors: percentage(visitors, target.visitors)
+    },
+    complete: species.size >= target.species && animals >= target.animals && visitors >= target.visitors
+  };
+}
+
+function reserveProgressionFor(reserve = {}) {
+  const computed = computeReserveProgression(reserve || {});
+  const prior = reserve.progression || {};
+  const currentStage = Math.max(1, Math.min(CHAPTERS.length, Math.round(Number(prior.stage || prior.displayChapter) || 1)));
+  const candidateStage = Math.max(currentStage, Math.round(Number(computed.stage || currentStage)));
+  const core = chapterCoreMetrics(reserve, currentStage);
+  if (currentStage >= CHAPTERS.length) {
+    return core.complete ? Object.assign({}, computed, { stage: currentStage, displayChapter: currentStage, chapterComplete: true, stageComplete: true, coreMetrics: core }) : Object.assign({}, computed, { coreMetrics: core });
+  }
+  if (core.complete && candidateStage <= currentStage) {
+    const nextStage = currentStage + 1;
+    const nextChapter = CHAPTERS[nextStage - 1] || CHAPTERS[CHAPTERS.length - 1];
+    const nextLevel = Math.max(1, Math.round(Number(nextChapter.level) || Number(prior.level) || 1));
+    const start = {
+      stage: nextStage,
+      level: nextLevel,
+      daysManaged: Math.max(0, Math.round(Number(computed.daysManaged) || 0)),
+      totalActions: Math.max(0, Math.round(Number(computed.totalActions) || 0)),
+      totalMeaningfulActions: Math.max(0, Math.round(Number(computed.totalMeaningfulActions) || 0)),
+      totalStrategicChoices: Math.max(0, Math.round(Number(computed.totalStrategicChoices) || 0)),
+      totalMajorStrategicChoices: Math.max(0, Math.round(Number(computed.totalMajorStrategicChoices) || 0)),
+      activeSeconds: Math.max(0, Number(computed.activeSeconds) || 0),
+      totalFundEarned: Math.max(0, Math.round(Number(computed.totalFundEarned) || 0)),
+      totalMigratedIn: Math.max(0, Math.round(Number(computed.totalMigratedIn) || 0)),
+      totalRareRecovered: Math.max(0, Math.round(Number(computed.totalRareRecovered) || 0))
+    };
+    return Object.assign({}, computed, {
+      stage: nextStage,
+      displayChapter: nextStage,
+      level: nextLevel,
+      storyLevel: nextLevel,
+      title: nextChapter.title,
+      chapterComplete: nextStage === CHAPTERS.length,
+      stageComplete: nextStage === CHAPTERS.length,
+      levelUpgraded: nextLevel > (Number(prior.level) || 1),
+      chapterStart: start,
+      stageStart: start,
+      chapterActions: 0,
+      chapterStrategicChoices: 0,
+      chapterMajorStrategicChoices: 0,
+      chapterDays: 0,
+      chapterActiveMinutes: 0,
+      chapterFundEarned: 0,
+      chapterMigratedIn: 0,
+      chapterRareRecovered: 0,
+      objectives: [],
+      progress: 0,
+      coreMetrics: core
+    });
+  }
+  if (core.complete && candidateStage > currentStage) return Object.assign({}, computed, { coreMetrics: core });
+  if (candidateStage <= currentStage) return Object.assign({}, computed, { coreMetrics: core });
+  const currentChapter = CHAPTERS[currentStage - 1] || CHAPTERS[0];
+  const nextChapter = CHAPTERS[currentStage] || currentChapter;
+  return Object.assign({}, computed, {
+    stage: currentStage,
+    displayChapter: currentStage,
+    title: currentChapter.title,
+    level: Math.max(1, Math.round(Number(prior.level) || currentChapter.level || 1)),
+    storyLevel: Math.max(1, Math.round(Number(prior.level) || currentChapter.level || 1)),
+    chapterComplete: false,
+    stageComplete: false,
+    levelUpgraded: false,
+    nextTitle: nextChapter.title,
+    chapterStart: prior.chapterStart || computed.chapterStart,
+    stageStart: prior.stageStart || computed.stageStart,
+    coreMetrics: core
+  });
+}
 
 const UI_THEME = {
   forest900: "#18352a",
@@ -3948,6 +4048,8 @@ class Game {
     const chapterRecordLine = phase === "start"
       ? (chapter.newSpeciesLabel ? `本章出现：${chapter.newSpeciesLabel}` : "本章收束：生态进入自运转")
       : `阶段记录：${getUnlockedSpecies(level, level).length} 种动物 · ${population} 只 · 经营 ${daysManaged} 天`;
+    const goals = chapterTargets(chapter.chapter);
+    const goalLine = `晋级目标：种群 ${goals.species} · 动物总数 ${goals.animals} · 游客累计 ${goals.visitors}`;
     return {
       level,
       phase,
@@ -3961,6 +4063,7 @@ class Game {
       quote: phase === "start" ? quote : chapter.nextHook,
       objective: phase === "start" ? `行动 · ${(narrativeBeat.threshold || {}).label || CHAPTER_OPENING_OBJECTIVES[chapter.chapter] || CHAPTER_OPENING_OBJECTIVES[1]}` : "",
       speciesLine: firstRun ? "首巡：做选择，看结果" : `${chapterRecordLine}${anchorLine ? ` · ${anchorLine}` : ""}`,
+      goalLine,
       buttonLabel: firstRun ? "查看水边警报" : phase === "start" ? "进入章节" : (chapter.chapter < CHAPTERS.length ? "走向下一章" : "继续守护"),
       firstRun,
       storyAnchor: anchor,
@@ -4184,7 +4287,7 @@ class Game {
       maxChars: 58
     });
     const statusLine = isOpening
-      ? `${modal.objective || "继续守护"} · ${modal.speciesLine || "记录已更新"}`
+      ? (modal.goalLine || modal.objective || "继续守护")
       : (modal.speciesLine || "本章记录已保存");
     this.roundRect(ctx, 28, speciesY - 13, this.width - 56, 20, 7, "rgba(216,194,122,0.15)");
       this.text(ctx, this.truncateTextToWidth(ctx, statusLine, this.width - 76, 11, "700"), 38, speciesY + 1, 11, "#f0d376", "700");
@@ -17094,6 +17197,12 @@ class Game {
       this.toast("请先完成当前进行中的每日任务");
       return false;
     }
+    if (this.activeTaskLock && this.activeTaskLock.id === objective.goalId && this.activeTaskLock.startedAt
+      && this.screen === "survival"
+      && !this.patrolTaskModal && !this.settlementModal) {
+      this.toast("任务已打开，请先完成当前操作");
+      return false;
+    }
     if (this.activeTaskLock && this.activeTaskLock.id === objective.goalId) this.activeTaskLock = null;
     this.infoDetailModal = null;
     const fallbackAction = objective.kind === "visitor" ? "visitorAdjust"
@@ -17103,11 +17212,13 @@ class Game {
           // without a recommendation must route to exploration instead of
           // opening the removed patrol screen and trapping the daily task.
           : objective.kind === "guard" ? "exploreMaterials" : "habitat";
+    const savedAction = objective.recommendedAction;
+    const recommendedAction = this.isPatrolTaskAction(savedAction) ? "exploreMaterials" : (savedAction || fallbackAction);
     return this.executeGoalAction(Object.assign({}, objective, {
       id: objective.goalId, kind: "daily",
       // 老存档可能没有保存 recommendedAction；按剧情任务类型补齐，避免跳到默认猎犬页。
-      recommendedAction: objective.recommendedAction || fallbackAction,
-      targetScreen: objective.recommendedAction === "exploreMaterials" ? "materials" : objective.targetScreen
+      recommendedAction,
+      targetScreen: recommendedAction === "exploreMaterials" ? "materials" : objective.targetScreen
     }));
   }
 
@@ -23271,8 +23382,8 @@ class Game {
   }
 
   sandboxInfoDockHeight() {
-    // 顶部信息条保持单行高度，避免压住 Face ID 区域；新手引导改由“更多线索”弹窗承载。
-    return 65;
+    // 沙盘头部由两行三列指标组成。
+    return 78;
   }
 
   reserveOperatingGrade(reserve = (this.state.world || {}).reserve || {}) {
@@ -23326,7 +23437,6 @@ class Game {
   reserveProsperitySummary(reserve = (this.state.world || {}).reserve || {}, world = this.state.world || {}) {
     const ecology = (reserve && reserve.ecology) || {};
     const progression = this.reserveProgression(reserve || {});
-    const groups = [ecology.predators || {}, ecology.herbivores || {}, ecology.birds || {}];
     // Species unlocked in the current chapter remain part of the reserve
     // roster even when a temporary rescue, migration, or ecology event drives
     // their live count to zero. Count roster keys rather than only positive
@@ -23702,45 +23812,19 @@ class Game {
     const interactiveRight = Math.max(x + 150, Math.min(x + stageW - 8, menuSafeLeft - 8));
     const prosperity = this.reserveProsperitySummary(reserve, this.state.world || {});
     const displayName = this.reserveDisplayName(reserve);
-    const marketValueTarget = Math.max(0, Math.round(Number(prosperity.value) || 0));
-    const visitorTarget = this.reserveVisitorCount(reserve);
-    const ecology = reserve.ecology || {};
-    const marketValue = this.displayReserveNumber("valuation", marketValueTarget);
-    const visitors = this.displayReserveNumber("visitors", visitorTarget);
-    const water = this.displayReserveNumber("water", Math.max(0, Math.round(Number(ecology.water) || 0)));
-    const grass = this.displayReserveNumber("grass", Math.max(0, Math.round(Number(ecology.grass) || 0)));
+    const chapter = getCurrentChapter(reserve);
+    const progress = getChapterProgress(reserve);
     this.drawPremiumParchmentPanel(ctx, x, y, stageW, pillH, 7);
     const audioSize = 22;
     const audioX = interactiveRight - audioSize;
     const rankButtonW = 64;
     const rankAudioGap = 8;
     const rankButtonX = audioX - rankAudioGap - rankButtonW;
-    const identityWidth = Math.max(52, rankButtonX - x - 21);
-    const valueText = `水源 ${water}`;
-    const visitorText = `草场 ${grass}`;
-    ctx.font = "700 11px sans-serif";
-    const valueW = ctx.measureText(valueText).width;
-    const visitorW = ctx.measureText(visitorText).width;
-    const separatorW = ctx.measureText(" · ").width;
-    const totalTextW = valueW + separatorW + visitorW;
-    const textScale = totalTextW > identityWidth ? Math.max(.82, identityWidth / totalTextW) : 1;
-    const shownValue = textScale < 1 ? this.truncateTextToWidth(ctx, valueText, identityWidth * .52, 11 * textScale, "700") : valueText;
-    const shownVisitors = textScale < 1 ? this.truncateTextToWidth(ctx, visitorText, identityWidth * .42, 11 * textScale, "700") : visitorText;
-    const shownGap = textScale < 1 ? "·" : " · ";
-    const valueX = x + 13;
-    const valueFont = 11 * textScale;
-    this.text(ctx, shownValue, valueX, y + 18, valueFont, UI_THEME.ink, "700");
-    ctx.font = `700 ${valueFont}px sans-serif`;
-    const shownValueW = ctx.measureText(shownValue).width;
-    this.text(ctx, shownGap, valueX + shownValueW + 2, y + 18, valueFont, UI_THEME.muted, "700");
-    ctx.font = `700 ${valueFont}px sans-serif`;
-    const gapW = ctx.measureText(shownGap).width;
-    const visitorX = valueX + shownValueW + gapW + 4;
-    this.text(ctx, shownVisitors, visitorX, y + 18, valueFont, UI_THEME.ink, "700");
+    const chapterText = `第${chapter.chapter}章 · ${chapter.title}`;
+    this.text(ctx, this.truncateTextToWidth(ctx, chapterText, rankButtonX - x - 22, 12, "700"), x + 13, y + 18, 12, UI_THEME.ink, "700");
     this.drawPremiumLeatherPanel(ctx, rankButtonX, y + 3, rankButtonW, 22, 10);
     this.text(ctx, "好友榜 ›", rankButtonX + rankButtonW / 2, y + 18, 9, "#f4dda0", "700", "center");
-    this.addHit(valueX - 4, y - this.scrollY, Math.max(30, shownValueW + 8), pillH, () => this.openReserveProsperityDetail());
-    this.addHit(visitorX - 4, y - this.scrollY, Math.max(30, ctx.measureText(shownVisitors).width + 8), pillH, () => this.openVisitorTable());
+    this.addHit(x + 4, y - this.scrollY, Math.max(30, rankButtonX - x - 10), pillH, () => this.openChapterProgressDetail(true));
     this.addHit(rankButtonX, y - this.scrollY, rankButtonW, pillH, () => this.openReserveNetwork("friends"));
     this.drawAudioToggle(ctx, audioX, y + 3, audioSize);
     this.renderedHomeIdentityPill = {
@@ -23748,15 +23832,12 @@ class Game {
       displayName,
       value: prosperity.value,
       fund: this.displayReserveNumber("fund", Math.max(0, Math.round(Number(reserve.fund) || 0))),
-      marketValue,
-      visitors,
-      water,
-      grass,
+      chapter: progress.stage || chapter.chapter,
       clickable: true,
       valueClickable: true,
       visitorClickable: true,
-      valueLabel: "水源",
-      visitorLabel: "草场",
+      valueLabel: "章节",
+      visitorLabel: "章节",
       affordance: "好友榜 ›",
       rankScope: "friends",
       rankClickable: true,
@@ -23806,43 +23887,13 @@ class Game {
 
   drawSandboxInfoDock(ctx, x, y, w) {
     const reserve = this.state.world.reserve || {};
-    const reserveView = this.reserveViewForDisplay();
     const dockH = this.sandboxInfoDockHeight();
     this.roundRect(ctx, x, y, w, dockH, 18, "#fffdf0", "rgba(46,135,110,.42)");
-    this.drawPremiumParchmentPanel(ctx, x, y, w, dockH, 18, { rivets: true, opaque: true });
+    this.drawPremiumParchmentPanel(ctx, x, y, w, dockH, 18, { rivets: true });
 
     const chapter = getCurrentChapter(reserve);
     const progress = getChapterProgress(reserve);
-    // Extend the condition affordance toward the right side of the dock so
-    // the chapter information row is filled instead of leaving a dead gap.
-    const titleBoxW = Math.max(168, w - 76);
-    const progressSeen = this.chapterProgressDetailSeen(chapter.chapter);
-    const guidePulse = progressSeen ? 1 : (0.78 + 0.22 * ((Math.sin(this.animT() * 0.006) + 1) / 2));
-    this.roundRect(ctx, x + 8, y + 5, titleBoxW, 18, 9, "rgba(255,250,232,.62)", `rgba(139,107,50,${(0.18 + (1 - progressSeen) * .24 * guidePulse).toFixed(2)})`);
-    const guardian = guardianContext(reserve);
-    const grade = this.reserveOperatingGrade(reserve);
-    const tourism = grade.tourism || { stars: 1, title: "初探之地" };
-    const protection = this.protectionLevelSummary(reserve);
     const fundValue = Math.max(0, Math.round(Number(reserve.fund) || 0));
-    const chapterLabel = `第${chapter.chapter}章 · ${chapter.title} · 基金 ${fundValue}`;
-    this.text(ctx, this.truncateTextToWidth(ctx, chapterLabel, titleBoxW - 18, 10, "700"), x + 14, y + 18, 10, UI_THEME.ink, "700");
-    const world = this.state.world || {};
-    const seasonState = reserve.seasonState || {};
-    const activeEmergency = reserve.emergency && reserve.emergency.active;
-    const earlyEntryTask = this.missionExperienceSeconds() < MISSION_AUTOPUSH_EXPERIENCE_SECONDS
-      && this.onboardingProgress().active
-      && !((this.state.ui || {}).tourismEntryTaskSeen);
-    // Keep the tourism status compact; the temporary “新任务” prefix made
-    // the right side compete with the chapter condition affordance.
-    const seasonText = `旅游圣地 ${tourism.stars}星`;
-    this.text(ctx, seasonText, x + w - 14, y + 19, 9, activeEmergency ? UI_THEME.danger : "#8b6f2a", "700", "right");
-    this.addHit(x + 2, y - this.scrollY, titleBoxW + 10, 30, () => this.openChapterProgressDetail(true));
-    // 旅游圣地入口在前 5 分钟承担一次明确的新手任务；点击后进入晋级路径，
-    // 不再误导到游客列表。任务锁存在时仍由统一入口拦截，避免抢占当前任务。
-    this.addHit(x + w - 116, y + 3 - this.scrollY, 108, 24, () => {
-      if (this.resumeActiveTask()) return;
-      this.openTourismDestinationDetail();
-    });
     this.renderedSandboxInfoDock = {
       mode: "chapter-progress",
       x,
@@ -23853,35 +23904,42 @@ class Game {
       level: progress.level,
       title: chapter.title,
       titleClickable: true,
-      titleHitW: titleBoxW + 10,
+      titleHitW: 0,
       titleButtonBounds: null,
-      affordance: "章节进度",
+      affordance: "进度 ›",
       guideAffordance: "",
       guidePulse: 0,
-      guardianDay: guardian.day,
-      guardianPhase: guardian.phase.id,
-      guardianActionIndex: guardian.cycle.actionIndex,
-      operatingGrade: grade,
-      tourism,
-      tourismEntryTask: earlyEntryTask ? { visible: true, label: seasonText, withinSeconds: MISSION_AUTOPUSH_EXPERIENCE_SECONDS } : null,
+      guardianDay: 0,
+      guardianPhase: "",
+      guardianActionIndex: 0,
+      operatingGrade: null,
+      tourism: null,
+      tourismEntryTask: null,
       stateMode: "read-only-risk",
       standaloneGoalRow: false,
       primaryGoalMergedInto: "map-opportunity-aggregate",
       operationChannels: ["sandbox-info", "map-opportunity-aggregate", "map-interaction"]
     };
 
-    const stateY = y + 25;
+    const stateY = y + 4;
     const stateGap = 6;
     const stateW = (w - 16 - stateGap * 2) / 3;
     const prosperity = this.reserveProsperitySummary(reserve, this.state.world || {});
+    const core = chapterCoreMetrics(reserve, progress.stage || chapter.chapter);
+    const target = core.target;
     const headerStates = [
-      { id: "visitors", label: "游客", value: this.reserveVisitorCount(reserve), tone: "good" },
-      { id: "speciesCount", label: "种群数量", value: prosperity.speciesCount || 0, tone: "good" },
-      { id: "animalTotal", label: "动物总数", value: prosperity.animalTotal || 0, tone: "good" }
+      { id: "fund", label: "基金", value: fundValue, tone: "good" },
+      { id: "water", label: "水源", value: (reserve.ecology || {}).water || 0, tone: "good" },
+      { id: "grass", label: "草场", value: (reserve.ecology || {}).grass || 0, tone: "good" },
+      { id: "visitors", label: "游客", value: core.visitors, tone: "good", target: target.visitors, showProgress: true, percentage: core.percentages.visitors },
+      { id: "speciesCount", label: "种群数量", value: core.species, tone: "good", target: target.species, showProgress: true, percentage: core.percentages.species },
+      { id: "animalTotal", label: "动物总数", value: core.animals, tone: "good", target: target.animals, showProgress: true, percentage: core.percentages.animals }
     ];
     this.renderedSandboxStateTiles = headerStates.map((state, index) =>
-      this.drawCompactReserveStateTile(ctx, state, x + 8 + index * (stateW + stateGap), stateY, stateW, 32)
+      this.drawCompactReserveStateTile(ctx, state, x + 8 + (index % 3) * (stateW + stateGap), stateY + Math.floor(index / 3) * 35, stateW, 30)
     );
+    this.renderedSandboxInfoDock.coreGoals = target;
+    this.renderedSandboxInfoDock.coreMetrics = core;
 
   }
 
@@ -23946,14 +24004,30 @@ class Game {
     this.roundRect(ctx, x + 3, y + 3, w - 6, h - 6, 8, fill.replace(".92", ".58"), `${color}55`);
     const animationKey = { fund: "fund", water: "water", grass: "grass" }[state.id] || "";
     const displayValue = animationKey ? this.displayReserveNumber(animationKey, state.value) : state.value;
-    this.text(ctx, state.label, x + 8, y + 12, 9, "#66715f", "700");
-    this.text(ctx, `${displayValue}`, x + 8, y + 27, this.fitTextSize(ctx, `${displayValue}`, w - 34, 16, 13, "700"), color, "700");
+    const icon = { fund: "fund", water: "water", grass: "grass", visitors: "community", speciesCount: "paw", animalTotal: "paw" }[state.id] || "leaf";
+    this.drawSmallGlyph(ctx, icon, x + 13, y + h / 2, color, .52);
+    const labelSize = this.fitTextSize(ctx, state.label, 45, 9, 8, "700");
+    const labelX = x + 23;
+    const baseline = y + h / 2 + 3.5;
+    this.text(ctx, state.label, labelX, baseline, labelSize, "#66715f", "700");
+    const valueX = labelX + Math.min(45, ctx.measureText(state.label).width) + 3;
+    const valueText = `${displayValue}`;
+    const percentText = state.showProgress ? `${Math.max(0, Math.min(100, Number(state.percentage) || 0))}%` : "";
+    const valueSize = this.fitTextSize(ctx, valueText, Math.max(18, w - (valueX - x) - (percentText ? 30 : 8)), 13, 10, "700");
+    this.text(ctx, valueText, valueX, baseline, valueSize, color, "700");
+    if (percentText) this.text(ctx, percentText, x + w - 7, baseline, 8, color, "700", "right");
     const clickable = true;
-    this.addHit(x, y - this.scrollY, w, h, () => this.openReserveMetricDetail(state.id), "tap");
+    this.addHit(x, y - this.scrollY, w, h, () => ["visitors", "speciesCount", "animalTotal"].includes(state.id)
+      ? this.openChapterProgressDetail(true)
+      : this.openReserveMetricDetail(state.id), "tap");
     return {
       id: state.id,
       label: state.label,
       value: displayValue,
+      target: state.target || null,
+      percentage: state.showProgress ? Number(state.percentage) || 0 : null,
+      progressText: state.showProgress ? `${state.value}/${state.target}` : null,
+      inline: true,
       risk: risk.label,
       riskTone: risk.tone,
       readOnly: true,
@@ -24188,15 +24262,41 @@ class Game {
     const chapter = Math.max(1, Math.round(Number(progression.stage || progression.displayChapter || 1)));
     const info = getCurrentChapter(reserve);
     const rescue = chapterRescueSummary(reserve, chapter);
+    const core = chapterCoreMetrics(reserve, chapter);
     const objectives = (progression.objectives || []).filter((item) => !item.optional);
     const format = (item) => `${Math.min(Number(item.current) || 0, Number(item.target) || 0)}/${item.target || 0}${item.unit || ""}`;
     const unfinished = objectives.filter((item) => !item.complete);
+    const coreItems = [
+      { id: "species", label: "种群数量", value: core.species, target: core.target.species, percentage: core.percentages.species, unit: "种" },
+      { id: "animals", label: "动物总数", value: core.animals, target: core.target.animals, percentage: core.percentages.animals, unit: "只" },
+      { id: "visitors", label: "游客累计数", value: core.visitors, target: core.target.visitors, percentage: core.percentages.visitors, unit: "人" }
+    ];
+    const unfinishedCore = coreItems.filter((item) => item.value < item.target);
     const nextChapter = chapter < 20 ? chapter + 1 : chapter;
     return {
       kicker: `第${chapter}章 · 晋级条件`,
       title: chapter >= 20 ? "无限守护 · 繁荣概览" : `${info.title} · 下一章${nextChapter} · 繁荣进度`,
       icon: "reserve_level",
       items: [
+        ...coreItems.map((item) => ({
+          tag: item.value >= item.target ? "已完成" : "核心目标",
+          title: `${item.label} ${item.value}/${item.target} · ${item.percentage}%`,
+          body: item.value >= item.target
+            ? `已达到本章目标（${item.value}/${item.target}${item.unit}）。`
+            : `还需要 ${Math.max(0, item.target - item.value)}${item.unit}。所有运营、任务和剧情都会汇入这项指标。`,
+          action: () => {
+            this.infoDetailModal = {
+              kicker: `第${chapter}章 · 核心晋级目标`,
+              title: item.label,
+              icon: "reserve_level",
+              items: [{ tag: "当前进度", title: `${item.value}/${item.target} · ${item.percentage}%`, body: item.value >= item.target ? "本章目标已达成。" : `还差 ${Math.max(0, item.target - item.value)}${item.unit}，继续完成地图事件、任务或玩法即可累计。` }],
+              footer: "数值达到目标后会与其他条件一起检查晋级。",
+              actionLabel: "知道了",
+              action: () => { this.infoDetailModal = null; this.render(); }
+            };
+            this.render();
+          }
+        })),
         ...objectives.slice(0, 3).map((item) => ({
           tag: item.complete ? "已完成 · 点击查看" : "需要完成 · 点击查看",
           title: `${item.label} ${format(item)}`,
@@ -24237,16 +24337,18 @@ class Game {
           }
         },
         {
-          tag: unfinished.length || !rescue.complete ? "未完成" : "可晋级",
-          title: unfinished.length || !rescue.complete ? "完成以上条件后解锁下一章" : "本章晋级条件已满足",
-          body: unfinished.length ? `还差：${unfinished.map((item) => `${item.label} ${format(item)}`).join("；")}` : (rescue.complete ? "可进入下一章剧情。" : "先完成动物解救。"),
+          tag: unfinished.length || unfinishedCore.length || !rescue.complete ? "未完成" : "可晋级",
+          title: unfinished.length || unfinishedCore.length || !rescue.complete ? "完成以上条件后解锁下一章" : "本章晋级条件已满足",
+          body: unfinishedCore.length
+            ? `核心目标还差：${unfinishedCore.map((item) => `${item.label} ${item.value}/${item.target}`).join("；")}`
+            : unfinished.length ? `还差：${unfinished.map((item) => `${item.label} ${format(item)}`).join("；")}` : (rescue.complete ? "可进入下一章剧情。" : "先完成动物解救。"),
           action: () => {
             this.infoDetailModal = {
               kicker: `第${chapter}章 · 晋级说明`,
-              title: unfinished.length || !rescue.complete ? "还不能进入下一章" : "可以进入下一章",
+              title: unfinished.length || unfinishedCore.length || !rescue.complete ? "还不能进入下一章" : "可以进入下一章",
               icon: "reserve_level",
               items: [
-                { tag: "当前限制", title: unfinished.length ? "仍有条件未完成" : (rescue.complete ? "条件已全部满足" : "动物解救未完成"), body: unfinished.length ? `还差：${unfinished.map((item) => `${item.label} ${format(item)}`).join("；")}` : (rescue.complete ? "下一章剧情入口已经解锁。" : `还需解救 ${rescue.remaining} 只动物。`) },
+                { tag: "当前限制", title: unfinishedCore.length ? "核心目标未完成" : unfinished.length ? "仍有条件未完成" : (rescue.complete ? "条件已全部满足" : "动物解救未完成"), body: unfinishedCore.length ? `还差：${unfinishedCore.map((item) => `${item.label} ${item.value}/${item.target}`).join("；")}` : unfinished.length ? `还差：${unfinished.map((item) => `${item.label} ${format(item)}`).join("；")}` : (rescue.complete ? "下一章剧情入口已经解锁。" : `还需解救 ${rescue.remaining} 只动物。`) },
                 { tag: "如何解锁", title: "完成所有条件", body: "逐项点击上方条件查看具体完成方式；动物解救条件可点击后直接定位沙盘标记。" }
               ],
               footer: "所有条件同时满足后，下一章入口会自动开放。",
@@ -27573,6 +27675,8 @@ class Game {
       chapterTransition: progression.stage > beforeProgression.stage ? {
         from: beforeProgression.stage,
         to: progression.stage,
+        coreGoals: chapterTargets(progression.stage),
+        coreMetrics: chapterCoreMetrics(after, progression.stage),
         summary: {
           population: this.reserveSpeciesTotal(before),
           daysManaged: beforeProgression.daysManaged || 0

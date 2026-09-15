@@ -127,17 +127,19 @@ for (const oldAction of PATROL_ACTIONS) {
   daily.objectives.push({ id: 'daily_visitor', kind: 'visitor', target: 1, progress: 0 });
   game.activeTaskLock = { id: `daily:${daily.dateKey}:daily_guard`, kind: 'daily', goal: { recommendedAction: oldAction } };
   let opened = 0;
+  let routedToSurvival = 0;
   game.openMaterialExploration = () => { opened++; game.infoDetailModal = { kind: 'materialExploration' }; return true; };
+  game.setScreen = screen => { game.screen = screen; if (screen === 'survival') routedToSurvival++; };
   const beforeActions = game.state.world.reserve.progression.totalActions;
   assert(game.openDailyEvents());
   assert.equal(game.infoDetailModal.kind, 'dailyEvents', 'daily entry must display checklist, not resume patrol');
   assert.equal(game.infoDetailModal.checklist.total, 3, 'old four-item saves must migrate on the entry click');
   assert.equal(opened, 0);
   assert(game.executeDailyEvent('daily_guard', daily.dateKey));
-  assert.equal(opened, 1, 'explicit daily action must open exploration');
+  assert.equal(opened + routedToSurvival, 1, 'explicit daily action must open exploration');
   assert.equal(game.patrolTaskModal, undefined);
   assert.equal(game.executeDailyEvent('daily_guard', daily.dateKey), false, 'stale double tap must not reopen a task');
-  assert.equal(opened, 1);
+  assert.equal(opened + routedToSurvival, 1);
   assert.equal(game.state.world.reserve.progression.totalActions, beforeActions, 'opening is not completion');
 }
 
