@@ -469,7 +469,7 @@ function stageCandidate(state) {
   if (activeDiscovery) {
     const requiredAction = activeDiscovery.status === "located"
       ? "collectionInvestigate"
-      : (activeDiscovery.actionId || "houndScout");
+      : (["animalCare", "careAnimal"].includes(activeDiscovery.actionId) ? "exploreMaterials" : (activeDiscovery.actionId || "houndScout"));
     let action = requiredAction;
     let preparing = false;
     let purchaseId = "";
@@ -740,7 +740,7 @@ function resolveGoals(state, suppliedGoals = null, trigger = "refresh") {
     if (activeDiscovery && activeDiscovery.status === "located") {
       candidates.push(candidate("story:collection:located", "collection", "现场物件等待收录", "迹象已确认；回沙盘收录。", "collectionInvestigate", 34, state, { oneStep: true, rewardText: "获得附加收藏" }));
     } else if (activeDiscovery) {
-      candidates.push(candidate("story:collection:hinted", "collection", activeDiscovery.title || "动物发现异常", `完成“${activeDiscovery.actionLabel || "对应行动"}”，回沙盘定位。`, activeDiscovery.actionId || "houndScout", 34, state, { oneStep: true, rewardText: "定位附加物件" }));
+      candidates.push(candidate("story:collection:hinted", "collection", activeDiscovery.title || "动物发现异常", `完成“${activeDiscovery.actionLabel || "跟随动物踪迹探索"}”，回沙盘定位。`, ["animalCare", "careAnimal"].includes(activeDiscovery.actionId) ? "exploreMaterials" : (activeDiscovery.actionId || "houndScout"), 34, state, { oneStep: true, rewardText: "定位附加物件" }));
     } else if ((collection.leads || []).length && (((collection.investigation || {}).charges) || 0) > 0) {
       candidates.push(candidate("story:collection:legacy", "collection", "隐藏档案仍有一条线索", "用点数判定调查隐藏线索。", "collectionInvestigate", 28, state, { oneStep: true, rewardText: "推进附加发现" }));
     } else {
