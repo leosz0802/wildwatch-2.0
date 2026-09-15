@@ -29387,9 +29387,8 @@ class Game {
       this.toast(missing.length ? `还缺少：${missing.join("、")}` : "解救物品还没有收齐");
       return false;
     }
-    // 解救是章节晋级的硬门槛。完成后立即重算 progression，避免玩家
-    // 需要再做一次无关日常行动才能看到“下一章已解锁”。
-    reserve.progression = reserveProgressionFor(reserve);
+    // 解救记录先进入 rescued，但章节晋级必须等待地图上的释放动画完成。
+    // 这样玩家不会在动物仍被绳索困住时提前看到下一章晋级界面。
     this.activeTaskLock = null;
     const story = rescueStoryFor(result.record);
     const lifeMemory = (this.state.world || {}).lifeMemory || {};
@@ -29427,20 +29426,28 @@ class Game {
     try { this.setScreen("home"); }
     finally { this.deferQueuedMissionPush = previousDeferral; }
     // Chapter rescue is the final gate for promotion, but it must still pass
-    // through the established chapter transition card. Previously this direct
-    // map-click path advanced the chapter and returned home without showing
-    // the same transition story used by ordinary settled actions.
-    const afterProgression = reserve.progression || {};
-    if (!record.recurring && Number(afterProgression.stage || 0) > Number(beforeProgression.stage || 0)) {
-      this.queueChapterStoriesForSettlement({
-        chapterTransition: {
-          from: Number(beforeProgression.stage || 1),
-          to: Number(afterProgression.stage),
-          summary: { population: this.reserveSpeciesTotal(beforeReserve), daysManaged: beforeProgression.daysManaged || 0 }
-        },
-        deferChapterStory: false
-      });
-    }
+    // through the established chapter transition card after the release pulse.
+    // The pulse lasts 2.2s; only then is progression recalculated and queued.
+    const pulse = this.mapConsequencePulse;
+    const finishPromotion = () => {
+      if (!this.state || !this.state.world || this.state.world.reserve !== reserve) return;
+      reserve.progression = reserveProgressionFor(reserve);
+      const afterProgression = reserve.progression || {};
+      if (!record.recurring && Number(afterProgression.stage || 0) > Number(beforeProgression.stage || 0)) {
+        this.queueChapterStoriesForSettlement({
+          chapterTransition: {
+            from: Number(beforeProgression.stage || 1),
+            to: Number(afterProgression.stage),
+            summary: { population: this.reserveSpeciesTotal(beforeReserve), daysManaged: beforeProgression.daysManaged || 0 }
+          },
+          deferChapterStory: false
+        });
+      }
+      this.render();
+    };
+    const waitMs = Math.max(0, Number(pulse && pulse.expiresAt) - Date.now()) + 20;
+    if (!record.recurring && pulse && pulse.rescueSpeciesId) setTimeout(finishPromotion, waitMs);
+    else finishPromotion();
     this.render();
     this.requestRender();
     return true;
