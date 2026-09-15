@@ -17043,7 +17043,10 @@ class Game {
     const fallbackAction = objective.kind === "visitor" ? "visitorAdjust"
       : objective.kind === "economy" ? "buySupplies"
         : objective.kind === "animal" ? "animalCare"
-          : objective.kind === "guard" ? "houndScout" : "habitat";
+          // Patrol goals were retired as a generic daily fallback. Old saves
+          // without a recommendation must route to exploration instead of
+          // opening the removed patrol screen and trapping the daily task.
+          : objective.kind === "guard" ? "exploreMaterials" : "habitat";
     return this.executeGoalAction(Object.assign({}, objective, {
       id: objective.goalId, kind: "daily",
       // 老存档可能没有保存 recommendedAction；按剧情任务类型补齐，避免跳到默认猎犬页。
