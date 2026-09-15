@@ -89,15 +89,17 @@ function dailyGuardAction(state) {
   // 偷猎线索不应连续占满每日剧情；连续处理后让动物、生态和游客线
   // 先获得一次触发机会，只有压力继续升高才再次强制回到边界行动。
   const recentActions = (reserve.actionHistory || []).slice(-2).map((item) => item && item.action).filter(Boolean);
-  if ((reserve.poacherPressure || 0) >= 55) return "antiPoacher";
-  if ((reserve.poacherPressure || 0) >= 35 && !recentActions.includes("antiPoacher")) return "antiPoacher";
+  // 只有边界风险已经极端偏离时才自动派发驱赶任务；中等压力交给
+  // 剧情节点或玩家主动选择，避免每日目标变成无剧情的巡逻清单。
+  if ((reserve.poacherPressure || 0) >= 65) return "antiPoacher";
   if ((eco.disease || 0) >= ECOLOGY_THRESHOLDS.warningDisease) return "intervention";
   if ((eco.water || 0) < ECOLOGY_THRESHOLDS.lowWater || (eco.grass || 0) < ECOLOGY_THRESHOLDS.lowGrass) return "habitat";
   const stage = Math.max(1, Number((reserve.progression || {}).stage) || 1);
   const chapterAction = (CHAPTERS.find((chapter) => chapter.chapter === stage) || {}).actionId;
   if (["antiPoacher", "habitat", "intervention"].includes(chapterAction)) return chapterAction;
   if (recentActions.filter((action) => action === "houndScout").length >= 1) return "intervention";
-  return "houndScout";
+  // 生态稳定且没有剧情节点时，推进探索线索，不制造额外巡逻任务。
+  return "exploreMaterials";
 }
 
 function dailyEconomyAction(state) {
