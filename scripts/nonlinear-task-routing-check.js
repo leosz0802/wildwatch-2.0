@@ -97,6 +97,10 @@ for (const [round, order] of orders.entries()) {
   reserve.eventChain = { chapterLevel: 1, step: 7, length: 7, completed: true };
   const recurring = createPoacherRescue(reserve, 'deer', 2, 99);
   assert(recurring, 'rescue gate setup could not create an independent rescue task');
+  // A newly created poacher incident is story-only until the player confirms
+  // the story card. Publish it here so this resolver test exercises the
+  // independent-task route rather than the pre-publication state.
+  recurring.taskVisible = true;
   const before = resolveGoals(state, null, 'before-rescue');
   assert(before.active.primary, 'rescue gate setup lost all tasks');
   const first = before.active.primary;
