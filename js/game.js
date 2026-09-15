@@ -4326,11 +4326,11 @@ class Game {
     // Chapter cards use the same visual rhythm as the first-time guide:
     // one dark-green story card, one concise explanation and one primary action.
     const panelH = isOpening
-      ? Math.min(356, Math.max(320, this.height * 0.43))
-      : Math.min(286, Math.max(250, this.height * 0.30));
-    // Chapter text follows the boot screen: keep the copy at the top so the
-    // shared opening illustration remains the visual anchor for every chapter.
-    const panelY = Math.max(top + headerH + headerGap, 86);
+      ? Math.min(330, Math.max(292, this.height * 0.39))
+      : Math.min(266, Math.max(230, this.height * 0.28));
+    // Keep every chapter card vertically centered while leaving the chapter
+    // header and the fixed bottom action clear of the card.
+    const panelY = Math.max(top + headerH + headerGap, Math.round((this.height - panelH) * 0.48));
     this.drawPrologueCloudBubble(ctx, 14, panelY, this.width - 28, panelH, {
       fill: "rgba(8,36,28,.94)",
       shadow: "rgba(0,10,8,.48)"
@@ -4365,7 +4365,7 @@ class Game {
     const buttonY = this.height - 72;
     const speciesY = Math.min(panelY + panelH - 18, buttonY - 18);
     const bodyY = panelY + 166;
-    const footerReserve = isOpening ? 58 : 54;
+    const footerReserve = isOpening ? 38 : 34;
     this.drawFittedTextBlock(ctx, isOpening ? `${modal.businessGuide || ""}${modal.body}` : modal.body, 30, bodyY, this.width - 60, Math.max(30, speciesY - bodyY - footerReserve), {
       size: 13,
       minSize: 10,
@@ -4378,11 +4378,15 @@ class Game {
       ? (modal.rescueLine || "本章必救：请查看地图标记")
       : (modal.speciesLine || modal.rescueLine || "本章记录已保存");
     this.roundRect(ctx, 28, speciesY - 31, this.width - 56, 20, 7, "rgba(216,194,122,0.15)");
-    this.text(ctx, this.truncateTextToWidth(ctx, statusLine, this.width - 76, 11, "700"), 38, speciesY - 17, 11, "#f0d376", "700");
-    if (isOpening && modal.objective) {
-      this.roundRect(ctx, 28, speciesY - 7, this.width - 56, 18, 7, "rgba(216,194,122,0.10)");
-      this.text(ctx, this.truncateTextToWidth(ctx, modal.objective, this.width - 76, 10, "700"), 38, speciesY + 6, 10, "#b8d9b0", "700");
-    }
+    this.drawFittedTextBlock(ctx, statusLine, 38, speciesY - 24, this.width - 76, 18, {
+      size: isOpening ? 14 : 12,
+      minSize: isOpening ? 12 : 10,
+      lineHeight: isOpening ? 16 : 14,
+      color: "#f0d376",
+      weight: "700",
+      compact: true,
+      maxChars: 34
+    });
     if (!painted && this.chapterArtLoad && this.chapterArtLoad.status === "loading") {
       this.text(ctx, `插画加载 ${this.chapterArtLoad.progress || 0}%`, this.width / 2, top + headerH + 8, 11, "#fff8df", "700", "center");
     }
