@@ -8,7 +8,7 @@ const net = require("node:net");
 const { DatabaseSync } = require("node:sqlite");
 const { calculateReserveValuation } = require("./reserveValuation");
 
-const SERVICE_VERSION = "1.8.0";
+const SERVICE_VERSION = "1.8.1";
 const MAX_JSON_BYTES = 16 * 1024;
 const PUBLIC_STYLES = new Set(["综合守护", "水源经营", "夜间巡护", "草场恢复", "社区共生", "迁徙通道", "动物救助"]);
 const MODERATION_STATUS = Object.freeze({
@@ -281,11 +281,14 @@ function openDatabase(dbPath) {
   // Existing production databases predate friend placeholders. Keep the
   // migration local and idempotent so relation friends can receive a pending
   // exchange before their next login without storing raw openids.
+  const friendColumns = db.prepare("PRAGMA table_info(friend_links)").all().map(column => column.name);
+  if (!friendColumns.includes("match_key")) db.exec("ALTER TABLE friend_links ADD COLUMN match_key TEXT NOT NULL DEFAULT ''");
   const userColumns = db.prepare("PRAGMA table_info(users)").all().map((column) => column.name);
   if (!userColumns.includes("activated_at")) db.exec("ALTER TABLE users ADD COLUMN activated_at INTEGER NOT NULL DEFAULT 0");
   if (!userColumns.includes("moderation_status")) db.exec("ALTER TABLE users ADD COLUMN moderation_status TEXT NOT NULL DEFAULT 'active'");
   if (!userColumns.includes("moderation_reason")) db.exec("ALTER TABLE users ADD COLUMN moderation_reason TEXT NOT NULL DEFAULT ''");
   if (!userColumns.includes("moderated_at")) db.exec("ALTER TABLE users ADD COLUMN moderated_at INTEGER NOT NULL DEFAULT 0");
+  if (!userColumns.includes("friend_match_key")) db.exec("ALTER TABLE users ADD COLUMN friend_match_key TEXT NOT NULL DEFAULT ''");
   const scoreColumns = db.prepare("PRAGMA table_info(scores)").all().map((column) => column.name);
   if (!scoreColumns.includes("level")) db.exec("ALTER TABLE scores ADD COLUMN level INTEGER NOT NULL DEFAULT 1");
   if (!scoreColumns.includes("animals")) db.exec("ALTER TABLE scores ADD COLUMN animals INTEGER NOT NULL DEFAULT 0");
@@ -376,6 +379,7 @@ function publicPlayer(row = {}, viewerId = "") {
   const activation = row.activatedAt === undefined ? row.activated_at : row.activatedAt;
   const identity = publicPlayerIdentity(row);
   const profileComplete = Number(row.profileVersion === undefined ? row.profile_version : row.profileVersion) > 0;
+  const matchKey = String(row.matchKey || row.match_key || "");
   return {
     id: String(row.userId || row.user_id || "").slice(0, 20),
     displayName: identity.title,
@@ -389,7 +393,8 @@ function publicPlayer(row = {}, viewerId = "") {
     profileComplete,
     updatedAt: Math.max(0, Number(row.updatedAt || row.updated_at) || 0),
     mine: !!viewerId && viewerId === (row.userId || row.user_id),
-    registered: activation === undefined ? true : Number(activation) > 0
+    registered: activation === undefined ? true : Number(activation) > 0,
+    ...(viewerId && matchKey && /^[a-f0-9]{64}$/.test(matchKey) ? { friendMatchKey: matchKey } : {})
   };
 }
 
@@ -460,19 +465,22 @@ function createApiServer(options = {}) {
       shield=excluded.shield, style=excluded.style, profile_version=excluded.profile_version, updated_at=excluded.updated_at`),
     upsertScoreBasic: db.prepare(`INSERT INTO scores(user_id, score, updated_at) VALUES (?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET score=excluded.score, updated_at=excluded.updated_at`),
-    leaderboard: db.prepare(`SELECT u.user_id AS userId, u.display_name AS displayName, s.score, s.level, s.animals, s.shield, s.style, s.profile_version AS profileVersion, s.updated_at AS updatedAt
+    leaderboard: db.prepare(`SELECT u.user_id AS userId, u.display_name AS displayName, u.friend_match_key AS matchKey, s.score, s.level, s.animals, s.shield, s.style, s.profile_version AS profileVersion, s.updated_at AS updatedAt
       FROM scores s JOIN users u ON u.user_id=s.user_id WHERE u.moderation_status='active' ORDER BY s.score DESC, s.updated_at ASC LIMIT ?`),
     userByPublicId: db.prepare("SELECT user_id AS userId, display_name AS displayName FROM users WHERE substr(user_id, 1, 20)=? AND moderation_status='active' LIMIT 2"),
     anyUserByPublicId: db.prepare("SELECT user_id AS userId, display_name AS displayName, moderation_status AS moderationStatus, moderation_reason AS moderationReason, moderated_at AS moderatedAt FROM users WHERE substr(user_id, 1, 20)=? LIMIT 2"),
     friendRows: db.prepare(`SELECT u.user_id AS userId, u.display_name AS displayName, COALESCE(s.score, 0) AS score,
       COALESCE(s.level, 1) AS level, COALESCE(s.animals, 0) AS animals, COALESCE(s.shield, 0) AS shield,
-      COALESCE(s.style, '综合守护') AS style, COALESCE(s.profile_version, 0) AS profileVersion, COALESCE(s.updated_at, u.updated_at) AS updatedAt, u.activated_at AS activatedAt
+      COALESCE(s.style, '综合守护') AS style, COALESCE(s.profile_version, 0) AS profileVersion, COALESCE(s.updated_at, u.updated_at) AS updatedAt, u.activated_at AS activatedAt,
+      f.match_key AS matchKey
       FROM friend_links f JOIN users u ON u.user_id=f.friend_user_id LEFT JOIN scores s ON s.user_id=u.user_id
       WHERE f.user_id=? AND u.moderation_status='active' ORDER BY COALESCE(s.score, 0) DESC, u.updated_at ASC LIMIT 100`),
     deleteFriendLinks: db.prepare("DELETE FROM friend_links WHERE user_id=?"),
     upsertFriend: db.prepare(`INSERT INTO friend_links(user_id, friend_user_id, updated_at) VALUES (?, ?, ?)
       ON CONFLICT(user_id, friend_user_id) DO UPDATE SET updated_at=excluded.updated_at`),
-    isFriend: db.prepare("SELECT 1 AS linked FROM friend_links WHERE user_id=? AND friend_user_id=?"),
+    isFriend: db.prepare("SELECT match_key AS matchKey FROM friend_links WHERE user_id=? AND friend_user_id=?"),
+    setFriendMatchKey: db.prepare("UPDATE friend_links SET match_key=? WHERE user_id=? AND friend_user_id=?"),
+    setUserMatchKey: db.prepare("UPDATE users SET friend_match_key=? WHERE user_id=?"),
     insertTrade: db.prepare(`INSERT INTO trade_receipts(id, actor_user_id, target_user_id, scope, item_id, item_label, value_points, partner_credit, client_trade_id, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(actor_user_id, client_trade_id) DO NOTHING`),
@@ -611,6 +619,8 @@ function createApiServer(options = {}) {
         const userId = hmac(sessionSecret, `wx:${result.openid}`);
         const now = Date.now();
         statements.upsertActiveUser.run(userId, serverGeneratedIdentity(userId).title, now, now, now);
+        const loginMatchKey = crypto.createHash("sha256").update(`wild-friend-v1:${result.openid}`).digest("hex");
+        statements.setUserMatchKey.run(loginMatchKey, userId);
         if (result.session_key) {
           wechatSessions.set(userId, { sessionKey: String(result.session_key), expiresAt: now + 10 * 60000 });
           if (wechatSessions.size > 2000) {
@@ -619,7 +629,13 @@ function createApiServer(options = {}) {
             }
           }
         }
-        return json(res, 200, { ok: true, token: issueToken(sessionSecret, userId), expiresIn: 30 * 86400 });
+        return json(res, 200, {
+          ok: true,
+          token: issueToken(sessionSecret, userId),
+          publicId: userId.slice(0, 20),
+          friendMatchKey: loginMatchKey,
+          expiresIn: 30 * 86400
+        });
       }
 
       if (req.method === "POST" && url.pathname === "/v1/friends/import") {
@@ -648,6 +664,8 @@ function createApiServer(options = {}) {
             // that openid activates the same deterministic user row.
             statements.upsertPendingUser.run(friendId, "微信同玩好友", now, now);
             statements.upsertFriend.run(token.sub, friendId, now);
+            const matchKey = crypto.createHash("sha256").update(`wild-friend-v1:${openid}`).digest("hex");
+            statements.setFriendMatchKey.run(matchKey, token.sub, friendId);
             linked += 1;
           });
           db.exec("COMMIT");
@@ -772,7 +790,18 @@ function createApiServer(options = {}) {
         if (!rate.allowed) return json(res, 429, { ok: false, code: "RATE_LIMITED" }, { "retry-after": "60" });
         const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit")) || 100));
         const viewer = verifyToken(sessionSecret, bearer(req));
-        const leaderboard = statements.leaderboard.all(limit).map((entry, index) => Object.assign(publicPlayer(entry, viewer && viewer.sub), { rank: index + 1 }));
+        const leaderboard = statements.leaderboard.all(limit).map((entry, index) => {
+          const entryUserId = entry.userId || entry.user_id || "";
+          // 登录观众可以拿到不透明匹配键，用于在开放数据域里叠微信昵称；
+          // 未登录请求仍只返回服务器公开身份。
+          const relation = viewer && entryUserId && entryUserId !== viewer.sub
+            ? statements.isFriend.get(viewer.sub, entryUserId) : null;
+          const matchKey = (relation && relation.matchKey) || entry.matchKey || "";
+          return Object.assign(publicPlayer(Object.assign({}, entry, { matchKey }), viewer && viewer.sub), {
+            rank: index + 1, friend: !!relation,
+            ...(relation && relation.matchKey ? { friendMatchKey: relation.matchKey } : {})
+          });
+        });
         return json(res, 200, { ok: true, leaderboard, scoring: "level-animal-v1", identitySource: "server" });
       }
 

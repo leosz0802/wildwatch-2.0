@@ -33,15 +33,19 @@ const tactical = STRATEGIC_DILEMMAS.filter((item) => item.tier === "tactical");
 const major = STRATEGIC_DILEMMAS.filter((item) => item.tier === "major");
 assert(STRATEGIC_DILEMMAS.length === 28, `expected 28 strategic decisions, got ${STRATEGIC_DILEMMAS.length}`);
 assert(tactical.length === 16 && major.length === 12, `expected 16 tactical + 12 major, got ${tactical.length} + ${major.length}`);
-tactical.forEach((dilemma) => assert(dilemma.choices.length === 2, `${dilemma.id} should be a two-choice decision`));
+tactical.forEach((dilemma) => assert(dilemma.choices.length === 1, `${dilemma.id} should be a single-choice decision`));
 major.forEach((dilemma) => assert(dilemma.choices.length === 3, `${dilemma.id} should be a three-choice decision`));
 STRATEGIC_DILEMMAS.forEach((dilemma) => {
   const expectedValues = dilemma.choices.map(strategicChoiceExpectedValue);
-  assert(Math.max(...expectedValues) - Math.min(...expectedValues) <= 8, `${dilemma.id} has a long-term fixed-best option (${expectedValues.join("/")})`);
+  if (dilemma.choices.length >= 2) {
+    assert(Math.max(...expectedValues) - Math.min(...expectedValues) <= 8, `${dilemma.id} has a long-term fixed-best option (${expectedValues.join("/")})`);
+  }
   dilemma.choices.forEach((choice) => {
     const effects = Object.entries(choice.effects || {});
-    assert(effects.some(([key, value]) => isBenefit(key, value)), `${dilemma.id}.${choice.id} needs a real benefit`);
-    assert(effects.some(([key, value]) => !isBenefit(key, value)), `${dilemma.id}.${choice.id} needs a real cost`);
+    const delayed = Object.entries((choice.consequence && choice.consequence.modifiers) || {});
+    const tradeoffs = effects.concat(delayed);
+    assert(tradeoffs.some(([key, value]) => isBenefit(key, value)), `${dilemma.id}.${choice.id} needs a real benefit`);
+    assert(tradeoffs.some(([key, value]) => !isBenefit(key, value)), `${dilemma.id}.${choice.id} needs a real cost`);
     assert(choice.consequence && choice.consequence.remainingActions >= 4 && choice.consequence.remainingActions <= 10, `${dilemma.id}.${choice.id} consequence must last 4-10 actions`);
     assert(choice.balanceScore >= 90 && choice.balanceScore <= 110, `${dilemma.id}.${choice.id} expected value should stay within 10%`);
   });
@@ -224,10 +228,18 @@ gated.progression = Object.assign({}, gated.progression, {
 });
 gated.strategy = normalizeStrategyState({ totalMeaningfulActions: gate.actions, totalChoices: gate.strategicChoices, totalMajorChoices: 0 });
 gated.eventChain = { chapterLevel: 1, step: gate.storyBeats, length: 7, completed: true };
-assert(reserveProgressionFor(gated).stage === 2, "stage should not advance without its major decision gate");
+gated.chapterRescue = Object.assign({}, gated.chapterRescue || {}, { enforceCompletion: false, legacyGateBypass: true });
+gated.development = gated.development || {};
+gated.development.operations = Object.assign({}, gated.development.operations || {}, { totalVisitors: 1000 });
+gated.development.operations.visitorLedger = { totalVisitors: 1000 };
+["wolf", "fox", "owl", "crow"].forEach((id, index) => {
+  const group = index < 2 ? "predators" : "birds";
+  gated.ecology[group][id] = Math.max(1, Number(gated.ecology[group][id]) || 0);
+});
+assert(reserveProgressionFor(gated).stage === 3 && reserveProgressionFor(gated).level === 2, "live core metrics must advance without a hidden major-decision gate");
 gated.progression.totalMajorStrategicChoices = gate.majorChoices;
 gated.strategy.totalMajorChoices = gate.majorChoices;
-assert(reserveProgressionFor(gated).stage === 3 && reserveProgressionFor(gated).level === 2, "stage should advance into the next story level after total and major choices pass");
+assert(reserveProgressionFor(gated).stage === 3 && reserveProgressionFor(gated).level === 2, "stage should remain in the next story level after total and major choices pass");
 
 const uiGame = new Game();
 uiGame.stopLoop();

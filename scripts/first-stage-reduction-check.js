@@ -58,7 +58,7 @@ game.screen = "collection";
 game.discoveryTab = "visitors";
 game.drawCollection(fakeContext());
 assert(game.renderedVisitorTable && game.renderedVisitorTable.stageOneLight, "visitor page should report first-stage reduction");
-assert.strictEqual(game.renderedVisitorTable.visibleBuildings, 2, "first-stage visitor page should show only two building cards");
+assert.strictEqual(game.renderedVisitorTable.visibleBuildings, 4, "visitor page should show all four building cards");
 assert.strictEqual(game.renderedVisitorTable.buildings, 4, "first-stage visitor page must preserve the full building model behind the reduced UI");
 assert(game.renderedVisitorTable.recruitment && Number.isFinite(game.renderedVisitorTable.recruitment.totalRecruited), "visitor recruitment metrics must remain available in stage one");
 

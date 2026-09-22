@@ -28,20 +28,31 @@ game.infoDetailModal.action();
 const originalTimeout = global.setTimeout;
 global.setTimeout = (fn) => { fn(); return 0; };
 try {
+  let previous = 0;
   for (let shot = 1; shot <= 3; shot += 1) {
     assert.equal(game.infoDetailModal.kind, 'materialExploration');
     game.infoDetailModal.archeryAimValue = shot === 1 ? 0.5 : shot === 2 ? 0.1 : 0.9;
+    const expectedRoll = game.archeryScoreFor(game.infoDetailModal);
     game.infoDetailModal.action();
     const result = game.state.world.reserve.lastMaterialExploration;
     assert(result && result.targetId === itemId, `shot ${shot}: result must identify the selected rescue item`);
-    assert(Number(result.roll) >= 1 && Number(result.roll) <= 6, `shot ${shot}: arrow result must be a 1–6 score`);
-    const progress = game.state.world.reserve.chapterRescue.animals[target.targetId].pointProgress[itemId];
-    assert(progress > 0, `shot ${shot}: cumulative rescue points must advance`);
+    assert.equal(Number(result.roll), expectedRoll, `shot ${shot}: simulator must record the same 1–6 score the player just shot`);
+    const record = game.state.world.reserve.chapterRescue.animals[target.targetId];
+    const progress = record.pointProgress[itemId];
+    const expectedTotal = Math.min(12, previous + expectedRoll);
+    assert.equal(progress, expectedTotal, `shot ${shot}: animal ledger ${progress} must equal capped sum ${expectedTotal}`);
+    assert.equal(game.state.world.reserve.materialExplorationProgress[itemId], expectedTotal, `shot ${shot}: mirrored progress map drifted`);
+    const lastShot = (record.pointHistory || []).slice(-1)[0];
+    assert(lastShot, `shot ${shot}: point history must be written`);
+    assert.equal(lastShot.shotScore, expectedRoll, `shot ${shot}: history shotScore must match the live roll`);
+    assert.equal(lastShot.totalScore, expectedTotal, `shot ${shot}: history totalScore must match the ledger`);
+    previous = progress;
     if (shot < 3) game.openMaterialExploration(itemId);
   }
   const finalRecord = game.state.world.reserve.chapterRescue.animals[target.targetId];
-  assert.equal(finalRecord.pointTarget, 15);
-  assert(finalRecord.pointProgress[itemId] > 0 && finalRecord.pointProgress[itemId] <= 15);
+  assert.equal(finalRecord.pointTarget, 12);
+  assert.equal(finalRecord.pointProgress[itemId], previous);
+  assert(finalRecord.pointProgress[itemId] > 0 && finalRecord.pointProgress[itemId] <= 12);
 } finally {
   global.setTimeout = originalTimeout;
 }

@@ -85,7 +85,7 @@ allSandboxDialogues.forEach((entry) => {
   }
 });
 if (new Set(allSandboxDialogues.map((entry) => entry.bubble)).size !== knownCharacters.length) {
-  throw new Error("all 21 sandbox species must show distinct live bubble language");
+  throw new Error("all 33 sandbox species must show distinct live bubble language");
 }
 
 const plotChecks = [

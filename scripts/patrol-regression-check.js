@@ -10,7 +10,7 @@ const targets = [
   'daily-third-task-check.js', 'daily-event-mail-entry-check.js', 'task-lock-recovery-check.js',
   'goal-system-v3-check.js', 'goal-ui-check.js', 'goal-material-routing-check.js',
   'navigation-routing-check.js', 'sandbox-task-navigation-check.js', 'sandbox-task-sync-check.js',
-  'system-task-cooldown-check.js', 'nonlinear-task-routing-check.js', 'mixed-task-deadlock-check.js',
+  'system-task-cooldown-check.js', 'nonlinear-task-routing-check.js', 'user-play-path-check.js', 'mixed-task-deadlock-check.js',
   'task-resource-pipeline-check.js', 'task-story-alignment-check.js', 'story-system-consistency-check.js',
   'story-activation-check.js', 'chapter-story-check.js', 'chapter-gate-order-check.js',
   'ledger-story-task-check.js', 'task-story-resource-match-check.js', 'map-task-story-dedupe-check.js',

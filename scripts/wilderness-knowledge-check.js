@@ -28,6 +28,7 @@ const { simulateDay } = require("../js/simulator");
 const { safeConfig } = require("../js/cloudService");
 const {
   WILDERNESS_FIND_CATALOG,
+  maxObtainableQualityScore,
   normalizeWildernessKnowledge,
   recordWildernessFind,
   wildernessKnowledgeSummary,
@@ -35,7 +36,10 @@ const {
   wildernessStockReadiness,
   wildernessTradeRecommendations,
   wildernessTradeDailyUsage,
+  wildernessFindById,
   wildernessTradePreview,
+  proposeAutoExchange,
+  settleAutoExchange,
   settleWildernessTrade,
   applyWildernessTradeInbox
 } = require("../js/wildernessKnowledge");
@@ -50,7 +54,11 @@ WILDERNESS_FIND_CATALOG.forEach((item) => {
   ["material", "knowledge", "use", "safety"].forEach((key) => assert(String(item[key] || "").length >= 8, `${item.id} needs ${key}`));
   assert(String(item.storyHook || "").length >= 8, `${item.id} needs a story hook`);
   assert(item.reserveEffect && item.reserveEffect.label && Number.isFinite(item.reserveEffect.delta), `${item.id} needs a reserve effect`);
+  assert(item.minQuality <= maxObtainableQualityScore(item.minLevel),
+    `${item.id} needs ${item.minQuality} but a natural 6 at level ${item.minLevel} only reaches ${maxObtainableQualityScore(item.minLevel)}`);
 });
+const lastChapterFind = WILDERNESS_FIND_CATALOG.filter((item) => item.minLevel === 4).pop();
+assert(lastChapterFind && lastChapterFind.minQuality <= 8, "chapter 4 last survival find must be obtainable with a 6 and no relationship bonus");
 
 const reserve = { safety: 50, poacherPressure: 30, ecology: { water: 60, grass: 60, disease: 10 } };
 const sample = WILDERNESS_FIND_CATALOG[0];
@@ -79,10 +87,12 @@ const fundBeforeTrade = reserve.fund || 0;
 const worldSettlement = settleWildernessTrade(reserve, worldPreview, { tradeId: "trade_world_1", clientTradeId: "client_world_1", day: 3 });
 assert(worldSettlement.ok && reserve.fund > fundBeforeTrade && reserve.wildernessKnowledge.tradeStock[sample.id] === 1, "confirmed world exchange should consume exactly one item and settle fund value");
 const incomingBefore = reserve.fund;
+const pendingBeforeInbox = (reserve.wildernessKnowledge.exchangeIcon || {}).pendingKey || "";
 const inbox = applyWildernessTradeInbox(reserve, [{ tradeId: "incoming_1", partnerCredit: 2, itemId: sample.id, itemLabel: sample.label, partnerName: "远方好友", scope: "friends" }]);
 const duplicateInbox = applyWildernessTradeInbox(reserve, [{ tradeId: "incoming_1", partnerCredit: 2 }]);
 assert(inbox.applied.length === 1 && reserve.fund > incomingBefore && duplicateInbox.applied.length === 0, "incoming trade receipts should reward the partner exactly once");
 assert(inbox.receivedAmount === 1 && reserve.wildernessKnowledge.tradeStock[sample.id] === 2, "a claimed inbox receipt should add the real incoming material to exchange stock exactly once");
+assert(((reserve.wildernessKnowledge.exchangeIcon || {}).pendingKey || "") === pendingBeforeInbox, "领取回执不得立刻再推沙盘交换");
 assert(/无需额外物资/.test(inbox.applied[0].paymentLabel), "inbox accounting should state what the receiver paid instead of leaving the exchange ambiguous");
 const barterChoices = wildernessTradeRecommendations(reserve, sample.id);
 assert(barterChoices.length === 3 && new Set(barterChoices.map((item) => item.tradeKind)).size === 3, "the compact exchange flow should recommend one existing asset from each of the three trade categories");
@@ -92,6 +102,16 @@ const metricBeforeEscrow = reserve.safety;
 const barterSettlement = settleWildernessTrade(reserve, barterPreview, { tradeId: "barter_open_1", clientTradeId: "barter_client_1", status: "open", day: 4 });
 assert(barterSettlement.ok && barterSettlement.pending && reserve.fund === fundBeforeEscrow && reserve.safety === metricBeforeEscrow, "escrow must consume only the offered item and never grant direct fund or reserve-stat rewards");
 assert(wildernessTradeDailyUsage(reserve, 4).used === 1, "daily exchange usage should count escrow deposits exactly once");
+const autoProposal = proposeAutoExchange(reserve);
+assert(autoProposal && autoProposal.offer && autoProposal.want && autoProposal.offer.id !== autoProposal.want.id, "auto exchange should pick owned surplus against a current shortage");
+const autoStockBefore = reserve.wildernessKnowledge.tradeStock[autoProposal.offer.id];
+const autoWantBefore = reserve.wildernessKnowledge.tradeStock[autoProposal.want.id] || 0;
+const autoResult = settleAutoExchange(reserve, autoProposal, { id: "npc_ache", name: "阿澈", simulated: true, channel: "friends" }, { day: 4, source: "sandbox", tradeId: "auto_npc_1", createdAt: 40 });
+assert(autoResult.ok && autoResult.partner.kind === "npc", "npc partners should complete the whole exchange when real players are missing");
+assert(reserve.wildernessKnowledge.tradeStock[autoProposal.offer.id] === autoStockBefore - 1, "auto request should spend one owned item");
+assert(reserve.wildernessKnowledge.tradeStock[autoProposal.want.id] === autoWantBefore + 1, "auto match should grant the requested shortage item");
+assert(reserve.wildernessKnowledge.tradeHistory.some((entry) => entry.tradeId === "auto_npc_1"), "auto request must write the outbox");
+assert(reserve.wildernessKnowledge.incomingHistory.some((entry) => entry.tradeId === "auto_npc_1_in"), "auto result must write the inbox");
 const pressureReserve = { ecology: { water: 40, grass: 40 }, safety: 50, poacherPressure: 30, wildernessKnowledge: reserve.wildernessKnowledge };
 const protectedLedger = applyAnimalEcologyEconomy(pressureReserve, [], { day: 4, action: "patrol" });
 const unprotectedLedger = applyAnimalEcologyEconomy({ ecology: { water: 40, grass: 40 }, safety: 50, poacherPressure: 30 }, [], { day: 4, action: "patrol" });
@@ -112,6 +132,35 @@ assert(exploration.survivalFind.isNew === true, "first integrated discovery shou
 assert(exploration.survivalFind.impact && exploration.survivalFind.storyLink, "integrated discovery should persist reserve impact and story linkage");
 assert((result.world.reserve.wildernessKnowledge.tradeStock[exploration.survivalFind.id] || 0) === 1, "integrated discovery should persist trade stock");
 assert(/永久解锁/.test(exploration.summary) && /已关联/.test(exploration.summary), "settlement copy should explain knowledge unlock and story linkage");
+
+{
+  const targeted = createCharacter(null, "指定素材");
+  targeted.world.reserve.progression.level = 5;
+  targeted.world.reserve.progression.stage = 9;
+  targeted.world.reserve.progression.displayChapter = 9;
+  targeted.world.reserve.eventChain = Object.assign({}, targeted.world.reserve.eventChain, { chapterLevel: 9, step: 2 });
+  targeted.world.reserve.actionPoints = 3;
+  targeted.world.reserve.safety = 20;
+  targeted.world.reserve.poacherPressure = 80;
+  targeted.world.reserve.ecology = Object.assign({}, targeted.world.reserve.ecology, { water: 20 });
+  (targeted.world.knownCharacters || []).forEach((animal) => {
+    animal.relation = Object.assign({}, animal.relation || {}, { trust: 20 });
+  });
+  const bark = wildernessFindById("bark_route_tag");
+  assert(bark && bark.minQuality <= maxObtainableQualityScore(5), "late survival item must remain reachable by a natural 6");
+  const targetedResult = simulateDay("跟随动物探索森林，寻找自然遗留。目标:bark_route_tag 掷骰:6", targeted);
+  const targetedFind = targetedResult.visual && targetedResult.visual.materialExploration;
+  assert(targetedFind && targetedFind.survivalFind && targetedFind.survivalFind.id === "bark_route_tag", "指定生存素材必须能通过掷骰子取得，不能被随机抽成别的物件");
+  assert((targetedResult.world.reserve.wildernessKnowledge.tradeStock.bark_route_tag || 0) === 1, "targeted dice must persist the requested survival stock");
+  const missState = createCharacter(null, "指定素材不足");
+  missState.world.reserve.progression.level = 5;
+  missState.world.reserve.progression.stage = 9;
+  missState.world.reserve.progression.displayChapter = 9;
+  missState.world.reserve.eventChain = Object.assign({}, missState.world.reserve.eventChain, { chapterLevel: 9, step: 2 });
+  missState.world.reserve.actionPoints = 3;
+  const miss = simulateDay("跟随动物探索森林，寻找自然遗留。目标:bark_route_tag 掷骰:1", missState);
+  assert(!(miss.visual && miss.visual.materialExploration && miss.visual.materialExploration.survivalFind), "点数不足时指定素材不得发放");
+}
 
 const secure = safeConfig({ assets: { artAtlas: { url: "https://wild.hubao.tv/assets/art-atlas-v2.png", version: "v2" } } });
 const rejected = safeConfig({ assets: { artAtlas: { url: "https://evil.example/art.png", version: "v2" } } });
@@ -161,17 +210,19 @@ game.cloudService = {
 game.screen = "survival";
 game.hitAreas = [];
 game.drawSurvival(game.ctx);
-assert(game.renderedSurvivalCards && game.renderedSurvivalCards.length === WILDERNESS_FIND_CATALOG.length, "survival should be a full standalone catalog screen");
+const visibleMaterialLevel = Number(game.survivalMaterialLevel) || 1;
+const visibleMaterials = WILDERNESS_FIND_CATALOG.filter((item) => Number(item.minLevel || 1) === visibleMaterialLevel);
+assert(game.renderedSurvivalCards && game.renderedSurvivalCards.length === visibleMaterials.length, "survival should show the selected material-level catalog without a long vertical list");
 assert(game.renderedSurvivalHero && game.renderedSurvivalHero.style === "green-achievement-progress-card", "survival should lead with the green achievement-style progress card");
-assert(game.renderedSurvivalGroups && game.renderedSurvivalGroups.length >= 4 && game.renderedSurvivalGroups.every((group) => group.style === "green-achievement-floor-card"), "survival catalog should be grouped into green achievement-style level cards");
+assert(game.renderedSurvivalGroups && game.renderedSurvivalGroups.length === 1 && game.renderedSurvivalGroups.every((group) => group.style === "green-achievement-floor-card" && group.selected), "survival catalog should show only the selected horizontal-tab level group");
 game.renderedSurvivalGroups.forEach((group) => {
   const firstCard = game.renderedSurvivalCards.find((card) => card.groupLevel === group.level);
-  if (firstCard) assert(firstCard.y >= group.y + 82, `level ${group.level} cards must clear the green section header`);
+  if (firstCard) assert(firstCard.y >= group.y + 74, `level ${group.level} cards must clear the 70px green header with a 4px gap`);
 });
 assert(!game.nativeTemplateAdSlot && !game.renderedNativeTemplateAdSlot, "survival catalog should not insert a native ad into the reading flow");
 assert(game.renderedSurvivalCards.some((card) => card.unlocked && card.stock === 1), "standalone survival screen should surface owned exchange stock");
 assert(game.renderedSurvivalCards.every((card) => card.imageDominant && card.imageSize >= 60 && card.summaryLines === 1 && card.disclosure === "detail-modal"), "survival cards should prioritize art and defer long copy to a detail modal");
-assert(new Set(game.renderedSurvivalCards.map((card) => card.materialIconId)).size === WILDERNESS_FIND_CATALOG.length, "each survival material should keep a distinct icon identity");
+assert(new Set(game.renderedSurvivalCards.map((card) => card.materialIconId)).size === visibleMaterials.length, "each visible survival material should keep a distinct icon identity");
 assert(game.renderedSurvivalCards.every((card) => card.iconSource === "cartoon-vector"), "survival icons should use the unified cartoon vector style");
 const cutoutPixels = new Uint8ClampedArray(16 * 12 * 4);
 for (let pixel = 0; pixel < cutoutPixels.length; pixel += 4) {
@@ -213,8 +264,11 @@ const lockedSurvivalHit = game.hitAreaAt(
 assert(lockedSurvivalHit && typeof lockedSurvivalHit.onTap === "function", "locked survival CTA must remain clickable");
 lockedSurvivalHit.onTap();
 assert(game.infoDetailModal && game.infoDetailModal.kind === "wildernessKnowledgeLockedItem", "locked survival CTA must explain its discovery conditions");
+assert(typeof game.infoDetailModal.action === "function", "locked survival item must offer a dice exploration action");
+game.infoDetailModal.action();
+assert(game.infoDetailModal && game.infoDetailModal.kind === "materialExploration" && game.infoDetailModal.targetId === lockedSurvivalCard.id, "去探索必须带着指定生存素材进入掷骰");
 game.infoDetailModal = null;
-assert(game.renderedSurvivalTradePanel && game.renderedSurvivalTradePanel.enabled && game.renderedSurvivalTradePanel.readiness.careRelief > 0, "survival screen should expose a real-player exchange action and current readiness");
+assert(!game.renderedSurvivalTradePanel, "survival catalog must not keep a separate exchange settings panel");
 assert(game.renderedSurvivalMailbox && game.renderedSurvivalMailbox.inboxCount === 1 && game.renderedSurvivalMailbox.outboxCount === 1 && game.renderedSurvivalMailbox.progressiveDisclosure, "survival should expose compact inbox and outbox buttons without expanding history over the catalog");
 assert(game.wildernessTradeMailboxRecords("outbox").length === 1, "server-only legacy receipts must not inflate the confirmed outgoing exchange count");
 game.openWildernessTradeMailbox("inbox", false);
@@ -222,7 +276,7 @@ assert(game.infoDetailModal && game.infoDetailModal.kind === "wildernessTradeMai
 assert(/已领取入库/.test(JSON.stringify(game.infoDetailModal.items)), "claimed inbox materials should never remain marked as waiting");
 game.infoDetailModal.choices[1].action();
 assert(/交换发件箱/.test(game.infoDetailModal.title) && /送出/.test(JSON.stringify(game.infoDetailModal.items)) && /得到/.test(JSON.stringify(game.infoDetailModal.items)) && /共护/.test(JSON.stringify(game.infoDetailModal.items)), "the outbox should show sent material, recipient and concrete reward");
-assert(/真实玩家交换 · 1 条/.test(game.infoDetailModal.kicker) && !/旧版保护区/.test(JSON.stringify(game.infoDetailModal.items)), "one locally confirmed send should render exactly one outbox record even when the server returns older unmatched rows");
+assert(/物资交换往来 · 1 条/.test(game.infoDetailModal.kicker) && !/旧版保护区/.test(JSON.stringify(game.infoDetailModal.items)), "one locally confirmed send should render exactly one outbox record even when the server returns older unmatched rows");
 game.hitAreas = [];
 game.drawInfoDetailModal();
 const mailboxCards = game.infoDetailModal.renderedInfoItems || [];
@@ -235,7 +289,7 @@ game.openWildernessKnowledgeItem(exploration.survivalFind.id);
 assert(game.infoDetailModal && /安全边界/.test(JSON.stringify(game.infoDetailModal.items)), "survival knowledge detail should always show a safety boundary");
 assert(game.infoDetailModal.expandableItems && game.infoDetailModal.items.length === 3 && /点击卡片查看更多/.test(game.infoDetailModal.footer), "survival detail should lead with three expandable summary cards");
 assert(/物件故事/.test(JSON.stringify(game.infoDetailModal.items)) && /生态影响/.test(JSON.stringify(game.infoDetailModal.items)) && /未解线索/.test(JSON.stringify(game.infoDetailModal.items)), "survival detail should expose story, reserve consequence and foreshadow layers");
-assert(game.infoDetailModal.actionLabel === "交换这份素材" && /抵消压力/.test(JSON.stringify(game.infoDetailModal.items)), "owned material detail should offer exchange and explain its holding value");
+assert(game.infoDetailModal.actionLabel === "关闭" && /沙盘求援或排行榜/.test(JSON.stringify(game.infoDetailModal.items)), "owned material detail should point to sandbox and leaderboard exchange, not a third catalog entry");
 const lockedItem = WILDERNESS_FIND_CATALOG.find((item) => item.id !== exploration.survivalFind.id);
 game.openWildernessKnowledgeItem(lockedItem.id);
 assert(game.infoDetailModal && game.infoDetailModal.kind === "wildernessKnowledgeLockedItem" && /剧情门槛/.test(JSON.stringify(game.infoDetailModal.items)) && /数值门槛/.test(JSON.stringify(game.infoDetailModal.items)), "locked survival cards should explain their story and reserve-value activation instead of a random condition");
@@ -274,37 +328,34 @@ async function checkWechatFriendTradeBridge() {
   game.cloudService = cloud;
   game.wechatFriends = { status: "ready" };
   game.selectedRivalId = "";
-  game.screen = "survival";
+  game.selectedRival = () => pendingFriend;
+  game.screen = "league";
   game.openWildernessTradeCenter(exploration.survivalFind.id, "friends");
-  assert(game.infoDetailModal && game.infoDetailModal.kind === "wildernessTradeUnavailable" && /检查交换服务/.test(game.infoDetailModal.title), "an early exchange tap should show a transient capability check instead of a permanent upgrade error");
-  await flushPromises();
-  assert(game.infoDetailModal && game.infoDetailModal.kind === "wildernessTradeWant", "the exchange flow should first ask what the player wants to receive");
-  assert(/我送出/.test(JSON.stringify(game.infoDetailModal.items)) && /我想要/.test(JSON.stringify(game.infoDetailModal.items)) && /交换动机/.test(JSON.stringify(game.infoDetailModal.items)) && /具体用途/.test(JSON.stringify(game.infoDetailModal.items)), "the compact exchange choice must explain give, receive, motive and survival use");
-  game.infoDetailModal.choices[1].action();
-  assert(game.infoDetailModal && game.infoDetailModal.kind === "wildernessTradeConfirm" && /服务器托管/.test(game.infoDetailModal.kicker), "the final confirmation should describe server escrow and reciprocal matching");
-  const stockBeforeRejectedTrade = wildernessKnowledgeSummary(game.state.world.reserve).state.tradeStock[exploration.survivalFind.id];
-  const tradeMessages = [];
-  let submittedPayload = null;
-  game.toast = (message) => tradeMessages.push(String(message));
-  cloud.exchangeMaterial = (payload) => {
-    submittedPayload = payload;
-    return Promise.reject(new Error("INVALID_TRADE"));
-  };
-  game.infoDetailModal.choices[1].action();
-  await flushPromises();
-  assert(submittedPayload && submittedPayload.mode === "barter_v1" && submittedPayload.version === 2 && submittedPayload.itemId && submittedPayload.wantedItemId && submittedPayload.clientTradeId, "barter submission must send both material ids, protocol version and an idempotency key");
-  assert(game.infoDetailModal && game.infoDetailModal.kind === "wildernessTradeUnavailable" && /库存没有扣除/.test(JSON.stringify(game.infoDetailModal.items)), "an old-server INVALID_TRADE response must become a recoverable service notice rather than a raw error over the catalog");
-  assert(tradeMessages.some((message) => /版本不一致/.test(message)) && tradeMessages.every((message) => !/INVALID_TRADE/.test(message)), "server error codes must never be shown directly to the player");
-  assert(wildernessKnowledgeSummary(game.state.world.reserve).state.tradeStock[exploration.survivalFind.id] === stockBeforeRejectedTrade, "a rejected server trade must not consume local material stock");
+  assert(game.infoDetailModal && game.infoDetailModal.kind === "friendAidRequest", "leaderboard exchange should open the same auto request as the sandbox");
+  assert(game.infoDetailModal.namedFriendExchange, "好友榜必须点名求援");
+  assert(/我拥有/.test(JSON.stringify(game.infoDetailModal.items)), "the request must show owned surplus");
+  assert((game.infoDetailModal.wantOptions || []).length >= 2, "好友榜必须给出可选缺口");
+  assert(/微信同玩好友 1/.test(game.infoDetailModal.title), "好友榜必须点名当前选中的人");
+  const stockBefore = wildernessKnowledgeSummary(game.state.world.reserve).state.tradeStock[exploration.survivalFind.id];
+  const pickedWant = game.infoDetailModal.wantOptions[1] || game.infoDetailModal.wantOptions[0];
+  assert(game.selectFriendExchangeWant(pickedWant.id));
+  assert(game.confirmFriendAidRequest(), "named friend request should complete after a shortage is chosen");
+  assert(game.state.world.reserve.friendAid.incoming.itemId === pickedWant.id, "named request must send the chosen shortage");
+  assert(game.infoDetailModal && game.infoDetailModal.kind === "friendAidLetter" && /交换结果/.test(game.infoDetailModal.kicker), "matched exchange should show the result letter");
+  assert(wildernessKnowledgeSummary(game.state.world.reserve).state.tradeStock[exploration.survivalFind.id] === stockBefore - 1, "auto request must spend one owned item");
 
+  assert(game.confirmOpenFriendAidParcel(), "confirming the result should clear the received parcel");
   cloud.friendRows = [];
   cloud.friendRelationCount = 0;
   cloud.friendPendingCount = 0;
-  game.selectedRivalId = "";
-  game.openWildernessTradeCenter(exploration.survivalFind.id, "friends");
-  await flushPromises();
-  assert(game.infoDetailModal && game.infoDetailModal.kind === "wildernessTradeWant", "an empty live match set should still accept a safe escrow offer instead of switching screens or inserting a simulated player");
-  assert(/未匹配时素材继续由服务器托管/.test(game.infoDetailModal.footer), "the empty-pool state should explain that the offer remains pending");
+  game.selectedRival = () => null;
+  game.screen = "home";
+  const knowledge = game.state.world.reserve.wildernessKnowledge || (game.state.world.reserve.wildernessKnowledge = {});
+  const npcGameStock = knowledge.tradeStock || (knowledge.tradeStock = {});
+  npcGameStock.resin_tinder = Math.max(2, Number(npcGameStock.resin_tinder) || 0);
+  game.openFriendAidRequestModal();
+  assert(game.infoDetailModal && game.infoDetailModal.kind === "friendAidRequest", "sandbox request stays available when real players are missing");
+  assert(/巡护员/.test(JSON.stringify(game.infoDetailModal.items)), "empty live match set should fall back to an npc ranger");
 }
 
 checkWechatFriendTradeBridge().then(() => {

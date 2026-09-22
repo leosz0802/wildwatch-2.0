@@ -88,69 +88,66 @@ assert(game.renderedPlayablePrologue.stage === "fog"
   && game.renderedPlayablePrologue.dialogue.style === "survival-manifesto"
   && !game.renderedPlayablePrologue.dialogue.cloud
   && game.renderedPlayablePrologue.dialogue.textPriority === "primary"
-  && game.renderedPlayablePrologue.imageTransitionMode === "fade-through-dark"
+  && game.renderedPlayablePrologue.imageTransitionMode === "hold"
   && game.renderedPlayablePrologue.transitionFlash === false
   && game.renderedPlayablePrologue.geometryContinuous
   && game.renderedPlayablePrologue.lateLoadHold
   && game.renderedPlayablePrologue.avoidsDoubleExposure
-  && /没有无代价的善意/.test(game.renderedPlayablePrologue.dialogue.line)
+  && /解救 1 只动物/.test(game.renderedPlayablePrologue.dialogue.line)
+  && /招募 95 名游客/.test(game.renderedPlayablePrologue.dialogue.line)
+  && /扩大到 180 只/.test(game.renderedPlayablePrologue.dialogue.line)
+  && /没有无代价的善意/.test(game.renderedPlayablePrologue.dialogue.rule)
   && game.renderedPlayablePrologue.dialogue.layeredCloud,
-"first frame should foreground the first survival rule without showing a premature fake button");
+"first frame should foreground chapter-one goals without showing a premature fake button");
 assert(!game.advancePlayablePrologue(), "the player should not be able to skip the opening bell before the first beat lands");
-game.prologueRuntime.startedAt = Date.now() - 1150;
+game.prologueRuntime.startedAt = Date.now() - 900;
 game.drawChoose(game.ctx);
-assert(game.renderedPlayablePrologue.actionLabel === "看清代价" && game.renderedPlayablePrologue.actionEnabled
+assert(game.renderedPlayablePrologue.actionLabel === "进入游戏" && game.renderedPlayablePrologue.actionEnabled
   && game.renderedPlayablePrologue.actionBounds.compact && game.renderedPlayablePrologue.actionBounds.cartoon
-  && game.renderedPlayablePrologue.actionBounds.w <= 190,
-  "the first interaction should appear only after the bell-and-dialogue beat");
-assert(game.advancePlayablePrologue() && game.playablePrologueState().stage === "trail" && !game.state.character, "first discovery should reveal pawprints without prematurely creating the reserve");
-assert(!game.advancePlayablePrologue(), "hound dialogue should get a readable pause before the second interaction");
-game.prologueRuntime.startedAt = Date.now() - 450;
-game.drawChoose(game.ctx);
-assert(game.renderedPlayablePrologue.panel === 2
-  && game.renderedPlayablePrologue.panelTransition > .2
-  && game.renderedPlayablePrologue.panelTransition < 1
-  && game.renderedPlayablePrologue.dogBounds.x > game.width * .43 - 56
-  && game.renderedPlayablePrologue.dogBounds.x < game.width * .49 - 56
-  && game.renderedPlayablePrologue.dialogue.hidden
-  && game.renderedPlayablePrologue.actionBounds.hidden,
-"panel 2 should fade through a dark midpoint while foreground geometry moves continuously and controls stay quiet");
-const transitionDraws = [];
-const transitionGame = prepareGame();
-transitionGame.ctx = createFakeContext(transitionDraws);
-transitionGame.state.character = null;
-transitionGame.state.ui = { prologue: { version: 1, stage: "trail", completed: false } };
-transitionGame.screen = "choose";
-transitionGame.art.prologueFog.loadedAt = 0;
-transitionGame.prologueRuntime = { stage: "trail", startedAt: Date.now() - 450 };
-transitionGame.drawChoose(transitionGame.ctx);
-assert(transitionDraws.length === 1,
-"the transition midpoint should render only one full-frame image so the dog cannot appear twice");
-game.prologueRuntime.startedAt = Date.now() - 1550;
-game.drawChoose(game.ctx);
-assert(game.renderedPlayablePrologue.panelTransition === 1
-  && /遵循自然，衡量利益/.test(game.renderedPlayablePrologue.dialogue.line)
-  && game.renderedPlayablePrologue.dialogue.style === "survival-manifesto"
-  && !game.renderedPlayablePrologue.dialogue.cloud
-  && game.renderedPlayablePrologue.dialogue.layeredCloud
-  && game.renderedPlayablePrologue.dialogue.y < game.height * .3
-  && game.renderedPlayablePrologue.actionLabel === "接管保护区"
-  && game.renderedPlayablePrologue.actionEnabled,
-"the second comic panel should settle before its single line and interaction appear");
-
-assert(game.advancePlayablePrologue() && game.state.character, "the text-led second beat should enter the active reserve without a third reveal screen");
+  && game.renderedPlayablePrologue.actionBounds.w <= 190
+  && game.renderedPlayablePrologue.panel === 1
+  && !game.renderedPlayablePrologue.panelTwoReady,
+  "the first image should expose a single enter-game button");
+assert(game.advancePlayablePrologue() && game.state.character, "tapping enter game should create the reserve on the first image");
 assert(game.screen === "home" && !game.chapterStoryModal && game.chapterStorySeen(1, "start"), "playable prologue should replace the first static chapter illustration");
 assert(game.infoDetailModal && game.infoDetailModal.kind === "onboardingChoice", "new player should enter the first choice instead of the full mission report");
-assert(game.infoDetailModal.kind === "onboardingChoice" && game.infoDetailModal.choices.length === 2, "first interaction should be a clear two-choice decision");
-assert(game.infoDetailModal.items.length === 2
+assert(game.infoDetailModal.kind === "onboardingChoice" && game.infoDetailModal.choices.length === 1, "first interaction should be a single clear action");
+assert(game.infoDetailModal.items.length === 1
   && game.infoDetailModal.items.every((item) => /\d+→\d+/.test(`${item.title}${item.body}`))
-  && /水源/.test(game.infoDetailModal.items[0].title)
-  && /偷猎|线索/.test(game.infoDetailModal.items[1].title), "first choice should preview both real costs and result ranges");
+  && /偷猎|线索/.test(`${game.infoDetailModal.items[0].title}${game.infoDetailModal.items[0].body}`), "first action should preview real costs and result ranges");
 assert(!game.maybeOpenMissionPush("home"), "complex mission push must stay quiet during onboarding");
+
+const holdGame = prepareGame();
+holdGame.state.character = null;
+holdGame.state.ui = { prologue: { version: 1, stage: "fog", completed: false } };
+holdGame.screen = "choose";
+holdGame.prologueRuntime = { stage: "fog", startedAt: Date.now() - 900 };
+holdGame.renderedPlayablePrologue = { actionEnabled: true };
+holdGame.mapImageSource = () => null;
+assert(holdGame.tryEnterPlayableGame() && holdGame.screen === "home", "enter must leave prologue even while the illustrated map is still loading");
+assert(holdGame.holdPrologueMapUntilIllustrated, "first enter must hold the forest art instead of flashing the grassless fallback");
+let riverDraws = 0;
+holdGame.drawSavannaRiver = () => { riverDraws += 1; };
+holdGame.drawCartoonSavannaMap(holdGame.ctx, { worldX: 0, worldY: 0, worldW: 375, worldH: 600, worldSize: 375, scale: 1, x: 0, y: 0, w: 375, h: 600 }, false, true);
+assert(riverDraws === 0, "first enter must not flash the yellow sand map without grass");
+
+const audioFailureEntry = prepareGame();
+audioFailureEntry.state.character = null;
+audioFailureEntry.state.ui = { prologue: { version: 1, stage: "fog", completed: false } };
+audioFailureEntry.screen = "choose";
+audioFailureEntry.prologueRuntime = { stage: "fog", startedAt: Date.now() - 900 };
+audioFailureEntry.audio = {
+  attachState() { throw new Error("simulated developer-tool audio failure"); },
+  playEffect() { throw new Error("simulated developer-tool audio failure"); }
+};
+assert(audioFailureEntry.advancePlayablePrologue()
+  && audioFailureEntry.screen === "home"
+  && audioFailureEntry.state.character,
+"developer-tool audio errors must not interrupt the enter-game button");
 
 const resumed = prepareGame();
 resumed.state.ui.prologue = { version: 1, stage: "reveal", completed: false, revealStartedAt: Date.now() - 900 };
-assert(resumed.playablePrologueState().active && resumed.playablePrologueState().stage === "trail", "an interrupted legacy save should migrate to the text-led second beat instead of replaying the opening");
+assert(resumed.playablePrologueState().active && resumed.playablePrologueState().stage === "fog", "an interrupted legacy save should land on the first image instead of a second panel");
 const legacy = prepareGame();
 delete legacy.state.ui.prologue;
 assert(!legacy.playablePrologueState().active && legacy.playablePrologueState().legacy, "existing saves must never replay the new opening");
@@ -172,22 +169,15 @@ assert(!legacy.playablePrologueState().active && legacy.playablePrologueState().
     && fogVisual.panelOneReady && !fogVisual.panelTwoReady
     && fogVisual.dialogue && fogVisual.actionBounds.y + fogVisual.actionBounds.h <= height - 20,
   `fog discovery should stay cinematic and safe at ${width}x${height}`);
-  entry.prologueRuntime.startedAt = Date.now() - 1150;
+  entry.prologueRuntime.startedAt = Date.now() - 900;
   entry.drawChoose(entry.ctx);
-  assert(entry.renderedPlayablePrologue.actionEnabled, `bell interaction should unlock after its film beat at ${width}x${height}`);
-  entry.advancePlayablePrologue(true);
-  entry.drawChoose(entry.ctx);
-  assert(entry.renderedPlayablePrologue.stage === "trail" && entry.renderedPlayablePrologue.panel === 2
-    && entry.renderedPlayablePrologue.actionBounds.hidden && entry.maxScroll() === 0,
-    `text-led second beat should fit one screen without premature controls at ${width}x${height}`);
-  entry.prologueRuntime.startedAt = Date.now() - 1550;
-  entry.drawChoose(entry.ctx);
-  assert(entry.renderedPlayablePrologue.panelTransition === 1
-    && entry.renderedPlayablePrologue.actionLabel === "接管保护区"
-    && entry.renderedPlayablePrologue.actionEnabled,
-    `text-led second beat should expose one clear interaction at ${width}x${height}`);
+  assert(entry.renderedPlayablePrologue.actionEnabled, `enter-game should unlock after its film beat at ${width}x${height}`);
+  assert(entry.renderedPlayablePrologue.actionLabel === "进入游戏"
+    && entry.renderedPlayablePrologue.panel === 1
+    && entry.maxScroll() === 0,
+    `the first image should keep a single enter-game control at ${width}x${height}`);
   assert(entry.advancePlayablePrologue(true) && entry.screen === "home" && entry.state.character,
-    `one image plus text should enter the playable reserve directly at ${width}x${height}`);
+    `one image plus enter-game should enter the playable reserve directly at ${width}x${height}`);
   const visual = prepareGame();
   visual.width = width;
   visual.height = height;
@@ -195,8 +185,8 @@ assert(!legacy.playablePrologueState().active && legacy.playablePrologueState().
   visual.hitAreas = [];
   visual.drawInfoDetailModal();
   const choiceButtons = visual.hitAreas.filter((hit) => hit.h >= 36 && hit.w > 90);
-  assert(choiceButtons.length >= 2, `first choice needs two safe buttons at ${width}x${height}`);
-  choiceButtons.slice(-2).forEach((hit) => assert(hit.x >= 0 && hit.y >= 0 && hit.x + hit.w <= width && hit.y + hit.h <= height, `onboarding control should stay inside ${width}x${height}`));
+  assert(choiceButtons.length >= 1, `first choice needs a safe button at ${width}x${height}`);
+  choiceButtons.slice(-1).forEach((hit) => assert(hit.x >= 0 && hit.y >= 0 && hit.x + hit.w <= width && hit.y + hit.h <= height, `onboarding control should stay inside ${width}x${height}`));
 });
 
 assert(game.executeOnboardingAction("houndScout"), "first choice should execute directly");
@@ -248,4 +238,4 @@ const resumedComplete = prepareGame();
 resumedComplete.state = JSON.parse(JSON.stringify(game.state));
 assert(resumedComplete.onboardingProgress().completed && !resumedComplete.openFirstOnboardingChoice(), "completed onboarding must survive save-and-reload");
 
-console.log("onboarding pacing check ok (single image plus text enters play directly, two-action core loop, legacy resume, 3 sizes)");
+console.log("onboarding pacing check ok (single opening image with enter-game, two-action core loop, legacy resume, 3 sizes)");

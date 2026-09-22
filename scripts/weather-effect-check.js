@@ -1,5 +1,5 @@
 // 验证 Step 3 昼夜/天气影响：weatherMod 方向、nextWeather 闭合、applyAction 接入、simulateDay 报告
-const { weatherMod, nextWeather, WEATHER_CYCLE, applyAction, simulateDay } = require("../js/simulator");
+const { weatherMod, nextWeather, WEATHER_CYCLE, WEATHER_ANOMALIES, applyAction, simulateDay } = require("../js/simulator");
 const { createInitialWorld } = require("../js/world");
 const { animals } = require("../js/animals");
 
@@ -71,7 +71,7 @@ const state = {
   messages: []
 };
 const result = simulateDay("去东部河岸喝水，但尽量避开狼", state);
-if (!WEATHER_CYCLE.includes(result.world.weather)) {
+if (!(WEATHER_CYCLE.includes(result.world.weather) || (WEATHER_ANOMALIES || []).includes(result.world.weather))) {
   throw new Error(`simulateDay 产出的天气非法：${result.world.weather}`);
 }
 const priv = result.reports.find((r) => r.type === "private");

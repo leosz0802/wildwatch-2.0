@@ -204,10 +204,21 @@ state = wardenState();
 state.world.reserve.fund = 620;
 before = clone(state.world.reserve);
 result = run("修复水源和草场：去东部河岸湿地修复水源", state);
-const habitatNet = ((result.visual || {}).dailyEconomy || {}).net || 0;
 const expectedHabitatCost = require("../js/balanceConfig").chapterEconomy(before).habitatCost;
+const habitatTaskFund = ((result.visual.goalResult && result.visual.goalResult.rewards) || [])
+  .filter((item) => item && item.type === "fund")
+  .reduce((sum, item) => sum + Math.max(0, Math.round(Number(item.amount) || 0)), 0);
 assert(result.visual.actionFundCost.cost === expectedHabitatCost, "habitat cost must match chapter configuration");
-assert(result.world.reserve.fund === before.fund - expectedHabitatCost + habitatNet, "habitat must settle its disclosed fund cost exactly once");
+assert(result.world.reserve.fund === before.fund - expectedHabitatCost + habitatTaskFund, "habitat must settle action cost once, then add any daily task fund reward");
+assert(!habitatTaskFund || habitatTaskFund === 8, "daily ecology completion should grant exactly 8 fund");
+game.state = wardenState();
+game.ctx = createFakeContext();
+game.width = 375;
+game.height = 667;
+const habitatSettlement = game.buildPatrolSettlement(before, result.world.reserve, result, "修复水源和草场：去东部河岸湿地修复水源");
+const habitatRewardText = `${(habitatSettlement.rewards || []).join(" ")} ${(game.settlementRewardDisplayLines(habitatSettlement) || []).join(" ")}`;
+assert(/行动成本 -90/.test(habitatRewardText), "settlement copy must show the habitat action cost separately");
+if (habitatTaskFund) assert(/任务奖励 \+8|基金 \+8/.test(habitatRewardText), "settlement copy must show the daily task fund reward separately");
 assert(result.world.reserve.ecology.water >= before.ecology.water, "habitat should not reduce water");
 assert(result.world.reserve.ecology.grass > before.ecology.grass, "habitat should improve grass");
 
@@ -248,7 +259,7 @@ animalGame.performAnimalAction(animal, "calmObserve");
 const animalAfter = animalGame.state.world.knownCharacters.find((item) => item.id === animal.id);
 assert(!Object.prototype.hasOwnProperty.call(animalGame.state.world.reserve, "actionPoints"), "light animal care should not restore retired action field");
 assert(animalAfter.relation.trust > relationBefore.trust, "light animal care should improve trust");
-assert(!animalGame.animalActionStatus("calmObserve").canRun, "same animal care should be once per day");
+assert(!animalGame.animalActionStatus("calmObserve", animal).canRun, "same animal care should be once per day");
 
 const leagueGame = new Game();
 leagueGame.stopLoop();

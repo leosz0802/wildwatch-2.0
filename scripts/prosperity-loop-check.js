@@ -1,5 +1,6 @@
 const { createInitialWorld } = require("../js/world");
 const { Game } = require("../js/game");
+const { reserveValuationBreakdown } = require("../js/reserveValuation");
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -14,8 +15,12 @@ game.selectedReserveAction = "houndScout";
 
 const reserve = world.reserve;
 const before = game.reserveProsperitySummary(reserve, world);
-if (before.value !== 5346 || before.valuation.levelBase !== 1800 || before.valuation.animalValue !== 3546) {
-  throw new Error(`initial valuation must equal level base plus 197 live animals: ${before.value}`);
+const expectedValuation = reserveValuationBreakdown(1, before.animalTotal);
+if (before.value !== expectedValuation.total || before.valuation.levelBase !== 1800 || before.valuation.animalValue !== expectedValuation.animalValue) {
+  throw new Error(`initial valuation must equal level base plus live animals: ${before.value} animals=${before.animalTotal}`);
+}
+if (before.animalTotal !== 81) {
+  throw new Error(`opening animal total must be 80 wild + 1 trapped, got ${before.animalTotal}`);
 }
 
 const upgradedWorld = clone(world);

@@ -64,6 +64,17 @@ for (const [width, height] of [[320, 568], [375, 667], [430, 932]]) {
         assert(die.x >= 0 && die.x + die.size <= width, `${kind}: die must stay inside modal`);
         const frame = modal.renderedInfoFrame;
         if (stage) assert(stage.note.y + stage.note.h <= frame.y + frame.h - 98, `${kind}: note must stay above footer`);
+        if (kind === "collectionDice") {
+          const fire = modal.renderedArcheryFireButton;
+          assert(fire, "collection dice needs a footer fire button");
+          assert(stage && stage.y + stage.h <= fire.y, "collection dice fire button must sit below the archery stage");
+          assert(fire.w >= (game.width - 40) - 40, "collection dice fire button must span the modal footer");
+          assert(fire.x <= 40, "collection dice fire button must sit in the modal footer");
+          if (phase === "ready") {
+            const fireHits = game.hitAreas.filter((hit) => hit.x === fire.x && Math.abs(hit.y - fire.y) <= 8 && hit.w >= fire.w - 2);
+            assert(fireHits.length >= 1, "collection dice footer fire must be tappable");
+          }
+        }
         if (kind === "materialExploration") {
           const caption = modal.renderedArcheryCaption;
           const fire = modal.renderedArcheryFireButton;
@@ -175,6 +186,37 @@ try {
 } finally {
   global.setTimeout = oldTimer; Date.now = oldNow; Math.random = oldRandom;
 }
+// Close X must dismiss the 点数调查 card, including mid-flight.
+game.width = 375; game.height = 667;
+game.info = { windowWidth: 375, windowHeight: 667, pixelRatio: 1, safeArea: { top: 0, bottom: 667 } };
+game.ctx = fakeContext();
+game.collectionRollToken = "live";
+game.infoDetailModal = {
+  kind: "collectionDice", phase: "rolling", displayRoll: 4, action() {},
+  lead: { quality: 1, animal: { name: "晨角", trust: 85 } }, method: { id: "animal", name: "动物引路" }
+};
+game.hitAreas = [];
+const drawnTexts = [];
+const originalText = game.text.bind(game);
+game.text = function (ctx, value, ...rest) {
+  drawnTexts.push(String(value || ""));
+  return originalText(ctx, value, ...rest);
+};
+game.drawInfoDetailModal();
+game.text = originalText;
+assert.equal(drawnTexts.some((value) => /点数.+\+ 线索|调查总点数|总点数5\+|命中区/.test(value)), false, "collection dice must not overlay the formula or hit-zone copy");
+const frame = game.infoDetailModal.renderedInfoFrame;
+const close = game.infoDetailHeaderLayout(game.ctx, game.infoDetailModal, frame.x, frame.y, frame.w).close;
+const closeHit = game.hitAreas.slice().reverse().find((hit) => (
+  hit.x < close.x + close.w && hit.x + hit.w > close.x
+  && hit.y < close.y + close.h && hit.y + hit.h > close.y
+  && typeof hit.onTap === "function"
+));
+assert(closeHit, "collection dice close must stay tappable");
+closeHit.onTap();
+assert.strictEqual(game.infoDetailModal, null, "collection dice close must dismiss the card");
+assert.strictEqual(game.collectionRollToken, null, "collection dice close must cancel the in-flight roll");
+
 console.log("dice UI check ok (5 dialogs, 3 viewports, ready/rolling/result, all 6 faces, repeat taps and cancellation)");
 
 }

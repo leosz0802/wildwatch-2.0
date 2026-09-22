@@ -1,7 +1,7 @@
 const { getRuntime } = require("./runtime");
 const { createInitialWorld, createReserveState, syncKnownCharactersForReserve } = require("./world");
 const { normalizeFacilityConstruction } = require("./reserveFacilities");
-const { reconcileSpeciesPopulations } = require("./animalWorld");
+const { reconcileSpeciesPopulations, CHAPTERS } = require("./animalWorld");
 const { normalizeMysteryEvidence } = require("./mysteryRecoveries");
 const { normalizeStrategyState } = require("./strategySystem");
 const { normalizeCollectionState } = require("./collectionSystem");
@@ -12,9 +12,13 @@ const { normalizeGuardianCycle, normalizeMastery } = require("./guardianCycle");
 const { consistentMigrationSnapshot } = require("./ecologyConsistency");
 const { normalizeWildernessKnowledge } = require("./wildernessKnowledge");
 const { normalizeEcologyNarrative } = require("./ecologyNarrativeSystem");
+const { ensureChapterVisitorCheckpoint } = require("./chapterTargets");
+const { syncVisitorReceptionGrant } = require("./visitorReception");
+const { ensureEndlessGuardMode } = require("./endlessGuardMode");
 const { localDateKey, normalizeFirstReturnHook } = require("./firstReturnHook");
 const { normalizeReserveDevelopment } = require("./reserveDevelopment");
 const { normalizeChapterRescue, chapterDefinition, poacherRescueState } = require("./chapterRescueSystem");
+const { OBSOLETE_GENERIC_NATURE_TYPES } = require("./worldEventSystem");
 
 const STORAGE_KEY = "forest_kingdom_wechat_game_state";
 const MAX_STORED_REPORTS = 12;
@@ -81,7 +85,9 @@ function defaultState() {
   delete reserve.inventory.rescueItems;
   chapterDefinition(1).captive.forEach((speciesId) => {
     const group = require("./animalWorld").speciesPopulationGroup(speciesId);
-    if (reserve.ecology && reserve.ecology[group]) delete reserve.ecology[group][speciesId];
+    if (reserve.ecology && reserve.ecology[group] && !(Number(reserve.ecology[group][speciesId]) > 1)) {
+      reserve.ecology[group][speciesId] = 1;
+    }
   });
   return {
     world,
@@ -177,6 +183,16 @@ function normalizeState(saved) {
   }
   normalizeCollectionState(state);
   state.world.goals = normalizeGoalState(state.world.goals, state);
+  const seenStories = (state.ui && state.ui.chapterStoriesSeen) || {};
+  const reserve = state.world.reserve || {};
+  const stage = Math.max(1, Math.round(Number((reserve.progression || {}).stage || 1)));
+  if (stage >= CHAPTERS.length && (seenStories[`${CHAPTERS.length}:end`] || seenStories["20:end"])) {
+    reserve.progression = Object.assign({}, reserve.progression || {}, {
+      chapterComplete: true,
+      stageComplete: true
+    });
+    ensureEndlessGuardMode(reserve);
+  }
   return state;
 }
 
@@ -218,11 +234,6 @@ function normalizeReserve(saved, fallback) {
   normalizeFacilityConstruction(reserve);
   reserve.development = Object.assign({}, base.development || {}, (saved && saved.development) || {});
   normalizeReserveDevelopment(reserve);
-  const normalizedOperations = ((reserve.development || {}).operations || {});
-  const currentTotalVisitors = Math.max(0, Math.round(Math.max(
-    Number(normalizedOperations.totalVisitors) || 0,
-    Number((normalizedOperations.visitorLedger || {}).totalVisitors) || 0
-  )));
   reserve.supplies = Object.assign({}, base.supplies, (saved && saved.supplies) || {});
   reserve.emergencySupplyAd = Object.assign(
     {},
@@ -240,6 +251,14 @@ function normalizeReserve(saved, fallback) {
   reserve.market = Object.assign({}, base.market, (saved && saved.market) || {});
   reserve.listenedIntel = Object.assign({}, base.listenedIntel || {}, (saved && saved.listenedIntel) || {});
   reserve.animalCareLog = Object.assign({}, base.animalCareLog || {}, (saved && saved.animalCareLog) || {});
+  reserve.animalCareGrant = Object.assign(
+    { chapter: 0, dateKey: "", remaining: 1 },
+    (saved && saved.animalCareGrant) || {}
+  );
+  reserve.visitorReceptionGrant = Object.assign(
+    { chapter: 0, dateKey: "", remaining: 1, gained: 0 },
+    (saved && saved.visitorReceptionGrant) || {}
+  );
   reserve.social = Object.assign({}, base.social, (saved && saved.social) || {});
   // 好友通信按自然日持久化，避免重复渲染或重新进入游戏时重复发信。
   const savedFriendLetters = saved && saved.social && saved.social.friendLetters;
@@ -262,7 +281,7 @@ function normalizeReserve(saved, fallback) {
   reserve.progression = Object.assign({}, base.progression, (saved && saved.progression) || {});
   reserve.progression.level = Math.max(1, Math.min(7, Math.round(finiteOr(reserve.progression.level, 1))));
   const savedHadStage = !!(saved && saved.progression && Number.isFinite(Number(saved.progression.stage)));
-  reserve.progression.stage = Math.max(1, Math.min(14, Math.round(savedHadStage ? finiteOr(saved.progression.stage, 1) : reserve.progression.level * 2 - 1)));
+  reserve.progression.stage = Math.max(1, Math.min(CHAPTERS.length, Math.round(savedHadStage ? finiteOr(saved.progression.stage, 1) : reserve.progression.level * 2 - 1)));
   reserve.progression.displayChapter = reserve.progression.stage;
   reserve.progression.daysManaged = Math.max(0, Math.round(finiteOr(reserve.progression.daysManaged, 0)));
   reserve.progression.totalActions = Math.max(0, Math.round(finiteOr(reserve.progression.totalActions, reserve.progression.daysManaged)));
@@ -283,29 +302,27 @@ function normalizeReserve(saved, fallback) {
     history: Array.isArray(processing.history) ? processing.history.slice(-20) : [],
     lastSettlement: processing.lastSettlement || null
   };
-  const savedChapterStart = saved && saved.progression && (saved.progression.stageStart || saved.progression.chapterStart);
-  const savedHasVisitorBaseline = !!(savedChapterStart && Object.prototype.hasOwnProperty.call(savedChapterStart, "totalVisitors"));
+  const savedChapterStart = saved && saved.progression && (saved.progression.chapterStart || saved.progression.stageStart);
   reserve.progression.chapterStart = Object.assign({}, base.progression.chapterStart || {}, savedChapterStart || {});
-  if (!savedChapterStart || reserve.progression.chapterStart.stage !== reserve.progression.stage) {
-    reserve.progression.chapterStart = {
-      stage: reserve.progression.stage,
-      level: reserve.progression.level,
-      daysManaged: reserve.progression.daysManaged,
-      totalActions: reserve.progression.totalActions,
-      totalMeaningfulActions: reserve.progression.totalMeaningfulActions,
-      totalStrategicChoices: reserve.progression.totalStrategicChoices,
-      totalMajorStrategicChoices: reserve.progression.totalMajorStrategicChoices,
-      activeSeconds: reserve.progression.activeSeconds,
-      totalFundEarned: reserve.progression.totalFundEarned,
-      totalMigratedIn: reserve.progression.totalMigratedIn,
-      totalRareRecovered: reserve.progression.totalRareRecovered,
-      totalVisitors: currentTotalVisitors
-    };
+  reserve.progression.chapterComplete = !!(saved && saved.progression && saved.progression.chapterComplete);
+  reserve.progression.stageComplete = !!(saved && saved.progression && (saved.progression.stageComplete || saved.progression.chapterComplete));
+  if (saved && saved.endlessMode && typeof saved.endlessMode === "object") {
+    reserve.endlessMode = saved.endlessMode;
   }
-  // Old saves had no chapter visitor checkpoint. Start them at their current
-  // lifetime total so a migration does not award past visitors twice.
-  if (!savedHasVisitorBaseline && saved) reserve.progression.chapterStart.totalVisitors = currentTotalVisitors;
+  ensureChapterVisitorCheckpoint(reserve);
+  syncVisitorReceptionGrant(reserve, reserve.progression.stage);
+  ensureEndlessGuardMode(reserve);
   reserve.progression.stageStart = Object.assign({}, reserve.progression.chapterStart);
+  const savedBest = saved && saved.progression && saved.progression.coreBest;
+  const bestStage = Math.round(Number(savedBest && savedBest.stage) || 0);
+  reserve.progression.coreBest = savedBest && bestStage === reserve.progression.stage
+    ? {
+      stage: reserve.progression.stage,
+      species: Math.max(0, Math.round(Number(savedBest.species) || 0)),
+      animals: Math.max(0, Math.round(Number(savedBest.animals) || 0)),
+      visitors: Math.max(0, Math.round(Number(savedBest.visitors) || 0))
+    }
+    : { stage: reserve.progression.stage, species: 0, animals: 0, visitors: 0 };
   reserve.progression.fundEarningMode = "compliant_gross_v2";
   reserve.balanceVersion = 2;
   reserve.actionRepeat = Object.assign({ lastAction: null, count: 0, multiplier: 1 }, (saved && saved.actionRepeat) || {});
@@ -328,15 +345,25 @@ function normalizeReserve(saved, fallback) {
   reserve.seasonState = Object.assign({}, base.seasonState || { name: "雨季", day: 1, cycleDay: 1, changed: false }, (saved && saved.seasonState) || {});
   reserve.emergency = Object.assign({}, base.emergency || { active: null, cooldown: 0, history: [], lastOutcome: null }, (saved && saved.emergency) || {});
   reserve.emergency.active = saved && saved.emergency && saved.emergency.active ? Object.assign({}, saved.emergency.active) : null;
+  if (reserve.emergency.active && OBSOLETE_GENERIC_NATURE_TYPES.includes(reserve.emergency.active.type)) {
+    reserve.emergency.active = null;
+    reserve.emergency.lastOutcome = null;
+    reserve.emergency.cooldown = 0;
+  }
   reserve.emergency.history = ((saved && saved.emergency && saved.emergency.history) || []).slice(-8);
   reserve.weatherPulse = normalizeWeatherPulse((saved && saved.weatherPulse) || base.weatherPulse || null);
+  const { normalizeSandboxTaskRhythm } = require("./sandboxTaskCadence");
+  reserve.sandboxTaskRhythm = normalizeSandboxTaskRhythm((saved && saved.sandboxTaskRhythm) || base.sandboxTaskRhythm || {});
   reserve.chapterRescue = saved && saved.chapterRescue ? JSON.parse(JSON.stringify(saved.chapterRescue)) : null;
+  reserve.animalSourceLedger = saved && saved.animalSourceLedger
+    ? JSON.parse(JSON.stringify(saved.animalSourceLedger))
+    : null;
   reserve.poacherRescue = JSON.parse(JSON.stringify((saved && saved.poacherRescue) || {}));
   // Recover the animal deducted by an obsolete duplicate before ecology fills
   // empty populations, otherwise a last captive animal could become a new herd.
   poacherRescueState(reserve);
-  reconcileSpeciesPopulations(reserve, { removeLocked: true, initializeUnlocked: true });
-  // 新存档只直接获得 starter；旧存档补齐待解救记录，同时保留已有种群。
+  // Clamp chapter captives to 1 before seeding missing unlocks, otherwise a
+  // missing or 0-count captive is treated as uninitialized and dumped at initialPop.
   const rescueChapter = Math.max(1, Math.round(reserve.progression.displayChapter || reserve.progression.stage || 1));
   const rescueFresh = !saved || (!saved.chapterRescue && Math.max(0, Number(reserve.progression.totalActions) || 0) === 0);
   const rescueState = normalizeChapterRescue(reserve, rescueChapter, { fresh: rescueFresh });
@@ -344,9 +371,12 @@ function normalizeReserve(saved, fallback) {
     const definition = chapterDefinition(rescueChapter);
     definition.captive.forEach((speciesId) => {
       const group = require("./animalWorld").speciesPopulationGroup(speciesId);
-      if (reserve.ecology[group]) delete reserve.ecology[group][speciesId];
+      if (reserve.ecology[group] && !(Number(reserve.ecology[group][speciesId]) > 1)) {
+        reserve.ecology[group][speciesId] = 1;
+      }
     });
   }
+  reconcileSpeciesPopulations(reserve, { removeLocked: true, initializeUnlocked: true });
   reserve.houndTeam = Object.assign({}, base.houndTeam, (saved && saved.houndTeam) || {});
   reserve.houndTeam.level = Math.max(1, Math.min(30, Math.round(reserve.houndTeam.level || 1)));
   reserve.houndTeam.xp = Math.max(0, Math.round(reserve.houndTeam.xp || 0));
@@ -360,6 +390,10 @@ function normalizeReserve(saved, fallback) {
   reserve.eventChain = Object.assign({}, base.eventChain, (saved && saved.eventChain) || {});
   reserve.eventChain.current = Object.assign({}, base.eventChain.current, (saved && saved.eventChain && saved.eventChain.current) || {});
   reserve.eventChain.next = Object.assign({}, base.eventChain.next, (saved && saved.eventChain && saved.eventChain.next) || {});
+  const { normalizeChapterSpecial } = require("./chapterSpecialSystem");
+  reserve.chapterSpecial = normalizeChapterSpecial(Object.assign({}, reserve, { chapterSpecial: (saved && saved.chapterSpecial) || reserve.chapterSpecial || {} }));
+  const { normalizeFriendAid } = require("./friendAidSystem");
+  reserve.friendAid = normalizeFriendAid(Object.assign({}, reserve, { friendAid: (saved && saved.friendAid) || reserve.friendAid || {} }));
   reserve.base = Object.assign({}, base.base, (saved && saved.base) || {});
   reserve.base.serial = normalizeReserveSerial(reserve.base.serial);
   reserve.base.protectedAnimals = Object.assign({}, base.base.protectedAnimals, (saved && saved.base && saved.base.protectedAnimals) || {});
@@ -541,6 +575,7 @@ module.exports = {
   resetState,
   createCharacter,
   normalizeReserve,
+  normalizeState,
   compactReportForStorage,
   compactStateForStorage
 };

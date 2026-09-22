@@ -22,9 +22,9 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
     assert(record.targetId && !targetIds.has(record.targetId), `chapter ${chapter}: duplicate target id`);
     assert(record.speciesId && !speciesIds.has(record.speciesId), `chapter ${chapter}: duplicate species target`);
     assert.equal(record.requiredItems.length, 1, `chapter ${chapter}: every animal must use exactly one rescue item`);
-    assert.equal(record.pointTarget, 15, `chapter ${chapter}: chapter rescue target must be 15 points`);
+    assert.equal(record.pointTarget, 12, `chapter ${chapter}: chapter rescue target must be 12 points`);
     assert.deepEqual(record.pointProgress, {}, `chapter ${chapter}: fresh animal starts with its own empty point ledger`);
-    assert.equal(rescuePointTarget(record, record.requiredItems[0]), 15);
+    assert.equal(rescuePointTarget(record, record.requiredItems[0]), 12);
     targetIds.add(record.targetId);
     speciesIds.add(record.speciesId);
     itemIds.add(record.requiredItems[0]);

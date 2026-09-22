@@ -1,14 +1,26 @@
 const { getRuntime } = require("./runtime");
+const { survivalImpact } = require("./survivalImpact");
+const { animalSourceSummary, animalSourceFlowDelta, animalSourceFlowLabel, trackPopulationChange, recordIncrease } = require("./animalSourceLedger");
+const {
+  chapterSpecialStatus,
+  applyChapterSpecialReward,
+  markChapterSpecialOffered,
+  changeSummary,
+  ARCHERY_SUCCESS,
+  DICE_SUCCESS
+} = require("./chapterSpecialSystem");
 const { criticalPatrolRisk } = require("./patrolTriggerPolicy");
 const { eventCategory, eventBusinessFactors, visitorContributionRate, applyEventBusinessOutcome, applyNarrativeBusinessOutcome, eventBusinessSummary } = require("./eventEconomy");
-const { worldEventDefinition } = require("./worldEventSystem");
+const { worldEventDefinition, isVisitorArcheryEvent, visitorArcherySuccess, VISITOR_ARCHERY_THRESHOLD, isNeighborExchangeEvent, neighborExchangeAdvantage, NEIGHBOR_EXCHANGE_SELF_MIN } = require("./worldEventSystem");
+const { isRealNatureEventType, realNatureImpactPair, REAL_NATURE_ARCHERY_THRESHOLD, CORE_METRIC_LABELS } = require("./realNatureEventSystem");
+const { applySandboxTaskCadence, touchSandboxTask, closeSandboxTasksForAction, isHarshNatureEvent, harshNatureKind, harshNatureProfile, applyHarshNatureOutcome, HARSH_NATURE_ARCHERY_THRESHOLD, SYSTEM_TASK_CROSS_KIND_GAP_MS } = require("./sandboxTaskCadence");
 const { animals } = require("./animals");
 const { loadState, saveState, resetState, createCharacter } = require("./storage");
 const { simulateDay, reserveProgressionFor: computeReserveProgression, advanceIdleEmergency, updateReserveEmergency, sellRecoveredGoodsBatch, advanceLedgerSampleHandover } = require("./simulator");
-const { habitatCapacitySnapshot, habitatMigrationAssessment, consistentMigrationSnapshot } = require("./ecologyConsistency");
-const { reserveActionCatalog, reserveActionById, supplyPurchaseCatalog, supplyPurchaseById, supplyPurchaseForQuantity, supplyReplenishmentPlan, actionSupplyRequirement } = require("./actions");
+const { habitatCapacitySnapshot, habitatMigrationAssessment, consistentMigrationSnapshot, applyHabitatPopulationDelta } = require("./ecologyConsistency");
+const { reserveActionCatalog, reserveActionById, supplyPurchaseCatalog, supplyPurchaseById, supplyPurchaseForQuantity, supplyReplenishmentPlan, supplyReplenishUsesSafetyLine, supplyFillLine, supplySafetyLineMet, actionSupplyRequirement } = require("./actions");
 const { buildReserveView, actionLabel: reserveActionLabel } = require("./reserveView");
-const { CHAPTERS, SPECIES_DB, getUnlockedSpecies, getSpeciesById, speciesPopulation, speciesStatus, speciesImportance, getSpeciesRelations, speciesDialogue, foodChainTiers, ECO_ROLES, RELATION_TYPES, MACRO_SENSITIVITY, getCurrentChapter, getNextChapter, getChapterProgress } = require("./animalWorld");
+const { CHAPTERS, SPECIES_DB, getUnlockedSpecies, getChapterSandboxSpecies, getSpeciesById, speciesPopulation, speciesPopulationGroup, speciesStatus, speciesImportance, getSpeciesRelations, speciesDialogue, foodChainTiers, ECO_ROLES, RELATION_TYPES, MACRO_SENSITIVITY, getCurrentChapter, getNextChapter, getChapterProgress } = require("./animalWorld");
 const { normalizeLifeMemory, advanceLifeMemory, prepareGuardianReturnLetter, markGuardianVisit, individualsForSpecies, bindStrategicIndividual, strategicAnimalOutcomePreview, applyStrategicAnimalConsequence, relationshipAxes, displayStatus: individualDisplayStatus } = require("./emotionSystem");
 const { MYSTERY_RECOVERY_CATALOG, normalizeMysteryEvidence, mysteryEvidenceCount, mysteryRecoveryById } = require("./mysteryRecoveries");
 const { STRATEGY_ROUTES, normalizeStrategyState, strategyRoute, strategicDilemmaById, effectPreview, adjustedEffectsFor, strategicResourceShortfall, strategicDicePreview, selectStrategicChoice, setPendingStrategicRoll, applyStrategicChoice } = require("./strategySystem");
@@ -22,18 +34,32 @@ const {
   wildernessTradeOffer,
   bestWildernessTradeItem,
   wildernessTradeRecommendations,
+  proposeAutoExchange,
+  proposeFriendExchangeChoices,
+  settleAutoExchange,
   wildernessTradeDailyUsage,
   wildernessTradePreview,
   settleWildernessTrade,
   applyWildernessTradeInbox
 } = require("./wildernessKnowledge");
-const { SHARE_IMAGES, sharePayload, parseShareInvite, hasAssistedShare, applyShareAssistance, recordShareSent } = require("./shareSystem");
-const { CASES: COLLECTION_CASES, CATALOG: COLLECTION_CATALOG, METHODS: COLLECTION_METHODS, ENDINGS: COLLECTION_ENDINGS, caseById: collectionCaseById, collectionItemById, itemsForCase: collectionItemsForCase, normalizeCollectionState, updateCollectionAfterAction, offerAnimalCollectionLead, startInvestigation, resolveInvestigation, submitCaseEnding, collectionSummary, collectStoryDiscovery, storyDiscoverySummary, discoveryStatusLabel, collectionDiscoveryActivation } = require("./collectionSystem");
+const {
+  ensureFriendAid,
+  friendAidStatus,
+  sendFriendAidRequest,
+  openFriendAidParcel,
+  parcelLetter,
+  matchExchangePartner,
+  applyFriendAidOnSpecial,
+  friendAidMarkers
+} = require("./friendAidSystem");
+const { SHARE_IMAGES, sharePayload, parseShareInvite, hasAssistedShare, applyShareAssistance, recordShareSent, shareRewardPreview, pickActiveShareRewardType } = require("./shareSystem");
+const { CASES: COLLECTION_CASES, CATALOG: COLLECTION_CATALOG, METHODS: COLLECTION_METHODS, ENDINGS: COLLECTION_ENDINGS, caseById: collectionCaseById, collectionItemById, itemsForCase: collectionItemsForCase, normalizeCollectionState, updateCollectionAfterAction, offerAnimalCollectionLead, startInvestigation, resolveInvestigation, submitCaseEnding, collectionSummary, collectStoryDiscovery, storyDiscoverySummary, discoveryStatusLabel, collectionDiscoveryActivation, ensureCollectionDiceLead, grantNextCollectionFromExchange } = require("./collectionSystem");
 const { ROUTE_KITS, facilityById, facilityByCaseId, facilityStates, effectText: facilityEffectText, applyFacilityBuildStep, applyFacilitySpecialization } = require("./reserveFacilities");
 const {
   RESERVE_DEVELOPMENT_CHOICES,
   RIVER_SHALLOWS_NODE,
   nodeById: reserveDevelopmentNodeById,
+  effectiveDevelopmentChoice,
   reserveDevelopmentNodeView,
   reserveDevelopmentViews,
   reserveDevelopmentAnimalTarget,
@@ -52,37 +78,61 @@ const { recordOrdinaryMoment, latestOrdinaryMoment } = require("./ordinaryMoment
 const { AudioSystem, normalizeAudioSettings } = require("./audioSystem");
 const { promiseByChapter, normalizeGuardianPromises, selectGuardianPromiseChoice, applyGuardianPromiseChoice, chosenPromiseChoices } = require("./guardianPromises");
 const { FRAGMENT_CATALOG, normalizeEcologyEconomy, collectEcologyDrop, ecologyCompetitionReward } = require("./ecologyEconomy");
-const { BALANCE_V2, chapterEconomy } = require("./balanceConfig");
-const { chapterTargets } = require("./chapterTargets");
+const { BALANCE_V2, chapterEconomy, supplyCapFor } = require("./balanceConfig");
+const {
+  chapterTargets,
+  chapterVisitorTotal,
+  chapterVisitorBreakdown,
+  chapterVisitorCarryoverRatio,
+  beginChapterVisitorCheckpoint
+} = require("./chapterTargets");
+const { metricProgress, completedTaskEntries, TaskCompletionFeedback } = require("./taskCompletionFeedback");
 const { GOAL_BALANCE, buildGoalView, normalizeGoalState, resolveGoals, applyGoalProgress, goalDateKey, selectActiveGoal } = require("./goalSystem");
 const { guardianContext, advanceGuardianCycle, awardMastery, masteryView, chooseMasteryBranch, recordSevenDayProgress } = require("./guardianCycle");
 const { addPendingRecovered } = require("./resourceLedger");
 const { ensureFundLedger, recordFundChange } = require("./fundLedger");
 const {
+  DAILY_FREE_RECRUITS,
+  AD_RECRUIT_GRANT,
+  PLAYTIME_RECRUIT_RESTORE_SECONDS,
   visitorRecruitmentStatus,
   previewVisitorRecruitment,
   consumeVisitorRecruitment,
-  grantVisitorRecruitmentAd
+  grantVisitorRecruitmentAd,
+  visitorMigrationRatio
 } = require("./visitorRecruitment");
+const {
+  syncVisitorReceptionGrant,
+  visitorReceptionPreview,
+  rollVisitorReceptionGain,
+  applyVisitorReception,
+  chapterHostedVisitors,
+  chapterReceptionGained
+} = require("./visitorReception");
+const PLAYTIME_RECRUIT_RESTORE_MINUTES = Math.max(1, Math.round(PLAYTIME_RECRUIT_RESTORE_SECONDS / 60));
 const {
   InterstitialAdController,
   NativeTemplateAdController,
   RewardedSupplyAdController,
   REWARDED_VISITOR_AD_CONFIG,
+  REWARDED_ANIMAL_AD_CONFIG,
   emergencySupplyAdStatus,
   applyEmergencySupplyReward,
   emergencyFundAdStatus,
-  applyEmergencyFundReward
+  applyEmergencyFundReward,
+  animalTotalAdStatus,
+  applyAnimalTotalAdReward
 } = require("./adSystem");
-const { WechatFriendController } = require("./wechatFriendSystem");
+const { WechatFriendController, parkOpenDataOverlay } = require("./wechatFriendSystem");
+const { WechatGameClubController } = require("./wechatGameClub");
 const { CloudServiceController } = require("./cloudService");
 const { prepareOfflineBrief, markOfflineCheckpoint } = require("./offlineBrief");
 const { normalizeEcologyNarrative, applyEcologyNarrativeDecision, ecologyDecisionDebt } = require("./ecologyNarrativeSystem");
 const { buildNarrativeBeat } = require("./forestDirector");
 const { reserveValuationBreakdown } = require("./reserveValuation");
 const { normalizeAnimalInteractionState, resolveAnimalInteraction, animalInteractionStory } = require("./animalInteractionStories");
-const { endlessGuardView } = require("./endlessGuardMode");
-const { top10Snapshot, compareTop10, formatTop10Broadcast } = require("./worldLeaderboardBroadcast");
+const { endlessGuardView, isEndlessGuardReady, ensureEndlessGuardMode } = require("./endlessGuardMode");
+const { top10Snapshot, compareTop10, formatTop10List, isWorldTop10Letter } = require("./worldLeaderboardBroadcast");
 const {
   FIRST_RETURN_HOOK_COPY,
   localDateKey,
@@ -99,7 +149,7 @@ const {
   markAnimalLetterPrompted
 } = require("./animalLetters");
 const { mergedFundLedgerView, ensureRecoverableFundLedger } = require("./fundLedger");
-const { RESCUE_ITEM_CATALOG, rescueItemById, rescuePointTarget, chapterDefinition, normalizeChapterRescue, poacherRescueState, nextRescueTask, nextPoacherRescue, findPoacherRescue, rescueItemCount, rescueItemCountFor, canRescueAnimal, rescueAnimal, rescuePoacherAnimal, chapterRescueSummary, rescueStoryFor, findRecord, recordRescueExploration, rescueGuaranteeReady } = require("./chapterRescueSystem");
+const { RESCUE_ITEM_CATALOG, rescueItemById, rescuePointTarget, chapterDefinition, normalizeChapterRescue, poacherRescueState, nextRescueTask, nextPoacherRescue, findPoacherRescue, rescueItemCount, rescueItemCountFor, canRescueAnimal, rescueAnimal, rescuePoacherAnimal, chapterRescueSummary, rescueStoryFor, findRecord, recordRescueExploration, rescueGuaranteeReady, captiveSpeciesSet, chapterCaptiveSpeciesSet, livingAnimalTotal, targetCount } = require("./chapterRescueSystem");
 
 const DESCRIPTION_TEXT_MIN = 10;
 const MAX_CHAPTER_STORY_QUEUE = 1;
@@ -107,35 +157,40 @@ const MAX_PENDING_EMOTION_EVENTS = 6;
 // 前三分钟优先完成必要的上手引导；之后让玩家自己观察沙盘和频道。
 // 自动任务推送按真实时间限流，避免连续结算时反复弹出任务卡。
 const MISSION_AUTOPUSH_EXPERIENCE_SECONDS = 300;
-// Keep the first ordinary card task out of the opening minute. The initial
-// onboarding/first task remains available; urgent events and chapter gates
-// are never delayed by this browsing window.
 const MISSION_AUTOPUSH_EARLY_DELAY_SECONDS = 60;
-// 即使任务来源不同，也要给玩家留出阅读和操作时间，避免弹窗连环出现。
-// 前五分钟同样采用更宽的 20 秒间隔；进入探索模式后再额外保持 80 秒静默。
-// 自动任务之间保留更完整的阅读与沙盘操作时间。旧值为 20 秒；
-// 现在按保护区等级使用 50/55/60 秒（整体再增加 20 秒），老玩家进入探索
-// 节奏后再额外保留 100 秒冷却，避免刚完成一个任务又被下一张卡打断。
-// Map activity has grown, so routine card tasks should leave a clear window
-// for players to notice and handle sandbox events between prompts.
-const MISSION_AUTOPUSH_MIN_INTERVAL_MS = 65 * 1000;
-const SYSTEM_TASK_TRIGGER_GAP_MS = 30 * 1000;
-const MISSION_AUTOPUSH_INTERVAL_STEP_MS = 8 * 1000;
-const MISSION_AUTOPUSH_COOLDOWN_MS = 120 * 1000;
-// Only three of every five routine push opportunities may become cards. The
-// remaining opportunities stay available from the task center/map entry.
+const TASK_POPUP_EXTRA_GAP_MS = 15 * 1000;
+const SYSTEM_TASK_TRIGGER_GAP_MS = 30 * 1000 + TASK_POPUP_EXTRA_GAP_MS + SYSTEM_TASK_CROSS_KIND_GAP_MS;
+const POPUP_DISMISS_QUIET_MS = 8 * 1000;
 const MISSION_AUTOPUSH_ROUTINE_SAMPLE_SIZE = 5;
 const LEAGUE_MAX_ROWS = 100;
 const LEAGUE_PAGE_SIZE = 10;
+const WORLD_LEAGUE_ROW_HEIGHT = 42;
+const WORLD_LEAGUE_ROW_STEP = 44;
 const DISPLAY_TARGET_REFRESH_MS = 160;
 const SPECIES_BY_NAME = Object.keys(SPECIES_DB).reduce((lookup, id) => {
   const species = SPECIES_DB[id];
   if (species && species.name) lookup[species.name] = species;
   return lookup;
 }, {});
-const MAP_GRAZER_SPECIES = new Set(["鹿", "斑马", "羚羊", "长颈鹿", "大象", "河马", "野兔", "野猪"]);
-const MAP_PREDATOR_SPECIES = new Set(["狼", "狮子", "豹子", "鳄鱼", "野犬", "水貂"]);
-const MAP_WATER_SPECIES = new Set(["水貂", "河马", "鳄鱼", "火烈鸟"]);
+const MAP_GRAZER_SPECIES = new Set(["鹿", "斑马", "羚羊", "长颈鹿", "大象", "河马", "野兔", "野猪", "貘", "野牛", "猩猩"]);
+const MAP_PREDATOR_SPECIES = new Set(["狼", "狮子", "豹子", "鳄鱼", "野犬", "水貂", "水獭"]);
+const MAP_WATER_SPECIES = new Set(["水貂", "河马", "鳄鱼", "火烈鸟", "水獭", "鹈鹕", "鹤"]);
+const ANIMAL_SPRITE_FALLBACKS = Object.freeze({
+  水獭: "水貂",
+  鹈鹕: "火烈鸟",
+  猩猩: "熊",
+  巨嘴鸟: "乌鸦",
+  貘: "野猪",
+  夜莺: "猫头鹰",
+  野牛: "斑马",
+  鹤: "火烈鸟"
+});
+const ANIMAL_SPRITE_ORDER = Object.freeze([
+  "鹿", "羚羊", "野兔", "乌鸦", "狼", "斑马", "野猪",
+  "鹰", "火烈鸟", "熊", "秃鹫", "狮子", "豹子", "长颈鹿",
+  "猫头鹰", "大象", "河马", "鳄鱼", "野犬", "水貂", "狐狸",
+  "白犀牛", "穿山甲", "猎豹", "斑鬣狗"
+]);
 const MAP_POACHER_SPECIES = new Set(["鹿", "斑马", "羚羊", "乌鸦"]);
 const MAP_DISEASE_SPECIES = new Set(["鹿", "羚羊", "斑马"]);
 const MAP_ANIMAL_STORY_KEYWORDS = {
@@ -153,7 +208,8 @@ const MAP_ANIMAL_STORY_KEYWORDS = {
 const MAP_SPECIES_REGION = {
   鹿: "meadow", 羚羊: "meadow", 野兔: "meadow", 斑马: "meadow", 野猪: "meadow",
   狼: "center", 乌鸦: "north", 熊: "rocks", 水貂: "lake", 河马: "river", 鳄鱼: "river", 火烈鸟: "lake",
-  鹰: "river", 秃鹫: "rocks", 野犬: "meadow", 长颈鹿: "north", 大象: "river", 狮子: "meadow", 豹子: "center", 猫头鹰: "north", 狐狸: "center"
+  鹰: "river", 秃鹫: "rocks", 野犬: "meadow", 长颈鹿: "north", 大象: "river", 狮子: "meadow", 豹子: "center", 猫头鹰: "north", 狐狸: "center",
+  水獭: "lake", 鹈鹕: "lake", 猩猩: "north", 巨嘴鸟: "north", 貘: "center", 夜莺: "meadow", 野牛: "meadow", 鹤: "river"
 };
 const MAP_VISITOR_WAYPOINTS = Object.freeze([
   Object.freeze({ x: .04, y: .40, links: Object.freeze([1]) }),
@@ -174,11 +230,10 @@ const MAP_VISITOR_WAYPOINTS = Object.freeze([
 ]);
 
 const ART_ATLAS = {
-  src: "assets/art/core-sprites-atlas.png",
-  // Baseline JPEG is used for the first-package map because wx.createImage on
-  // some devices can reject a local WebP without a recoverable decoder error.
+  // 首包用独立地图、ui-v3 图标和沙盘动物图集；旧 2048 核心图集不再打包或本地解码。
+  src: "",
   mapSrc: "assets/art/core-map-anime-v1.jpg",
-  devSrc: "assets/art/core-sprites-atlas.png",
+  devSrc: "",
   uiIconSources: {
     houndScout: "assets/art/ui-v3/icons/houndScout_v3.png",
     antiPoacher: "assets/art/ui-v3/icons/antiPoacher.png",
@@ -264,7 +319,9 @@ const WILDERNESS_MATERIAL_ATLAS = {
   ])
 };
 
+const ANIMAL_PORTRAITS_SRC = "assets/art/animal-portraits-atlas-v4.jpg";
 const ANIMAL_PORTRAIT_ATLAS = {
+  localSrc: ANIMAL_PORTRAITS_SRC,
   remote: {
     url: "",
     version: "animal-portraits-v4",
@@ -274,7 +331,35 @@ const ANIMAL_PORTRAIT_ATLAS = {
   }
 };
 
-const CHAPTER_ART = "chapter-assets/chapter-1.jpg";
+const ANIMAL_MAP_SPRITES_SRC = "assets/art/animal-map-sprites-atlas-v2.png";
+
+// 全部 25 种动物图集留在主包：沙盘、头像都不走远程下载。
+// 设施和收藏图集进入游戏后再下载，避免撑破 4MiB 主包。
+const DEFERRED_ART_ASSETS = Object.freeze({
+  facilities: Object.freeze({
+    slot: "facilities",
+    localSrc: "assets/art/facility-sprites-atlas-v4.png",
+    screens: Object.freeze(["home"]),
+    remote: Object.freeze({
+      url: "https://wild.hubao.tv/assets/facility-sprites-atlas-v4.png",
+      version: "facility-sprites-v4",
+      storageKey: "forest_kingdom_facility_sprites_v4",
+      fileName: "facility-sprites-atlas-v4.png"
+    })
+  }),
+  collectionItems: Object.freeze({
+    slot: "collectionItems",
+    localSrc: "assets/art/collection/collection-items-atlas.png",
+    screens: Object.freeze(["collection", "survival"]),
+    remote: Object.freeze({
+      url: "https://wild.hubao.tv/assets/collection-items-atlas.png",
+      version: "collection-items-v1",
+      storageKey: "forest_kingdom_collection_items_v1",
+      fileName: "collection-items-atlas.png"
+    })
+  })
+});
+
 
 const CHAPTER_OPENING_OBJECTIVES = {
   1: "目标 · 回应水边警报，建立第一条巡护线",
@@ -294,109 +379,100 @@ const CHAPTER_OPENING_OBJECTIVES = {
  15: "目标 · 让共同体继续写下去"
 };
 
-function reserveTotalVisitors(reserve = {}) {
-  const operations = ((reserve.development || {}).operations || {});
-  const visitorLedger = operations.visitorLedger || {};
-  const direct = Number(operations.totalVisitors);
-  const ledger = Number(visitorLedger.totalVisitors);
-  const values = [direct, ledger].filter((value) => Number.isFinite(value));
-  return Math.max(0, Math.round(values.length ? Math.max(...values) : 0));
-}
-
-function chapterVisitorTotal(reserve = {}) {
-  // Chapter goals use the cumulative visitor ledger. The header, chapter
-  // progress card and gate must all read the same lifetime total; subtracting
-  // the chapter-start checkpoint made the progress card reset to 0 after a
-  // chapter transition while the header correctly showed the accumulated
-  // visitors.
-  return reserveTotalVisitors(reserve);
-}
-
 function chapterCoreMetrics(reserve = {}, chapter = 1) {
   const ecology = reserve.ecology || {};
+  const captive = chapterCaptiveSpeciesSet(reserve);
   const species = new Set();
   [ecology.predators, ecology.herbivores, ecology.birds].forEach((group) => {
     Object.keys(group || {}).forEach((id) => {
-      if (Number(group[id]) > 0) species.add(id);
+      if (Number(group[id]) > 0 && !captive.has(id)) species.add(id);
     });
   });
-  const animals = [ecology.predators, ecology.herbivores, ecology.birds]
-    .reduce((sum, group) => sum + Object.values(group || {}).reduce((n, value) => n + Math.max(0, Number(value) || 0), 0), 0);
-  // The chapter gate is based on visitors who have arrived during this
-  // chapter, rather than the current live headcount or lifetime ledger.
+  const animals = livingAnimalTotal(reserve);
   const visitors = chapterVisitorTotal(reserve);
   const target = chapterTargets(chapter);
-  const percentage = (value, goal) => goal > 0 ? Math.min(100, Math.round((value / goal) * 100)) : 100;
+  const liveSpecies = species.size;
+  const liveAnimals = Math.round(animals);
+  const progression = reserve.progression || (reserve.progression = {});
+  const storedBest = progression.coreBest || {};
+  const sameChapter = Math.round(Number(storedBest.stage) || 0) === Math.round(chapter);
+  const best = {
+    stage: Math.round(chapter),
+    species: Math.max(sameChapter ? Math.round(Number(storedBest.species) || 0) : 0, liveSpecies),
+    animals: Math.max(sameChapter ? Math.round(Number(storedBest.animals) || 0) : 0, liveAnimals),
+    visitors: Math.max(sameChapter ? Math.round(Number(storedBest.visitors) || 0) : 0, visitors)
+  };
+  progression.coreBest = best;
+  const met = {
+    species: best.species >= target.species,
+    animals: best.animals >= target.animals,
+    visitors: best.visitors >= target.visitors
+  };
+  const liveComplete = liveSpecies >= target.species && liveAnimals >= target.animals && visitors >= target.visitors;
+  const percentage = (value, goal) => metricProgress(value, goal).percentage;
   return {
-    species: species.size,
-    animals: Math.round(animals),
+    species: liveSpecies,
+    animals: liveAnimals,
     visitors,
+    best,
+    met,
+    liveComplete,
     target,
     percentages: {
-      species: percentage(species.size, target.species),
-      animals: percentage(animals, target.animals),
+      species: percentage(liveSpecies, target.species),
+      animals: percentage(liveAnimals, target.animals),
       visitors: percentage(visitors, target.visitors)
     },
-    complete: species.size >= target.species && animals >= target.animals && visitors >= target.visitors
+    complete: liveComplete
   };
 }
 
 function reserveProgressionFor(reserve = {}) {
   const computed = computeReserveProgression(reserve || {});
   const prior = reserve.progression || {};
+  const keepStart = {
+    chapterStart: prior.chapterStart || computed.chapterStart,
+    stageStart: prior.stageStart || computed.stageStart
+  };
   const currentStage = Math.max(1, Math.min(CHAPTERS.length, Math.round(Number(prior.stage || prior.displayChapter) || 1)));
   const candidateStage = Math.max(currentStage, Math.round(Number(computed.stage || currentStage)));
   const core = chapterCoreMetrics(reserve, currentStage);
   if (currentStage >= CHAPTERS.length) {
-    return core.complete ? Object.assign({}, computed, { stage: currentStage, displayChapter: currentStage, chapterComplete: true, stageComplete: true, coreMetrics: core }) : Object.assign({}, computed, { coreMetrics: core });
+    const finished = prior.chapterComplete === true
+      || prior.stageComplete === true
+      || core.complete === true
+      || computed.chapterComplete === true
+      || computed.stageComplete === true;
+    return Object.assign({}, computed, keepStart, {
+      stage: currentStage,
+      displayChapter: currentStage,
+      chapterComplete: finished,
+      stageComplete: finished,
+      coreBest: core.best,
+      coreMetrics: finished ? Object.assign({}, core, { complete: true }) : core
+    });
   }
-  if (core.complete && candidateStage <= currentStage) {
+  const rescue = reserve.chapterRescue || {};
+  const rescueReady = !reserve.chapterRescue
+    || rescue.enforceCompletion === false
+    || rescue.legacyGateBypass === true
+    || !!(chapterRescueSummary(reserve, currentStage) || {}).complete;
+  if (core.complete && rescueReady && currentStage < CHAPTERS.length) {
+    if (candidateStage > currentStage) return Object.assign({}, computed, keepStart, { coreBest: core.best, coreMetrics: core });
     const nextStage = currentStage + 1;
-    const nextChapter = CHAPTERS[nextStage - 1] || CHAPTERS[CHAPTERS.length - 1];
-    const nextLevel = Math.max(1, Math.round(Number(nextChapter.level) || Number(prior.level) || 1));
-    const start = {
-      stage: nextStage,
-      level: nextLevel,
-      daysManaged: Math.max(0, Math.round(Number(computed.daysManaged) || 0)),
-      totalActions: Math.max(0, Math.round(Number(computed.totalActions) || 0)),
-      totalMeaningfulActions: Math.max(0, Math.round(Number(computed.totalMeaningfulActions) || 0)),
-      totalStrategicChoices: Math.max(0, Math.round(Number(computed.totalStrategicChoices) || 0)),
-      totalMajorStrategicChoices: Math.max(0, Math.round(Number(computed.totalMajorStrategicChoices) || 0)),
-      activeSeconds: Math.max(0, Number(computed.activeSeconds) || 0),
-      totalFundEarned: Math.max(0, Math.round(Number(computed.totalFundEarned) || 0)),
-      totalMigratedIn: Math.max(0, Math.round(Number(computed.totalMigratedIn) || 0)),
-      totalRareRecovered: Math.max(0, Math.round(Number(computed.totalRareRecovered) || 0)),
-      totalVisitors: reserveTotalVisitors(reserve)
-    };
-    return Object.assign({}, computed, {
+    const nextChapter = CHAPTERS[nextStage - 1] || CHAPTERS[currentStage - 1] || CHAPTERS[0];
+    return Object.assign({}, computed, keepStart, {
       stage: nextStage,
       displayChapter: nextStage,
-      level: nextLevel,
-      storyLevel: nextLevel,
-      title: nextChapter.title,
-      chapterComplete: nextStage === CHAPTERS.length,
-      stageComplete: nextStage === CHAPTERS.length,
-      levelUpgraded: nextLevel > (Number(prior.level) || 1),
-      chapterStart: start,
-      stageStart: start,
-      chapterActions: 0,
-      chapterStrategicChoices: 0,
-      chapterMajorStrategicChoices: 0,
-      chapterDays: 0,
-      chapterActiveMinutes: 0,
-      chapterFundEarned: 0,
-      chapterMigratedIn: 0,
-      chapterRareRecovered: 0,
-      objectives: [],
-      progress: 0,
+      nextTitle: nextChapter.title,
+      coreBest: core.best,
       coreMetrics: core
     });
   }
-  if (core.complete && candidateStage > currentStage) return Object.assign({}, computed, { coreMetrics: core });
-  if (candidateStage <= currentStage) return Object.assign({}, computed, { coreMetrics: core });
+  if (candidateStage <= currentStage) return Object.assign({}, computed, keepStart, { coreBest: core.best, coreMetrics: core });
   const currentChapter = CHAPTERS[currentStage - 1] || CHAPTERS[0];
   const nextChapter = CHAPTERS[currentStage] || currentChapter;
-  return Object.assign({}, computed, {
+  return Object.assign({}, computed, keepStart, {
     stage: currentStage,
     displayChapter: currentStage,
     title: currentChapter.title,
@@ -406,8 +482,7 @@ function reserveProgressionFor(reserve = {}) {
     stageComplete: false,
     levelUpgraded: false,
     nextTitle: nextChapter.title,
-    chapterStart: prior.chapterStart || computed.chapterStart,
-    stageStart: prior.stageStart || computed.stageStart,
+    coreBest: core.best,
     coreMetrics: core
   });
 }
@@ -498,13 +573,29 @@ function resolveRenderDpr(info = {}) {
   return Math.min(nativeDpr, cap);
 }
 
+function canvasPlatformId(info = {}) {
+  return String((info && (info.platform || info.system)) || "").toLowerCase();
+}
+
+function usesFragileCanvas(info = {}) {
+  // iOS 微信对 shadowBlur / 半解码 drawImage 比较稳。安卓、鸿蒙、ColorOS、
+  // 开发者工具都会把投影做成整屏残影，看起来像「只有这一台机坏了」。
+  return canvasPlatformId(info) !== "ios";
+}
+
 class Game {
   constructor() {
     this.runtime = getRuntime();
+    // game.json 的 openDataContext 会在首帧前挂一块全屏开放域 canvas。
+    // 立刻缩到 1px 并移出屏幕，否则安卓上「进入游戏」会被看不见的层吃掉。
+    parkOpenDataOverlay(this.runtime);
     this.interstitialAds = null;
     this.rewardedSupplyAds = null;
     this.rewardedVisitorAds = null;
+    this.rewardedAnimalAds = null;
     this.nativeTemplateAds = null;
+    this.gameClub = null;
+    this.gameClubButtonSlot = null;
     this.wechatFriends = null;
     this.cloudService = null;
     this.deferredRuntimeServicesReady = false;
@@ -514,10 +605,12 @@ class Game {
     this.info = this.runtime.getSystemInfoSync();
     this.menuButtonRect = this.resolveMenuButtonRect();
     this.dpr = resolveRenderDpr(this.info);
+    this.canvasShadowsUnsafe = usesFragileCanvas(this.info);
     this.canvas = this.runtime.createCanvas();
     this.canvas.width = Math.round(this.info.windowWidth * this.dpr);
     this.canvas.height = Math.round(this.info.windowHeight * this.dpr);
     this.ctx = this.canvas.getContext("2d");
+    this.lockUnsafeCanvasShadows(this.ctx);
     this.width = this.info.windowWidth;
     this.height = this.info.windowHeight;
     this.state = loadState();
@@ -541,7 +634,8 @@ class Game {
     this.ensureDailyReturnEvent(Date.now());
     reserve.emergency = Object.assign({ active: null, cooldown: 0, history: [], lastOutcome: null }, reserve.emergency || {});
     if (!Number.isFinite(Number(reserve.emergency.idleNextAt)) || Number(reserve.emergency.idleNextAt) <= 0) {
-      reserve.emergency.idleNextAt = Date.now() + 180000 + Math.floor(Math.random() * 120000);
+      const chapter = Math.max(1, Math.round(Number((reserve.progression || {}).stage || 1)));
+      reserve.emergency.idleNextAt = Date.now() + (chapter < 3 ? 180000 : 90000) + Math.floor(Math.random() * (chapter < 3 ? 120000 : 60000));
     }
     const savedPrologue = (((this.state || {}).ui || {}).prologue) || {};
     const resumePlayablePrologue = !!(this.state.character && savedPrologue.version === 1 && !savedPrologue.completed);
@@ -550,10 +644,11 @@ class Game {
     this.selectedAnimalWorldSpecies = null;
     this.speciesPage = 0;
     this.animalSelectorScroll = 0;
-    this.selectedTarget = this.state.world.knownCharacters[0];
-    this.speakingAnimalId = (this.selectedTarget && this.selectedTarget.id) || null;
+    this.selectedTarget = null;
+    this.speakingAnimalId = null;
     this.leagueScope = "friends";
     this.leaguePageByScope = { friends: 0, world: 0 };
+    this.worldLeagueListScrollY = 0;
     this.selectedRivalId = this.defaultRivalId();
     this.collectionCaseId = null;
     this.collectionPage = 0;
@@ -567,6 +662,7 @@ class Game {
     this.selectedRegionId = this.defaultRegionId();
     this.mapZoom = 0;
     this.mapCamera = { scale: 1, cx: 0.52, cy: 0.48 };
+    this.userAdjustedMapZoom = false;
     this.mapOpportunityCursor = 0;
     this.storyDiscoveryGuide = null;
     this.artAtlas = ART_ATLAS;
@@ -581,8 +677,28 @@ class Game {
       order: WILDERNESS_MATERIAL_ATLAS.order
     };
     this.animalPortraitAtlas = { remote: Object.assign({}, ANIMAL_PORTRAIT_ATLAS.remote) };
+    this.deferredArt = Object.keys(DEFERRED_ART_ASSETS).reduce((result, key) => {
+      const spec = DEFERRED_ART_ASSETS[key];
+      result[key] = {
+        slot: spec.slot,
+        localSrc: spec.localSrc,
+        screens: spec.screens.slice(),
+        upgradeLocal: !!spec.upgradeLocal,
+        delaySeconds: Math.max(0, Number(spec.delaySeconds) || 0),
+        remote: Object.assign({}, spec.remote)
+      };
+      return result;
+    }, {});
     this.artDownload = { status: "local", progress: 0, source: "core" };
     this.mapArtLoad = { status: "idle", attempt: 0, source: "local-jpeg" };
+    this.holdPrologueMapUntilIllustrated = false;
+    this.prologueEnterArmed = false;
+    this.enteringPlayableGame = false;
+    this.justEnteredPlayableGame = false;
+    this.justEnteredPlayableGameUntil = 0;
+    this.pointerFallbackBound = false;
+    this.lastPointerStartAt = 0;
+    this.lastPointerEndAt = 0;
     this.premiumUiDownload = { status: "fallback", progress: 0, source: "canvas" };
     this.wildernessMaterialDownload = { status: "fallback", progress: 0, source: "canvas" };
     this.wildernessMaterialCutoutAtlas = null;
@@ -618,11 +734,10 @@ class Game {
     this.scrollY = 0;
     this.hitAreas = [];
     this.mapViewport = null;
+    this.mapEventBalloonHit = null;
+    this.mapEventGraphicHits = [];
     this.gesture = null;
     this.patrolTaskModal = null;
-    // One task owns the interaction flow at a time.  This lock survives the
-    // action modal and its settlement card so queued missions cannot interrupt
-    // a daily task midway through.
     this.activeTaskLock = null;
     this.patrolOperationPlan = null;
     this.patrolIncidentChoice = "";
@@ -631,6 +746,10 @@ class Game {
     this.settlementModal = null;
     this.chapterStoryModal = null;
     this.chapterStoryQueue = [];
+    this.pendingChapterAdvance = false;
+    this.pendingChapterPromotion = ((this.state.ui || {}).pendingChapterPromotion) || null;
+    if (this.pendingChapterPromotion) this.pendingChapterAdvance = true;
+    this.pendingSharePostcard = null;
     this.pendingEmotionEvent = null;
     this.pendingEmotionEvents = [];
     this.pendingGuardianLetter = returnVisit.letter;
@@ -668,6 +787,9 @@ class Game {
     // Full-screen gradients are reused on every paint. Cache them by logical
     // viewport size so map/weather animation does not allocate new gradients.
     this.backgroundPaintCache = null;
+    this.renderGeneration = 0;
+    this.frameMemoStore = null;
+    this.completionFeedbackSignature = "";
     this.renderPending = false;
     this.requestRenderRafId = 0;
     this.lastReserveSyncAtByChannel = {};
@@ -684,6 +806,7 @@ class Game {
     this.mapHarvestFlight = null;
     this.weeklyGuardianCelebration = null;
     this.screenChangedAt = -1000;
+    this.screenChangedAtMs = 0;
     this.sandboxIdleSince = Date.now();
     this.dailyHeroExpanded = this.shouldShowDailyHero();
     this.dailyHeroCollapseAt = this.dailyHeroExpanded ? 2600 : 0;
@@ -691,6 +814,7 @@ class Game {
     if (weeklyGuardian && weeklyGuardian.pending) {
       this.weeklyGuardianCelebration = { startedAt: 0, activeDays: weeklyGuardian.streak || 7 };
     }
+    this.resetTaskCompletionFeedback();
     this.configureSharing();
     this.bindEvents();
     this.render();
@@ -715,14 +839,21 @@ class Game {
 
   initializeDeferredRuntimeServices() {
     if (this.deferredRuntimeServicesReady) return false;
+    // 序章创建自定义广告会留下原生触控层，微信常把 top 夹回屏幕底部，
+    // 「进入游戏」看起来在，点下去却全部落到广告上。
+    if (this.screen === "choose") return false;
     this.deferredRuntimeServicesReady = true;
     this.interstitialAds = new InterstitialAdController(this.runtime);
     this.rewardedSupplyAds = new RewardedSupplyAdController(this.runtime);
     // 提前创建游客招募广告实例，避免免费次数耗尽后首次点击才开始初始化。
     this.rewardedVisitorAds = new RewardedSupplyAdController(this.runtime, { config: REWARDED_VISITOR_AD_CONFIG });
+    this.rewardedAnimalAds = new RewardedSupplyAdController(this.runtime, { config: REWARDED_ANIMAL_AD_CONFIG });
     this.nativeTemplateAds = new NativeTemplateAdController(this.runtime, {
       viewport: { width: this.width, height: this.height },
       onLayoutChange: () => this.requestRender()
+    });
+    this.gameClub = new WechatGameClubController(this.runtime, {
+      viewport: { width: this.width, height: this.height }
     });
     this.wechatFriends = new WechatFriendController(this.runtime, {
       dpr: this.dpr,
@@ -730,12 +861,25 @@ class Game {
     });
     this.cloudService = new CloudServiceController(this.runtime, {
       onChange: () => {
+        if (this.wechatFriends && this.cloudService) {
+          const previousId = this.wechatFriends.worldPlayerId || "";
+          this.wechatFriends.worldPlayerId = (this.cloudService.session || {}).publicId || "";
+          const previousMatchKey = this.wechatFriends.friendMatchKey || "";
+          this.wechatFriends.friendMatchKey = (this.cloudService.session || {}).friendMatchKey || "";
+          const reserve = ((this.state.world || {}).reserve || {});
+          const identityChanged = !!(this.wechatFriends.worldPlayerId && this.wechatFriends.worldPlayerId !== previousId)
+            || !!(this.wechatFriends.friendMatchKey && this.wechatFriends.friendMatchKey !== previousMatchKey);
+          this.wechatFriends.syncReserve(reserve, identityChanged, this.reserveRankingValue(reserve));
+          this.wechatFriends.setWorldLeaderboardRows(this.cloudService.rows || []);
+        }
         this.ensureDailyFriendLetters();
         this.updateWorldLeaderboardBroadcast();
         this.requestRender();
       }
     });
     const reserve = ((this.state || {}).world || {}).reserve || {};
+    this.wechatFriends.worldPlayerId = (this.cloudService.session || {}).publicId || "";
+    this.wechatFriends.friendMatchKey = (this.cloudService.session || {}).friendMatchKey || "";
     this.wechatFriends.syncReserve(reserve, false, this.reserveRankingValue(reserve));
     this.ensureDailyFriendLetters();
     this.bootstrapCloudServices();
@@ -748,7 +892,8 @@ class Game {
     this.postFirstFrameExperienceOpened = true;
     const prologueActive = this.screen === "choose" && this.playablePrologueState().active;
     if (prologueActive) return false;
-    if (!this.openFirstReturnHook()
+    if (!this.maybeOpenChapterStoryOnLogin()
+      && !this.openFirstReturnHook()
       && !this.openQueuedMissionPush()
       && !this.openPendingShareInvite()
       && !this.openOfflineBrief()
@@ -786,6 +931,7 @@ class Game {
     if (this.anim.rafId) return;
     this.anim.paused = false;
     this.anim.lastTs = 0;
+    this.anim.lastWallTs = Date.now();
     this.scheduleNextFrame();
   }
 
@@ -810,11 +956,21 @@ class Game {
 
   tick(ts) {
     if (!this.anim || this.anim.paused) return;
-    const last = this.anim.lastTs || ts;
-    let dt = ts - last;
-    this.anim.lastTs = ts;
-    if (dt < 0) dt = 0;
-    if (dt > 64) dt = 64; // 限幅，防卡顿跳变
+    const now = Date.now();
+    const last = Number(this.anim.lastTs) || 0;
+    const stamp = Number(ts);
+    let dt = stamp - last;
+    // ColorOS / HarmonyOS 切页后 rAF 时间戳可能一直是 0，或整段回跳。
+    // 这种时钟不能再拿来推进淡入，否则发现页会停在全透明残影上。
+    const clockBroken = !Number.isFinite(stamp) || stamp <= 0 || dt < 0 || (last > 0 && dt === 0);
+    if (clockBroken) {
+      dt = Math.max(16, Math.min(64, now - (this.anim.lastWallTs || now) || 16));
+      this.anim.lastTs = stamp > 0 ? stamp : last;
+    } else {
+      if (dt > 64) dt = 64;
+      this.anim.lastTs = stamp;
+    }
+    this.anim.lastWallTs = now;
     this.anim.t += dt;
     this.anim.acc += dt;
     if (this.anim.acc < this.targetFrameMs()) {
@@ -849,6 +1005,7 @@ class Game {
       return animated ? 150 : 240;
     }
     if (this.screen === "home") return 100;
+    if (this.screenChangedAtMs && Date.now() - this.screenChangedAtMs < 320) return 55;
     if (this.anim && this.anim.t - this.screenChangedAt < 320) return 55;
     return 240;
   }
@@ -871,23 +1028,19 @@ class Game {
     const run = reserve.guardianRun || {};
     const operations = ((reserve.development || {}).operations || {});
     const todayVisitors = ((operations.today || {}).visitors || 0) + ((operations.today || {}).recruitedVisitors || 0);
-    // Live map activity keeps the four headline metrics visibly alive between
-    // story/task settlements. These are display targets only: the persistent
-    // reserve state is still changed exclusively by the normal economy and
-    // ecology settlement paths.
     const livePulse = this.screen === "home" ? (Date.now() / 5200) : 0;
     const visitorPulse = this.screen === "home" ? Math.round(Math.sin(livePulse) * Math.min(3, Math.max(1, todayVisitors * .025))) : 0;
     const ecologyPulse = this.screen === "home" ? Math.sin(livePulse * .72) * .8 : 0;
-    const liveVisitors = Math.max(0, Math.round(todayVisitors + visitorPulse));
     const liveWater = Math.max(0, Math.min(100, Math.round((ecology.water || 0) + ecologyPulse)));
     const liveGrass = Math.max(0, Math.min(100, Math.round((ecology.grass || 0) - ecologyPulse * .7)));
     const liveValuation = Math.max(0, Math.round((prosperity.value || 0) + visitorPulse * 3 + ecologyPulse * 2));
+    const liveCore = chapterCoreMetrics(reserve, progression.stage || progression.displayChapter || 1);
     const targets = {
       fund: reserve.fund || 0,
-      visitors: liveVisitors,
+      visitors: liveCore.visitors,
       valuation: liveValuation,
-      animalTotal: prosperity.animalTotal || 0,
-      speciesCount: prosperity.speciesCount || 0,
+      animalTotal: liveCore.animals,
+      speciesCount: liveCore.species,
       safety: reserve.safety || 0,
       stability: reserve.stability || 0,
       ecologyScore: reserve.ecologyScore || 0,
@@ -917,9 +1070,24 @@ class Game {
     // should see the numbers move only after acknowledging that outcome.
     const pendingBefore = this.settlementModal && this.settlementModal.pendingDisplayBefore;
     if (pendingBefore) {
+      const pendingProgression = pendingBefore.progression || {};
+      const pendingCore = chapterCoreMetrics(pendingBefore, pendingProgression.stage || pendingProgression.displayChapter || 1);
       targets.fund = Number(pendingBefore.fund) || 0;
       targets.water = Number((pendingBefore.ecology || {}).water) || 0;
       targets.grass = Number((pendingBefore.ecology || {}).grass) || 0;
+      const pendingVisitorLedger = (((pendingBefore.development || {}).operations) || {}).visitorLedger || {};
+      const pendingHasVisitorLedger = Number.isFinite(Number(pendingBefore.chapterVisitorTotal))
+        || Number.isFinite(Number((((pendingBefore.development || {}).operations) || {}).totalVisitors))
+        || Number.isFinite(Number(pendingVisitorLedger.totalVisitors));
+      const frozenVisitors = Number.isFinite(Number(pendingBefore.chapterVisitorTotal))
+        ? Math.max(0, Math.round(Number(pendingBefore.chapterVisitorTotal)))
+        : pendingCore.visitors;
+      // Incomplete settlement snapshots used to omit the visitor ledger, so the
+      // chapter total collapsed to 0 until the card closed. Keep the live HUD
+      // number unless the snapshot actually captured visitor progress.
+      targets.visitors = pendingHasVisitorLedger ? frozenVisitors : liveCore.visitors;
+      targets.animalTotal = pendingCore.animals;
+      targets.speciesCount = pendingCore.species;
     }
     Object.keys(reserve.supplies || {}).forEach((key) => { targets[`supply:${key}`] = reserve.supplies[key] || 0; });
     Object.keys(reserve.inventory || {}).forEach((key) => { targets[`inventory:${key}`] = reserve.inventory[key] || 0; });
@@ -946,9 +1114,12 @@ class Game {
       this.reserveDisplayTargetRefreshLeft = DISPLAY_TARGET_REFRESH_MS;
     }
     const targets = this.reserveDisplayTargetCache;
-    // 只让一个核心数字播放翻动，避免市值、游客和资源同时跳动造成视觉噪音。
-    // 其余发生变化的数字立即落到最新值，下一次变化再获得动画机会。
-    const animationPriority = ["valuation", "visitors", "fund", "water", "grass"];
+    // Resource figures must each show their own change; valuation updates
+    // must not consume the animation slot and make visible resources snap.
+    const metricFocus = this.numberAnimationMetricFocus;
+    const animationPriority = metricFocus === "grass"
+      ? ["valuation", "animalTotal", "visitors", "fund", "grass", "water"]
+      : ["valuation", "animalTotal", "visitors", "fund", "water", "grass"];
     const keys = Object.keys(targets).sort((a, b) => {
       const ai = animationPriority.indexOf(a);
       const bi = animationPriority.indexOf(b);
@@ -956,7 +1127,7 @@ class Game {
     });
     let activeKey = this.numberAnimationActiveKey;
     const activeAnimation = activeKey && this.numberAnimations[activeKey];
-    if (!activeAnimation || activeAnimation.elapsed > activeAnimation.duration + activeAnimation.hold) activeKey = null;
+    if (!activeAnimation || activeAnimation.elapsed > activeAnimation.duration + (activeAnimation.arrowDelay || 0) + activeAnimation.hold) activeKey = null;
     keys.forEach((key) => {
       const target = Number(targets[key]) || 0;
       const current = typeof this.displayReserveStats[key] === "number" ? this.displayReserveStats[key] : target;
@@ -968,10 +1139,20 @@ class Game {
         const taskBurst = Date.now() < (this.numberAnimationBurstUntil || 0)
           && this.numberAnimationBurstCause === "task";
         const resourceBurst = taskBurst
-          && ["fund", "water", "grass"].includes(key);
-        const mayAnimate = resourceBurst || !activeKey || key === "safety" || key === "poacherPressure" || key.startsWith("supply:");
+          && ["fund", "water", "grass", "visitors", "animalTotal", "speciesCount"].includes(key);
+        const mayAnimate = resourceBurst || !activeKey || ["fund", "water", "grass", "visitors", "animalTotal", "speciesCount", "safety", "poacherPressure"].includes(key) || key.startsWith("supply:");
         if (mayAnimate && target !== current) {
-          animation = { from: current, target, delta: target - current, elapsed: 0, duration: 600, hold: 220, cause: taskBurst ? "task" : "system", arrowDelay: taskBurst ? 360 : 0 };
+          const animalRoll = key === "animalTotal" && taskBurst;
+          animation = {
+            from: current,
+            target,
+            delta: target - current,
+            elapsed: 0,
+            duration: animalRoll ? 900 : 600,
+            hold: animalRoll ? 460 : 220,
+            cause: taskBurst ? "task" : "system",
+            arrowDelay: taskBurst ? (animalRoll ? 220 : 360) : 0
+          };
           this.numberAnimations[key] = animation;
           activeKey = key;
         } else {
@@ -981,16 +1162,15 @@ class Game {
           return;
         }
       }
+      animation.elapsed += elapsed;
       const numberElapsed = Math.max(0, animation.elapsed - (animation.arrowDelay || 0));
       if (numberElapsed < animation.duration) {
-        animation.elapsed = Math.min(animation.duration + (animation.arrowDelay || 0), animation.elapsed + elapsed);
         const p = animation.duration ? numberElapsed / animation.duration : 1;
         const eased = 1 - Math.pow(1 - p, 3);
         this.displayReserveStats[key] = numberElapsed <= 0 ? animation.from : animation.from + (animation.target - animation.from) * eased;
       } else {
         this.displayReserveStats[key] = animation.target;
-        animation.elapsed += elapsed;
-        if (animation.elapsed >= animation.duration + animation.hold) {
+        if (animation.elapsed >= animation.duration + (animation.arrowDelay || 0) + animation.hold) {
           delete this.numberAnimations[key];
           if (activeKey === key) activeKey = null;
         }
@@ -1006,7 +1186,7 @@ class Game {
 
   reserveDisplayDelta(key, target) {
     const animation = this.numberAnimations && this.numberAnimations[key];
-    if (animation && animation.target === (Number(target) || 0) && animation.elapsed <= animation.duration + animation.hold) {
+    if (animation && animation.target === (Number(target) || 0) && animation.elapsed <= animation.duration + (animation.arrowDelay || 0) + animation.hold) {
       return Math.round(animation.delta || 0);
     }
     if (!this.displayReserveStats || typeof this.displayReserveStats[key] !== "number") return 0;
@@ -1016,8 +1196,8 @@ class Game {
 
   numberAnimationPulse(key) {
     const animation = this.numberAnimations && this.numberAnimations[key];
-    if (!animation || !animation.delta || animation.elapsed > animation.duration + animation.hold) return 0;
-    const p = Math.min(1, animation.elapsed / Math.max(1, animation.duration));
+    if (!animation || !animation.delta || animation.elapsed > animation.duration + (animation.arrowDelay || 0) + animation.hold) return 0;
+    const p = Math.min(1, Math.max(0, animation.elapsed - (animation.arrowDelay || 0)) / Math.max(1, animation.duration));
     return Math.sin(Math.PI * p);
   }
 
@@ -1044,20 +1224,99 @@ class Game {
     ctx.restore();
   }
 
+  allowsCanvasShadows() {
+    return !this.canvasShadowsUnsafe && canvasPlatformId(this.info) === "ios";
+  }
+
+  lockUnsafeCanvasShadows(ctx = this.ctx) {
+    if (!ctx || this.allowsCanvasShadows() || ctx.__shadowLocked === true) return false;
+    try {
+      ctx.shadowBlur = 0;
+      ctx.shadowColor = "transparent";
+      Object.defineProperty(ctx, "shadowBlur", { set() {}, get() { return 0; }, configurable: true });
+      Object.defineProperty(ctx, "shadowColor", { set() {}, get() { return "transparent"; }, configurable: true });
+      ctx.__shadowLocked = true;
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  imageReady(image) {
+    if (!image || image.failed || !image.loaded) return false;
+    const width = Number(image.width || image.naturalWidth) || 0;
+    const height = Number(image.height || image.naturalHeight) || 0;
+    return width > 1 && height > 1;
+  }
+
+  drawImageSafe(ctx, image, ...args) {
+    if (!ctx || !ctx.drawImage || !this.imageReady(image)) return false;
+    try {
+      ctx.drawImage(image, ...args);
+      return true;
+    } catch (error) {
+      this.canvasShadowsUnsafe = true;
+      this.lockUnsafeCanvasShadows(ctx);
+      return false;
+    }
+  }
+
+  consumeEnterGuard() {
+    if (!this.justEnteredPlayableGame) return false;
+    const expired = Date.now() > (this.justEnteredPlayableGameUntil || 0);
+    if (expired || this.screen !== "choose") {
+      this.justEnteredPlayableGame = false;
+      this.justEnteredPlayableGameUntil = 0;
+      this.suppressNextTouchEndTap = false;
+      return false;
+    }
+    return true;
+  }
+
   markScreenChange() {
+    this.screenChangedAtMs = Date.now();
     if (this.anim) this.screenChangedAt = this.anim.t;
   }
 
+  skipsScreenFade() {
+    return this.canvasShadowsUnsafe === true || usesFragileCanvas(this.info);
+  }
+
   screenFade() {
+    // 鸿蒙 / 安卓切页后 rAF 经常停住。整屏 globalAlpha 淡入会把主界面
+    // 永远停在半透明残帧上，只剩底栏清楚。这些机型直接满不透明度绘制。
+    if (this.skipsScreenFade()) return 1;
+    const started = Number(this.screenChangedAtMs) || 0;
+    if (started) {
+      const dt = Date.now() - started;
+      if (dt >= 280) return 1;
+      // iOS 首帧必须能读，不能从 0 淡入。
+      return 0.72 + 0.28 * Math.max(0, Math.min(1, dt / 280));
+    }
     if (!this.anim) return 1;
     const dt = this.anim.t - this.screenChangedAt;
     if (dt >= 300) return 1;
-    if (dt <= 0) return 0;
-    return dt / 300;
+    if (dt <= 0) return 0.72;
+    return 0.72 + 0.28 * Math.min(1, dt / 300);
   }
 
-  initialArtAtlasSrc() {
-    return this.isWechatRuntime() ? (this.artAtlas.src || ART_ATLAS.src) : (this.artAtlas.devSrc || this.artAtlas.src || ART_ATLAS.src);
+  resetCanvasCompositing(ctx = this.ctx) {
+    if (!ctx) return false;
+    try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch (error) {}
+    try { ctx.globalAlpha = 1; } catch (error) {}
+    this.lockUnsafeCanvasShadows(ctx);
+    return true;
+  }
+
+  parkIdleOpenDataOverlay() {
+    if (this.screen === "league") {
+      if (this.wechatFriends && this.wechatFriends.sharedCanvas) {
+        parkOpenDataOverlay({ getOpenDataContext: () => ({ canvas: this.wechatFriends.sharedCanvas }) }, { shrink: false });
+      }
+      return false;
+    }
+    if (this.wechatFriends) return this.wechatFriends.parkOverlay();
+    return !!parkOpenDataOverlay(this.runtime, { shrink: true });
   }
 
   initialArtAtlasMode() {
@@ -1094,34 +1353,14 @@ class Game {
 
   prepareChapterArt() {
     if (this.chapterArtLoad && ["loading", "ready"].includes(this.chapterArtLoad.status)) return;
-    if (!this.isWechatRuntime() || !this.runtime.loadSubpackage) {
-      this.loadChapterArtAssets();
-      return;
-    }
-    this.chapterArtLoad = { status: "loading", progress: 0 };
-    const task = this.runtime.loadSubpackage({
-      name: "chapters",
-      success: () => this.loadChapterArtAssets(),
-      fail: () => {
-        this.chapterArtLoad = { status: "failed", progress: 0 };
-        this.requestRender();
-      }
-    });
-    if (task && task.onProgressUpdate) {
-      task.onProgressUpdate((event) => {
-        this.chapterArtLoad = { status: "loading", progress: Math.max(0, Math.min(100, event.progress || 0)) };
-        this.requestRender();
-      });
-    }
+    this.loadChapterArtAssets();
   }
 
   loadChapterArtAssets() {
     this.chapterArtLoad = { status: "loading", progress: 0 };
-    // Chapter transitions reuse the same cinematic opening image and visual
-    // language as the first boot screen.
-    if (this.art && !this.art.prologueFog) this.ensureLocalArtSlot("prologueFog", "assets/art/prologue/prologue-fog-v1.jpg");
-    const image = this.loadImageAsset(CHAPTER_ART, {
+    const image = this.ensureLocalArtSlot("prologueFog", "assets/art/prologue/prologue-fog-v1.jpg", {
       onload: () => {
+        this.chapterArt = { start: this.art.prologueFog, end: this.art.prologueFog };
         this.chapterArtLoad = { status: "ready", progress: 100, failed: 0 };
         this.requestRender();
       },
@@ -1131,6 +1370,9 @@ class Game {
       }
     });
     this.chapterArt = { start: image, end: image };
+    if (image && image.loaded) {
+      this.chapterArtLoad = { status: "ready", progress: 100, failed: 0 };
+    }
   }
 
   localIconKeysForScreen(screen = this.screen) {
@@ -1150,6 +1392,7 @@ class Game {
   ensureLocalArtSlot(key, src, options = {}) {
     if (!this.art || this.art[key] || !src) return this.art && this.art[key];
     const image = this.loadImageAsset(src, options);
+    if (image && !image.source) image.source = "local";
     this.art[key] = image;
     return image;
   }
@@ -1163,6 +1406,7 @@ class Game {
     const image = this.loadImageAsset(src, {
       onload: () => {
         this.mapArtLoad = { status: "ready", attempt, source: "local-jpeg" };
+        this.holdPrologueMapUntilIllustrated = false;
       },
       onerror: (failedImage) => {
         if (attempt < 1) {
@@ -1199,20 +1443,80 @@ class Game {
       return true;
     }
     this.ensureUiIconAssets(this.localIconKeysForScreen(screen));
-    if (["home", "action", "social", "league", "collection"].includes(screen)) {
-      this.ensureLocalArtSlot("atlas", this.initialArtAtlasSrc());
+    if (screen === "home") this.ensureLocalMapAsset();
+    if (screen === "home" || screen === "animalworld") {
+      this.ensureLocalArtSlot("animalMapSprites", ANIMAL_MAP_SPRITES_SRC);
     }
-    if (["home", "animalworld"].includes(screen)) {
-      this.ensureLocalArtSlot("animalMapSprites", "assets/art/animal-map-sprites-atlas-v2.png");
+    if (screen === "animalworld" || screen === "collection" || screen === "social" || screen === "role") {
+      this.ensureLocalArtSlot("animalPortraits", ANIMAL_PORTRAITS_SRC);
     }
-    if (screen === "home") {
-      this.ensureLocalMapAsset();
-      this.ensureLocalArtSlot("facilities", "assets/art/facility-sprites-atlas-v4.png");
-    }
-    if (screen === "collection" || (screen === "survival" && this.survivalArchiveOpen)) {
-      this.ensureLocalArtSlot("collectionItems", "assets/art/collection/collection-items-atlas.png");
-    }
+    this.ensureDeferredArtForScreen(screen);
+    this.queueRemoteAssetsForScreen(screen);
     return true;
+  }
+
+  deferredArtKeysForScreen(screen = this.screen) {
+    return Object.keys(this.deferredArt || {}).filter((key) => {
+      const spec = this.deferredArt[key];
+      if (!spec) return false;
+      const delay = Math.max(0, Number(spec.delaySeconds) || 0);
+      if (delay && (screen === "choose" || this.missionExperienceSeconds() < delay)) return false;
+      if (screen === "survival" && key === "collectionItems") return !!this.survivalArchiveOpen;
+      return Array.isArray(spec.screens) && spec.screens.includes(screen);
+    });
+  }
+
+  ensureDeferredArtForScreen(screen = this.screen) {
+    this.deferredArtKeysForScreen(screen).forEach((key) => {
+      const spec = this.deferredArt[key];
+      if (!spec) return;
+      if (this.remoteAssetConfigured(key)) return;
+      this.ensureLocalArtSlot(spec.slot, spec.localSrc);
+    });
+  }
+
+  prepareDeferredArt(key) {
+    const spec = (this.deferredArt || {})[key];
+    if (!spec) return Promise.resolve(false);
+    const remote = spec.remote || {};
+    const url = remote.url;
+    if (!url || !this.runtime.downloadFile) {
+      this.ensureLocalArtSlot(spec.slot, spec.localSrc);
+      return Promise.resolve(!!(this.art && this.art[spec.slot]));
+    }
+    const current = this.art && this.art[spec.slot];
+    const alreadyRemote = !!(current && current.loaded && !current.failed && current.source && current.source !== "local");
+    if (current && current.loaded && !current.failed && (!spec.upgradeLocal || alreadyRemote)) {
+      return Promise.resolve(true);
+    }
+    const cached = this.runtime.getStorageSync ? this.runtime.getStorageSync(remote.storageKey) : null;
+    const load = (src, source, retry) => this.loadRemoteAtlasCandidate({
+      src,
+      source,
+      retry,
+      statusKey: `${key}Download`,
+      activate: (image) => {
+        if (image) image.source = source || "remote";
+        this.art[spec.slot] = image;
+        if (spec.upgradeLocal) this.sandboxAnimalRosterCache = null;
+      }
+    });
+    if (cached && cached.version === remote.version && cached.url === url && cached.path) {
+      return load(cached.path, "cache", () => this.downloadRemoteAtlas({
+        url,
+        statusKey: `${key}Download`,
+        save: (tempFilePath) => this.saveRemoteAtlas({
+          tempFilePath, url, remote, load: (src, source) => load(src, source)
+        })
+      }));
+    }
+    return this.downloadRemoteAtlas({
+      url,
+      statusKey: `${key}Download`,
+      save: (tempFilePath) => this.saveRemoteAtlas({
+        tempFilePath, url, remote, load: (src, source) => load(src, source)
+      })
+    });
   }
 
   prepareRemoteArtAtlas() {
@@ -1228,16 +1532,18 @@ class Game {
 
   remoteAssetOrderForScreen(screen = this.screen) {
     if (screen === "choose") return [];
-    if (screen === "survival") return ["wildernessMaterialAtlas", "premiumUiAtlas"];
-    if (screen === "collection" || screen === "animalworld") return ["animalPortraitAtlas", "premiumUiAtlas", "artAtlas"];
-    if (screen === "home") return ["artAtlas", "premiumUiAtlas"];
+    const deferred = this.deferredArtKeysForScreen(screen);
+    if (screen === "survival") return deferred.concat(["wildernessMaterialAtlas", "premiumUiAtlas"]);
+    if (screen === "collection" || screen === "animalworld") return deferred.concat(["premiumUiAtlas", "artAtlas"]);
+    if (screen === "home") return deferred.concat(["artAtlas", "premiumUiAtlas"]);
     if (screen === "action" || screen === "role" || screen === "league" || screen === "social") {
-      return ["premiumUiAtlas", "artAtlas"];
+      return deferred.concat(["premiumUiAtlas", "artAtlas"]);
     }
-    return ["premiumUiAtlas"];
+    return deferred.concat(["premiumUiAtlas"]);
   }
 
   remoteAssetLoader(key) {
+    if (this.deferredArt && this.deferredArt[key]) return () => this.prepareDeferredArt(key);
     return {
       artAtlas: () => this.prepareRemoteArtAtlas(),
       premiumUiAtlas: () => this.prepareRemotePremiumUiAtlas(),
@@ -1247,12 +1553,14 @@ class Game {
   }
 
   remoteAssetConfigured(key) {
-    const atlas = {
-      artAtlas: this.artAtlas,
-      premiumUiAtlas: this.premiumUiAtlas,
-      wildernessMaterialAtlas: this.wildernessMaterialAtlas,
-      animalPortraitAtlas: this.animalPortraitAtlas
-    }[key];
+    const atlas = this.deferredArt && this.deferredArt[key]
+      ? this.deferredArt[key]
+      : {
+        artAtlas: this.artAtlas,
+        premiumUiAtlas: this.premiumUiAtlas,
+        wildernessMaterialAtlas: this.wildernessMaterialAtlas,
+        animalPortraitAtlas: this.animalPortraitAtlas
+      }[key];
     const remote = (atlas && atlas.remote) || {};
     return !!(remote.url && remote.version && this.runtime && this.runtime.downloadFile);
   }
@@ -1268,7 +1576,7 @@ class Game {
   }
 
   queueRemoteAssetsForScreen(screen = this.screen) {
-    if (!this.remoteAssetManifestReady || screen === "choose") return false;
+    if (screen === "choose") return false;
     if (!(this.remoteAssetQueued instanceof Set)) this.remoteAssetQueued = new Set();
     if (!(this.remoteAssetCompleted instanceof Set)) this.remoteAssetCompleted = new Set();
     let queued = false;
@@ -1313,7 +1621,6 @@ class Game {
     const remoteAtlas = (((config || {}).assets || {}).artAtlas) || {};
     const premiumUiAtlas = (((config || {}).assets || {}).premiumUiAtlas) || {};
     const wildernessMaterialAtlas = (((config || {}).assets || {}).wildernessMaterialAtlas) || {};
-    const animalPortraitAtlas = (((config || {}).assets || {}).animalPortraitAtlas) || {};
     let prepared = false;
     const applyRemoteConfig = (key, target, source) => {
       if (!source.url || !source.version) return false;
@@ -1345,10 +1652,13 @@ class Game {
         version: wildernessMaterialAtlas.version
       }) || prepared;
     }
-    if (animalPortraitAtlas.url && animalPortraitAtlas.version) {
-      prepared = applyRemoteConfig("animalPortraitAtlas", this.animalPortraitAtlas, animalPortraitAtlas) || prepared;
-    }
-    this.remoteAssetManifestReady = prepared;
+    Object.keys(this.deferredArt || {}).forEach((key) => {
+      const source = (((config || {}).assets || {})[key]) || {};
+      if (source.url && source.version) {
+        prepared = applyRemoteConfig(key, this.deferredArt[key], source) || prepared;
+      }
+    });
+    this.remoteAssetManifestReady = prepared || Object.keys(this.deferredArt || {}).some((key) => this.remoteAssetConfigured(key));
     if (prepared) this.queueRemoteAssetsForScreen(this.screen);
     return prepared;
   }
@@ -1426,6 +1736,7 @@ class Game {
     return new Promise((resolve) => {
       const image = this.loadImageAsset(src, {
         onload: (loadedImage) => {
+          if (loadedImage && !loadedImage.source) loadedImage.source = source;
           activate(loadedImage);
           this[statusKey] = { status: "ready", progress: 100, source };
           this.requestRender();
@@ -1453,11 +1764,7 @@ class Game {
   }
 
   remoteAnimalPortraitUrl(remote) {
-    if (remote.url) return remote.url;
-    const stored = this.runtime.getStorageSync ? this.runtime.getStorageSync(remote.urlStorageKey) : "";
-    if (stored) return stored;
-    if (typeof globalThis !== "undefined" && globalThis.FOREST_ANIMAL_PORTRAIT_ATLAS_URL) return globalThis.FOREST_ANIMAL_PORTRAIT_ATLAS_URL;
-    return "";
+    return remote && remote.url ? remote.url : "";
   }
 
   downloadRemoteAnimalPortraitAtlas(url, remote) {
@@ -1711,8 +2018,7 @@ class Game {
   }
 
   animalPortraitIndex(species) {
-    const order = ["鹿", "羚羊", "野兔", "乌鸦", "狼", "斑马", "野猪", "鹰", "火烈鸟", "熊", "秃鹫", "狮子", "豹子", "长颈鹿", "猫头鹰", "大象", "河马", "鳄鱼", "野犬", "水貂", "狐狸", "白犀牛", "穿山甲", "猎豹", "斑鬣狗"];
-    return order.indexOf(species || "");
+    return this.animalMapSpriteIndexRaw(species);
   }
 
   drawAnimalPortraitAsset(ctx, animal, x, y, size, active = false) {
@@ -1801,10 +2107,24 @@ class Game {
 
   bindEvents() {
     this.runtime.onTouchStart((event) => {
-      if (!this.deferredRuntimeServicesReady) this.initializeDeferredRuntimeServices();
-      this.recordActivePlay();
-      if (this.audio) this.audio.unlock();
-      const touches = (event && event.touches) || [];
+      this.lastPointerStartAt = Date.now();
+      // 序章必须第一时间进游戏。音频解锁、广告 SDK 一旦抢在前面，
+      // 微信会留下原生层，看起来只剩按钮黄圈在闪，点不进去。
+      try {
+        if (this.tryEnterPlayableGame()) return;
+        if (this.consumeEnterGuard()) return;
+      } catch (error) {
+        if (this.screen === "choose") this.forceRevealHomeFromPrologue();
+        return;
+      }
+      // 输入必须先建立手势，音频解锁、云服务或活跃时长记录失败都不能
+      // 中断整个触摸回调。部分 iOS/微信版本会在首次 audio.unlock 时抛错，
+      // 之前这会让首页按钮和沙盘拖动同时失效。
+      try { this.recordActivePlay(); } catch (error) {}
+      try { if (this.audio) this.audio.unlock(); } catch (error) {}
+      const touches = (event && event.touches && event.touches.length)
+        ? event.touches
+        : ((event && event.changedTouches) || []);
       if (touches.length >= 2) {
         const first = this.touchPoint(touches[0]);
         const second = this.touchPoint(touches[1]);
@@ -1822,8 +2142,21 @@ class Game {
         }
       }
       const touch = event.touches && event.touches[0];
-      if (!touch) return;
-      const point = this.touchPoint(touch);
+      const startTouch = touch || touches[0] || event;
+      if (!startTouch) return;
+      const point = this.touchPoint(startTouch);
+      const immediateHit = this.hitAreaAt(point.x, point.y);
+      if (immediateHit && immediateHit.hud) {
+        this.activateHitArea(immediateHit);
+        this.suppressNextTouchEndTap = true;
+        this.gesture = null;
+        return;
+      }
+      try {
+        if (!this.deferredRuntimeServicesReady) this.initializeDeferredRuntimeServices();
+      } catch (error) {
+        this.deferredRuntimeServicesReady = true;
+      }
       const friendRankPoint = this.wechatFriendRankTouchPoint(point.x, point.y);
       if (friendRankPoint && this.wechatFriends) {
         this.wechatFriends.pointer("start", friendRankPoint.x, friendRankPoint.y);
@@ -1852,21 +2185,46 @@ class Game {
         };
         return;
       }
+      const worldListPoint = this.worldLeagueListTouchPoint(point.x, point.y);
+      if (worldListPoint) {
+        this.gesture = {
+          worldLeagueList: true,
+          worldLeagueListView: worldListPoint.view,
+          startX: point.x,
+          startY: point.y,
+          lastX: point.x,
+          lastY: point.y,
+          startScroll: worldListPoint.scrollY,
+          moved: false
+        };
+        return;
+      }
       const actionHit = this.hitAreaAt(point.x, point.y);
+      const balloonHit = this.eventBalloonHitAt(point.x, point.y);
       const insideMapViewport = this.isInsideMapViewport(point.x, point.y);
+      // 固定导航和缩放键在按下时直接响应，避免真机漏发 touchend 后整组
+      // 按钮看似失效。地图任务仍保留“抬手触发”，以便区分点击和拖动。
+      if (actionHit && actionHit.hud) {
+        this.activateHitArea(actionHit);
+        this.suppressNextTouchEndTap = true;
+        this.gesture = null;
+        return;
+      }
+      const buttonHit = actionHit || balloonHit;
       this.gesture = {
         startX: point.x,
         startY: point.y,
         lastX: point.x,
         lastY: point.y,
         moved: false,
-        actionHit: !!actionHit,
-        blockActionDrag: !!actionHit && insideMapViewport,
-        mapPan: !actionHit && insideMapViewport,
+        actionHit: !!buttonHit,
+        blockActionDrag: !!buttonHit && insideMapViewport,
+        mapPan: !buttonHit && insideMapViewport,
         insideMapViewport,
         axis: null
       };
     });
+    this.bindCanvasPointerFallbacks();
     if (this.runtime.onTouchMove) {
       this.runtime.onTouchMove((event) => {
         const touches = (event && event.touches) || [];
@@ -1905,14 +2263,27 @@ class Game {
           this.gesture.lastX = point.x;
           this.gesture.lastY = point.y;
           const modal = this.infoDetailModal;
-          if (modal && ["lifeMemory", "animalLetterInbox", "visitorLetterInbox", "fundLedger", "progressionLadder", "visitorRoutine"].includes(modal.kind)) {
+          if (modal && ["lifeMemory", "animalLetterInbox", "visitorLetterInbox", "fundLedger", "progressionLadder", "visitorRoutine", "animalMetricDetail", "populationMetricDetail", "visitorMetricDetail"].includes(modal.kind)) {
             const letterModal = ["animalLetterInbox", "visitorLetterInbox"].includes(modal.kind);
             const ledgerModal = modal.kind === "fundLedger";
             const ladderModal = modal.kind === "progressionLadder";
-            const scrollKey = modal.kind === "visitorRoutine" ? "visitorRoutineScrollY" : ledgerModal ? "fundLedgerScrollY" : ladderModal ? "ladderScrollY" : letterModal ? "letterScrollY" : "memoryScrollY";
-            const maxKey = modal.kind === "visitorRoutine" ? "visitorRoutineMaxScroll" : ledgerModal ? "fundLedgerMaxScroll" : ladderModal ? "ladderMaxScroll" : letterModal ? "letterMaxScroll" : "memoryMaxScroll";
+            const metricDetailModal = this.isCoreMetricDetailModal(modal);
+            const scrollKey = modal.kind === "visitorRoutine" ? "visitorRoutineScrollY" : ledgerModal ? "fundLedgerScrollY" : ladderModal ? "ladderScrollY" : metricDetailModal ? "infoListScrollY" : letterModal ? "letterScrollY" : "memoryScrollY";
+            const maxKey = modal.kind === "visitorRoutine" ? "visitorRoutineMaxScroll" : ledgerModal ? "fundLedgerMaxScroll" : ladderModal ? "ladderMaxScroll" : metricDetailModal ? "infoListMaxScroll" : letterModal ? "letterMaxScroll" : "memoryMaxScroll";
             modal[scrollKey] = Math.max(0, Math.min(modal[maxKey] || 0, this.gesture.startScroll - totalDy));
           }
+          this.requestRender();
+          return;
+        }
+        if (this.gesture.worldLeagueList) {
+          const totalDx = point.x - this.gesture.startX;
+          const totalDy = point.y - this.gesture.startY;
+          if (Math.abs(totalDx) + Math.abs(totalDy) > 5) this.gesture.moved = true;
+          this.gesture.lastX = point.x;
+          this.gesture.lastY = point.y;
+          const view = this.renderedWorldLeagueList || this.gesture.worldLeagueListView || {};
+          const maxScroll = Math.max(0, Number(view.maxScroll) || 0);
+          this.worldLeagueListScrollY = Math.max(0, Math.min(maxScroll, this.gesture.startScroll - totalDy));
           this.requestRender();
           return;
         }
@@ -1926,7 +2297,7 @@ class Game {
           || this.patrolTaskModal
           || this.infoDetailModal
         );
-        const moveThreshold = modalOpen || this.gesture.blockActionDrag ? 18 : 6;
+        const moveThreshold = modalOpen ? 18 : this.gesture.blockActionDrag ? 8 : 6;
         if (Math.abs(totalDx) + Math.abs(totalDy) > moveThreshold) this.gesture.moved = true;
         this.gesture.lastX = point.x;
         this.gesture.lastY = point.y;
@@ -1936,7 +2307,7 @@ class Game {
         // blockActionDrag=true for the entire gesture, so map swipes appeared
         // to do nothing.  The same promotion lets content pages scroll when a
         // swipe starts on a tappable card, while short taps remain tappable.
-        if (this.gesture.blockActionDrag && (Math.abs(totalDx) + Math.abs(totalDy) > 18)) {
+        if (this.gesture.blockActionDrag && (Math.abs(totalDx) + Math.abs(totalDy) > 8)) {
           this.gesture.blockActionDrag = false;
           this.gesture.actionHit = false;
           this.gesture.mapPan = !!this.gesture.insideMapViewport;
@@ -1968,6 +2339,39 @@ class Game {
     }
     if (this.runtime.onTouchEnd) {
       this.runtime.onTouchEnd((event) => {
+        this.lastPointerEndAt = Date.now();
+        if (this.consumeEnterGuard()) {
+          this.gesture = null;
+          return;
+        }
+        try {
+          if (this.tryEnterPlayableGame()) {
+            this.suppressNextTouchEndTap = false;
+            this.gesture = null;
+            return;
+          }
+        } catch (error) {
+          if (this.screen === "choose") this.forceRevealHomeFromPrologue();
+          this.gesture = null;
+          return;
+        }
+        if (this.suppressNextTouchEndTap) {
+          this.suppressNextTouchEndTap = false;
+          this.gesture = null;
+          return;
+        }
+        // 某些 iOS 微信版本的 touchstart 不提供 touches，但 touchend 会在
+        // changedTouches 给出完整坐标。即使没有建立 gesture，也要允许一次
+        // 直接点击，保证序章“进入游戏”和普通首页按钮可用。
+        if (!this.gesture) {
+          const changed = (event && event.changedTouches) || [];
+          const touch = changed[0];
+          if (touch) {
+            const point = this.touchPoint(touch);
+            this.handleTap(point.x, point.y);
+          }
+          return;
+        }
         if (this.gesture && this.gesture.friendRank) {
           const view = this.gesture.friendRankView;
           if (this.wechatFriends && view) this.wechatFriends.pointer("end", this.gesture.lastX - view.x, this.gesture.lastY - view.y);
@@ -1976,6 +2380,12 @@ class Game {
           return;
         }
         if (this.gesture && this.gesture.memoryTimeline) {
+          if (!this.gesture.moved) this.handleTap(this.gesture.startX, this.gesture.startY);
+          this.gesture = null;
+          this.requestRender();
+          return;
+        }
+        if (this.gesture && this.gesture.worldLeagueList) {
           if (!this.gesture.moved) this.handleTap(this.gesture.startX, this.gesture.startY);
           this.gesture = null;
           this.requestRender();
@@ -2025,16 +2435,21 @@ class Game {
     }
     if (this.runtime.onAppHide) {
       this.runtime.onAppHide(() => {
+        this.notePendingShareHidden();
         this.state.world.lifeMemory = markGuardianVisit(this.state.world || {});
         markOfflineCheckpoint(this.state);
         saveState(this.state);
         if (this.nativeTemplateAds) this.nativeTemplateAds.setVisible(false);
+        if (this.gameClub) this.gameClub.setVisible(false);
         if (this.mapConsequencePulse && this.mapConsequencePulse.rescueSpeciesId) this.mapConsequencePulse = null;
+        this.parkIdleOpenDataOverlay();
         this.stopLoop();
       });
     }
     if (this.runtime.onAppShow) {
       this.runtime.onAppShow((options) => {
+        this.settlePendingShareReward("return");
+        this.restoreSandboxOverviewCamera();
         const invite = this.readShareInviteFromOptions(options);
         if (invite && !hasAssistedShare(this.state, invite.shareId)) this.pendingShareInvite = invite;
         const offlineVisit = prepareOfflineBrief(this.state);
@@ -2049,8 +2464,12 @@ class Game {
         }
         this.completeFirstSessionFocusIfExpired(Date.now());
         saveState(this.state);
+        this.screenChangedAtMs = 0;
+        this.resetCanvasCompositing();
+        this.parkIdleOpenDataOverlay();
         this.startLoop();
         this.syncNativeTemplateAd();
+        this.render();
         if (this.audio) this.audio.attachState(this.state);
         if (this.cloudService) {
           this.refreshRemoteAssetsAndScore(true);
@@ -2071,6 +2490,56 @@ class Game {
         if (this.audio) this.audio.playMusic();
       });
     }
+  }
+
+  bindCanvasPointerFallbacks() {
+    if (this.pointerFallbackBound) return;
+    this.pointerFallbackBound = true;
+    const targets = [];
+    const addTarget = (canvas) => {
+      if (canvas && targets.indexOf(canvas) < 0) targets.push(canvas);
+    };
+    addTarget(this.canvas);
+    try {
+      if (typeof GameGlobal !== "undefined" && GameGlobal.canvas) addTarget(GameGlobal.canvas);
+    } catch (error) {}
+    const forwardStart = (event) => {
+      if (this.lastPointerStartAt && Date.now() - this.lastPointerStartAt < 64) return;
+      this.lastPointerStartAt = Date.now();
+      try {
+        if (this.tryEnterPlayableGame()) {
+          if (event && event.preventDefault) event.preventDefault();
+        }
+      } catch (error) {
+        if (this.screen === "choose") this.forceRevealHomeFromPrologue();
+      }
+    };
+    const forwardEnd = (event) => {
+      if (this.lastPointerEndAt && Date.now() - this.lastPointerEndAt < 64) return;
+      this.lastPointerEndAt = Date.now();
+      if (this.consumeEnterGuard()) {
+        this.gesture = null;
+        return;
+      }
+      try {
+        if (this.tryEnterPlayableGame()) {
+          this.suppressNextTouchEndTap = false;
+          this.gesture = null;
+          if (event && event.preventDefault) event.preventDefault();
+        }
+      } catch (error) {
+        if (this.screen === "choose") this.forceRevealHomeFromPrologue();
+      }
+    };
+    targets.forEach((target) => {
+      if (!target || typeof target.addEventListener !== "function") return;
+      ["touchstart", "pointerdown", "mousedown"].forEach((type) => {
+        target.addEventListener(type, forwardStart);
+      });
+      ["touchend", "pointerup", "mouseup"].forEach((type) => {
+        target.addEventListener(type, forwardEnd);
+      });
+    });
   }
 
   recordActivePlay(now = Date.now(), persist = false) {
@@ -2101,6 +2570,11 @@ class Game {
     }
     this.activePlayLastAt = stamp;
     this.activePlayDirtySeconds = (this.activePlayDirtySeconds || 0) + gained;
+    this.maybeUnlockChapterSpecial(stamp);
+    ensureFriendAid(((this.state.world || {}).reserve) || {}, stamp);
+    if (gained) {
+      try { visitorRecruitmentStatus(reserve, this.visitorRecruitmentDay()); } catch (error) {}
+    }
     if (persist || this.activePlayDirtySeconds >= 20) {
       saveState(this.state);
       this.activePlayDirtySeconds = 0;
@@ -2108,10 +2582,22 @@ class Game {
     return gained;
   }
 
+  maybeUnlockChapterSpecial(now = Date.now()) {
+    if (!this.state || !this.state.character) return null;
+    const reserve = ((this.state.world || {}).reserve) || {};
+    const before = !!(reserve.chapterSpecial && reserve.chapterSpecial.unlocked);
+    const status = chapterSpecialStatus(reserve, now);
+    if (!status.available || before || status.state.offered) return status;
+    markChapterSpecialOffered(reserve, now);
+    this.toast(`本章特别任务出现：${status.def.taskTitle}`);
+    if (this.state.world && this.state.world.goals) this.state.world.goals = null;
+    return status;
+  }
+
   advanceIdleEmergencyIfNeeded(now = Date.now()) {
     if (!this.state || !this.state.character) return null;
     if (this.screen !== "home") return null;
-    if (this.infoDetailModal || this.patrolTaskModal || this.settlementModal || this.chapterStoryModal) return null;
+    if (this.infoDetailModal || this.patrolTaskModal || this.settlementOccupiesFlow() || this.chapterStoryModal) return null;
     if (this.gesture && (this.gesture.mapPan || this.gesture.pinch)) return null;
     const world = this.state.world || {};
     const reserve = world.reserve || (world.reserve = {});
@@ -2202,9 +2688,26 @@ class Game {
     return !modal.revealAt || now >= modal.revealAt;
   }
 
+  settlementOccupiesFlow(modal = this.settlementModal) {
+    return !!(modal && !modal.silent);
+  }
+
   settlementBlocksCurrentScreen(modal = this.settlementModal) {
-    if (!modal) return false;
-    return !modal.presentationScreen || this.screen === modal.presentationScreen;
+    // 静默结算、尚未到展示时间或属于其他页面的结算都没有可见弹层，
+    // 不能因此锁死沙盘拖动。阻塞条件必须与实际展示条件完全一致。
+    return this.settlementPresentationActive(modal);
+  }
+
+  releaseUnpresentedSettlement(modal = {}) {
+    if (this.settlementOccupiesFlow() && this.settlementModal !== modal) return false;
+    this.settlementModal = null;
+    this.activeTaskLock = null;
+    this.numberAnimationBurstUntil = Date.now() + 1800;
+    this.numberAnimationBurstCause = "task";
+    if (modal.metricFocus === "grass" || modal.metricFocus === "water") {
+      this.numberAnimationMetricFocus = modal.metricFocus;
+    }
+    return true;
   }
 
   openDataInputBlocked(now = Date.now()) {
@@ -2222,7 +2725,7 @@ class Game {
       && this.state && this.state.character
       && !this.activeTaskLock
       && !this.chapterStoryModal
-      && !this.settlementModal
+      && !this.settlementOccupiesFlow()
       && !this.patrolTaskModal
       && !this.infoDetailModal);
   }
@@ -2252,7 +2755,7 @@ class Game {
 
   buildAnimalInteractionModal(active = {}) {
     const story = animalInteractionStory(active.storyId) || active;
-    const choices = (story.choices || active.choices || []).map((choice) => Object.assign({}, choice));
+    const choices = (story.choices || active.choices || []).slice(0, 1).map((choice) => Object.assign({}, choice));
     return {
       kind: "animalInteractionStory",
       kicker: `${story.category || "动物关系"} · 独立任务`,
@@ -2261,8 +2764,8 @@ class Game {
       active,
       story,
       choices,
-      selectedChoiceId: (choices.find((choice) => choice.recommended || choice.risk === "safe") || choices[0] || {}).id || "",
-      footer: "已预选推荐方案；可改选其他方案。不处理会自动恶化。"
+      selectedChoiceId: (choices[0] || {}).id || "",
+      footer: "执行后关系会朝更稳定的方向发展。不处理会自动恶化。"
     };
   }
 
@@ -2309,15 +2812,37 @@ class Game {
       result,
       items: (result.changes || [])
         .filter((item) => item.key !== "stability")
-        .slice(0, 5)
+        .slice(0, 1)
         .map((item) => ({ tag: displayMetricLabel(item.key), title: `${item.before} → ${item.after}`, body: item.delta > 0 ? "关系调节带来改善" : "这是本次方案的代价", largeText: true }))
-        .concat(result.businessChange ? [{ tag: "游客与保护基金", title: `游客 ${result.businessChange.visitorsDelta >= 0 ? "↑" : "↓"}${Math.abs(result.businessChange.visitorsDelta || 0)} · 保护基金 ${result.businessChange.fundDelta >= 0 ? "+" : ""}${result.businessChange.fundDelta || 0} 星币`, body: "变化已写入经营数据", largeText: true }] : []),
+        .concat(result.businessChange ? [{ tag: "游客与基金", title: `游客 ${result.businessChange.visitorsDelta >= 0 ? "↑" : "↓"}${Math.abs(result.businessChange.visitorsDelta || 0)} · 基金 ${result.businessChange.fundDelta >= 0 ? "+" : ""}${result.businessChange.fundDelta || 0}`, body: "变化已写入经营数据", largeText: true }] : [])
+        .slice(0, 2),
       footer: "关系已记录，下一次事件会根据新的生态状态出现。"
     };
     saveState(this.state);
     this.playSfx("success");
     this.render();
     return true;
+  }
+
+  tryPresentPendingChapterAdvance() {
+    if (!this.pendingChapterAdvance && !this.pendingChapterPromotion) return false;
+    if (this.screen !== "home" || !this.state || !this.state.character) return false;
+    if (this.activeTaskLock || this.chapterStoryModal || this.settlementOccupiesFlow() || this.patrolTaskModal || this.infoDetailModal) return false;
+    if (this.pendingChapterPromotion) this.collectTaskCompletionFeedback();
+    if (this.taskCompletionFeedback && this.taskCompletionFeedback.pending.length) return false;
+    if ((this.chapterStoryQueue || []).length) {
+      const opened = this.openQueuedChapterStory();
+      if (opened) this.pendingChapterAdvance = false;
+      return opened;
+    }
+    if (this.pendingChapterPromotion && !this.chapterStoryModal) {
+      this.pendingChapterAdvance = false;
+      this.applyPendingChapterPromotion();
+      this.render();
+      return true;
+    }
+    this.pendingChapterAdvance = false;
+    return false;
   }
 
   openQueuedChapterStory(options = {}) {
@@ -2344,6 +2869,8 @@ class Game {
   openNextSandboxEvent() {
     if (this.activeTaskLock) return false;
     if (!this.canPresentSandboxEvent()) return false;
+    if (this.tryPresentPendingChapterAdvance()) return true;
+    if (this.suppressNextHomeMission || this.popupFlowQuiet()) return false;
     return this.openPendingFirstPatrolTransfer()
       || this.openPendingPoacherRescueEvent()
       || this.openFirstOnboardingChoice()
@@ -2411,7 +2938,7 @@ class Game {
 
   isInsideMapViewport(x, y) {
     const viewport = this.mapViewport;
-    return !this.chapterStoryModal && !this.settlementModal && !this.patrolTaskModal && !this.infoDetailModal && !!viewport && this.screen === "home" && x >= viewport.x && x <= viewport.x + viewport.w && y >= viewport.y && y <= viewport.y + viewport.h;
+    return !this.chapterStoryModal && !this.settlementBlocksCurrentScreen() && !this.patrolTaskModal && !this.infoDetailModal && !!viewport && this.screen === "home" && x >= viewport.x && x <= viewport.x + viewport.w && y >= viewport.y && y <= viewport.y + viewport.h;
   }
 
   visibleMapViewport(mapX, mapY, mapW, mapH) {
@@ -2469,10 +2996,108 @@ class Game {
     return true;
   }
 
+  syncVisitorReceptionGrant(reserve = ((this.state.world || {}).reserve) || {}) {
+    return syncVisitorReceptionGrant(reserve, this.currentReserveChapter(reserve));
+  }
+
+  visitorReceptionReady(reserve = ((this.state.world || {}).reserve) || {}) {
+    const grant = this.syncVisitorReceptionGrant(reserve);
+    return Number(grant.remaining || 0) > 0;
+  }
+
+  openVisitorReception() {
+    this.recordSandboxInteraction("visitor");
+    const reserve = ((this.state.world || {}).reserve) || {};
+    const grant = this.syncVisitorReceptionGrant(reserve);
+    const preview = visitorReceptionPreview();
+    const ready = Number(grant.remaining || 0) > 0;
+    this.markUserTaskTrigger();
+    this.infoDetailModal = {
+      kind: "visitorReception",
+      phase: "ready",
+      kicker: `第${this.currentReserveChapter(reserve)}章 · 观景接待`,
+      title: ready ? "带游客走一趟观景线" : "今日接待已完成",
+      icon: "community",
+      expandableItems: true,
+      grant,
+      preview,
+      items: [
+        this.ecologyArchiveItem("游客影响", ready ? `接待 +${preview.min}—${preview.max} 人` : `今日已接待 +${grant.gained || 0} 人`, {
+          detailBody: ready
+            ? "点开沙盘上的游客，带他们走一趟观景线。人数写入本章游客，不消耗招募次数。"
+            : "每天每章可以主动接待一批游客。明天或进入下一章后会恢复这次机会。"
+        }),
+        this.ecologyArchiveItem("怎么做", ready ? "不消耗招募次数" : "可继续查看游客表", {
+          detailBody: "这是玩家主动探索。系统不会弹窗催促。接待人数随安全略增，单次不超过12人。"
+        })
+      ],
+      footer: ready ? "完成后游客会马上出现在沙盘上" : "今日次数已用完，可查看游客表"
+    };
+    this.render();
+    return true;
+  }
+
+  performVisitorReception() {
+    const reserve = ((this.state.world || {}).reserve) || {};
+    const modal = this.infoDetailModal || {};
+    if (modal.kind === "visitorReception" && modal.phase === "result") {
+      this.dismissInfoDetailModal();
+      return true;
+    }
+    if (!this.visitorReceptionReady(reserve)) {
+      this.toast("今日接待已用完");
+      this.openVisitorReception();
+      return false;
+    }
+    const before = this.reserveVisitorCount(reserve);
+    const result = applyVisitorReception(reserve, rollVisitorReceptionGain(reserve), {
+      chapter: this.currentReserveChapter(reserve)
+    });
+    if (!result.ok) {
+      this.toast(result.reason === "used" ? "今日接待已用完" : "这批游客没有留下");
+      return false;
+    }
+    this.markUserTaskTrigger();
+    saveState(this.state);
+    this.infoDetailModal = {
+      kind: "visitorReception",
+      phase: "result",
+      kicker: `第${this.currentReserveChapter(reserve)}章 · 观景接待`,
+      title: "游客愿意多停一会儿",
+      icon: "community",
+      expandableItems: true,
+      grant: result.grant,
+      items: [
+        this.ecologyArchiveItem("游客影响", `游客 +${result.applied}`, {
+          detailBody: `本章游客 ${result.before}→${result.after}。这批人计入本章任务来源，不消耗招募次数。`
+        }),
+        this.ecologyArchiveItem("沙盘", "观景线上多了游客", {
+          detailBody: "他们会沿步道走动。今天不能再接待；明天或下一章会恢复一次。"
+        })
+      ],
+      footer: `本章游客 ${before}→${result.after}`
+    };
+    this.playSfx("success");
+    this.render();
+    return true;
+  }
+
   visitorRecruitmentDay() {
     const world = this.state.world || {};
     const reserve = world.reserve || {};
     return Math.max(1, Number((reserve.guardianCycle || {}).day) || Number(world.day) || 1);
+  }
+
+  visitorRecruitmentCtaLabel(status = {}, mode = "page") {
+    if (mode === "onboarding") return "新手招募";
+    if (mode === "result") return "完成";
+    const hasCredits = Number(status.totalAvailable) > 0 || !!status.canRecruit;
+    if (hasCredits) return "发布招募";
+    if (status.canWatchAd) return "看广告招募";
+    if (status.playtimeRestoreStarted && Number(status.nextRestoreMinutes) > 0) {
+      return mode === "compact" ? "恢复中" : `约${status.nextRestoreMinutes}分钟后恢复`;
+    }
+    return mode === "compact" ? "今日已满" : "今日次数用完";
   }
 
   openVisitorRecruitment() {
@@ -2492,48 +3117,71 @@ class Game {
       footer: status.canRecruit
         ? onboardingRecruitment ? "完成招募：游客消费会进入保护基金，继续推动保护区建设" : "发布招募带来游客与基金；安全、物种和设施会提高效果"
         : status.canWatchAd
-          ? "免费次数已用完，可看视频获得2次机会"
-          : "今日广告招募机会已用完，明日重置"
+          ? `免费次数已用完，可看广告获得${AD_RECRUIT_GRANT}次；游玩${PLAYTIME_RECRUIT_RESTORE_MINUTES}分钟也会恢复1次`
+          : status.playtimeRestoreStarted
+            ? `游玩约${status.nextRestoreMinutes || PLAYTIME_RECRUIT_RESTORE_MINUTES}分钟后恢复1次，最多恢复到${DAILY_FREE_RECRUITS}次`
+            : `招募次数用完后，游玩${PLAYTIME_RECRUIT_RESTORE_MINUTES}分钟恢复1次，最多${DAILY_FREE_RECRUITS}次`
     };
     this.render();
     return true;
   }
 
   publishVisitorRecruitment() {
+    const modal = this.infoDetailModal;
+    if (modal && modal.kind === "visitorRecruitment" && modal.phase === "result") {
+      return this.dismissInfoDetailModal();
+    }
     const reserve = ((this.state.world || {}).reserve) || {};
     const day = this.visitorRecruitmentDay();
-    const visitorsBefore = this.reserveVisitorCount(reserve);
+    const visitorsBefore = chapterVisitorTotal(reserve);
     const fundBefore = Math.max(0, Number(reserve.fund) || 0);
+    const beforeState = this.cloneStateForGoalProgress();
     const result = consumeVisitorRecruitment(reserve, day);
     if (!result.ok) {
       this.openVisitorRecruitment();
       return false;
     }
-    saveState(this.state);
+    this.commitReserveProgression(reserve);
+    const progress = this.syncSandboxGoalState(beforeState, "viewVisitors");
     // 让游客与基金和其他核心数值一样，从旧值平滑过渡到新值。
     this.reserveDisplayTargetRefreshLeft = 0;
     this.playSfx("success");
     const onboarding = this.onboardingProgress();
     const onboardingRecruitment = onboarding.active && onboarding.totalActions >= 2 && !onboarding.recruitmentDone;
     if (onboardingRecruitment) this.saveOnboardingProgress({ recruitmentDone: true, recruitmentAt: Date.now(), stage: "recruitment_result" });
+    const dailyDone = ((progress && progress.completions) || []).filter((item) => item && item.type === "daily_objective");
+    if (dailyDone.length) this.markDailyPresentationSeen();
+    const dailyRewards = ((progress && progress.rewards) || []).filter((item) => String(item.source || "").startsWith("daily_"));
     this.infoDetailModal = {
       kind: "visitorRecruitment",
       icon: "community",
-      kicker: onboardingRecruitment ? "新手任务完成 · 游客运营" : "招募完成",
-      title: `本次吸引 ${result.visitors} 名游客`,
+      kicker: onboardingRecruitment ? "新手任务完成 · 游客运营" : "任务结果",
+      title: "招募成功",
       phase: "result",
       onboardingRecruitment,
       result,
+      goalResult: progress,
       status: result.status,
       resourceChange: {
         visitorsBefore,
-        visitorsAfter: this.reserveVisitorCount(reserve),
+        visitorsAfter: chapterVisitorTotal((((this.state.world || {}).reserve) || {})),
         fundBefore,
-        fundAfter: Math.max(0, Number(reserve.fund) || 0)
+        fundAfter: Math.max(0, Number(((((this.state.world || {}).reserve) || {}).fund) || 0))
+      },
+      taskSummary: {
+        success: true,
+        visitors: result.visitors,
+        income: result.income,
+        dailyTitles: dailyDone.map((item) => item.title),
+        dailyRewards: dailyRewards.map((item) => item.label)
       },
       footer: result.status.factors.lowSafety
         ? "⚠️安全风险较高，建议先提升安全等级"
-        : onboardingRecruitment ? `游客消费 +${result.income} 星币，已进入保护基金；游客规模会随经营质量变化` : "客流受安全、种群与设施影响"
+        : onboardingRecruitment
+          ? `游客消费 +${result.income} 星币，已进入保护基金；游客规模会随经营质量变化`
+          : dailyDone.length
+            ? `${this.dailyPartialCompletionLine(progress)} · ${this.dailyEventChecklist().complete}/${this.dailyEventChecklist().total} · 招募 ${result.visitors} 人`
+            : `招募成功 · ${result.visitors} 名游客到访`
     };
     this.render();
     return true;
@@ -2582,7 +3230,7 @@ class Game {
     const visitors = Number(today.visitors || 0) + Number(today.recruitedVisitors || 0);
     const event = reserve.emergency && reserve.emergency.lastOutcome;
     const migration = Number((reserve.migration || {}).delta || 0);
-    operations.letters.push({ id, day, sourceKind: "dailyReport", title: `保护区日报 · 第${Math.max(1, day - 1)}日`, body: `昨日到访游客 ${visitors} 人，收入 ${Number(today.income || 0)} 星币。基金余额 ${Number(reserve.fund || 0)} 星币；水源 ${Number((reserve.ecology || {}).water || 0)}，草场 ${Number((reserve.ecology || {}).grass || 0)}。${event ? `关键事件：${event.title || "突发事件"}。` : "昨日无重大突发事件。"}${migration ? `迁移动态：${migration > 0 ? "迁入" : "迁出"} ${Math.abs(migration)}。` : "相邻保护区暂无新的迁移通报。"}`, readAt: 0, trouble: !!event });
+    operations.letters.push({ id, day, sourceKind: "dailyReport", title: `保护区日报 · 第${Math.max(1, day - 1)}日`, body: `昨日到访游客 ${visitors} 人（设施 ${Number(today.visitors || 0)} · 招募 ${Number(today.recruitedVisitors || 0)}），收入 ${Number(today.income || 0)} 星币。基金余额 ${Number(reserve.fund || 0)} 星币；水源 ${Number((reserve.ecology || {}).water || 0)}，草场 ${Number((reserve.ecology || {}).grass || 0)}。${event ? `关键事件：${event.title || "突发事件"}。` : "昨日无重大突发事件。"}${migration ? `动物迁移动态：${migration > 0 ? "迁入" : "迁出"} ${Math.abs(migration)}。` : "相邻保护区暂无新的动物迁移通报。"}`, readAt: 0, trouble: !!event });
     operations.letters = operations.letters.slice(-50);
     saveState(this.state);
     return true;
@@ -2655,18 +3303,30 @@ class Game {
     this.ensureDailyReserveReport();
     this.ensureDailyFriendLetters();
     const unreadOnly = !!options.unreadOnly;
-    const letters = this.allIncomingLetters().filter((letter) => !unreadOnly || !letter.readAt);
+    const shareRewardType = options.shareRewardType === "visitors" || options.shareRewardType === "animals"
+      ? options.shareRewardType : "";
+    const letters = this.allIncomingLetters().filter((letter) => {
+      if (unreadOnly && letter.readAt) return false;
+      if (shareRewardType === "visitors" && letter.sourceKind === "animal") return false;
+      if (shareRewardType === "animals" && letter.sourceKind !== "animal") return false;
+      return true;
+    });
     const unread = letters.filter((letter) => !letter.readAt).length;
     return {
       kind: "visitorLetterInbox",
       unreadOnly,
-      kicker: `保护区来信 · 未读 ${unread}`,
-      title: unreadOnly ? "未读邮件" : "保护区邮箱",
+      shareRewardType,
+      kicker: shareRewardType === "visitors" ? `游客来信 · 未读 ${unread}` : `保护区来信 · 未读 ${unread}`,
+      title: shareRewardType === "visitors" ? "分享游客来信" : unreadOnly ? "未读邮件" : "保护区邮箱",
       icon: "letter",
       letterScrollY: 0,
       letters,
-      footer: unreadOnly ? "这里只显示未读邮件；历史来信可在游客频道的邮箱查看。"
-        : "保留最近50封邮件 · 动物、游客、好友与世界榜来信"
+      footer: shareRewardType === "visitors"
+        ? "从游客入口发起的分享只会增加本章游客。"
+        : shareRewardType === "animals"
+          ? "从动物入口发起的分享只会增加动物。"
+        : unreadOnly ? "这里只显示未读邮件；历史来信可在游客频道的邮箱查看。"
+        : "主动分享随机增加游客或动物，不会固定一种。"
     };
   }
 
@@ -2691,6 +3351,7 @@ class Game {
     }
     const direct = String(letter.body || letter.prose || (letter.visual && letter.visual.eventCard && letter.visual.eventCard.body) || letter.message || "").trim();
     if (direct && sourceKind === "leaderboard") {
+      if (isWorldTop10Letter(letter) || /^#\d+/.test(direct)) return direct;
       return direct.split(/[；\n]/).flatMap(section => {
         const match = /^(进榜|出榜|动物数量|名次变化)：(.*)$/.exec(section.trim());
         return match ? match[2].split("、").map(entry => `${match[1]}：${entry.trim()}`) : [section.trim()];
@@ -2749,7 +3410,7 @@ class Game {
       sortDay: Math.max(0, Number(letter.day) || 0),
       sortIndex: index
     }));
-    const leaderboard = ((reserve.league || {}).broadcasts || []).map((letter, index) => Object.assign({}, letter, {
+    const leaderboardAll = ((reserve.league || {}).broadcasts || []).map((letter, index) => Object.assign({}, letter, {
       sourceKind: "leaderboard",
       sourceLabel: "世界榜播报",
       body: this.letterBody(letter, "leaderboard"),
@@ -2758,6 +3419,10 @@ class Game {
       sortDay: Math.max(0, Number(letter.day) || 0),
       sortIndex: index
     }));
+    const latestLeaderboard = leaderboardAll.slice().sort((a, b) => (b.sortDay - a.sortDay)
+      || ((Number(b.createdAt) || 0) - (Number(a.createdAt) || 0))
+      || (b.sortIndex - a.sortIndex))[0];
+    const leaderboard = latestLeaderboard ? [latestLeaderboard] : [];
     const seen = new Set();
     return [].concat(visitorLetters, sentFriendLetters, receivedFriendLetters, animalLetters, guardianLetters, leaderboard)
       .filter((letter) => {
@@ -2792,18 +3457,63 @@ class Game {
   }
 
   openReserveLetterInbox(options = {}) {
+    // Do not install an invisible inbox underneath a task/result that still
+    // owns this screen. Reading mail never discards its settlement or rescue.
+    const current = this.infoDetailModal;
+    if (current && (current.kind === "visitorLetterInbox" || current.kind === "reserveLetterInbox")) {
+      const unreadOnly = !!options.unreadOnly;
+      this.infoDetailModal = Object.assign({}, current, this.buildReserveLetterInbox({
+        unreadOnly,
+        shareRewardType: options.shareRewardType || current.shareRewardType
+      }), {
+        letterScrollY: unreadOnly === !!current.unreadOnly ? (current.letterScrollY || 0) : 0
+      });
+      this.render();
+      return true;
+    }
+    if (this.patrolTaskModal || this.settlementBlocksCurrentScreen()
+      || (this.screen === "home" && this.chapterStoryModal)) {
+      this.toast("请先完成或关闭当前画面，再查看邮件");
+      return false;
+    }
     this.infoDetailModal = this.buildReserveLetterInbox(options);
     this.render();
     return true;
   }
 
   openVisitorLetterInbox() {
-    return this.openReserveLetterInbox();
+    return this.openReserveLetterInbox({ shareRewardType: "visitors" });
+  }
+
+  openVisitorShareFlow() {
+    const visitorLetters = this.allIncomingLetters().filter((letter) => letter.sourceKind !== "animal");
+    if (visitorLetters.length) return this.openReserveLetterInbox({ shareRewardType: "visitors" });
+    return this.shareForestPostcard(null, { rewardType: "visitors", sourceKind: "visitor" });
+  }
+
+  lockedShareRewardType(modal) {
+    if (!modal) return "";
+    if (modal.shareRewardType === "animals" || modal.shareRewardType === "visitors") return modal.shareRewardType;
+    if (modal.kind === "animalLetterInbox" || modal.kind === "lifeMemory") return "animals";
+    return "";
+  }
+
+  resolveMailShareRewardType(parentModal, fallback) {
+    const locked = this.lockedShareRewardType(parentModal);
+    if (locked) return locked;
+    if (parentModal) return pickActiveShareRewardType(this.state, this.shareRewardRandom || Math.random);
+    return fallback === "animals" || fallback === "visitors" ? fallback : "visitors";
+  }
+
+  shareMailLetter(letter, rewardType) {
+    if (rewardType === "animals") return this.shareAnimalLetter(letter);
+    return this.shareVisitorLetter(letter);
   }
 
   openVisitorLetterReader(letter, parentModal = null) {
     if (!letter || !letter.id) return false;
     const kind = letter.sourceKind || (letter.animalId || (letter.species && Array.isArray(letter.paragraphs)) ? "animal" : "visitor");
+    const shareRewardType = this.resolveMailShareRewardType(parentModal, kind === "animal" ? "animals" : "visitors");
     if (kind === "animal") return this.openAnimalLetterReader(letter, parentModal);
     let current = letter;
     if (kind === "guardian") {
@@ -2817,6 +3527,9 @@ class Game {
         : item);
       saveState(this.state);
       current = league.broadcasts.find((item) => item.id === letter.id) || letter;
+      if ((isWorldTop10Letter(current) || isWorldTop10Letter(letter)) && this.openReserveNetwork("world")) {
+        return true;
+      }
     } else if (kind === "friendSent" || kind === "friendReceived") {
       const reserve = ((this.state.world || {}).reserve) || {};
       const social = reserve.social = Object.assign({}, reserve.social || {});
@@ -2841,6 +3554,11 @@ class Game {
       sourceLabel: current.sourceLabel || letter.sourceLabel || (kind === "animal" ? "动物来信" : kind === "guardian" ? "守护者回信" : kind === "leaderboard" ? "世界榜播报" : "游客来信")
     });
     const body = this.letterBody(current, kind);
+    const visitorShareReward = shareRewardPreview(this.state, {
+      rewardType: shareRewardType === "animals" ? "animals" : "visitors",
+      sourceKind: shareRewardType === "animals" ? "animal" : "visitor",
+      kind: "daily"
+    });
     this.infoDetailModal = {
       kind: "visitorLetterReader",
       kicker: `${current.sourceLabel || "来信"} · 第${current.day || ""}日`,
@@ -2852,14 +3570,23 @@ class Game {
         : current.sourceKind === "guardian"
           ? "守护者回信"
           : current.sourceKind === "leaderboard"
-            ? "世界榜 Top 10 变化"
+            ? "最新世界榜 Top 10"
           : current.sourceKind === "friendReceived"
             ? "好友保护区来信"
           : current.sourceKind === "friendSent"
             ? "已发给好友的保护区近况"
           : (current.trouble ? "本次参访遇到了一些波折" : "本次参访顺利完成"),
       returnInfoDetailModal: parentModal,
-      footer: "每一封来信都记录着保护区里发生过的事。"
+      footer: visitorShareReward.eligible
+        ? `完成微信分享后发放 ${visitorShareReward.label} +${visitorShareReward.amount}${visitorShareReward.unit}（${visitorShareReward.label}本章还可${visitorShareReward.remaining}/${visitorShareReward.limit}次，游客和动物各2次）。`
+        : `${visitorShareReward.label}本章分享已用完；来信仍会保留在保护区记录中。`,
+      shareRewardType,
+      actionLabel: visitorShareReward.eligible
+        ? `分享来信 · ${visitorShareReward.label}+${visitorShareReward.amount}`
+        : "知道了",
+      action: visitorShareReward.eligible
+        ? () => (shareRewardType === "animals" ? this.shareAnimalLetter(current) : this.shareVisitorLetter(current))
+        : () => { this.infoDetailModal = null; this.render(); }
     };
     this.render();
     return true;
@@ -2880,6 +3607,7 @@ class Game {
     this.collectionCaseId = caseId;
     this.collectionPage = 0;
     this.scrollY = 0;
+    ensureCollectionDiceLead(this.state);
     if (this.screen !== "survival") return this.setScreen("survival");
     this.prepareLocalAssetsForScreen("survival");
     this.markScreenChange();
@@ -2903,8 +3631,7 @@ class Game {
     if (screen === "home") {
       this.sandboxIdleSince = Date.now();
       if (!this.preserveMapZoomOnHome) {
-        this.mapZoom = 0;
-        this.mapCamera = { cx: 0.5, cy: 0.48 };
+        this.restoreSandboxOverviewCamera();
       }
       this.preserveMapZoomOnHome = false;
     }
@@ -2943,6 +3670,7 @@ class Game {
     if (screen !== "action") this.patrolTaskModal = this.patrolOperationPlan = null;
     if (screen !== "home" && this.mapConsequencePulse && this.mapConsequencePulse.rescueSpeciesId) this.mapConsequencePulse = null;
     this.screen = screen;
+    this.parkIdleOpenDataOverlay();
     this.scrollY = 0;
     this.prepareLocalAssetsForScreen(screen);
     this.queueRemoteAssetsForScreen(screen);
@@ -2954,11 +3682,14 @@ class Game {
       this.cloudService.track("survival.enter", { stock: summary.tradeCount, readiness: summary.readiness.support, level: ((((reserve || {}).progression || {}).level) || 1) });
     }
     if (screen === "home") {
-      const openedSandboxEvent = !this.deferQueuedMissionPush && this.openNextSandboxEvent();
-      if (openedSandboxEvent) this.suppressNextHomeMission = false;
-      else if (!this.deferQueuedMissionPush && this.openQueuedMissionPush()) this.suppressNextHomeMission = false;
-      else if (this.suppressNextHomeMission) this.suppressNextHomeMission = false;
-      else this.maybeOpenMissionPush("home");
+      if (this.openPendingFirstPatrolTransfer()) this.suppressNextHomeMission = false;
+      else {
+        const openedSandboxEvent = !this.deferQueuedMissionPush && !this.suppressNextHomeMission && this.openNextSandboxEvent();
+        if (openedSandboxEvent) this.suppressNextHomeMission = false;
+        else if (!this.deferQueuedMissionPush && this.openQueuedMissionPush()) this.suppressNextHomeMission = false;
+        else if (this.suppressNextHomeMission) this.suppressNextHomeMission = false;
+        else this.maybeOpenMissionPush("home");
+      }
     }
     if (requested === "animalworld") {
       const speciesIds = Object.keys(SPECIES_DB);
@@ -2967,6 +3698,13 @@ class Game {
       this.animalSelectorScroll = -(activeCount * 84 + 20);
     }
     if (previousScreen === "action" && screen !== "action") this.actionScreenOrigin = null;
+    if (previousScreen === "choose" && this.screen !== "choose") {
+      try { this.initializeDeferredRuntimeServices(); }
+      catch (error) {
+        this.deferredRuntimeServicesReady = true;
+        if (typeof console !== "undefined" && console.error) console.error("deferred services failed", error);
+      }
+    }
     return true;
   }
 
@@ -3008,18 +3746,268 @@ class Game {
     if (this.runtime && this.runtime.showToast) this.runtime.showToast({ title, icon: "none" });
   }
 
+  completedCoreGoalEntries(chapter) {
+    const core = chapterCoreMetrics((this.state.world || {}).reserve || {}, chapter);
+    const labels = { visitors: "本章游客目标", species: "动物种群目标", animals: "动物总数目标" };
+    return Object.keys(labels).filter(id => metricProgress(core[id], core.target[id]).complete)
+      .map(id => ({ key: `core:${chapter}:${id}`, title: `第${chapter}章${labels[id]}` }));
+  }
+
+  resetTaskCompletionFeedback() {
+    const progression = (((this.state || {}).world || {}).reserve || {}).progression || {};
+    this.completionFeedbackChapter = Number(progression.stage || progression.displayChapter) || 1;
+    this.completionFeedbackHasCharacter = !!this.state.character;
+    this.completionFeedbackSignature = "";
+    this.taskCompletionFeedback = new TaskCompletionFeedback(completedTaskEntries(this.state)
+      .concat(this.completedCoreGoalEntries(this.completionFeedbackChapter)));
+  }
+
+  taskResultPresentationKeys(goalResult = {}, extra = {}) {
+    const goals = ((this.state.world || {}).goals) || {};
+    const lastResult = goals.lastResult || {};
+    const dateKey = extra.dateKey
+      || lastResult.dateKey
+      || goalResult.dateKey
+      || (goals.daily || {}).dateKey
+      || "";
+    const completions = []
+      .concat(goalResult.completions || [])
+      .concat(lastResult.completions || [])
+      .filter((item) => item && item.type && item.id);
+    const keys = completions.map((item) => `goal:${dateKey}:${item.type}:${item.id}`);
+    const action = extra.action || "";
+    (goals.history || []).forEach((item) => {
+      if (!item || !item.type || !item.id) return;
+      const matchAction = action && item.action === action;
+      const matchCompletion = completions.some((row) => row.id === item.id && row.type === item.type);
+      if (matchAction || matchCompletion) keys.push(`goal:${item.dateKey || ""}:${item.type}:${item.id}`);
+    });
+    completedTaskEntries(this.state).forEach((entry) => {
+      if (completions.some((item) => entry.title === item.title || String(entry.key || "").endsWith(`:${item.type}:${item.id}`))) {
+        keys.push(entry.key);
+      }
+    });
+    if (extra.eventId) keys.push(`event:${extra.eventId}`);
+    return keys.filter(Boolean);
+  }
+
+  absorbActiveTaskResultPresentation() {
+    const tracker = this.taskCompletionFeedback;
+    if (!tracker) return;
+    const modal = this.infoDetailModal;
+    const settlement = this.settlementModal;
+    const resultKinds = new Set([
+      "visitorRecruitment", "visitorRoutine", "visitorIncidentDice", "neighborEventDice", "chapterSpecialTask",
+      "harshNatureDice",
+      "developmentBuildingStory", "animalInteractionStory", "animalComfort",
+      "visitorReception",
+      "chapterRescueResult", "materialExploration", "collectionDice", "strategicDice",
+      "chapterSpecialTask"
+    ]);
+    const keys = [];
+    if (modal && resultKinds.has(modal.kind) && ["result", "resolved"].includes(modal.phase)) {
+      const goalResult = modal.goalResult || ((modal.result || {}).goalResult) || {};
+      const action = modal.kind === "visitorRecruitment"
+        ? "viewVisitors"
+        : modal.kind === "visitorIncidentDice" || modal.kind === "visitorRoutine"
+          ? "visitorAdjust"
+          : modal.kind === "chapterSpecialTask"
+            ? "chapterSpecial"
+            : modal.kind === "neighborEventDice"
+            ? "neighborExchange"
+            : modal.kind === "harshNatureDice"
+              ? "harshNature"
+            : modal.kind === "animalComfort"
+            ? (modal.actionId || "animalCare")
+            : modal.kind === "visitorReception"
+            ? "visitorReception"
+            : modal.kind === "developmentBuildingStory"
+              ? "facilityBuild"
+              : "";
+      keys.push(...this.taskResultPresentationKeys(goalResult, {
+        action,
+        eventId: ((modal.result || {}).id) || ""
+      }));
+    }
+    if (settlement) {
+      keys.push(...this.taskResultPresentationKeys(settlement.goalResult || {}, {
+        action: settlement.actionType || "",
+        dateKey: (settlement.goalResult || {}).dateKey
+      }));
+    }
+    if (modal && modal.kind === "chapterRescueResult") {
+      const chapter = Number((this.pendingChapterPromotion || {}).from
+        || ((((this.state.world || {}).reserve || {}).progression || {}).stage) || 1);
+      keys.push(`core:${chapter}:species`);
+    }
+    tracker.absorb(keys);
+  }
+
+  collectTaskCompletionFeedback() {
+    if (!this.state || !this.state.character) { this.resetTaskCompletionFeedback(); return; }
+    if (!this.taskCompletionFeedback || !this.completionFeedbackHasCharacter) this.resetTaskCompletionFeedback();
+    if (this.isFastMapRender()) return;
+    const tracker = this.taskCompletionFeedback;
+    const world = this.state.world || {};
+    const reserve = world.reserve || {};
+    const progression = reserve.progression || {};
+    const chapter = Number(progression.stage || progression.displayChapter) || 1;
+    const core = chapterCoreMetrics(reserve, chapter);
+    const signature = [
+      chapter,
+      ((world.goals || {}).history || []).length,
+      ((reserve.emergency || {}).history || []).length,
+      (((reserve.poacherRescue || {}).history || []).length),
+      Math.round(Number(core.animals) || 0),
+      Math.round(Number(core.visitors) || 0),
+      Math.round(Number(core.species) || 0),
+      this.infoDetailModal ? (this.infoDetailModal.kind || "modal") : "",
+      this.settlementModal ? "settle" : ""
+    ].join("|");
+    if (signature === this.completionFeedbackSignature && tracker.pending.length === 0) return;
+    this.completionFeedbackSignature = signature;
+    // Check the previous chapter too when its final goal causes promotion.
+    tracker.collect(completedTaskEntries(this.state).concat(this.completedCoreGoalEntries(this.completionFeedbackChapter)));
+    this.completionFeedbackChapter = chapter;
+    tracker.collect(this.completedCoreGoalEntries(chapter));
+    const modal = this.infoDetailModal;
+    const presentingResult = modal && ["result", "resolved"].includes(modal.phase)
+      && ["visitorRecruitment", "visitorRoutine", "visitorIncidentDice", "neighborEventDice", "chapterSpecialTask",
+        "harshNatureDice",
+        "developmentBuildingStory", "animalInteractionStory", "animalComfort",
+        "visitorReception",
+        "chapterRescueResult", "materialExploration", "collectionDice", "strategicDice"].includes(modal.kind);
+    if (modal && modal.completionTask && !presentingResult && !tracker.resultModals.has(modal)) {
+      tracker.resultModals.add(modal);
+      tracker.collect([modal.completionTask]);
+    }
+    const settlement = this.settlementModal;
+    if (settlement && !tracker.resultModals.has(settlement)) tracker.resultModals.add(settlement);
+    // 当前任务已经在结果弹窗里展示人数、基金、完成状态时，不再另开「你完成了」。
+    this.absorbActiveTaskResultPresentation();
+  }
+
+  showNextTaskCompletionNotice() {
+    const tracker = this.taskCompletionFeedback;
+    const pulse = this.mapConsequencePulse;
+    const now = Date.now();
+    const pulseActive = !!(pulse && now < pulse.expiresAt);
+    const rescuePulseActive = pulseActive && !!pulse.rescueSpeciesId;
+    const promoting = !!(this.pendingChapterPromotion || this.pendingChapterAdvance);
+    if (!this.state.character || this.gesture
+      || this.infoDetailModal || this.patrolTaskModal || this.settlementOccupiesFlow() || this.chapterStoryModal || this.activeTaskLock
+      || (this.interstitialAds && this.interstitialAds.showing)
+      || (pulseActive && (rescuePulseActive || !promoting))
+      || now < (this.adTouchGuardUntil || 0)) return false;
+    if (!tracker || !tracker.pending.length) return this.tryPresentPendingChapterAdvance();
+    const item = tracker.take();
+    if (item.realNature) {
+      this.infoDetailModal = this.buildRealNatureSettlementNotice(item);
+    } else {
+      this.infoDetailModal = {
+        kind: 'taskCompletionNotice', kicker: '任务完成', title: '你完成了', icon: 'signal',
+        prose: item.title, completionKey: item.key,
+        actionLabel: '确定', action: () => this.dismissInfoDetailModal()
+      };
+    }
+    this.playSfx('taskComplete');
+    return true;
+  }
+
+  buildRealNatureSettlementNotice(item = {}) {
+    const impactChanges = this.realNatureSettlementChanges(item);
+    const positive = impactChanges.length > 0 && impactChanges.every((change) => (Number(change.delta) || 0) > 0);
+    const negative = impactChanges.length > 0 && impactChanges.every((change) => (Number(change.delta) || 0) < 0);
+    return {
+      kind: "realNatureSettlement",
+      kicker: "真实事件结算",
+      title: positive ? "演练正向" : negative ? "演练负向" : "演练结算",
+      icon: "trail",
+      prose: item.title,
+      completionKey: item.key,
+      impactChanges,
+      statusText: "",
+      actionLabel: "确定",
+      action: () => this.dismissInfoDetailModal()
+    };
+  }
+
+  realNatureSettlementChanges(item = {}) {
+    const fromItem = (item.impactChanges || []).filter((change) => change && (change.label || change.metric)).slice(0, 2);
+    if (fromItem.length) return fromItem;
+    const emergency = ((((this.state || {}).world || {}).reserve || {}).emergency) || {};
+    const history = (emergency.history || []).concat(emergency.lastOutcome || []).filter(Boolean);
+    const match = history.slice().reverse().find((entry) => (
+      `event:${entry.id}` === item.key
+      || entry.title === item.title
+      || isRealNatureEventType(entry.type)
+    ));
+    return ((match && match.businessChange && match.businessChange.impactChanges) || []).filter((change) => change && (change.label || change.metric)).slice(0, 2);
+  }
+
+  drawCoreImpactChangeCards(ctx, cards = [], x, y, w, rowH = 82) {
+    const items = (cards || []).filter((item) => item && (item.label || item.metric)).slice(0, 2);
+    if (!items.length) return [];
+    const gap = 8;
+    const rowW = items.length === 1 ? w : (w - gap) / items.length;
+    return items.map((item, index) => {
+      const rowX = x + index * (rowW + gap);
+      const delta = Number(item.delta) || 0;
+      const before = Number.isFinite(Number(item.before)) ? Number(item.before) : 0;
+      const after = Number.isFinite(Number(item.after)) ? Number(item.after) : before + delta;
+      const unit = item.unit || "";
+      const label = item.label || CORE_METRIC_LABELS[item.metric] || item.metric || "变化";
+      const tone = delta > 0 ? "#c44735" : delta < 0 ? "#1f8a55" : "#1c3325";
+      const fill = delta > 0 ? "#e7f6ee" : delta < 0 ? "#fdecea" : "#fff9e8";
+      const border = delta > 0 ? "rgba(20,132,95,.38)" : delta < 0 ? "rgba(197,72,56,.38)" : "rgba(176,146,76,.30)";
+      this.roundRect(ctx, rowX, y, rowW, rowH, 10, fill, border);
+      this.text(ctx, label, rowX + 12, y + 18, 12, "#31533b", "700");
+      const range = `${before} → ${after}${unit ? ` ${unit}` : ""}`;
+      this.text(ctx, range, rowX + 12, y + 40, this.fitTextSize(ctx, range, rowW - 36, 12, 9, "700"), "#1c3325", "700");
+      const signed = `${delta > 0 ? "+" : ""}${delta}${unit || ""}`;
+      this.text(ctx, signed, rowX + 12, y + 64, 16, tone, "700");
+      const trend = delta > 0 ? "↑" : delta < 0 ? "↓" : "→";
+      this.text(ctx, trend, rowX + rowW - 18, y + 56, 22, tone, "700", "center");
+      return { x: rowX, y, w: rowW, h: rowH, before, after, value: `${after}${unit || ""}`, trend, label, delta, unit };
+    });
+  }
+
+  drawRealNatureSettlementContent(ctx, modal, x, bodyY, w, bodyH) {
+    const innerX = x + 28;
+    const innerW = w - 56;
+    this.drawPremiumInfoCard(ctx, innerX, bodyY + 12, innerW, bodyH - 16, 10);
+    const titleH = Math.min(56, Math.max(40, bodyH - 140));
+    const cardsH = 82;
+    const blockGap = 16;
+    const blockH = titleH + blockGap + cardsH;
+    const titleY = bodyY + 12 + Math.max(36, Math.round((bodyH - 16 - blockH) * 0.58));
+    this.drawFittedTextBlock(ctx, modal.prose || "真实事件演练完成", innerX + 16, titleY, innerW - 32, titleH, {
+      size: 16, minSize: 13, lineHeight: 22, color: "#26352b", compact: false
+    });
+    const cards = (modal.impactChanges || []).slice(0, 2);
+    modal.renderedImpactChanges = this.drawCoreImpactChangeCards(ctx, cards, innerX + 8, titleY + titleH + blockGap, innerW - 16);
+  }
+
   playSfx(name) {
     // 按钮点击保持静默；任务完成、警告、骰子等状态反馈音效仍正常播放。
     if (name === "tap") return false;
     if (!this.audio) return false;
-    this.audio.attachState(this.state);
-    return this.audio.playEffect(name);
+    try {
+      this.audio.attachState(this.state);
+      return this.audio.playEffect(name);
+    } catch (error) {
+      return false;
+    }
   }
 
   playAudioCue(name) {
     if (!this.audio) return false;
-    this.audio.attachState(this.state);
-    return this.audio.playCue(name);
+    try {
+      this.audio.attachState(this.state);
+      return this.audio.playCue(name);
+    } catch (error) {
+      return false;
+    }
   }
 
   playSettlementSfx(modal) {
@@ -3064,15 +4052,70 @@ class Game {
   }
 
   handleTap(x, y) {
+    if (this.tryEnterPlayableGame()) return;
     // 微信广告关闭手势可能把同一触点继续传给画布；留出短暂缓冲，避免误关任务弹窗。
-    if (this.interstitialAds && this.interstitialAds.showing) return;
-    if (Number(this.adTouchGuardUntil) > Date.now()) return;
+    // 序章和底栏不能被看不见的广告锁死，这是以前首页全失灵的原因。
+    const adLocked = !!(this.interstitialAds && this.interstitialAds.showing);
+    const guarded = Number(this.adTouchGuardUntil) > Date.now();
+    if ((adLocked || guarded) && this.screen !== "choose") {
+      const lockedHit = this.hitAreaAt(x, y);
+      if (lockedHit && lockedHit.hud) {
+        this.activateHitArea(lockedHit);
+        return;
+      }
+      return;
+    }
     if (this.screen === "home" && !this.chapterStoryModal && !this.infoDetailModal && !this.patrolTaskModal) {
       this.sandboxIdleSince = Date.now();
     }
     const item = this.hitAreaAt(x, y);
+    // HUD / 菜单必须先于气球。气球再先于地图标记和动物，否则点“紧急！！”
+    // 会落到下面的脚印/动物身上，或被当成拖地图而进不了任务。
+    if (item && !item.map) {
+      this.activateHitArea(item);
+      return;
+    }
+    const balloon = this.eventBalloonHitAt(x, y);
+    if (balloon) {
+      this.activateHitArea(balloon);
+      return;
+    }
     if (item) {
-      if (this.audio) {
+      this.activateHitArea(item);
+      return;
+    }
+    if (this.screen === "home"
+      && this.isInsideMapViewport(x, y)
+      && (this.speakingAnimalId || this.mapSpeakerFocus || this.collectionAnimalGuide)) {
+      this.clearAnimalSelection();
+      this.render();
+    }
+  }
+
+  eventBalloonHitAt(x, y) {
+    const hits = Array.isArray(this.mapEventGraphicHits) && this.mapEventGraphicHits.length
+      ? this.mapEventGraphicHits
+      : (this.mapEventBalloonHit ? [this.mapEventBalloonHit] : []);
+    for (let index = hits.length - 1; index >= 0; index -= 1) {
+      const balloon = hits[index];
+      if (!balloon) continue;
+      if (x >= balloon.x && x <= balloon.x + balloon.w && y >= balloon.y && y <= balloon.y + balloon.h) return balloon;
+    }
+    return null;
+  }
+
+  pushMapEventGraphicHit(hit = null) {
+    if (!hit) return null;
+    if (!Array.isArray(this.mapEventGraphicHits)) this.mapEventGraphicHits = [];
+    this.mapEventGraphicHits.push(hit);
+    if (!this.mapEventBalloonHit) this.mapEventBalloonHit = hit;
+    return hit;
+  }
+
+  activateHitArea(item) {
+    if (!item) return false;
+    if (this.audio) {
+      try {
         this.audio.attachState(this.state);
         this.audio.unlock();
         if (item.sound !== "none") {
@@ -3080,9 +4123,16 @@ class Game {
           if (String(sound).startsWith("cue:")) this.audio.playCue(String(sound).slice(4));
           else this.audio.playEffect(sound);
         }
-      }
-      if (item.onTap) item.onTap();
+      } catch (error) {}
     }
+    try {
+      if (item.onTap) item.onTap();
+    } catch (error) {
+      // 保留输入链，避免一次业务按钮异常永久表现为“所有按钮不可点”。
+      if (typeof console !== "undefined" && console.error) console.error("tap action failed", error);
+      return false;
+    }
+    return true;
   }
 
   wechatFriendRankTouchPoint(x, y) {
@@ -3097,27 +4147,58 @@ class Game {
     return { x: x - screenView.x, y: y - screenView.y, view: screenView };
   }
 
+  worldLeagueListTouchPoint(x, y) {
+    if (this.openDataInputBlocked()) return null;
+    if (this.screen !== "league" || this.leagueScope !== "world") return null;
+    const view = this.renderedWorldLeagueList;
+    if (!view || x < view.x || x > view.x + view.w || y < view.y || y > view.y + view.h) return null;
+    return { x: x - view.x, y: y - view.y, view, scrollY: Math.max(0, Number(view.scrollY) || 0) };
+  }
+
   lifeMemoryTimelineTouchPoint(x, y) {
     const modal = this.infoDetailModal;
-    const view = modal && (modal.kind === "visitorRoutine" ? modal.renderedVisitorRoutineViewport : modal.kind === "fundLedger" || modal.kind === "progressionLadder" ? modal.renderedFundLedgerViewport : ["lifeMemory", "animalLetterInbox"].includes(modal.kind) && modal.renderedMemoryViewport);
+    const letterModal = modal && ["animalLetterInbox", "visitorLetterInbox"].includes(modal.kind);
+    const metricDetailModal = this.isCoreMetricDetailModal(modal);
+    const view = modal && (modal.kind === "visitorRoutine" ? modal.renderedVisitorRoutineViewport : modal.kind === "fundLedger" || modal.kind === "progressionLadder" || metricDetailModal ? modal.renderedFundLedgerViewport : (modal.kind === "lifeMemory" || letterModal) && modal.renderedMemoryViewport);
     if (!view || x < view.x || x > view.x + view.w || y < view.y || y > view.y + view.h) return null;
-    const scrollY = modal.kind === "visitorRoutine" ? modal.visitorRoutineScrollY : modal.kind === "fundLedger" ? modal.fundLedgerScrollY : modal.kind === "progressionLadder" ? modal.ladderScrollY : modal.kind === "animalLetterInbox" ? modal.letterScrollY : modal.memoryScrollY;
+    const scrollY = modal.kind === "visitorRoutine" ? modal.visitorRoutineScrollY : modal.kind === "fundLedger" ? modal.fundLedgerScrollY : modal.kind === "progressionLadder" ? modal.ladderScrollY : metricDetailModal ? modal.infoListScrollY : letterModal ? modal.letterScrollY : modal.memoryScrollY;
     return { x: x - view.x, y: y - view.y, view, scrollY: Math.max(0, Number(scrollY) || 0) };
   }
 
   hitAreaAt(x, y) {
-    for (let i = this.hitAreas.length - 1; i >= 0; i -= 1) {
-      const item = this.hitAreas[i];
-      if (x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h) return item;
+    // HUD、菜单和缩放按钮必须始终高于地图任务命中区。地图提示较多时，
+    // 后绘制的浮标不能抢走这些固定按钮的点击。
+    for (const mapOnly of [false, true]) {
+      for (let i = this.hitAreas.length - 1; i >= 0; i -= 1) {
+        const item = this.hitAreas[i];
+        if (!!item.map !== mapOnly) continue;
+        if (x >= item.x && x <= item.x + item.w && y >= item.y && y <= item.y + item.h) return item;
+      }
     }
     return null;
   }
 
-  addHit(x, y, w, h, onTap, sound = "tap") {
+  addHit(x, y, w, h, onTap, sound = "tap", scope = "") {
     // 部分轻量渲染/回归场景会直接绘制组件，没有经过 render() 的统一清空流程。
     // 命中层应能自初始化，避免视觉已绘制但点击注册抛异常。
     if (!Array.isArray(this.hitAreas)) this.hitAreas = [];
-    this.hitAreas.push({ x, y, w, h, onTap, sound });
+    let hitX = x;
+    let hitY = y;
+    let hitW = w;
+    let hitH = h;
+    const clip = this.hitClip;
+    if (clip) {
+      const left = Math.max(hitX, clip.x);
+      const top = Math.max(hitY, clip.y);
+      const right = Math.min(hitX + hitW, clip.x + clip.w);
+      const bottom = Math.min(hitY + hitH, clip.y + clip.h);
+      if (right <= left || bottom <= top) return;
+      hitX = left;
+      hitY = top;
+      hitW = right - left;
+      hitH = bottom - top;
+    }
+    this.hitAreas.push({ x: hitX, y: hitY, w: hitW, h: hitH, onTap, sound, map: scope === "map", hud: scope === "hud" });
   }
 
   addMapHit(cx, cy, size, onTap, sound = "tap") {
@@ -3130,7 +4211,7 @@ class Game {
       || rawY + hitSize <= viewport.y || rawY >= viewport.y + viewport.h) return;
     const left = Math.max(viewport.x, Math.min(viewport.x + viewport.w - hitSize, rawX));
     const top = Math.max(viewport.y, Math.min(viewport.y + viewport.h - hitSize, rawY));
-    this.addHit(left, top, Math.min(hitSize, viewport.w), Math.min(hitSize, viewport.h), onTap, sound);
+    this.addHit(left, top, Math.min(hitSize, viewport.w), Math.min(hitSize, viewport.h), onTap, sound, "map");
   }
 
   addMapRectHit(x, y, w, h, onTap) {
@@ -3145,7 +4226,7 @@ class Game {
     const right = Math.min(viewport.x + viewport.w, rawX + rawW);
     const bottom = Math.min(viewport.y + viewport.h, rawY + rawH);
     if (right <= left || bottom <= top) return;
-    this.addHit(left, top, right - left, bottom - top, onTap);
+    this.addHit(left, top, right - left, bottom - top, onTap, "tap", "map");
   }
 
   clear(fastMapGesture = false) {
@@ -3171,7 +4252,7 @@ class Game {
     ctx.fillStyle = paints.glow;
     ctx.fillRect(0, 0, this.width, 280);
     this.drawSkyTint(ctx);
-    if (!fastMapGesture) {
+    if (!fastMapGesture && this.screen !== "home") {
       this.drawFireflies(ctx);
       this.drawWeatherOverlay(ctx);
       this.drawGlobalArtTexture(ctx);
@@ -3262,14 +4343,14 @@ class Game {
   drawPremiumTexture(ctx, kind, x, y, w, h, radius, alpha = .42) {
     const image = this.art && this.art.premiumUi;
     const frame = this.premiumUiAtlas && this.premiumUiAtlas.frames && this.premiumUiAtlas.frames[kind];
-    if (!image || !image.loaded || !frame || !ctx.drawImage) return false;
+    if (!frame || !this.imageReady(image) || !ctx.drawImage) return false;
     ctx.save();
     this.roundRect(ctx, x, y, w, h, radius);
     ctx.clip();
     ctx.globalAlpha = alpha;
-    ctx.drawImage(image, frame.x, frame.y, frame.w, frame.h, x, y, w, h);
+    const painted = this.drawImageSafe(ctx, image, frame.x, frame.y, frame.w, frame.h, x, y, w, h);
     ctx.restore();
-    return true;
+    return painted;
   }
 
   drawPremiumParchmentPanel(ctx, x, y, w, h, radius = 14, options = {}) {
@@ -3793,37 +4874,82 @@ class Game {
       this.syncReserveServices(reserve, this.cloudService, "cloud");
     }
     this.renderPending = false;
+    this.renderGeneration = (this.renderGeneration || 0) + 1;
+    this.painting = true;
+    this.frameMemoStore = {};
     this.hitAreas = [];
+    this.mapEventBalloonHit = null;
+    this.mapEventGraphicHits = [];
     this.mapViewport = null;
     this.renderedWechatFriendRank = null;
+    this.renderedWorldLeagueList = null;
     this.renderedLeaguePagination = null;
     this.nativeTemplateAdSlot = null;
+    this.gameClubButtonSlot = null;
     this.renderedNativeTemplateAdSlot = null;
     this.renderedPremiumItemCardShells = [];
     this.renderedStickyTableHeader = null;
     this.contentHeight = 0;
-    this.clear(fastMapGesture);
-    const ctx = this.ctx;
-    ctx.save();
-    ctx.scale(this.dpr, this.dpr);
-    ctx.translate(0, -this.scrollY);
-    ctx.globalAlpha = this.screenFade();
-    this.drawCurrentScreen(ctx);
-    ctx.globalAlpha = 1;
-    ctx.restore();
-    this.clampScroll();
-    // 页面表头随内容正常滚动，不再额外绘制吸顶副本。
-    this.drawStickyTableHeader();
-    this.syncNativeTemplateAd();
-    if (this.screen === "home" && this.chapterStoryModal) {
-      this.drawChapterStoryModal();
-      return;
+    try {
+      this.clear(fastMapGesture);
+      const ctx = this.ctx;
+      this.resetCanvasCompositing(ctx);
+      this.parkIdleOpenDataOverlay();
+      ctx.save();
+      ctx.scale(this.dpr, this.dpr);
+      ctx.translate(0, -this.scrollY);
+      if (!this.skipsScreenFade()) ctx.globalAlpha = this.screenFade();
+      this.drawCurrentScreen(ctx);
+      ctx.restore();
+      this.resetCanvasCompositing(ctx);
+      this.clampScroll();
+      // 页面表头随内容正常滚动，不再额外绘制吸顶副本。
+      this.drawStickyTableHeader();
+      this.collectTaskCompletionFeedback();
+      this.showNextTaskCompletionNotice();
+      this.syncNativeTemplateAd();
+      if (this.screen === "home" && this.chapterStoryModal) {
+        this.drawChapterStoryModal();
+        this.resetCanvasCompositing(ctx);
+        this.parkIdleOpenDataOverlay();
+        return;
+      }
+      this.drawBottomNav();
+      this.drawMapHarvestFlight();
+      this.drawPatrolTaskModal();
+      this.drawInfoDetailModal();
+      this.drawSettlementModal();
+      this.resetCanvasCompositing(ctx);
+      this.parkIdleOpenDataOverlay();
+    } catch (error) {
+      if (typeof console !== "undefined" && console.error) console.error("render failed", error);
+      try {
+        this.canvasShadowsUnsafe = true;
+        this.screenChangedAtMs = 0;
+        if (this.ctx) {
+          this.resetCanvasCompositing(this.ctx);
+          this.parkIdleOpenDataOverlay();
+          this.ctx.save();
+          this.ctx.scale(this.dpr, this.dpr);
+          this.drawCurrentScreen(this.ctx);
+          this.ctx.restore();
+          this.resetCanvasCompositing(this.ctx);
+        }
+        if (this.screen === "choose") {
+          const action = this.renderedPlayablePrologue && this.renderedPlayablePrologue.actionBounds;
+          if (action && this.renderedPlayablePrologue.actionEnabled) {
+            this.addHit(action.x, action.y, action.w, action.h, () => this.advancePlayablePrologue(true), "none", "hud");
+          }
+        } else {
+          this.drawBottomNav();
+        }
+      } catch (navError) {
+        try { this.drawBottomNav(); } catch (ignored) {}
+      }
+    } finally {
+      this.painting = false;
+      this.frameMemoStore = null;
     }
-    this.drawBottomNav();
-    this.drawMapHarvestFlight();
-    this.drawPatrolTaskModal();
-    this.drawInfoDetailModal();
-    this.drawSettlementModal();
   }
 
   syncReserveServices(reserve = {}, service, channel = "") {
@@ -3861,10 +4987,12 @@ class Game {
     const tourismTrendColor = snapshot.tourism.trend === "down" ? "#ef7b69" : "#f3d889";
     this.text(ctx, `旅游圣地 ★${snapshot.tourism.stars} · ${tourismTrend} ${snapshot.tourism.maxLevel ? "满星" : "晋级"}${snapshot.tourism.progress}% ›`, x + 16, y + 44, 11, tourismTrendColor, "700");
     this.addHit(x + 12, y + 29, w - 24, 21, () => this.openTourismDestinationDetail());
-    const label = recruitment.canRecruit ? "发布招募" : recruitment.canWatchAd ? "看广告招募" : "今日已满";
+    const label = this.visitorRecruitmentCtaLabel(recruitment, "compact");
+    const canAct = !!(recruitment.canRecruit || recruitment.canWatchAd);
     const bx = x + w - 102;
-    this.drawPremiumBrassPlate(ctx, bx, y + 10, 88, 27, 9);
-    this.text(ctx, label, bx + 44, y + 28, 10, "#173b2a", "700", "center");
+    if (canAct) this.drawPremiumBrassPlate(ctx, bx, y + 10, 88, 27, 9);
+    else this.drawPremiumLeatherPanel(ctx, bx, y + 10, 88, 27, 9, { light: true });
+    this.text(ctx, label, bx + 44, y + 28, 10, canAct ? "#173b2a" : "#f6efdd", "700", "center");
     this.addHit(bx, y + 10, 88, 27, () => this.openVisitorRecruitment());
     const metricW = (w - 40) / 2;
     [["今日到访", `${(Number(today.visitors) || 0) + (Number(today.recruitedVisitors) || 0)}人`], ["今日收入", `+${today.income || 0}`]].forEach((item, i) => {
@@ -3893,14 +5021,10 @@ class Game {
   drawStickySuppliesHeader(ctx, x, y, w, h) {
     const reserve = this.state.world.reserve || {};
     const supplies = reserve.supplies || {};
-    const items = [
-      { value: supplies.dogFood || 0, target: 6 },
-      { value: supplies.tranquilizer || 0, target: 3 },
-      { value: supplies.alarm || 0, target: 2 },
-      { value: supplies.fieldKit || 0, target: 2 },
-      { value: supplies.medicalKit || 0, target: 2 },
-      { value: supplies.evidenceTrap || 0, target: 2 }
-    ];
+    const items = supplyPurchaseCatalog(reserve).map((purchase) => ({
+      value: supplies[purchase.id] || 0,
+      target: supplyFillLine(purchase, reserve)
+    }));
     const lowCount = items.filter((item) => item.value < item.target).length;
     const plan = supplyReplenishmentPlan(reserve);
     this.drawSectionMarker(ctx, x + 18, y + 23, lowCount ? "#c45b42" : "#5cb87a");
@@ -3911,7 +5035,7 @@ class Game {
     this.text(ctx, plan.items.length ? "一键补齐" : "补给充足", bx + 40, y + 28, 10, "#173b2a", "700", "center");
     this.addHit(bx, y + 10, 80, 27, () => {
       if (plan.items.length) this.useMaterialAction("buySupplies", "all");
-      else this.toast("当前物资已充足");
+      else this.toast("仓库库存已满");
     });
     this.text(ctx, lowCount ? `短缺 ${lowCount} 项 · 点击补齐` : "物资状态稳定", x + 18, y + 53, 9, "#dbe8d8", "700");
   }
@@ -3923,6 +5047,7 @@ class Game {
       || this.settlementBlocksCurrentScreen()
       || this.patrolTaskModal
       || this.infoDetailModal
+      || (this.interstitialAds && this.interstitialAds.showing)
     );
     const slot = this.nativeTemplateAdSlot;
     if (typeof this.nativeTemplateAds.setViewportSlot === "function") {
@@ -4105,7 +5230,7 @@ class Game {
     const goals = chapterTargets(chapter.chapter);
     const core = chapterCoreMetrics(reserve, chapter.chapter);
     const goalItems = [
-      { id: "visitors", label: "游客累计", current: core.visitors, target: goals.visitors, unit: "人" },
+      { id: "visitors", label: "本章游客", current: core.visitors, target: goals.visitors, unit: "人" },
       { id: "animals", label: "动物总数", current: core.animals, target: goals.animals, unit: "只" },
       { id: "species", label: "种群数量", current: core.species, target: goals.species, unit: "种" }
     ];
@@ -4116,7 +5241,7 @@ class Game {
       .filter(Boolean)
       .map((species) => species.name);
     const rescueLine = rescueNames.length ? `本章必救：${rescueNames.join("、")}` : "本章必救：无新增解救物种";
-    const goalLine = `本章目标：游客累计 ${goals.visitors} · 动物总数 ${goals.animals} · 种群数量 ${goals.species}`;
+    const goalLine = `本章目标：本章游客 ${goals.visitors} · 动物总数 ${goals.animals} · 种群数量 ${goals.species}`;
     return {
       level,
       phase,
@@ -4134,7 +5259,7 @@ class Game {
       goalItems,
       rescueLine,
       rescueNames,
-      buttonLabel: firstRun ? "查看水边警报" : phase === "start" ? "进入章节" : (chapter.chapter < CHAPTERS.length ? "走向下一章" : "继续守护"),
+      buttonLabel: phase === "start" ? "进入游戏" : (chapter.chapter < CHAPTERS.length ? "走向下一章" : "继续守护"),
       firstRun,
       storyAnchor: anchor,
       narrativeBeat
@@ -4151,7 +5276,159 @@ class Game {
   }
 
   maybeOpenChapterStoryOnLogin() {
+    const reserve = ((this.state || {}).world || {}).reserve || {};
+    const stage = Math.max(1, Math.round(Number((reserve.progression || {}).stage || (reserve.progression || {}).displayChapter) || 1));
+    if (stage > 1 && !this.chapterStorySeen(stage, "start")) {
+      this.queueChapterAdvance(stage - 1, stage, {
+        population: this.reserveSpeciesTotal(reserve),
+        daysManaged: (reserve.progression || {}).daysManaged || 0
+      });
+      return this.tryPresentPendingChapterAdvance();
+    }
+    if (!this.pendingChapterPromotion) this.commitReserveProgression(reserve, undefined, stage);
+    if (this.pendingChapterPromotion) {
+      this.pendingChapterAdvance = true;
+      this.queueChapterAdvance(this.pendingChapterPromotion.from, this.pendingChapterPromotion.to, this.pendingChapterPromotion.summary || {});
+      return this.showNextTaskCompletionNotice() || this.tryPresentPendingChapterAdvance();
+    }
     return false;
+  }
+
+  queueChapterAdvance(fromStage, toStage, summary = {}) {
+    const from = Math.max(1, Math.round(Number(fromStage) || 1));
+    const to = Math.max(from, Math.round(Number(toStage) || from));
+    if (to <= from || this.chapterStorySeen(to, "start")) return false;
+    this.pendingChapterAdvance = true;
+    return this.queueChapterStoriesForSettlement({
+      chapterTransition: {
+        from,
+        to,
+        summary
+      },
+      deferChapterStory: true
+    });
+  }
+
+  persistPendingChapterPromotion() {
+    if (!this.state) return;
+    const pending = this.pendingChapterPromotion;
+    this.state.ui = Object.assign({}, this.state.ui || {}, {
+      pendingChapterPromotion: pending
+        ? { from: pending.from, to: pending.to, summary: pending.summary || {} }
+        : null
+    });
+  }
+
+  armPendingChapterPromotion(reserve = {}, fromStage, options = {}) {
+    const from = Math.max(1, Math.round(Number(fromStage) || 1));
+    const prior = reserve.progression || {};
+    const computed = computeReserveProgression(reserve || {});
+    const core = chapterCoreMetrics(reserve, from);
+    const candidate = Math.max(from, Math.round(Number(computed.stage || from)));
+    const rescue = reserve.chapterRescue || {};
+    const rescueReady = !reserve.chapterRescue
+      || rescue.enforceCompletion === false
+      || rescue.legacyGateBypass === true
+      || !!(chapterRescueSummary(reserve, from) || {}).complete;
+    const to = (from < CHAPTERS.length && core.complete && rescueReady)
+      ? Math.max(candidate, from + 1)
+      : from;
+    if (to <= from) return false;
+    const currentChapter = CHAPTERS[from - 1] || CHAPTERS[0];
+    const nextChapter = CHAPTERS[from] || currentChapter;
+    reserve.progression = Object.assign({}, computed, {
+      stage: from,
+      displayChapter: from,
+      title: currentChapter.title,
+      level: Math.max(1, Math.round(Number(prior.level) || currentChapter.level || 1)),
+      storyLevel: Math.max(1, Math.round(Number(prior.level) || currentChapter.level || 1)),
+      chapterComplete: false,
+      stageComplete: false,
+      levelUpgraded: false,
+      nextTitle: nextChapter.title,
+      chapterStart: prior.chapterStart || computed.chapterStart,
+      stageStart: prior.stageStart || computed.stageStart
+    });
+    this.pendingChapterPromotion = {
+      from,
+      to,
+      summary: options.summary || {
+        population: this.reserveSpeciesTotal(reserve),
+        daysManaged: prior.daysManaged || 0
+      }
+    };
+    this.pendingChapterAdvance = true;
+    this.persistPendingChapterPromotion();
+    this.queueChapterAdvance(from, to, this.pendingChapterPromotion.summary);
+    return true;
+  }
+
+  applyPendingChapterPromotion() {
+    const pending = this.pendingChapterPromotion;
+    if (!pending) return false;
+    const reserve = ((this.state || {}).world || {}).reserve || {};
+    const previousVisitorTotal = chapterVisitorTotal(reserve);
+    this.pendingChapterPromotion = null;
+    this.pendingChapterAdvance = false;
+    this.persistPendingChapterPromotion();
+    // Move the live stage before recomputing progression.  The visitor
+    // checkpoint is written for the next stage; if the old stage remains on
+    // the reserve while computeReserveProgression reads chapterVisitorTotal,
+    // ensureChapterVisitorCheckpoint treats the new checkpoint as a stage
+    // mismatch and resets its inherited 10% back to zero.
+    const visitorStart = beginChapterVisitorCheckpoint(reserve, pending.to, previousVisitorTotal);
+    reserve.progression = Object.assign({}, reserve.progression || {}, {
+      stage: pending.to,
+      displayChapter: pending.to
+    });
+    syncVisitorReceptionGrant(reserve, pending.to);
+    const computed = computeReserveProgression(reserve);
+    const currentChapter = CHAPTERS[pending.to - 1] || CHAPTERS[0];
+    reserve.progression = Object.assign({}, computed, {
+      stage: pending.to,
+      displayChapter: pending.to,
+      title: currentChapter.title,
+      chapterStart: visitorStart || computed.chapterStart,
+      stageStart: visitorStart || computed.stageStart
+    });
+    if (this.state && this.state.world) this.state.world.reserve = reserve;
+    return true;
+  }
+
+  commitReserveProgression(reserve = ((this.state || {}).world || {}).reserve || {}, previousVisitorTotal, fromStage) {
+    const prior = reserve.progression || {};
+    const heldFrom = this.pendingChapterPromotion && Number(this.pendingChapterPromotion.from);
+    const beforeStage = Math.max(1, Math.round(Number(
+      fromStage != null ? fromStage : (heldFrom || prior.stage || prior.displayChapter) || 1
+    )));
+    if (this.armPendingChapterPromotion(reserve, beforeStage, {
+      summary: {
+        population: this.reserveSpeciesTotal(reserve),
+        daysManaged: prior.daysManaged || 0
+      }
+    })) {
+      return reserve.progression;
+    }
+    if (beforeStage >= CHAPTERS.length) {
+      const seenEnd = this.chapterStorySeen(CHAPTERS.length, "end");
+      if (seenEnd || prior.chapterComplete || prior.stageComplete || ((reserve.endlessMode || {}).active)) {
+        reserve.progression = Object.assign({}, prior, { chapterComplete: true, stageComplete: true });
+      }
+    }
+    const progression = reserveProgressionFor(reserve);
+    reserve.progression = progression;
+    ensureEndlessGuardMode(reserve);
+    const afterStage = Math.max(beforeStage, Math.round(Number(progression.stage || beforeStage)));
+    if (afterStage > beforeStage) {
+      beginChapterVisitorCheckpoint(reserve, afterStage, previousVisitorTotal != null ? previousVisitorTotal : chapterVisitorTotal(reserve));
+      reserve.progression = Object.assign({}, reserve.progression || {}, { stage: afterStage, displayChapter: afterStage });
+      syncVisitorReceptionGrant(reserve, afterStage);
+      this.queueChapterAdvance(beforeStage, afterStage, {
+        population: this.reserveSpeciesTotal(reserve),
+        daysManaged: prior.daysManaged || 0
+      });
+    }
+    return progression;
   }
 
   queueChapterStoriesForSettlement(modal = {}) {
@@ -4178,12 +5455,20 @@ class Game {
       unique.push(story);
     });
     const bounded = unique.slice(0, MAX_CHAPTER_STORY_QUEUE);
-    if (bounded.length) this.prepareChapterArt();
+    if (!bounded.length) return !!(this.chapterStoryModal || (this.chapterStoryQueue || []).length);
+    this.prepareChapterArt();
     // 结算返回时由调用方标记 deferChapterStory，给玩家一段沙盘/菜单探索时间；
-    // 其他主动打开流程仍可即时展示章节卡。
+    // 其他主动打开流程仍可即时展示章节卡。后续无进阶的结算不得清空已排队的进阶卡。
     const presentNow = !modal.deferChapterStory && (!this.screen || this.screen === "home");
-    this.chapterStoryQueue = presentNow ? bounded.slice(1) : bounded;
-    this.chapterStoryModal = presentNow ? (bounded[0] || null) : null;
+    if (presentNow) {
+      this.chapterStoryQueue = bounded.slice(1);
+      this.chapterStoryModal = bounded[0] || null;
+    } else {
+      const existing = Array.isArray(this.chapterStoryQueue) ? this.chapterStoryQueue : [];
+      const existingKeys = new Set(existing.map((story) => `${story.level}:${story.phase}`));
+      const extra = bounded.filter((story) => !existingKeys.has(`${story.level}:${story.phase}`));
+      this.chapterStoryQueue = extra.concat(existing).slice(0, MAX_CHAPTER_STORY_QUEUE);
+    }
     if (this.chapterStoryModal) this.trackNarrative("narrative.beat_view", { kind: "chapter", chapter: this.chapterStoryModal.level, phase: this.chapterStoryModal.phase, beatId: (this.chapterStoryModal.narrativeBeat || {}).id || `chapter_${this.chapterStoryModal.level}_${this.chapterStoryModal.phase}` });
     return !!(this.chapterStoryModal || this.chapterStoryQueue.length);
   }
@@ -4228,6 +5513,19 @@ class Game {
     this.markChapterStorySeen(modal.level, modal.phase);
     this.chapterStoryModal = this.chapterStoryQueue.shift() || null;
     if (this.chapterStoryModal) this.trackNarrative("narrative.beat_view", { kind: "chapter", chapter: this.chapterStoryModal.level, phase: this.chapterStoryModal.phase, beatId: (this.chapterStoryModal.narrativeBeat || {}).id });
+    const shouldEnter = this.pendingChapterPromotion
+      && Number(modal.transitionFrom) === Number(this.pendingChapterPromotion.from)
+      && Number(modal.level) === Number(this.pendingChapterPromotion.to);
+    if (shouldEnter) this.applyPendingChapterPromotion();
+    if (modal.phase === "end" && Number(modal.level) === CHAPTERS.length) {
+      const reserve = ((this.state.world || {}).reserve || {});
+      reserve.progression = Object.assign({}, reserve.progression || {}, {
+        chapterComplete: true,
+        stageComplete: true
+      });
+      ensureEndlessGuardMode(reserve);
+      saveState(this.state);
+    }
     if (!this.chapterStoryModal && this.openFirstReturnHook()) {
       this.render();
       return;
@@ -4282,6 +5580,61 @@ class Game {
     return true;
   }
 
+  chapterAdvanceGoals(modal = {}) {
+    const level = Math.max(1, Number(modal.level) || 1);
+    const items = Array.isArray(modal.goalItems) ? modal.goalItems : [];
+    const visitors = items.find((item) => item.id === "visitors") || {};
+    const animals = items.find((item) => item.id === "animals") || {};
+    const targets = chapterTargets(level) || {};
+    const rescueCount = Math.max(1, (modal.rescueNames || []).length || Math.round(Number(targetCount(level)) || 1));
+    const visitorTarget = Math.max(1, Number(visitors.target) || Number(targets.visitors) || 1);
+    const animalTarget = Math.max(1, Number(animals.target) || Number(targets.animals) || 1);
+    const speaker = modal.phase === "end" ? `第${level}章总结` : `第${level}章目标`;
+    const itemsRows = [
+      { icon: "paw", text: modal.phase === "end" ? `已守护 ${rescueCount} 处解救` : `解救 ${rescueCount} 只动物` },
+      { icon: "people", text: `招募 ${visitorTarget} 名游客` },
+      { icon: "paw", text: `让保护区的种群扩大到 ${animalTarget} 只` }
+    ];
+    const rule = modal.phase === "end"
+      ? this.compactDescriptionText(modal.quote || modal.speciesLine || "本章记录已写入保护区", 22)
+      : "这里没有无代价的善意，每一次守护你都要买单";
+    return { speaker, items: itemsRows, rule, rescue: rescueCount, visitors: visitorTarget, animals: animalTarget };
+  }
+
+  drawChapterAdvanceDialogue(ctx, modal) {
+    const goals = this.chapterAdvanceGoals(modal);
+    const speaker = goals.speaker;
+    const lines = goals.items.map((item) => item.text);
+    const rule = goals.rule;
+    const topSafe = Math.max(24, this.systemTopInset() + 8);
+    const cardW = Math.min(this.width - 34, 334);
+    const cardX = (this.width - cardW) / 2;
+    const cardY = Math.max(topSafe + 58, this.height * .168);
+    const rowH = 42;
+    const cardH = 228;
+    this.drawPrologueCloudBubble(ctx, cardX, cardY, cardW, cardH, {
+      fill: "rgba(10,39,31,.94)", shadow: "rgba(0,10,8,.54)"
+    });
+    this.text(ctx, speaker, cardX + 22, cardY + 32, 12, "#e2bd67", "700");
+    goals.items.forEach((item, index) => {
+      const rowY = cardY + 66 + index * rowH;
+      const iconX = cardX + 34;
+      const iconY = rowY - 6;
+      this.roundRect(ctx, iconX - 13, iconY - 13, 26, 26, 8, "rgba(255,232,156,.12)", "rgba(225,190,102,.42)");
+      this.drawPrologueGoalGlyph(ctx, item.icon, iconX, iconY, "#ffe27d");
+      this.text(ctx, item.text, cardX + 54, rowY, this.fitTextSize(ctx, item.text, cardW - 76, 18, 14, "700"), "#fff8df", "700");
+    });
+    this.drawFittedTextBlock(ctx, rule, cardX + 22, cardY + 188, cardW - 44, 30, {
+      size: 12,
+      minSize: 11,
+      lineHeight: 16,
+      color: "#d7c48a",
+      weight: "600",
+      keepSize: true
+    });
+    return { speaker, line: lines.join("\n"), rule, goals: lines };
+  }
+
   drawChapterStoryModal() {
     const modal = this.chapterStoryModal;
     if (!modal || !this.ctx) return;
@@ -4289,108 +5642,49 @@ class Game {
     ctx.save();
     ctx.scale(this.dpr, this.dpr);
     this.addHit(0, 0, this.width, this.height, () => {});
-    const chapterArt = this.chapterArt || {};
-    const currentImage = (this.art && this.art.prologueFog)
-      || chapterArt[modal.phase]
-      || chapterArt[modal.phase === "end" ? "end" : "start"]
-      || chapterArt.start
-      || chapterArt.end
-      || modal.image;
-    const painted = this.drawCoverImage(ctx, currentImage, 0, 0, this.width, this.height);
-    if (!painted) {
-      const fallback = ctx.createLinearGradient(0, 0, 0, this.height);
-      fallback.addColorStop(0, "#172c20");
-      fallback.addColorStop(1, "#6d713b");
-      ctx.fillStyle = fallback;
-      ctx.fillRect(0, 0, this.width, this.height);
+    const cinematic = this.drawPrologueCinematicArt(ctx, "fog", 900);
+    if (!cinematic) {
+      const chapterArt = this.chapterArt || {};
+      const currentImage = (this.art && this.art.prologueFog)
+        || chapterArt[modal.phase]
+        || chapterArt[modal.phase === "end" ? "end" : "start"]
+        || chapterArt.start
+        || chapterArt.end
+        || modal.image;
+      const painted = this.drawCoverImage(ctx, currentImage, 0, 0, this.width, this.height);
+      if (!painted) {
+        const fallback = ctx.createLinearGradient(0, 0, 0, this.height);
+        fallback.addColorStop(0, "#172c20");
+        fallback.addColorStop(1, "#6d713b");
+        ctx.fillStyle = fallback;
+        ctx.fillRect(0, 0, this.width, this.height);
+      }
     }
-    const shade = ctx.createLinearGradient(0, 0, 0, this.height);
-    shade.addColorStop(0, "rgba(4,12,8,0.62)");
-    shade.addColorStop(0.28, "rgba(4,12,8,0.06)");
-    shade.addColorStop(0.58, "rgba(4,12,8,0.16)");
-    shade.addColorStop(1, modal.phase === "end" ? "rgba(5,14,10,0.96)" : "rgba(5,14,10,0.90)");
-    ctx.fillStyle = shade;
-    ctx.fillRect(0, 0, this.width, this.height);
+    this.drawPrologueCinematicVignette(ctx, "fog", 0, { chrome: false });
 
     const top = Math.max(30, this.systemTopInset() + 14);
     const headerH = 36;
-    const headerGap = 10;
     const kickerW = Math.min(this.width - 136, 250);
     const kickerX = 24;
+    const headerLabel = `荒野守望 · 第${modal.level || 1}章`;
     this.roundRect(ctx, kickerX, top, kickerW, headerH, 12, "rgba(12,31,22,0.74)", "rgba(240,211,118,0.44)");
-    this.text(ctx, this.truncateTextToWidth(ctx, modal.kicker, kickerW - 28, 14, "700"), kickerX + kickerW / 2, top + 23, 14, "#b8d9b0", "700", "center");
+    this.text(ctx, this.truncateTextToWidth(ctx, headerLabel, kickerW - 28, 14, "700"), kickerX + kickerW / 2, top + 23, 14, "#b8d9b0", "700", "center");
     this.roundRect(ctx, this.width - 72, top, 48, headerH, 16, "rgba(12,31,22,0.74)", "rgba(240,211,118,0.44)");
     this.text(ctx, "引导", this.width - 48, top + 23, 14, "#b8d9b0", "700", "center");
 
-    const isOpening = modal.phase === "start";
-    // Chapter cards use the same visual rhythm as the first-time guide:
-    // one dark-green story card, one concise explanation and one primary action.
-    const panelH = isOpening
-      ? Math.min(330, Math.max(292, this.height * 0.39))
-      : Math.min(266, Math.max(230, this.height * 0.28));
-    // Keep every chapter card vertically centered while leaving the chapter
-    // header and the fixed bottom action clear of the card.
-    const panelY = Math.max(top + headerH + headerGap, Math.round((this.height - panelH) * 0.48));
-    this.drawPrologueCloudBubble(ctx, 14, panelY, this.width - 28, panelH, {
-      fill: "rgba(8,36,28,.94)",
-      shadow: "rgba(0,10,8,.48)"
-    });
-    this.text(ctx, `现实规则 ${String(modal.level || 1).padStart(2, "0")}`, 40, panelY + 38, 13, "#b8d9b0", "700");
-    this.drawFittedTextBlock(ctx, this.compactDescriptionText(modal.title, 24), 40, panelY + 78, this.width - 80, 58, {
-      size: 24,
-      minSize: 18,
-      lineHeight: 29,
-      color: "#fff8df",
-      weight: "700",
-      compact: true,
-      maxChars: 24
-    });
-    const goalItems = Array.isArray(modal.goalItems) ? modal.goalItems : [];
-    const goalHeadingY = panelY + 106;
-    this.text(ctx, "本章晋级目标", 40, goalHeadingY, 11, "#b8d9b0", "700");
-    const metricGap = 6;
-    const metricY = panelY + 114;
-    const metricW = (this.width - 80 - metricGap * 2) / 3;
-    const metricH = 42;
-    goalItems.slice(0, 3).forEach((item, index) => {
-      const mx = 40 + index * (metricW + metricGap);
-      const current = Math.max(0, Number(item.current) || 0);
-      const target = Math.max(1, Number(item.target) || 1);
-      const percent = Math.min(100, Math.round(current / target * 100));
-      this.roundRect(ctx, mx, metricY, metricW, metricH, 9, "rgba(255,248,223,.12)", "rgba(240,211,118,.28)");
-      this.text(ctx, this.truncateTextToWidth(ctx, item.label, metricW - 10, 9, "700"), mx + metricW / 2, metricY + 15, 9, "#dfe5da", "700", "center");
-      this.text(ctx, `${current}/${target}${item.unit || ""}`, mx + metricW / 2, metricY + 32, 12, "#fff0a6", "700", "center");
-      if (percent >= 100) this.text(ctx, "✓", mx + metricW - 8, metricY + 13, 9, "#b8e1a7", "700", "center");
-    });
-    const buttonY = this.height - 72;
-    const speciesY = Math.min(panelY + panelH - 18, buttonY - 18);
-    const bodyY = panelY + 166;
-    const footerReserve = isOpening ? 38 : 34;
-    this.drawFittedTextBlock(ctx, isOpening ? `${modal.businessGuide || ""}${modal.body}` : modal.body, 30, bodyY, this.width - 60, Math.max(30, speciesY - bodyY - footerReserve), {
-      size: 13,
-      minSize: 10,
-      lineHeight: 17,
-      color: "#dfe5da",
-      compact: true,
-      maxChars: 58
-    });
-    const statusLine = isOpening
-      ? (modal.rescueLine || "本章必救：请查看地图标记")
-      : (modal.speciesLine || modal.rescueLine || "本章记录已保存");
-    this.roundRect(ctx, 28, speciesY - 31, this.width - 56, 20, 7, "rgba(216,194,122,0.15)");
-    this.drawFittedTextBlock(ctx, statusLine, 38, speciesY - 24, this.width - 76, 18, {
-      size: isOpening ? 14 : 12,
-      minSize: isOpening ? 12 : 10,
-      lineHeight: isOpening ? 16 : 14,
-      color: "#f0d376",
-      weight: "700",
-      compact: true,
-      maxChars: 34
-    });
-    if (!painted && this.chapterArtLoad && this.chapterArtLoad.status === "loading") {
-      this.text(ctx, `插画加载 ${this.chapterArtLoad.progress || 0}%`, this.width / 2, top + headerH + 8, 11, "#fff8df", "700", "center");
-    }
+    const dialogue = this.drawChapterAdvanceDialogue(ctx, modal);
     this.drawPrologueAction(ctx, this.compactDescriptionText(modal.buttonLabel, 12), true, () => this.dismissChapterStory(), 1);
+    modal.renderedAdvance = {
+      homepageLayout: true,
+      speaker: dialogue.speaker,
+      goals: dialogue.goals,
+      rule: dialogue.rule,
+      actionLabel: modal.buttonLabel,
+      phase: modal.phase,
+      headerLabel,
+      guideLabel: "引导",
+      prologueChrome: false
+    };
     ctx.restore();
   }
 
@@ -4412,14 +5706,14 @@ class Game {
 
   drawCurrentScreen(ctx) {
     if (this.screen === "choose") this.drawChoose(ctx);
-    if (this.screen === "home") this.drawHome(ctx);
-    if (this.screen === "action") this.drawAction(ctx);
-    if (this.screen === "social") this.drawSocial(ctx);
-    if (this.screen === "league") this.drawLeague(ctx);
-    if (this.screen === "collection") this.drawCollection(ctx);
-    if (this.screen === "survival") this.drawSurvival(ctx);
-    if (this.screen === "role") this.drawRole(ctx);
-    if (this.screen === "animalworld") this.drawAnimalWorld(ctx);
+    else if (this.screen === "home") this.drawHome(ctx);
+    else if (this.screen === "action") this.drawAction(ctx);
+    else if (this.screen === "social") this.drawSocial(ctx);
+    else if (this.screen === "league") this.drawLeague(ctx);
+    else if (this.screen === "collection") this.drawCollection(ctx);
+    else if (this.screen === "survival") this.drawSurvival(ctx);
+    else if (this.screen === "role") this.drawRole(ctx);
+    else if (this.screen === "animalworld") this.drawAnimalWorld(ctx);
   }
 
   isVisible(y, h, margin = 80) {
@@ -4428,11 +5722,19 @@ class Game {
     return y + h >= top && y <= bottom;
   }
 
+  materialOperationIgnoresOffscreenSettlement(option = this.patrolTaskModal) {
+    return !!(option && ["buySupplies", "salvage"].includes(option.id));
+  }
+
+  patrolFlowBlocked(option = this.patrolTaskModal) {
+    return this.settlementBlocksCurrentScreen();
+  }
+
   drawPatrolTaskModal() {
     const option = this.patrolTaskModal;
     // 插屏广告由微信原生层覆盖；隐藏底层任务关闭按钮，避免与广告关闭控件重叠。
     if (this.interstitialAds && this.interstitialAds.showing) return;
-    if (!option || this.settlementModal || !this.ctx) return;
+    if (!option || this.patrolFlowBlocked(option) || !this.ctx) return;
     this.patrolOperationPlan = null;
     if (option.id === "habitat") {
       this.drawHabitatRepairTaskModal(option);
@@ -4698,15 +6000,23 @@ class Game {
     const fundAfter = Math.max(0, fundBefore - habitatCost);
     const water = Number((reserve.ecology || {}).water || 0);
     const grass = Number((reserve.ecology || {}).grass || 0);
-    const drawScene = (sx, sy, sw, sh, restored) => {
+    const metricFocus = option && option.metricFocus;
+    const taskTitle = metricFocus === "water" ? "修复饮水点"
+      : metricFocus === "grass" ? "恢复草场" : "修复栖息地";
+    const taskSubtitle = metricFocus === "water" ? "水源恢复"
+      : metricFocus === "grass" ? "草场恢复" : "水草恢复";
+    const cards = metricFocus === "water"
+      ? [["水源", "+2 / +5", "本次任务主要增长"], ["饮水线", "更稳", "动物更容易靠近喝水"], ["迁徙", "更稳", "动物更易停留"]]
+      : metricFocus === "grass"
+        ? [["草场", "+2 / +6", "本次任务只改草场"], ["承载", "更稳", "食草动物更易停留"], ["迁徙", "更稳", "队伍更愿留下"]]
+        : [["水源", "+2 / +5", "直接恢复水线"], ["草场", "+2 / +6", "改善承载能力"], ["迁移", "更稳", "动物路线回应"]];
+    const drawGrassScene = (sx, sy, sw, sh, restored) => {
       this.roundRect(ctx, sx, sy, sw, sh, 12, restored ? "#a9d9c0" : "#d8c995", "rgba(42,83,58,.28)");
       ctx.save(); ctx.beginPath(); this.roundRect(ctx, sx, sy, sw, sh, 12); ctx.clip();
       ctx.fillStyle = restored ? "#c7e7df" : "#d8dfc6"; ctx.fillRect(sx, sy, sw, sh * .58);
-      // 远山层次
       ctx.fillStyle = restored ? "#91b9a0" : "#a9b59c";
       ctx.beginPath(); ctx.moveTo(sx, sy + sh * .52); ctx.lineTo(sx + sw * .18, sy + sh * .28); ctx.lineTo(sx + sw * .34, sy + sh * .50); ctx.lineTo(sx + sw * .53, sy + sh * .22); ctx.lineTo(sx + sw * .76, sy + sh * .51); ctx.lineTo(sx + sw, sy + sh * .31); ctx.lineTo(sx + sw, sy + sh * .64); ctx.lineTo(sx, sy + sh * .64); ctx.closePath(); ctx.fill();
       ctx.fillStyle = restored ? "#78aa68" : "#b1a66d"; ctx.fillRect(sx, sy + sh * .56, sw, sh * .44);
-      // 河道与岸线
       ctx.fillStyle = restored ? "#3e9cc0" : "#9aaeb0";
       ctx.beginPath(); ctx.moveTo(sx + sw * .49, sy + sh); ctx.bezierCurveTo(sx + sw * .32, sy + sh * .76, sx + sw * .66, sy + sh * .61, sx + sw * .48, sy + sh * .42); ctx.bezierCurveTo(sx + sw * .42, sy + sh * .33, sx + sw * .47, sy + sh * .28, sx + sw * .50, sy + sh * .22); ctx.lineTo(sx + sw * .58, sy + sh * .22); ctx.bezierCurveTo(sx + sw * .54, sy + sh * .42, sx + sw * .52, sy + sh * .62, sx + sw * .60, sy + sh); ctx.closePath(); ctx.fill();
       ctx.strokeStyle = restored ? "rgba(232,250,248,.8)" : "rgba(229,224,187,.5)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx + sw * .51, sy + sh * .86); ctx.bezierCurveTo(sx + sw * .42, sy + sh * .70, sx + sw * .58, sy + sh * .59, sx + sw * .50, sy + sh * .48); ctx.stroke();
@@ -4716,6 +6026,57 @@ class Game {
       this.roundRect(ctx, sx + 8, sy + 8, 62, 24, 12, "#205b43");
       this.text(ctx, restored ? "修复后" : "修复前", sx + 39, sy + 25, 11, "#fff8df", "700", "center");
     };
+    const drawWaterScene = (sx, sy, sw, sh, restored) => {
+      this.roundRect(ctx, sx, sy, sw, sh, 12, restored ? "#6eb8c9" : "#8fa3a8", "rgba(24,68,92,.38)");
+      ctx.save(); ctx.beginPath(); this.roundRect(ctx, sx, sy, sw, sh, 12); ctx.clip();
+      const map = this.art && this.art.map;
+      if (map && map.loaded && ctx.drawImage) {
+        const imgW = map.width || map.naturalWidth || 1536;
+        const imgH = map.height || map.naturalHeight || 864;
+        const cropW = imgW * 0.26;
+        const cropH = imgH * 0.3;
+        const cropX = Math.max(0, imgW * (restored ? 0.55 : 0.75) - cropW / 2);
+        const cropY = Math.max(0, imgH * 0.38 - cropH / 2);
+        ctx.drawImage(map, cropX, cropY, cropW, cropH, sx, sy, sw, sh);
+        ctx.fillStyle = restored ? "rgba(28,108,138,.34)" : "rgba(78,72,48,.42)";
+        ctx.fillRect(sx, sy, sw, sh);
+      } else {
+        const sky = ctx.createLinearGradient(sx, sy, sx, sy + sh);
+        sky.addColorStop(0, restored ? "#c5e7f2" : "#d5d4c4");
+        sky.addColorStop(0.42, restored ? "#7ec5d8" : "#b7b39a");
+        sky.addColorStop(1, restored ? "#2f86a8" : "#8d8a74");
+        ctx.fillStyle = sky;
+        ctx.fillRect(sx, sy, sw, sh);
+      }
+      ctx.fillStyle = restored ? "#3f7d58" : "#8a7d55";
+      ctx.beginPath(); ctx.moveTo(sx, sy + sh * .62); ctx.lineTo(sx + sw * .22, sy + sh * .54); ctx.lineTo(sx + sw * .48, sy + sh * .66); ctx.lineTo(sx + sw, sy + sh * .58); ctx.lineTo(sx + sw, sy + sh); ctx.lineTo(sx, sy + sh); ctx.closePath(); ctx.fill();
+      const pond = ctx.createLinearGradient(sx, sy + sh * .38, sx, sy + sh);
+      pond.addColorStop(0, restored ? "#4eb3d4" : "#9aa7a4");
+      pond.addColorStop(0.55, restored ? "#217ea8" : "#7d8378");
+      pond.addColorStop(1, restored ? "#155d86" : "#6a6d62");
+      ctx.fillStyle = pond;
+      ctx.beginPath(); ctx.ellipse(sx + sw * .5, sy + sh * .62, sw * .46, sh * .34, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = restored ? "rgba(232,250,255,.72)" : "rgba(226,220,196,.35)";
+      ctx.lineWidth = 2;
+      [0.48, 0.58, 0.68].forEach((ratio) => {
+        ctx.beginPath(); ctx.ellipse(sx + sw * .5, sy + sh * ratio, sw * (0.18 + (ratio - .48)), sh * .05, 0, 0, Math.PI * 2); ctx.stroke();
+      });
+      ctx.fillStyle = restored ? "#2f6f4c" : "#7a734c";
+      for (let i = 0; i < 8; i++) {
+        const rx = sx + sw * (.08 + (i % 4) * .12);
+        const ry = sy + sh * (.58 + Math.floor(i / 4) * .12);
+        ctx.beginPath(); ctx.moveTo(rx, ry + 16); ctx.lineTo(rx + 4, ry); ctx.lineTo(rx + 8, ry + 16); ctx.closePath(); ctx.fill();
+      }
+      if (restored) {
+        ctx.fillStyle = "#d8efe8";
+        ctx.beginPath(); ctx.ellipse(sx + sw * .7, sy + sh * .5, 10, 5, -.2, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(sx + sw * .66, sy + sh * .46, 4, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+      this.roundRect(ctx, sx + 8, sy + 8, 62, 24, 12, restored ? "#1b5f78" : "#4a5348");
+      this.text(ctx, restored ? "疏通后" : "干涸前", sx + 39, sy + 25, 11, "#fff8df", "700", "center");
+    };
+    const drawScene = metricFocus === "water" ? drawWaterScene : drawGrassScene;
     ctx.save();
     ctx.scale(this.dpr, this.dpr);
     ctx.fillStyle = "rgba(12,18,15,.48)"; ctx.fillRect(0, 0, this.width, this.height);
@@ -4723,13 +6084,15 @@ class Game {
     this.roundRect(ctx, x - 1, y + 8, w + 2, h, 24, "rgba(7,18,13,.30)");
     this.drawPremiumLeatherPanel(ctx, x, y, w, h, 24, { rivets: true });
     this.drawPremiumParchmentPanel(ctx, x + 5, y + 92, w - 10, h - 97, 19);
-    const header = this.drawIllustratedPatrolHeader(ctx, option, x, y, w, "修复栖息地", "水草恢复");
+    const header = this.drawIllustratedPatrolHeader(ctx, option, x, y, w, taskTitle, taskSubtitle);
     const bodyX = x + 22, bodyW = w - 44;
+    if (metricFocus === "water") {
+      this.roundRect(ctx, bodyX - 4, y + 108, bodyW + 8, 140 - compactBy, 16, "#d3e8ee");
+    }
     drawScene(bodyX + 8, y + 116, (bodyW - 38) / 2, 124 - compactBy, false);
     drawScene(bodyX + bodyW / 2 + 10, y + 116, (bodyW - 38) / 2, 124 - compactBy, true);
     this.text(ctx, "→", bodyX + bodyW / 2, y + 187 - compactBy / 2, 34, "#2a7658", "700", "center");
     const cardY = y + 258 - compactBy, gap = 10, cardW = (bodyW - gap * 2) / 3;
-    const cards = [["水源", `+2 / +5`, "直接恢复水线"], ["草场", `+2 / +6`, "改善承载能力"], ["迁移", "更稳", "动物路线回应"]];
     cards.forEach((card, i) => {
       const cx = bodyX + i * (cardW + gap);
       this.drawPremiumInfoCard(ctx, cx, cardY, cardW, 112, 12, { active: true });
@@ -4747,7 +6110,8 @@ class Game {
     this.text(ctx, "确认后立即结算", bodyX + 105, nextY + 25, 12, "#26352b", "700");
     this.renderedPatrolTask = {
       id: option.id,
-      style: "habitat-repair-v1",
+      style: metricFocus === "water" ? "habitat-water-v1" : "habitat-repair-v1",
+      sceneTheme: metricFocus === "water" ? "water-source" : "grassland",
       x, y, w, h,
       header,
       nextText: status.canRun ? "确认后立即结算" : (missingRoute ? missingRoute.nextText : "先补齐资源"),
@@ -4768,17 +6132,31 @@ class Game {
   confirmPatrolTask(option = this.patrolTaskModal) {
     // The confirmation belongs to the currently open task. A stale/double tap
     // cannot recreate it or spend its supply a second time.
-    if (!option || this.patrolTaskModal !== option || option.resolving || this.settlementModal) return false;
+    if (!option || this.patrolTaskModal !== option || option.resolving || this.patrolFlowBlocked(option)) return false;
     this.patrolOperationPlan = null;
     option.resolving = true;
     try {
-      this.submitCommand("");
-      return !!this.settlementModal || this.patrolTaskModal !== option;
+      // Carry the selected metric into both the simulator command and settlement copy.
+      // An empty command used to fall back to the generic “修复水源” placeholder,
+      // so a grass task opened from 动物总数 still settled as water.
+      const metricFocus = option.metricFocus === "grass" || option.metricFocus === "water" ? option.metricFocus : "";
+      if (this.materialOperationIgnoresOffscreenSettlement(option)) {
+        this.submitCommand(this.buildSubmittedCommand(option));
+      } else {
+        this.submitCommand(this.habitatCommandForMetricFocus(metricFocus, option), metricFocus);
+      }
+      return !!this.settlementOccupiesFlow() || this.patrolTaskModal !== option;
     } finally { option.resolving = false; }
   }
 
+  habitatCommandForMetricFocus(type, option = {}) {
+    if (type === "grass") return "去南部草甸补播耐旱草，恢复草场承载能力";
+    if (type === "water") return "去东部河岸湿地清理饮水点，疏通水线并补充水源";
+    return String(option.placeholder || "").replace(/^例如：/, "").trim();
+  }
+
   startPatrolOperation(option) {
-    if (this.settlementModal) return false;
+    if (this.patrolFlowBlocked(option || this.patrolTaskModal)) return false;
     if (option && this.patrolTaskModal && option.id !== this.patrolTaskModal.id) return false;
     if (!this.patrolTaskModal) {
       if (!option) return false;
@@ -4875,7 +6253,7 @@ class Game {
       buySupplies: [
         { label: "消耗", value: blocked ? `缺${missing}` : `基金 -${purchase.cost}`, tone: blocked ? "bad" : "cost" },
         { label: "采购", value: purchase.batch ? `${purchase.items.length}项补齐` : `${purchase.itemLabel} +${purchase.amount}`, tone: "good" },
-        { label: "库存", value: purchase.batch ? "全部达安全线" : `${(supplies[purchase.id] || 0) + purchase.amount}`, tone: "good" },
+        { label: "库存", value: purchase.batch ? (purchase.fillToCap ? "尽量补满仓库" : "全部达安全线") : `${(supplies[purchase.id] || 0) + purchase.amount}`, tone: "good" },
         { label: "用途", value: purchase.use, tone: "gold" }
       ]
     };
@@ -5028,7 +6406,7 @@ class Game {
     const cells = [
       { x, w: mainW, label: purchase.batch ? "补齐缺口" : "补给入库", value: purchase.batch ? `${purchase.items.length}项` : `+${purchase.amount}`, note: purchase.batch ? `共 ${purchase.amount} 件` : `${stockBefore}→${stockAfter}`, color: "#2f765c", size: 20 },
       { x: x + mainW, w: fundW, label: "基金", value: `${fundBefore}→${fundAfter}`, note: `支出 -${purchase.cost}`, color: "#98733a", size: 15 },
-      { x: x + mainW + fundW, w: stockW, label: "库存", value: purchase.batch ? "安全线" : `${stockBefore}→${stockAfter}`, note: purchase.batch ? "一次补齐" : `+${purchase.amount}`, color: "#2f765c", size: 16 }
+      { x: x + mainW + fundW, w: stockW, label: "库存", value: purchase.batch ? (purchase.fillToCap ? "仓库上限" : "安全线") : `${stockBefore}→${stockAfter}`, note: purchase.batch ? "一次补齐" : `+${purchase.amount}`, color: "#2f765c", size: 16 }
     ];
     const layouts = [];
     cells.forEach((cell, index) => {
@@ -5097,17 +6475,23 @@ class Game {
   }
 
   infoDetailModalHeight(modal = {}) {
+    if (modal.kind === "taskCompletionNotice") return 300;
+    if (modal.kind === "realNatureSettlement") return 430;
     if (modal.kind === "chapterProgress") return 660;
     if (["poacherEventNotice", "poacherStoryCard"].includes(modal.kind)) return 620;
     if (modal.kind === "resourceShortfall") return 390;
+    if (modal.kind === "fundReplenish") return 430;
     if (modal.kind === "guardianPromise") return 520;
     if (modal.kind === "fundRelief" || modal.kind === "animalLetterPrompt" || modal.kind === "visitorLetterReader") return 470;
+    if (modal.kind === "animalMetricDetail" || modal.kind === "populationMetricDetail" || modal.kind === "visitorMetricDetail") return 620;
     if (modal.kind === "fundLedger") return 590;
     if (modal.kind === "mapAnimalAction") return 560;
     if (modal.kind === "dailyEvents") return modal.dailyFullClear ? 540 : 620;
     if (modal.kind === "animalComfort") return 500;
+    if (modal.kind === "visitorReception") return 500;
     if (modal.kind === "visitorRecruitment") return 500;
     if (modal.kind === "visitorRoutine") return 540;
+    if (modal.kind === "chapterSpecialTask") return 620;
     if (modal.kind === "reserveProsperity") return 620;
     if (modal.kind === "wildernessKnowledgeItem") return 500;
     if (modal.kind === "livingReserveNode") return 620;
@@ -5117,7 +6501,8 @@ class Game {
     if (modal.kind === "chapterRescueTask" || modal.kind === "chapterRescueResult") return 480;
     if (modal.kind === "developmentBuildingUpgrade") return 510;
     if (modal.kind === "goalCenter" || (modal.kind === "missionPush" && modal.goals)) return 500;
-    if (modal.kind === "ecologyNarrativeChoiceConfirm") return 520;
+    if (modal.kind === "ecologyNarrativeChoiceConfirm") return 600;
+    if (modal.kind === "ecologyNarrativeDecision" || modal.kind === "ecologyNarrativeOutcome") return 620;
     if (modal.kind === "strategicDilemma") return (modal.choiceCards || []).length >= 3 ? 430 : 390;
     if (modal.kind === "animalLetterInbox" || modal.kind === "visitorLetterInbox") {
       const count = Math.max(0, (modal.letters || []).length);
@@ -5170,7 +6555,7 @@ class Game {
     const modal = this.infoDetailModal;
     // 插屏展示期间不绘制底层弹窗，防止广告关闭按钮与任务关闭按钮视觉融合。
     if (this.interstitialAds && this.interstitialAds.showing) return;
-    if (!modal || this.settlementModal || this.patrolTaskModal || !this.ctx) return;
+    if (!modal || this.settlementBlocksCurrentScreen() || this.patrolTaskModal || !this.ctx) return;
     if (modal.revealAt && Date.now() < modal.revealAt) return;
     const ctx = this.ctx;
     ctx.save();
@@ -5187,7 +6572,9 @@ class Game {
     const reserveHero = modal.kind === "reserveProsperity";
     const heroModal = ["livingReserveNode", "livingReserveChoiceConfirm", "developmentBuildingStory", "developmentBuildingUpgrade", "goalCenter", "reserveProsperity", "chapterProgress"].includes(modal.kind) || (modal.kind === "missionPush" && modal.goals);
     const compactHero = ["livingReserveNode", "livingReserveChoiceConfirm"].includes(modal.kind);
-    const headerHeight = goalHero ? Math.min(122, Math.max(108, Math.round(this.width * .25))) : reserveHero ? 132 : heroModal ? (compactHero ? 96 : 108) : 72;
+    const ecologyDecision = modal.kind === "ecologyNarrativeDecision";
+    const metricDetail = this.isCoreMetricDetailModal(modal);
+    const headerHeight = goalHero ? Math.min(122, Math.max(108, Math.round(this.width * .25))) : reserveHero ? 132 : heroModal ? (compactHero ? 96 : 108) : ecologyDecision || metricDetail ? 90 : 72;
     // Preserve enough vertical room for dense dashboard and construction
     // content on compact phones; the shared margins remain centered.
     const h = Math.min(this.infoDetailModalHeight(modal), this.height - 34);
@@ -5202,13 +6589,29 @@ class Game {
     this.drawPremiumBrassPlate(ctx, header.icon.cx - header.icon.size / 2 - 3, header.icon.cy - header.icon.size / 2 - 3, header.icon.size + 6, header.icon.size + 6, 18, { rivets: false });
     this.drawModalHeaderIcon(ctx, modal, header.icon.cx, header.icon.cy, header.icon.size - 6);
     const kickerY = y + (goalHero ? 43 : heroModal ? (compactHero ? 35 : 40) : 33);
-    const titleY = y + (goalHero ? 86 : heroModal ? (compactHero ? 73 : 82) : 60);
+    const titleY = y + (goalHero ? 86 : heroModal ? (compactHero ? 73 : 82) : ecologyDecision || metricDetail ? 56 : 60);
     this.text(ctx, this.truncateTextToWidth(ctx, header.kicker, header.textW, header.kickerSize, "700"), header.textX, kickerY, header.kickerSize, "#e7d7ab", "700");
-    const headerTitle = this.truncateTextToWidth(ctx, header.title, header.textW, header.titleSize, "700");
-    if (["poacherEventNotice", "poacherStoryCard"].includes(modal.kind)) {
+    const headerTitle = metricDetail || ecologyDecision
+      ? header.title
+      : this.truncateTextToWidth(ctx, header.title, header.textW, header.titleSize, "700");
+    if (modal.kind === "leaguePlayerDetail" && this.wechatFriends && this.wechatFriends.isSupported()
+      && this.wechatFriends.drawWorldRows) {
+      this.wechatFriends.drawWorldRows(ctx, header.textX, titleY - header.titleSize, header.textW, header.titleSize + 4,
+        [Object.assign({}, modal.player, { name: header.title })], header.titleSize);
+    } else if (["poacherEventNotice", "poacherStoryCard"].includes(modal.kind)) {
       this.drawFittedTextBlock(ctx, headerTitle, header.textX, titleY, header.textW, header.titleSize + 5, {
         size: header.titleSize, minSize: header.titleSize, keepSize: true, weight: "700", color: "#fff9e9",
         highlightText: modal.highlightName, highlightColor: "#ff8070"
+      });
+    } else if (modal.coreMetric && metricProgress(modal.coreMetric.current, modal.coreMetric.target).complete) {
+      this.drawNumericHighlightTextBlock(ctx, headerTitle, header.textX, titleY, header.textW, header.titleSize + 4, {
+        size: header.titleSize, numberSize: header.titleSize, lineHeight: header.titleSize + 4,
+        weight: "700", numberWeight: "700", color: "#fff9e9", numberColor: "#87e1a3"
+      });
+    } else if (ecologyDecision || metricDetail) {
+      this.drawNumericHighlightTextBlock(ctx, header.title, header.textX, titleY, header.textW, 34, {
+        size: Math.min(header.titleSize, 16), minSize: 13, lineHeight: 17, weight: "700", color: "#fff9e9",
+        numberColor: "#87e1a3", numberSize: Math.min(header.titleSize, 16), numberWeight: "700"
       });
     } else this.text(ctx, headerTitle, header.textX, titleY, header.titleSize, "#fff9e9", "700");
     if (reserveHero) this.text(ctx, "自然与生命，在你的守护下蓬勃生长", header.textX, y + 106, this.fitTextSize(ctx, "自然与生命，在你的守护下蓬勃生长", header.textW, 11, 9, "600"), "#f1e5c4", "600");
@@ -5223,13 +6626,14 @@ class Game {
       });
     }
 
-    const bodyY = y + (goalHero ? headerHeight + 8 : reserveHero ? headerHeight + 8 : heroModal ? (compactHero ? 110 : 122) : 80);
+    const bodyY = y + (goalHero ? headerHeight + 8 : reserveHero ? headerHeight + 8 : heroModal ? (compactHero ? 110 : 122) : ecologyDecision || metricDetail ? 98 : 80);
     const compactDecision = modal.kind === "strategicDilemma";
-    const footerFreeModal = ["livingReserveNode", "neighborEventDice", "visitorIncidentDice"].includes(modal.kind);
+    const footerFreeModal = ["livingReserveNode", "neighborEventDice", "visitorIncidentDice", "harshNatureDice", "chapterSpecialTask"].includes(modal.kind);
+    const stackedCtas = modal.kind === "fundReplenish";
     const buttonH = goalHero ? Math.min(58, Math.max(44, Math.round(this.width * .11))) : 36;
-    const buttonY = y + h - buttonH - 10;
+    const buttonY = stackedCtas ? y + h - buttonH * 2 - 18 : y + h - buttonH - 10;
     const goalFooter = goalHero ? Math.min(52, Math.max(40, Math.round(this.width * .10))) : 28;
-    const footerY = (inlineAnimalActions || inlineAnimalCare) ? y + h - 18 : footerFreeModal || compactDecision ? y + h - 56 : goalHero ? buttonY - goalFooter - 10 : y + h - 88;
+    const footerY = (inlineAnimalActions || inlineAnimalCare) ? y + h - 18 : stackedCtas ? buttonY - 10 : footerFreeModal || compactDecision ? y + h - 56 : goalHero ? buttonY - goalFooter - 10 : metricDetail ? y + h - 100 : y + h - 88;
     const bodyH = footerY - bodyY - 10;
     this.drawPremiumParchmentPanel(ctx, x + 16, bodyY, w - 32, bodyH, 18, { active: false });
     if (modal.kind === "mapAnimalAction") {
@@ -5278,10 +6682,16 @@ class Game {
       this.drawStrategicDilemmaModalContent(ctx, modal, x, bodyY, w, bodyH);
     } else if (modal.kind === "strategicDice") {
       this.drawStrategicDiceModalContent(ctx, modal, x, bodyY, w, bodyH);
+    } else if (modal.kind === "realNatureSettlement") {
+      this.drawRealNatureSettlementContent(ctx, modal, x, bodyY, w, bodyH);
     } else if (modal.kind === "neighborEventDice") {
       this.drawNeighborEventDiceModalContent(ctx, modal, x, bodyY, w, bodyH);
     } else if (modal.kind === "visitorIncidentDice") {
       this.drawVisitorIncidentDiceModalContent(ctx, modal, x, bodyY, w, bodyH);
+    } else if (modal.kind === "harshNatureDice") {
+      this.drawHarshNatureArcheryModalContent(ctx, modal, x, bodyY, w, bodyH);
+    } else if (modal.kind === "chapterSpecialTask") {
+      this.drawChapterSpecialTaskModalContent(ctx, modal, x, bodyY, w, bodyH);
     } else if (modal.kind === "visitorRoutine") {
       this.drawVisitorRoutineModalContent(ctx, modal, x, bodyY, w, bodyH);
     } else if (modal.kind === "goalCenter" || (modal.kind === "missionPush" && modal.goals)) {
@@ -5327,13 +6737,25 @@ class Game {
         this.drawAnimalAvatar(ctx, modal.animal, x + 58, bodyY + 58, 56, true);
         this.text(ctx, this.animalDisplayName(modal.animal), x + 58, bodyY + 101, 10, "#49604e", "700", "center");
       }
-      const preserveNarrative = ["chapterStory", "ecologyNarrativeDecision", "animalLetterReader", "lifeMemory"].includes(modal.kind);
-      if (["poacherEventNotice", "poacherStoryCard"].includes(modal.kind)) {
+      const preserveNarrative = ["chapterStory", "ecologyNarrativeDecision", "animalLetterReader", "friendAidLetter", "lifeMemory"].includes(modal.kind);
+      if (modal.kind === "taskCompletionNotice") {
+        const size = 18;
+        const lineHeight = 24;
+        const lines = this.wrapTextLines(ctx, modal.prose, proseW, size, "700");
+        const centerY = bodyY + 18 + proseH / 2;
+        ctx.save();
+        ctx.font = `700 ${size}px ${UI_FONT_STACK}`;
+        ctx.fillStyle = "#26352b";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        lines.forEach((line, index) => ctx.fillText(line, x + w / 2, centerY + (index - (lines.length - 1) / 2) * lineHeight));
+        ctx.restore();
+      } else if (["poacherEventNotice", "poacherStoryCard"].includes(modal.kind)) {
         modal.renderedNarrative = this.drawFittedTextBlock(ctx, modal.prose, proseX, bodyY + 44, proseW, proseH - 32, {
           size: 18, minSize: 18, keepSize: true, lineHeight: 24, color: "#26352b",
           highlightText: modal.highlightName, highlightColor: "#c54838", compact: false
         });
-      } else if (modal.kind === "visitorLetterReader") {
+      } else if (modal.kind === "visitorLetterReader" || modal.kind === "friendAidLetter") {
         this.drawLetterTextPages(ctx, modal, modal.prose, proseX, bodyY + 44, proseW, proseH - 32, 15, 22);
       } else if (modal.kind === "infoListItemDetail") {
         this.drawNumericHighlightTextBlock(ctx, modal.prose, proseX, bodyY + 44, proseW, proseH - 32, {
@@ -5381,9 +6803,10 @@ class Game {
         : !!modal.actionSummary;
       const sourceItems = summaryMode ? (modal.summaryItems || modal.items || []) : (modal.items || []);
       const isFundLedger = modal.kind === "fundLedger";
+      const metricDetailList = this.isCoreMetricDetailModal(modal);
       const visibleItems = sourceItems.filter((item) => animalReady || item.tag !== "永久后果");
       const compactLadder = modal.kind === "progressionLadder";
-      const scrollList = isFundLedger || compactLadder;
+      const scrollList = isFundLedger || compactLadder || metricDetailList;
       const itemGap = compactLadder ? 4 : 8;
       const cardW = listW - 20;
       const actionSummary = modal.actionSummary && summaryMode ? String(modal.actionSummary) : "";
@@ -5404,6 +6827,10 @@ class Game {
         const contentHeight = itemHeights.reduce((sum, value) => sum + value, 0) + itemGap * Math.max(0, itemHeights.length - 1);
         modal.ladderMaxScroll = Math.max(0, contentHeight + 20 - availableCardsH);
         modal.ladderScrollY = Math.max(0, Math.min(modal.ladderMaxScroll, Number(modal.ladderScrollY) || 0));
+      } else if (metricDetailList) {
+        const contentHeight = itemHeights.reduce((sum, value) => sum + value, 0) + itemGap * Math.max(0, itemHeights.length - 1);
+        modal.infoListMaxScroll = Math.max(0, contentHeight + 20 - availableCardsH);
+        modal.infoListScrollY = Math.max(0, Math.min(modal.infoListMaxScroll, Number(modal.infoListScrollY) || 0));
       } else if (desiredTotal > availableCardsH && visibleItems.length) {
         const minimumTotal = minimumHeights.reduce((sum, value) => sum + value, 0);
         const bases = minimumTotal <= availableCardsH
@@ -5416,8 +6843,19 @@ class Game {
         itemHeights = needs.map((need, index) => bases[index] + Math.floor(extraPool * need / totalNeed));
         const allocated = itemHeights.reduce((sum, value) => sum + value, 0);
         if (itemHeights.length) itemHeights[itemHeights.length - 1] += Math.max(0, availableCardsH - allocated);
+      } else if (summaryMode && visibleItems.length === 2 && availableCardsH > desiredTotal && itemHeights.length) {
+        const extra = availableCardsH - desiredTotal;
+        const share = Math.floor(extra / itemHeights.length);
+        itemHeights = itemHeights.map((value) => value + share);
+        itemHeights[itemHeights.length - 1] += extra - share * itemHeights.length;
       }
-      let itemY = listY + 10 - (scrollList ? (isFundLedger ? (modal.fundLedgerScrollY || 0) : (modal.ladderScrollY || 0)) : 0);
+      if (modal.expandLastItem && itemHeights.length) {
+        const allocated = itemHeights.reduce((sum, value) => sum + value, 0);
+        itemHeights[itemHeights.length - 1] += Math.max(0, availableCardsH - allocated);
+      }
+      let itemY = listY + 10 - (scrollList
+        ? (isFundLedger ? (modal.fundLedgerScrollY || 0) : compactLadder ? (modal.ladderScrollY || 0) : (modal.infoListScrollY || 0))
+        : 0);
       if (scrollList) {
         modal.renderedFundLedgerViewport = { x: listX, y: listY, w: listW, h: listH };
         ctx.save();
@@ -5440,7 +6878,16 @@ class Game {
         const itemH = itemHeights[index] || 56;
         const itemX = listX + 10;
         const expandable = !!modal.expandableItems;
-        const layout = this.infoListItem(ctx, item, itemX, itemY, cardW, itemH, index === 0, expandable);
+        const layout = this.infoListItem(
+          ctx,
+          item,
+          itemX,
+          itemY,
+          cardW,
+          itemH,
+          modal.kind === "friendAidRequest" && modal.namedFriendExchange ? !!item.selected : index === 0,
+          expandable
+        );
         modal.renderedInfoItems.push({ item, x: itemX, y: itemY, w: cardW, h: itemH, layout, expandable });
         const visibleTop = Math.max(listY + 1, itemY);
         const visibleBottom = Math.min(listY + listH - 1, itemY + itemH);
@@ -5458,6 +6905,9 @@ class Game {
         if (compactLadder && modal.ladderMaxScroll > 0) {
           this.text(ctx, "上下滑动查看完整晋级阶梯", listX + listW - 14, listY + listH - 12, 9, "#6b745e", "700", "right");
         }
+        if (metricDetailList && modal.infoListMaxScroll > 0) {
+          this.text(ctx, "上下滑动查看全部说明", listX + listW - 14, listY + listH - 12, 9, "#6b745e", "700", "right");
+        }
       }
     } else {
       this.drawPremiumParchmentPanel(ctx, x + 28, bodyY + 18, w - 56, bodyH - 30, 10, { rivets: true });
@@ -5473,7 +6923,7 @@ class Game {
     }
     const footerCopy = modal.kind === "dailyEvents"
       ? ""
-      : modal.kind === "mapAnimalAction" || modal.kind === "animalComfort"
+      : modal.kind === "mapAnimalAction" || modal.kind === "animalComfort" || modal.kind === "fundReplenish"
       ? ""
       : modal.kind === "guardianPromise"
       ? (modal.selectedChoiceId ? "确认后生效" : "选择一项长期守则")
@@ -5481,15 +6931,17 @@ class Game {
       ? ""
       : modal.footer;
     if (footerCopy && !footerFreeModal) {
-      this.drawPremiumLeatherPanel(ctx, x + 18, footerY, w - 36, goalHero ? goalFooter : 28, 12, { light: true });
+      const metricFooter = this.isCoreMetricDetailModal(modal);
+      const footerH = goalHero ? goalFooter : metricFooter ? 40 : 28;
+      this.drawPremiumLeatherPanel(ctx, x + 18, footerY, w - 36, footerH, 12, { light: true });
       if (goalHero) this.drawSmallGlyph(ctx, "leaf", x + 34, footerY + goalFooter / 2, "#e7c76d", .9);
-      this.drawFittedTextBlock(ctx, footerCopy, x + (goalHero ? 50 : 32), footerY + (goalHero ? goalFooter / 2 + 5 : 18), w - (goalHero ? 82 : 64), goalHero ? goalFooter - 10 : 12, {
+      this.drawFittedTextBlock(ctx, footerCopy, x + (goalHero ? 50 : 32), footerY + (goalHero ? goalFooter / 2 + 5 : metricFooter ? 16 : 18), w - (goalHero ? 82 : 64), goalHero ? goalFooter - 10 : metricFooter ? 28 : 12, {
         size: goalHero ? 13 : 10,
-        minSize: goalHero ? 10 : 10,
-        lineHeight: goalHero ? 16 : 12,
+        minSize: 10,
+        lineHeight: goalHero ? 16 : metricFooter ? 13 : 12,
         color: "#f1e2b9",
         compact: true,
-        maxChars: 72
+        maxChars: metricFooter ? 36 : 72
       });
     }
     modal.renderedInfoFrame = {
@@ -5504,25 +6956,41 @@ class Game {
     };
     if (modal.kind === "mapAnimalAction") {
     } else if (modal.kind === "animalComfort") {
+    } else if (modal.kind === "visitorReception") {
+      const ready = modal.phase !== "result" && Number((modal.grant || {}).remaining || 0) > 0;
+      if (modal.phase === "result") {
+        this.modalButton(ctx, x + 18, buttonY, w - 36, 36, "关闭", "#1c3325", () => this.dismissInfoDetailModal(), "#fff8df", 12);
+      } else if (ready) {
+        this.modalButton(ctx, x + 18, buttonY, (w - 48) / 2, 36, "关闭", "#e8ddbd", () => this.dismissInfoDetailModal(), "#26352b", 11);
+        this.modalButton(ctx, x + 30 + (w - 48) / 2, buttonY, (w - 48) / 2, 36, "开始接待", "#1c3325", () => this.performVisitorReception(), "#fff8df", 11);
+      } else {
+        this.modalButton(ctx, x + 18, buttonY, (w - 48) / 2, 36, "关闭", "#e8ddbd", () => this.dismissInfoDetailModal(), "#26352b", 11);
+        this.modalButton(ctx, x + 30 + (w - 48) / 2, buttonY, (w - 48) / 2, 36, "查看游客表", "#1c3325", () => {
+          this.infoDetailModal = null;
+          this.openVisitorTable();
+        }, "#fff8df", 11);
+      }
     } else if (modal.kind === "visitorRecruitment") {
       const status = modal.status || {};
       const hasCredits = Number(status.totalAvailable) > 0;
-      const primaryLabel = modal.phase === "result"
-        ? "完成"
-        : hasCredits ? "发布招募" : status.canWatchAd ? "查看广告-招募" : "今日次数用完";
+      const primaryLabel = this.visitorRecruitmentCtaLabel(status, modal.phase === "result" ? "result" : "page");
       this.modalButton(ctx, x + 18, buttonY, (w - 48) / 2, 36, "关闭", "#e8ddbd", () => this.dismissInfoDetailModal(), "#26352b", 11);
       this.modalButton(ctx, x + 30 + (w - 48) / 2, buttonY, (w - 48) / 2, 36, primaryLabel, modal.phase === "result" || hasCredits ? "#1c3325" : status.canWatchAd ? UI_THEME.gold : "#9aa093", () => {
-        if (modal.phase === "result") {
-          if (modal.onboardingRecruitment && this.onboardingProgress().active) {
+        const live = this.infoDetailModal || modal;
+        const liveStatus = live.status || status;
+        if (live.phase === "result") {
+          if (live.onboardingRecruitment && this.onboardingProgress().active) {
             this.infoDetailModal = null;
             this.openOnboardingGuide("core_complete", true);
             return;
           }
           return this.dismissInfoDetailModal();
         }
-        if (hasCredits) return this.publishVisitorRecruitment();
-        if (status.canWatchAd) return this.watchVisitorRecruitmentAd();
-        this.toast("今日招募次数已用完，明天会恢复2次免费次数");
+        if (Number(liveStatus.totalAvailable) > 0 || liveStatus.canRecruit) return this.publishVisitorRecruitment();
+        if (liveStatus.canWatchAd) return this.watchVisitorRecruitmentAd();
+        this.toast(liveStatus.playtimeRestoreStarted
+          ? `次数已用完，再游玩约${liveStatus.nextRestoreMinutes || PLAYTIME_RECRUIT_RESTORE_MINUTES}分钟恢复1次`
+          : `次数已用完，游玩${PLAYTIME_RECRUIT_RESTORE_MINUTES}分钟恢复1次，最多恢复到${DAILY_FREE_RECRUITS}次`);
       }, "#fff8df", 10);
     } else if (modal.kind === "livingReserveNode") {
       const reserve = (this.state.world || {}).reserve || {};
@@ -5571,26 +7039,31 @@ class Game {
       modal.availability = availability;
       const leftBounds = { x: x + 18, y: buttonY, w: (w - 48) / 2, h: 36 };
       const rightBounds = { x: x + 30 + (w - 48) / 2, y: buttonY, w: (w - 48) / 2, h: 36 };
-      this.modalButton(ctx, leftBounds.x, leftBounds.y, leftBounds.w, leftBounds.h, "返回重选", "#e8ddbd", () => this.dismissInfoDetailModal(), "#26352b", 11);
+      const backLabel = ((modal.returnInfoDetailModal || {}).choices || []).length <= 1 ? "返回" : "返回重选";
+      this.modalButton(ctx, leftBounds.x, leftBounds.y, leftBounds.w, leftBounds.h, backLabel, "#e8ddbd", () => this.dismissInfoDetailModal(), "#26352b", 11);
       this.modalButton(ctx, rightBounds.x, rightBounds.y, rightBounds.w, rightBounds.h, availability.available ? "确认执行" : availability.routeLabel, availability.available ? "#1c3325" : "#d8c27a", () => {
         if (!availability.available) return this.routeEcologyChoiceResources(availability);
         this.confirmEcologyNarrativeChoice();
       }, availability.available ? "#fff8df" : "#173b2a", 11);
       modal.renderedChoiceButtons = [
-        Object.assign({ id: "back", label: "返回重选" }, leftBounds),
+        Object.assign({ id: "back", label: backLabel }, leftBounds),
         Object.assign({ id: availability.available ? "confirm" : "resources", label: availability.available ? "确认执行" : availability.routeLabel }, rightBounds)
       ];
-    } else if (modal.kind === "ecologyNarrativeDecision" && modal.choices && modal.choices.length >= 2) {
-      const leftChoice = modal.choices[0];
-      const rightChoice = modal.choices[1];
-      const leftBounds = { x: x + 18, y: buttonY, w: (w - 48) / 2, h: 36 };
-      const rightBounds = { x: x + 30 + (w - 48) / 2, y: buttonY, w: (w - 48) / 2, h: 36 };
-      this.modalButton(ctx, leftBounds.x, leftBounds.y, leftBounds.w, leftBounds.h, leftChoice.label, "#e8ddbd", () => leftChoice.action(), "#26352b", 10);
-      this.modalButton(ctx, rightBounds.x, rightBounds.y, rightBounds.w, rightBounds.h, rightChoice.label, "#e8ddbd", () => rightChoice.action(), "#26352b", 10);
-      modal.renderedChoiceButtons = [
-        Object.assign({ id: leftChoice.id, label: leftChoice.label }, leftBounds),
-        Object.assign({ id: rightChoice.id, label: rightChoice.label }, rightBounds)
-      ];
+    } else if (modal.kind === "ecologyNarrativeDecision") {
+      const bounds = { x: x + 18, y: buttonY, w: w - 36, h: 36 };
+      if (modal.phase === "result") {
+        this.modalButton(ctx, bounds.x, bounds.y, bounds.w, bounds.h, modal.actionLabel || "关闭", "#1c3325", () => this.dismissInfoDetailModal(), "#fff8df", 12);
+        modal.renderedChoiceButtons = [Object.assign({ id: "close", label: modal.actionLabel || "关闭" }, bounds)];
+      } else if (modal.choices && modal.choices.length) {
+        const choice = modal.choices[0];
+        this.modalButton(ctx, bounds.x, bounds.y, bounds.w, bounds.h, choice.label || "处理任务", "#1c3325", () => choice.action(), "#fff8df", 12);
+        modal.renderedChoiceButtons = [Object.assign({ id: choice.id, label: choice.label }, bounds)];
+      }
+    } else if (modal.kind === "chapterRescueResult" && modal.pendingChapterAdvance) {
+      this.modalButton(ctx, x + 18, buttonY, w - 36, 36, modal.actionLabel || "进入章节进阶", "#1c3325", () => {
+        if (typeof modal.action === "function") modal.action();
+        else this.dismissInfoDetailModal();
+      }, "#fff8df", 11);
     } else if (modal.kind === "chapterRescueTask" || modal.kind === "chapterRescueResult") {
       this.modalButton(ctx, x + 18, buttonY, (w - 48) / 2, 36, "稍后处理", "#e8ddbd", () => this.dismissInfoDetailModal(), "#26352b", 11);
       this.modalButton(ctx, x + 30 + (w - 48) / 2, buttonY, (w - 48) / 2, 36, modal.actionLabel || (modal.rescueReady ? "确认解救" : "继续收集"), "#1c3325", () => {
@@ -5616,13 +7089,19 @@ class Game {
       this.modalButton(ctx, x + 18, buttonY, (w - 48) / 2, 36, "稍后决定", "#e8ddbd", () => { this.infoDetailModal = null; this.render(); }, "#26352b", 11);
       this.modalButton(ctx, x + 30 + (w - 48) / 2, buttonY, (w - 48) / 2, 36, modal.selectedChoiceId ? "永久结案" : "先选一个结局", modal.selectedChoiceId ? "#1c3325" : "#9aa093", () => this.confirmCollectionEnding(), "#fff8df", 11);
     } else if (modal.kind === "collectionDice") {
-      this.modalButton(ctx, x + 18, buttonY, (w - 48) / 2, 36, "稍后继续", "#e8ddbd", () => {
-        if (modal.phase !== "rolling") { this.infoDetailModal = null; this.render(); }
-      }, "#26352b", 11);
-      this.modalButton(ctx, x + 30 + (w - 48) / 2, buttonY, (w - 48) / 2, 36, modal.phase === "rolling" ? "点数生成中" : modal.phase === "result" || modal.phase === "resolved" ? "点击确定" : "生成点数决定结果", modal.phase === "rolling" ? "#9aa093" : "#1c3325", () => {
-        if (modal.phase !== "rolling" && modal.action) modal.action();
+      const ready = modal.phase === "ready";
+      const fireLabel = ready ? "发射" : modal.phase === "rolling" ? "飞行中…" : "结算中…";
+      const button = { x: x + 18, y: buttonY, w: w - 36, h: 36 };
+      this.modalButton(ctx, button.x, button.y, button.w, button.h, fireLabel, ready ? "#1c3325" : "#9aa093", () => {
+        if (ready && modal.action) modal.action();
+      }, "#fff8df", 13);
+      modal.renderedArcheryFireButton = button;
+    } else if (modal.kind === "chapterSpecialTask" && modal.phase === "ready" && modal.aidCanUse) {
+      this.modalButton(ctx, x + 18, buttonY, (w - 48) / 2, 36, "用好友物", "#e8ddbd", () => this.useFriendAidOnSpecialTask(), "#26352b", 11);
+      this.modalButton(ctx, x + 30 + (w - 48) / 2, buttonY, (w - 48) / 2, 36, modal.actionLabel || "生成点数处理", "#1c3325", () => {
+        if (modal.action) modal.action();
       }, "#fff8df", 11);
-    } else if (modal.kind === "neighborEventDice" || modal.kind === "visitorIncidentDice" || modal.kind === "visitorRoutine") {
+    } else if (modal.kind === "neighborEventDice" || modal.kind === "visitorIncidentDice" || modal.kind === "visitorRoutine" || modal.kind === "chapterSpecialTask" || modal.kind === "harshNatureDice") {
       const visitorRoutine = modal.kind === "visitorRoutine";
       const settled = modal.phase === "result" || modal.phase === "resolved";
       if (!settled || visitorRoutine) {
@@ -5692,16 +7171,22 @@ class Game {
       const outboxChoice = modal.choices[1];
       this.modalButton(ctx, x + 18, buttonY, (w - 48) / 2, 36, inboxChoice.label, inboxActive ? "#1c3325" : "#e8ddbd", () => inboxChoice.action(), inboxActive ? "#fff8df" : "#26352b", 10);
       this.modalButton(ctx, x + 30 + (w - 48) / 2, buttonY, (w - 48) / 2, 36, outboxChoice.label, inboxActive ? "#e8ddbd" : "#1c3325", () => outboxChoice.action(), inboxActive ? "#26352b" : "#fff8df", 10);
+    } else if (modal.kind === "fundReplenish") {
+      this.modalButton(ctx, x + 18, buttonY, w - 36, 36, "去收取研究样本", "#1c3325", () => this.chooseFundReplenishSamples(), "#fff8df", 13);
+      this.modalButton(ctx, x + 18, buttonY + buttonH + 8, w - 36, 36, modal.luckyLabel || "幸运获得（看广告给1000）", UI_THEME.gold, () => this.chooseFundReplenishLucky(), UI_THEME.leatherDeep, 12);
     } else if (modal.kind === "animalInteractionStory") {
       if (modal.phase === "result") {
         this.modalButton(ctx, x + 18, buttonY, w - 36, 36, "记录完成", "#1c3325", () => this.dismissInfoDetailModal(), "#fff8df", 13);
       } else {
         const selected = !!modal.selectedChoiceId;
-        this.modalButton(ctx, x + 18, buttonY, w - 36, 36, selected ? "执行调节" : "先选方案", selected ? "#1c3325" : "#9aa093", () => {
+        this.modalButton(ctx, x + 18, buttonY, w - 36, 36, "执行调节", selected ? "#1c3325" : "#9aa093", () => {
           if (selected) this.resolveAnimalInteractionStory(modal.selectedChoiceId);
-          else this.toast("先选择一个调节方案");
+          else this.toast("方案已失效，请关闭后重开");
         }, "#fff8df", 12);
       }
+    } else if (modal.choices && modal.choices.length === 1) {
+      const choice = modal.choices[0];
+      this.modalButton(ctx, x + 18, buttonY, w - 36, 36, choice.label || "处理任务", "#1c3325", () => choice.action(), "#fff8df", 12);
     } else if (modal.choices && modal.choices.length >= 2) {
       const leftChoice = modal.choices[0];
       const rightChoice = modal.choices[1];
@@ -5717,17 +7202,34 @@ class Game {
       const button = { x: x + 30 + (w - 48) / 2, y: buttonY, w: (w - 48) / 2, h: 36 };
       this.modalButton(ctx, button.x, button.y, button.w, button.h, ready ? "发射" : modal.phase === "rolling" ? "飞行中…" : "结算中…", ready ? "#1c3325" : "#9aa093", () => { if (modal.phase === "ready") modal.action(); }, "#fff8df", 12);
       modal.renderedArcheryFireButton = button;
+    } else if (modal.kind === "taskCompletionNotice" || modal.kind === "realNatureSettlement") {
+      this.modalButton(ctx, x + 18, buttonY, w - 36, 36, "确定", "#1c3325", () => this.dismissInfoDetailModal(), "#fff8df", 12);
     } else if (modal.actionLabel && modal.action) {
+      const adAction = modal.adPlacement === "fund_detail_footer" || modal.adPlacement === "animal_total_detail_footer";
       this.modalButton(ctx, x + 18, buttonY, (w - 48) / 2, 36, "关闭", "#e8ddbd", () => {
         this.dismissInfoDetailModal();
       }, "#26352b", 12);
-      this.modalButton(ctx, x + 30 + (w - 48) / 2, buttonY, (w - 48) / 2, 36, modal.actionLabel, "#1c3325", () => modal.action(), "#fff8df", 12);
+      this.modalButton(ctx, x + 30 + (w - 48) / 2, buttonY, (w - 48) / 2, 36, modal.actionLabel, adAction ? UI_THEME.gold : "#1c3325", () => modal.action(), adAction ? UI_THEME.leatherDeep : "#fff8df", 12);
     } else {
       this.modalButton(ctx, x + 18, buttonY, w - 36, 36, modal.returnInfoDetailModal ? "返回现场" : "关闭", "#1c3325", () => {
         this.dismissInfoDetailModal();
       }, "#fff8df", 12);
     }
+    if (modal.kind === "collectionDice") {
+      this.addHit(header.closeHit.x, header.closeHit.y, header.closeHit.w, header.closeHit.h, () => {
+        this.dismissInfoDetailModal();
+      });
+    }
     ctx.restore();
+  }
+
+  // Core metric detail modals carry a metric payload instead of a fixed
+  // content kind. Keep this check in one place so render/layout code can
+  // safely identify them even when older saves or callers omit `kind`.
+  isCoreMetricDetailModal(modal = this.infoDetailModal) {
+    return !!(modal && modal.coreMetric && typeof modal.coreMetric === "object"
+      && modal.coreMetric.id && Number.isFinite(Number(modal.coreMetric.current))
+      && Number.isFinite(Number(modal.coreMetric.target)));
   }
 
   drawChapterRescueContent(ctx, modal, x, bodyY, w, bodyH) {
@@ -5737,8 +7239,9 @@ class Game {
       size: 16, minSize: 14, lineHeight: 23, color: "#26352b", compact: false, maxChars: 240
     });
     if (modal.kind !== "chapterRescueTask") return;
-    const record = modal.rescueRecord || {};
     const reserve = (this.state.world || {}).reserve || {};
+    const record = this.rescueRecordFor(modal.rescueTargetId || ((modal.rescueRecord || {}).targetId), reserve) || modal.rescueRecord || {};
+    modal.rescueRecord = record;
     const startY = bodyY + Math.min(132, bodyH - 130);
     (record.requiredItems || []).forEach((itemId, index) => {
       const item = rescueItemById(itemId) || { label: itemId, source: "生存频道" };
@@ -5756,18 +7259,17 @@ class Game {
         required: Math.max(1, Number(rawPointProgress.required) || (record.recurring ? POACHER_RESCUE_TARGET_SCORE : explorationTargetScore(explorationGoodById(itemId))))
       };
       pointProgress.completed = pointProgress.current >= pointProgress.required;
-      // Give the point requirement its own full-width line.  Previously the
-      // long rescue copy shared a row with the action label and overflowed
-      // across the card on narrow screens.
       const cardH = 84;
       const iy = startY + index * (cardH + 8);
       this.roundRect(ctx, innerX, iy, innerW, cardH, 12, count > 0 ? "rgba(221,242,222,.92)" : "rgba(252,242,212,.96)", "rgba(87,112,77,.28)");
       this.text(ctx, count > 0 ? "✓" : "＋", innerX + 18, iy + 28, 16, count > 0 ? "#25845a" : "#a67920", "700", "center");
-      // 固定三行信息：名称、当前/所需点数、玩法说明。每行独立占位，
-      // 避免操作提示与长文本挤在同一行造成省略或遮挡。
       const itemTitle = item.label;
       this.text(ctx, this.truncateTextToWidth(ctx, itemTitle, innerW - 60, 15, "700"), innerX + 36, iy + 18, 15, "#26352b", "700");
-      const displayedPoints = this.animatedRescuePoints(itemId, pointProgress.current);
+      // The task card is the authoritative ledger. Do not tween this number
+      // from the previous shot: reopening the task after an arrow must show
+      // the score that was just committed, not one round behind.
+      const displayedPoints = pointProgress.current;
+      if (this.rescuePointAnimations) delete this.rescuePointAnimations[`${record.targetId}:${itemId}`];
       const pointText = `点数 ${displayedPoints} / ${pointProgress.required}`;
       this.text(ctx, pointText, innerX + 36, iy + 41, 14, "#c54838", "700");
       const ruleText = `玩法：射箭得分累计到 ${pointProgress.required} 点即可获得`;
@@ -5775,10 +7277,10 @@ class Game {
         size: 12, minSize: 10, lineHeight: 15, color: "#6f654f", compact: false
       });
       this.text(ctx, count > 0 ? "已获得" : "待收集", innerX + innerW - 10, iy + 18, 10, count > 0 ? "#2f765c" : "#946e20", "700", "right");
-      modal.renderedRescuePoints = Object.assign({}, modal.renderedRescuePoints, { [itemId]: { current: pointProgress.current, displayed: displayedPoints, required: pointProgress.required } });
-      // Keep the established 44px card hit contract centered inside the
-      // taller visual card so old saves/tests and narrow-screen tapping stay
-      // compatible while the text gets more room.
+      modal.renderedRescuePoints = Object.assign({}, modal.renderedRescuePoints, {
+        [itemId]: Object.assign({ current: pointProgress.current, displayed: displayedPoints, required: pointProgress.required },
+          this.rescueArcheryContext(reserve, record.targetId, 0, pointProgress.current))
+      });
       this.addHit(innerX, iy + 8, innerW, 44, () => {
         if (count > 0) return;
         this.infoDetailModal = null;
@@ -5788,28 +7290,41 @@ class Game {
   }
 
   animatedRescuePoints(itemId, current) {
-    const animation = (this.rescuePointAnimations || {})[itemId];
+    const map = this.rescuePointAnimations || {};
+    const animationKey = Object.prototype.hasOwnProperty.call(map, itemId)
+      ? itemId
+      : Object.keys(map).find((key) => key.endsWith(`:${itemId}`));
+    const animation = animationKey ? map[animationKey] : null;
     if (!animation || animation.to !== current) return current;
     if (animation.startedAt == null) animation.startedAt = Date.now();
     const progress = Math.min(1, Math.max(0, (Date.now() - animation.startedAt) / 1000));
-    if (progress >= 1) { delete this.rescuePointAnimations[itemId]; return current; }
+    if (progress >= 1) {
+      delete this.rescuePointAnimations[animationKey];
+      if (animationKey !== itemId) delete this.rescuePointAnimations[itemId];
+      return current;
+    }
     return Math.floor(animation.from + (animation.to - animation.from) * progress);
   }
 
   drawVisitorRecruitmentModalContent(ctx, modal, x, bodyY, w, bodyH) {
     const reserve = ((this.state.world || {}).reserve) || {};
     const day = this.visitorRecruitmentDay();
-    const status = modal.status || visitorRecruitmentStatus(reserve, day);
+    const status = visitorRecruitmentStatus(reserve, day);
+    modal.status = status;
     const factors = (status.factors || {}).factors || status.factors || {};
     const factor = (key, fallback = 0) => Number.isFinite(Number(factors[key])) ? Number(factors[key]) : fallback;
     const result = modal.result || null;
     const resourceChange = modal.resourceChange || {};
+    const taskSummary = modal.taskSummary || {};
+    const dailyLine = (taskSummary.dailyTitles || []).length
+      ? `${taskSummary.dailyTitles.join("、")}已完成${taskSummary.dailyRewards && taskSummary.dailyRewards.length ? ` · ${taskSummary.dailyRewards.join("；")}` : ""}`
+      : "";
     const panelX = x + 28;
     const panelW = w - 56;
-    const cardH = result ? 116 : 92;
+    const cardH = result ? (dailyLine ? 138 : 116) : 92;
     this.drawPremiumInfoCard(ctx, panelX, bodyY + 18, panelW, cardH, 12, { active: !!result, danger: !!(factors.lowSafety) });
     if (result) {
-      this.text(ctx, "本次广告带来", panelX + 16, bodyY + 44, 11, "#4b594e", "700");
+      this.text(ctx, "招募成功 · 本次广告带来", panelX + 16, bodyY + 44, 11, "#4b594e", "700");
       const visitorValue = String(result.visitors || 0);
       ctx.font = `700 26px ${UI_FONT_STACK}`;
       const visitorValueW = ctx.measureText(visitorValue).width;
@@ -5835,12 +7350,15 @@ class Game {
       });
       this.text(ctx, `波动 ${(result.result.wave * 100).toFixed(0)}%`, panelX + panelW - 16, bodyY + 48, 10, "#8b6f2a", "700", "right");
       this.text(ctx, `剩余 ${status.totalAvailable} 次`, panelX + panelW - 16, bodyY + 103, 10, "#68736b", "700", "right");
+      if (dailyLine) {
+        this.text(ctx, this.truncateTextToWidth(ctx, dailyLine, panelW - 32, 10, "700"), panelX + 16, bodyY + 126, 10, "#1f7a52", "700");
+      }
     } else {
       this.text(ctx, "今天可以发布", panelX + 16, bodyY + 45, 11, "#4b594e", "700");
       this.text(ctx, `${status.totalAvailable} 次招募`, panelX + 16, bodyY + 78, 23, "#1f7a52", "700");
     }
     const preview = previewVisitorRecruitment(reserve, day, .5);
-    const previewY = bodyY + 132;
+    const previewY = bodyY + (result && dailyLine ? 154 : 132);
     this.drawPremiumParchmentPanel(ctx, panelX, previewY + 10, panelW, 76, 10, { muted: true });
     const rows = [
       ["安全", `${Math.round(factor("safetyFactor", 1) * 100)}%`],
@@ -5883,6 +7401,8 @@ class Game {
       adWatchRemaining: status.adWatchRemaining,
       previewVisitors: preview.visitors,
       resultVisitors: result ? result.visitors : 0,
+      taskSuccess: !!(result && (taskSummary.success !== false)),
+      dailyCompleted: (taskSummary.dailyTitles || []).slice(),
       factors: { safety: factor("safetyFactor"), population: factor("populationFactor"), environment: factor("environmentFactor"), facility: factor("facilityFactor") }
     };
   }
@@ -6293,12 +7813,14 @@ class Game {
     const metricW = (panelW - gap * 2) / 3;
     const core = modal.core || {};
     const metrics = [
-      { id: "visitors", label: "游客", value: core.visitors, target: (modal.nextGoals || {}).visitors, icon: "community", color: "#a77a18", fill: "#fff0b4" },
-      { id: "species", label: "种群", value: core.species, target: (modal.nextGoals || {}).species, icon: "leaf", color: "#2f805e", fill: "#d8f1df" },
-      { id: "animals", label: "动物", value: core.animals, target: (modal.nextGoals || {}).animals, icon: "paw", color: "#2d7894", fill: "#dff3fb" }
+      { id: "visitors", label: "游客", value: core.visitors, target: (core.target || modal.nextGoals || {}).visitors, icon: "community", color: "#a77a18", fill: "#fff0b4" },
+      { id: "species", label: "种群", value: core.species, target: (core.target || modal.nextGoals || {}).species, icon: "leaf", color: "#2f805e", fill: "#d8f1df" },
+      { id: "animals", label: "动物", value: core.animals, target: (core.target || modal.nextGoals || {}).animals, icon: "paw", color: "#2d7894", fill: "#dff3fb" }
     ];
     modal.renderedChapterProgress = { metrics: [], rows: [], speciesNeeded: modal.speciesNeeded || [] };
     metrics.forEach((metric, index) => {
+      const completion = metricProgress(metric.value, metric.target);
+      metric.color = completion.color;
       const mx = panelX + index * (metricW + gap);
       this.drawPremiumInfoCard(ctx, mx, metricY, metricW, metricH, 13, { active: true });
       this.roundRect(ctx, mx + 7, metricY + 7, metricW - 14, metricH - 14, 10, metric.fill, "rgba(73,102,77,.24)");
@@ -6312,17 +7834,19 @@ class Game {
       const valueText = `${Number(metric.value) || 0}`;
       const valueSize = this.fitTextSize(ctx, valueText, textW, compact ? 18 : 23, 13, "700");
       this.text(ctx, valueText, textX, metricY + (compact ? 43 : 51), valueSize, metric.color, "700");
-      const percent = Math.min(100, Math.round((Number(metric.value) || 0) / Math.max(1, Number(metric.target) || 1) * 100));
+      const percent = completion.percentage;
       // Keep the progress percentage readable on compact cards; 8px was
       // easily lost against the parchment texture and failed the shared HUD
       // typography rule.
       this.text(ctx, `${percent}%`, mx + metricW - 8, metricY + metricH - 8, compact ? 10 : 11, metric.color, "700", "right");
-      const bounds = { x: mx, y: metricY, w: metricW, h: metricH, id: metric.id };
+      const bounds = { x: mx, y: metricY, w: metricW, h: metricH, id: metric.id, complete: completion.complete, percentage: completion.percentage, valueColor: metric.color };
       modal.renderedChapterProgress.metrics.push(bounds);
       this.addHit(mx, metricY, metricW, metricH, () => {
         const detail = modal.metricDetails && modal.metricDetails[metric.id];
         if (detail) {
-          this.infoDetailModal = Object.assign({}, detail);
+          // 种群卡片进入专属说明页，避免把游客和动物总数的区块带入种群信息。
+          this.infoDetailModal = Object.assign({}, detail,
+            metric.id === "species" ? { kind: "populationMetricDetail" } : metric.id === "animals" ? { kind: "animalMetricDetail" } : {});
           this.render();
         }
       }, "tap");
@@ -6332,9 +7856,10 @@ class Game {
     const promoH = compact ? 58 : 78;
     this.drawPremiumInfoCard(ctx, panelX, promoY, panelW, promoH, 13, { active: true });
     const path = Math.max(0, Math.min(100, Number(modal.pathPercent) || 0));
-    this.text(ctx, "晋级路径", panelX + 14, promoY + (compact ? 21 : 25), compact ? 10 : 11, "#356946", "700");
+    const endless = modal.kicker === "无限守护" || isEndlessGuardReady((this.state.world || {}).reserve || {});
+    this.text(ctx, endless ? "无限守护" : "晋级路径", panelX + 14, promoY + (compact ? 21 : 25), compact ? 10 : 11, "#356946", "700");
     this.text(ctx, `${path}% ›`, panelX + panelW - 14, promoY + (compact ? 22 : 26), compact ? 14 : 16, "#177255", "700", "right");
-    this.drawFittedTextBlock(ctx, `下一站 · ${modal.nextTitle || `第${modal.nextChapter}章`}`, panelX + 14, promoY + (compact ? 40 : 48), panelW - 28, compact ? 15 : 19, {
+    this.drawFittedTextBlock(ctx, endless ? (modal.title || "主线完成，继续经营") : `下一站 · ${modal.nextTitle || `第${modal.nextChapter}章`}`, panelX + 14, promoY + (compact ? 40 : 48), panelW - 28, compact ? 15 : 19, {
       size: compact ? 11 : 14, minSize: 10, lineHeight: compact ? 14 : 18, weight: "700", color: "#173d34", maxChars: 34
     });
     const barY = promoY + promoH - (compact ? 10 : 14);
@@ -6346,9 +7871,9 @@ class Game {
     const rowGap = compact ? 5 : 7;
     const rowH = Math.max(compact ? 42 : 50, Math.floor((remaining - rowGap * 2) / 3));
     const rowMeta = [
-      { id: "visitors", label: "游客", icon: "community", title: `累计 ${core.visitors || 0}/${(modal.nextGoals || {}).visitors || 0}`, body: `还需 ${Math.max(0, (modal.nextGoals || {}).visitors - (core.visitors || 0))} 人` },
-      { id: "species", label: "种群", icon: "leaf", title: `解锁 ${core.species || 0}/${(modal.nextGoals || {}).species || 0}`, body: modal.speciesNeeded && modal.speciesNeeded.length ? `需要解锁：${modal.speciesNeeded.join("、")}` : "本章需要解锁的种群已满足" },
-      { id: "animals", label: "动物总数", icon: "paw", title: `数量 ${core.animals || 0}/${(modal.nextGoals || {}).animals || 0}`, body: `还需 ${Math.max(0, (modal.nextGoals || {}).animals - (core.animals || 0))} 只` }
+      { id: "visitors", label: "游客", icon: "community", title: `累计 ${core.visitors || 0}/${(core.target || modal.nextGoals || {}).visitors || 0}`, body: `还需 ${Math.max(0, (core.target || modal.nextGoals || {}).visitors - (core.visitors || 0))} 人` },
+      { id: "species", label: "种群", icon: "leaf", title: `解锁 ${core.species || 0}/${(core.target || modal.nextGoals || {}).species || 0}`, body: modal.speciesNeeded && modal.speciesNeeded.length ? `需要解锁：${modal.speciesNeeded.join("、")}` : "本章需要解锁的种群已满足" },
+      { id: "animals", label: "动物总数", icon: "paw", title: `数量 ${core.animals || 0}/${(core.target || modal.nextGoals || {}).animals || 0}`, body: `还需 ${Math.max(0, (core.target || modal.nextGoals || {}).animals - (core.animals || 0))} 只` }
     ];
     rowMeta.forEach((row, index) => {
       const ry = rowsY + index * (rowH + rowGap);
@@ -6360,12 +7885,23 @@ class Game {
       const rowW = panelW - 70;
       this.text(ctx, row.label, rowX, ry + (compact ? 18 : 21), compact ? 10 : 11, "#356946", "700");
       this.drawFittedTextBlock(ctx, row.title, rowX, ry + (compact ? 35 : 41), rowW, compact ? 14 : 17, { size: compact ? 11 : 13, minSize: 9, lineHeight: compact ? 13 : 16, weight: "700", color: "#173d34", maxChars: 34 });
-      if (!compact && rowH >= 65) this.drawFittedTextBlock(ctx, row.body, rowX, ry + rowH - 10, rowW, 13, { size: 9, minSize: 8, lineHeight: 11, color: "#637068", compact: true, maxChars: 42 });
+      if (!compact && rowH >= 65) {
+        // 详情说明使用更大的字号并完整换行，避免“如何增加”被截断。
+        const bodyY = ry + (compact ? 35 : 54);
+        const bodyH = Math.max(28, rowH - (bodyY - ry) - 4);
+        this.drawFittedTextBlock(ctx, row.body, rowX, bodyY, rowW, bodyH, {
+          size: 11, minSize: 11, lineHeight: 15, color: "#637068", compact: false, maxChars: 240
+        });
+      }
       this.text(ctx, "›", panelX + panelW - 15, ry + rowH / 2 + 6, compact ? 18 : 21, "#2f805e", "700", "center");
       const bounds = { x: panelX, y: ry, w: panelW, h: rowH, id: row.id };
       modal.renderedChapterProgress.rows.push(bounds);
       const detail = modal.metricDetails && modal.metricDetails[row.id];
-      if (detail) this.addHit(panelX, ry, panelW, rowH, () => { this.infoDetailModal = Object.assign({}, detail); this.render(); }, "tap");
+      if (detail) this.addHit(panelX, ry, panelW, rowH, () => {
+        this.infoDetailModal = Object.assign({}, detail,
+          row.id === "species" ? { kind: "populationMetricDetail" } : row.id === "animals" ? { kind: "animalMetricDetail" } : {});
+        this.render();
+      }, "tap");
     });
   }
 
@@ -6523,7 +8059,7 @@ class Game {
     this.text(ctx, this.truncateTextToWidth(ctx, item.body || "", w - 62, 12, "400"), x + 56, y + Math.min(h - 5, 43), 12, "#5d6b62", "400");
   }
 
-  openReserveDevelopmentNode(nodeId = RIVER_SHALLOWS_NODE.id) {
+  openReserveDevelopmentNode(nodeId = RIVER_SHALLOWS_NODE.id, preferredChoiceId = "") {
     const reserve = (this.state.world || {}).reserve || {};
     const day = ((reserve.guardianCycle || {}).day) || (this.state.world || {}).day || 1;
     const config = reserveDevelopmentNodeById(nodeId) || RIVER_SHALLOWS_NODE;
@@ -6535,6 +8071,10 @@ class Game {
         view = reserveDevelopmentNodeView(reserve, config.id, day);
       }
     }
+    const rows = view.availability || [];
+    const preferred = preferredChoiceId
+      ? rows.find((row) => row.choice && row.choice.id === preferredChoiceId)
+      : null;
     this.infoDetailModal = {
       kind: "livingReserveNode",
       nodeId: config.id,
@@ -6543,10 +8083,13 @@ class Game {
       icon: config.icon,
       view,
       selectedChoiceId: view.phase === "available"
-        ? ((view.availability || []).find((row) => row.available && row.choice && (row.choice.recommended || row.choice.stance === "动物友好"))
-          || (view.availability || []).find((row) => row.available) || {}).choice?.id || ""
+        ? ((preferred && preferred.choice && preferred.choice.id)
+          || ((rows.find((row) => row.available && row.choice && (row.choice.recommended || row.choice.stance === "动物友好"))
+            || rows.find((row) => row.available) || {}).choice || {}).id || "")
         : ((view.choice && view.choice.id) || ""),
-      footer: view.phase === "available" ? "已预选推荐建设方向，可改选后确认" : ""
+      footer: view.phase === "available"
+        ? (preferred ? "已预选游客设施方案，可改选后确认" : "已预选推荐建设方向，可改选后确认")
+        : ""
     };
     this.render();
   }
@@ -6608,7 +8151,7 @@ class Game {
   }
 
   confirmDevelopmentBuildingUpgrade(nodeId = RIVER_SHALLOWS_NODE.id) {
-    const beforeState = JSON.parse(JSON.stringify(this.state));
+    const beforeState = this.cloneStateForGoalProgress();
     const reserve = (this.state.world || {}).reserve || {};
     const day = ((reserve.guardianCycle || {}).day) || (this.state.world || {}).day || 1;
     const result = upgradeDevelopmentBuilding(reserve, nodeId, day);
@@ -6628,7 +8171,7 @@ class Game {
   }
 
   completeDevelopmentBuildingStoryTask(nodeId = RIVER_SHALLOWS_NODE.id) {
-    const beforeState = JSON.parse(JSON.stringify(this.state));
+    const beforeState = this.cloneStateForGoalProgress();
     const reserve = (this.state.world || {}).reserve || {};
     const day = ((reserve.guardianCycle || {}).day) || (this.state.world || {}).day || 1;
     const result = completeDevelopmentBuildingStory(reserve, nodeId, day);
@@ -6661,7 +8204,7 @@ class Game {
 
   reserveDevelopmentChoiceCopy(choiceId, nodeId = "") {
     const pool = nodeId ? (RESERVE_DEVELOPMENT_CHOICES[nodeId] || []) : Object.values(RESERVE_DEVELOPMENT_CHOICES).flat();
-    const choice = pool.find((item) => item.id === choiceId);
+    const choice = effectiveDevelopmentChoice(pool.find((item) => item.id === choiceId));
     if (!choice) return { brief: "改变这里的长期方向", summary: "这项建设会持续改变保护区。", immediate: "确认后立即结算", lasting: "动物与游客路线会随之变化。" };
     return { brief: choice.brief || choice.gainLabel || "形成新的保护方式", summary: choice.summary || "这项建设会持续改变这里。", immediate: choice.immediateLabel || choice.gainLabel || "确认后立即结算", lasting: choice.lasting || choice.debtLabel || "动物与游客路线会随之变化。" };
   }
@@ -6704,20 +8247,73 @@ class Game {
     return this.openReserveDevelopmentChoiceConfirm(RIVER_SHALLOWS_NODE.id, choiceId);
   }
 
-  routeReserveDevelopmentResources(availability = {}) {
-    const missing = (availability.missing || []).join(" · ");
-    this.infoDetailModal = null;
-    if (/芦苇|松果|荚果|泥印|落羽/.test(missing)) {
-      this.toast("去生存探索收集材料，也可与玩家交换");
-      this.setScreen("survival");
-      return;
+  resolveWildernessMaterialForShortage(tokens = [], preferredId = "") {
+    const preferred = wildernessFindById(String(preferredId || "").trim());
+    if (preferred) return preferred;
+    const list = (Array.isArray(tokens) ? tokens : [tokens]).map((item) => String(item || "").trim()).filter(Boolean);
+    const matchToken = (token) => {
+      if (!token) return null;
+      const byId = wildernessFindById(token);
+      if (byId) return byId;
+      return WILDERNESS_FIND_CATALOG.find((item) => token.indexOf(item.id) >= 0 || token.indexOf(item.label) >= 0)
+        || WILDERNESS_FIND_CATALOG.find((item) => {
+          const stem = String(item.label || "").slice(0, 2);
+          return stem.length >= 2 && token.indexOf(stem) >= 0;
+        })
+        || WILDERNESS_FIND_CATALOG.find((item) => String(item.label || "").indexOf(token) >= 0)
+        || null;
+    };
+    for (const token of list) {
+      const found = matchToken(token);
+      if (found) return found;
     }
-    if (/基金/.test(missing)) {
-      const shortfall = /基金还差(\d+)/.exec(missing);
+    return matchToken(list.join(" "));
+  }
+
+  scrollSurvivalToMaterialTable(materialId = "") {
+    const card = (this.renderedSurvivalCards || []).find((entry) => entry.id === materialId);
+    const group = (this.renderedSurvivalGroups || []).find((entry) => entry.selected) || (this.renderedSurvivalGroups || [])[0];
+    const catalog = this.renderedSurvivalCatalog;
+    const target = group || card || catalog;
+    if (!target) return false;
+    const stickyTop = this.compactStageTop() + 88;
+    this.scrollY = Math.min(this.maxScroll(), Math.max(0, target.y - stickyTop));
+    this.render();
+    return true;
+  }
+
+  openSurvivalMaterialCollection(preferredId = "", missing = []) {
+    const item = this.resolveWildernessMaterialForShortage(missing, preferredId);
+    this.markMaterialGatheringForActiveTask();
+    this.survivalExploreFocusUntil = 0;
+    this.infoDetailModal = null;
+    if (!item) {
+      this.setScreen("survival");
+      this.toast("去生存频道收集材料，也可与玩家交换");
+      return true;
+    }
+    this.survivalMaterialLevel = Number(item.minLevel) || 1;
+    this.survivalFocusMaterialId = item.id;
+    this.survivalFocusMaterialUntil = Date.now() + 8000;
+    this.setScreen("survival");
+    this.scrollSurvivalToMaterialTable(item.id);
+    this.toast(`去收集${item.label}，也可与玩家交换`);
+    return true;
+  }
+
+  routeReserveDevelopmentResources(availability = {}) {
+    const missing = availability.missing || [];
+    this.markMaterialGatheringForActiveTask();
+    this.infoDetailModal = null;
+    const material = this.resolveWildernessMaterialForShortage(missing, availability.materialId || availability.preferredMaterialId || "");
+    if (material) return this.openSurvivalMaterialCollection(material.id, missing);
+    const missingText = missing.join(" · ");
+    if (/基金/.test(missingText)) {
+      const shortfall = /基金还差(\d+)/.exec(missingText);
       const fund = Number((((this.state.world || {}).reserve || {}).fund) || 0);
       return this.openFundSamples({ purchase: { cost: fund + Number(shortfall && shortfall[1] || 0) } });
     }
-    this.toast(missing || "先补齐所需资源");
+    this.toast(missingText || "先补齐所需资源");
     this.openPatrolOperationScreen("habitat");
   }
 
@@ -6726,7 +8322,7 @@ class Game {
   }
 
   confirmReserveDevelopmentPlan(nodeId, choiceId) {
-    const beforeState = JSON.parse(JSON.stringify(this.state));
+    const beforeState = this.cloneStateForGoalProgress();
     const reserve = (this.state.world || {}).reserve || {};
     const config = reserveDevelopmentNodeById(nodeId) || RIVER_SHALLOWS_NODE;
     const result = buildReserveDevelopmentPlan(reserve, config.id, choiceId, ((reserve.guardianCycle || {}).day) || (this.state.world || {}).day || 1);
@@ -6813,17 +8409,30 @@ class Game {
         const ctaX = innerX + innerW - ctaW - 10;
         // 卡片标题优先使用短名，确保窄屏也能完整读到治理方向。
         const choiceTitle = choice.short || choice.label;
-        const choiceTitleW = innerW - tagW - ctaW - 34;
+        const choiceTitleW = innerW - tagW - 34;
         const choiceTitleSize = this.fitTextSize(ctx, choiceTitle, choiceTitleW, 18, 14, "700");
         this.text(ctx, this.truncateTextToWidth(ctx, choiceTitle, choiceTitleW, choiceTitleSize, "700"), innerX + tagW + 24, cy + 30, choiceTitleSize, "#22382b", "700");
-        this.drawPremiumBrassPlate(ctx, ctaX, cy + 10, ctaW, 30, 13, { muted: !row.available });
-        this.text(ctx, row.available ? (recommended ? "推荐 · 建设 ›" : "改选 ›") : "查看条件 ›", ctaX + ctaW / 2, cy + 30, 10, row.available ? "#1f5a3f" : "#7a6c58", "700", "center");
-        const brief = this.compactDescriptionText(copy.brief, 30);
-        const briefSize = this.fitTextSize(ctx, brief, innerW - 28, 14, 12, "700");
-        this.text(ctx, this.truncateTextToWidth(ctx, brief, innerW - 28, briefSize, "700"), innerX + 14, cy + 62, briefSize, row.available ? "#52675b" : "#a65343", "700");
-        const resourceHint = row.available ? "资源充足" : `缺 ${this.compactDescriptionText(row.missing.join("、"), 22)}`;
-        this.text(ctx, this.truncateTextToWidth(ctx, resourceHint, innerW - 28, 11, "400"), innerX + 14, cy + cardH - 10, 11, row.available ? "#718077" : "#a65343", "400");
+        // 操作按钮下移到卡片底部空白区，避免遮挡建筑标题和状态文字。
+        const ctaY = cy + cardH - 38;
+        this.drawPremiumBrassPlate(ctx, ctaX, ctaY, ctaW, 30, 13, { muted: !row.available });
+        this.text(ctx, row.available ? (recommended ? "推荐 · 建设 ›" : "改选 ›") : "查看条件 ›", ctaX + ctaW / 2, ctaY + 20, 10, row.available ? "#1f5a3f" : "#7a6c58", "700", "center");
+        // 移除作用描述，改为突出建设所需物质及库存状态；点击可进入素材搜索。
+        const resourceHint = row.available ? `需要物质：${choice.costLabel || "已备齐"} · 物质充足` : `需要物质：${this.compactDescriptionText(row.missing.join("、"), 32)}`;
+        this.drawFittedTextBlock(ctx, resourceHint, innerX + 14, cy + 58, innerW - 28, Math.max(24, cardH - 66), {
+          size: 13, minSize: 13, lineHeight: 17, color: row.available ? "#2f765c" : "#a65343", weight: "700", maxChars: 120
+        });
+        const requiredMaterials = Object.keys((choice.cost && choice.cost.materials) || {});
+        const missingText = (row.missing || []).join(" ");
+        const firstMissingMaterial = requiredMaterials.find((id) => {
+          const item = wildernessFindById(id);
+          return item && (missingText.indexOf(item.label) >= 0 || missingText.indexOf(id) >= 0 || missingText.indexOf(String(item.label || "").slice(0, 2)) >= 0);
+        }) || requiredMaterials[0] || "";
         this.addHit(innerX, cy, innerW, cardH, () => this.openReserveDevelopmentChoiceConfirm(config.id, choice.id));
+        if (firstMissingMaterial) {
+          this.addHit(innerX + 10, cy + 52, Math.max(80, innerW - ctaW - 24), Math.max(24, ctaY - (cy + 52) - 4), () => {
+            this.openSurvivalMaterialCollection(firstMissingMaterial, row.missing || []);
+          }, "tap");
+        }
         modal.renderedLivingChoices.push({ id: choice.id, x: innerX, y: cy, w: innerW, h: cardH, available: row.available, opensConfirmation: true });
       });
       return;
@@ -6882,9 +8491,8 @@ class Game {
         ["如何解锁", building.level >= 5 ? "已完成全部建筑等级" : ((upgradeGate.nextSteps || []).join("；") || building.upgradeRequirement || "满足两项等级后，再准备升级基金"), building.upgradeMissing && building.upgradeMissing.length ? "#a65343" : "#2f765c"]
       ]
       : [
-        [story.operation || "运营方式", `${story.action || story.task || "完成一次建筑专属运营。"}${story.steps && story.steps.length ? ` 步骤：${story.steps.join(" → ")}` : ""}`, "#2f765c"],
-        ["游客与基金", modal.phase === "result" ? `游客 +${(modal.result && modal.result.businessChange && modal.result.businessChange.visitors) || 0} · 基金 +${(modal.result && modal.result.businessChange && (modal.result.businessChange.fundDelta || modal.result.businessChange.income)) || 0}` : `完成后游客 +${Math.max(1, Math.round(1 + (building.visitorCapacity || 0) * .5))} · 基金收入即时入账`, "#2f765c"],
-        ["运营状态", modal.phase === "result" ? `本次已完成 · 第${(building.story || {}).nextAvailableDay || "下一"}守护日恢复` : `${story.statusText || "现在可运营"}\n${story.recoveryHint || ""}`, story.ready ? "#2f765c" : "#98733a"]
+        [story.operation || "运营方式", `${story.action || story.task || "完成一次建筑专属运营。"}${modal.phase === "result" ? ` 本次已完成 · 第${(building.story || {}).nextAvailableDay || "下一"}守护日恢复` : ` ${story.statusText || "现在可运营"}${story.recoveryHint ? ` · ${story.recoveryHint}` : ""}`}`, story.ready || modal.phase === "result" ? "#2f765c" : "#98733a"],
+        ["游客与基金", modal.phase === "result" ? `游客 +${(modal.result && modal.result.businessChange && modal.result.businessChange.visitors) || 0} · 基金 +${(modal.result && modal.result.businessChange && (modal.result.businessChange.fundDelta || modal.result.businessChange.income)) || 0}` : `完成后游客 +${Math.max(1, Math.round(1 + (building.visitorCapacity || 0) * .5))} · 基金收入即时入账`, "#2f765c"]
       ];
     // Keep the larger readable type, while tightening the card rhythm so the
     // modal does not look like four widely separated panels.
@@ -6897,9 +8505,8 @@ class Game {
       this.drawPremiumInfoCard(ctx, innerX, ry, innerW, rowH, 11, { active: emphasizedLevel || index === 0 || index === 2, danger: index === 3 && row[2] === "#98733a" });
       this.text(ctx, row[0], innerX + 14, ry + (emphasizedLevel ? 23 : 21), emphasizedLevel ? 11 : 9, row[2], "700");
       if (modal.kind === "developmentBuildingStory") {
-        // 运营弹窗只保留一句操作说明；步骤胶囊和横向分隔线会挤压正文，统一隐藏。
-        const storyText = index === 0 ? (story.action || story.task || row[1].split(" 步骤：")[0]) : row[1];
-        const textY = ry + (index === 0 ? 44 : 42);
+        const storyText = row[1];
+        const textY = ry + 44;
         const textSize = index === 0 ? 14 : 13;
         const maxWidth = innerW - 28;
         const numericParts = String(storyText).split(/([+−-]?\d+(?:\.\d+)?)/g).filter(Boolean);
@@ -6916,7 +8523,7 @@ class Game {
             tx += measure(part, size, "700");
           });
         } else {
-          this.drawFittedTextBlock(ctx, storyText, innerX + 14, textY, maxWidth, rowH - 46, { size: textSize, minSize: 11, lineHeight: 18, color: index === 2 && !story.ready ? "#98733a" : "#26352b" });
+          this.drawFittedTextBlock(ctx, storyText, innerX + 14, textY, maxWidth, rowH - 46, { size: textSize, minSize: 11, lineHeight: 18, color: index === 0 && !story.ready && modal.phase !== "result" ? "#98733a" : "#26352b" });
         }
       } else {
         this.drawFittedTextBlock(ctx, row[1], innerX + 14, ry + (emphasizedLevel ? 47 : 41), innerW - 28, rowH - (emphasizedLevel ? 36 : 30), { size: emphasizedLevel ? 16 : 12, minSize: emphasizedLevel ? 13 : 10, lineHeight: emphasizedLevel ? 20 : 16, color: emphasizedLevel ? "#173d34" : "#26352b" });
@@ -6938,8 +8545,8 @@ class Game {
       this.drawFittedTextBlock(ctx, story.scene || "关系已经写入保护区记忆。", innerX + 14, bodyY + 57, innerW - 28, 18, { size: 12, minSize: 10, lineHeight: 14, color: "#4b594e" });
       const items = modal.items || [];
       const gap = 7;
-      const rowH = Math.max(48, Math.min(66, (bodyH - 96 - gap * Math.max(0, items.length - 1)) / Math.max(1, items.length)));
-      items.slice(0, 4).forEach((item, index) => {
+      const rowH = Math.max(72, Math.min(110, (bodyH - 96 - gap * Math.max(0, Math.min(2, items.length) - 1)) / Math.max(1, Math.min(2, items.length))));
+      items.slice(0, 2).forEach((item, index) => {
         const ry = bodyY + 88 + index * (rowH + gap);
         this.drawPremiumInfoCard(ctx, innerX, ry, innerW, rowH, 10, { active: index === 0 });
         this.text(ctx, displayMetricLabel(item.tag, item.tag || "变化"), innerX + 12, ry + 19, 11, "#2f765c", "700");
@@ -6959,7 +8566,7 @@ class Game {
     this.drawPremiumInfoCard(ctx, innerX, bodyY + 12, innerW, 76, 12, { active: true, danger: true });
     this.text(ctx, `${story.species || "动物关系"} · 现在需要调节`, innerX + 14, bodyY + 36, 14, "#a65343", "700");
     this.drawFittedTextBlock(ctx, story.scene || "两种动物的路线正在互相挤压。", innerX + 14, bodyY + 59, innerW - 28, 24, { size: 13, minSize: 11, lineHeight: 16, color: "#26352b" });
-    this.drawFittedTextBlock(ctx, story.hint || "选择一项方案，关系会朝更稳定的方向发展。", innerX + 14, bodyY + 98, innerW - 28, 20, { size: 12, minSize: 10, lineHeight: 14, color: "#5d6b62" });
+    this.drawFittedTextBlock(ctx, story.hint || "执行这项调节，关系会朝更稳定的方向发展。", innerX + 14, bodyY + 98, innerW - 28, 20, { size: 12, minSize: 10, lineHeight: 14, color: "#5d6b62" });
     const choices = modal.choices || [];
     const gap = 8;
     const cardH = Math.max(72, Math.min(94, (bodyH - 132 - gap * Math.max(0, choices.length - 1)) / Math.max(1, choices.length)));
@@ -7019,32 +8626,36 @@ class Game {
     modal.availability = availability;
     const innerX = x + 28;
     const innerW = w - 56;
+    const costLine = availability.available
+      ? (choice.cost || details.requirement || "无需额外物资")
+      : `当前不足：${availability.missingLabel}`;
+    const impactLine = `${costLine} · ${details.immediate || choice.preview || "行动后立即结算"}`;
     const rows = [
-      ["游客与基金", details.business || "生态改善后，游客规模和贡献随之变化。", "#2f765c"],
-      ["立即影响", details.immediate || choice.preview || "行动后立即结算", "#2f765c"],
-      ["长期代价", details.delayed || modal.eventStakes || "这个选择会改变后续关系与路线。", "#98733a"],
-      ["执行条件", availability.available ? (choice.cost || "无需额外物资") : `当前不足：${availability.missingLabel}`, availability.available ? "#52675b" : "#a65343"]
+      ["游客与基金", this.compactDescriptionText(details.business || "生态改善后，游客规模和贡献随之变化。", 56), "#2f765c"],
+      ["立即影响", this.compactDescriptionText(impactLine, 64), availability.available ? "#2f765c" : "#a65343"]
     ];
     const gap = 8;
-    const rowH = Math.max(62, Math.floor((bodyH - 46 - gap * 3) / 4));
+    const noteH = 20;
+    const rowH = Math.max(92, Math.floor((bodyH - 28 - noteH - gap * (rows.length - 1)) / rows.length));
     modal.renderedChoiceConfirmRows = [];
     rows.forEach((row, index) => {
-      const ry = bodyY + 14 + index * (rowH + gap);
-      this.drawPremiumInfoCard(ctx, innerX, ry, innerW, rowH, 11, { active: index < 2, danger: index === 3 && !availability.available });
-      this.text(ctx, row[0], innerX + 14, ry + 22, 9, row[2], "700");
-      const layout = this.drawNumericHighlightTextBlock(ctx, row[1], innerX + 14, ry + 43, innerW - 28, rowH - 34, {
-        size: 11,
-        minSize: 10,
-        lineHeight: 15,
-        color: index === 3 && !availability.available ? "#a65343" : "#26352b",
+      const ry = bodyY + 10 + index * (rowH + gap);
+      const last = index === rows.length - 1;
+      this.drawPremiumInfoCard(ctx, innerX, ry, innerW, rowH, 11, { active: index === 0, danger: last && !availability.available });
+      this.text(ctx, row[0], innerX + 14, ry + 26, 13, row[2], "700");
+      const layout = this.drawNumericHighlightTextBlock(ctx, row[1], innerX + 14, ry + 50, innerW - 28, rowH - 58, {
+        size: 14,
+        minSize: 12,
+        lineHeight: 20,
+        color: last && !availability.available ? "#a65343" : "#26352b",
         numberColor: "#d84b42",
-        numberSize: 15,
+        numberSize: 16,
         weight: "400",
         numberWeight: "700"
       });
-      modal.renderedChoiceConfirmRows.push({ label: row[0], text: row[1], x: innerX, y: ry, w: innerW, h: rowH, numberTokens: layout.numberTokens });
+      modal.renderedChoiceConfirmRows.push({ label: row[0], text: row[1], x: innerX, y: ry, w: innerW, h: rowH, numberTokens: layout.numberTokens, bodySize: 14 });
     });
-    this.text(ctx, availability.available ? "确认后才会结算；返回不会扣除资源。" : "可以先离开补足资源，现场选择会保留。", innerX + innerW / 2, bodyY + bodyH - 10, 9, "#765d31", "700", "center");
+    this.text(ctx, this.truncateTextToWidth(ctx, availability.available ? "确认后才会结算；返回不会扣除资源。" : "可以先离开补足资源，现场选择会保留。", innerW, 11, "700"), innerX + innerW / 2, bodyY + bodyH - 8, 11, "#765d31", "700", "center");
   }
 
   drawFacilityConstructionModalContent(ctx, modal, x, bodyY, w, bodyH) {
@@ -7302,11 +8913,8 @@ class Game {
     this.roundRect(ctx, innerX, bodyY + 74, innerW, 34, 8, "rgba(255,250,236,.82)", "rgba(139,111,42,.15)");
     this.text(ctx, `引路动物 · ${(lead.animal || {}).name || "附近动物"}`, innerX + 12, bodyY + 96, 10, "#26352b", "700");
     this.text(ctx, `失败保底 ${((this.state.world.collection || {}).investigation || {}).failedAttempts || 0}/3`, innerX + innerW - 12, bodyY + 96, 9, "#8b6f2a", "700", "right");
-    const rollText = modal.phase === "ready" ? "?" : `${modal.displayRoll || 1}`;
-    const total = modal.phase === "ready" ? "?" : (modal.displayRoll || 1) + (lead.quality || 0) + methodMod + relationMod;
     this.drawDiceStage(ctx, modal, innerX, bodyY + 118, innerW, bodyH - 128, {
-      formula: `点数${rollText} + 线索${lead.quality || 0} + 方法${methodMod} + 关系${relationMod} = ${total}`,
-      note: "总点数5+形成发现，8+优先珍藏"
+      hideHitLabel: true
     });
   }
 
@@ -7440,7 +9048,7 @@ class Game {
     this.roundRect(ctx, x, y, w, h, 8, fill, stroke);
     this.roundRect(ctx, x + 6, y + 6, 42, Math.max(16, h - 12), 6, badgeFill);
     this.text(ctx, label, x + 27, y + Math.round(h / 2) + 4, 9, "#ffffff", "700", "center");
-    return this.drawFittedTextBlock(ctx, value, x + 56, y + 16, w - 64, h - 8, {
+    return this.drawFittedTextBlock(ctx, this.compactDescriptionText(value, 14), x + 56, y + 16, w - 64, h - 8, {
       size: 10,
       minSize: 10,
       lineHeight: 13,
@@ -7459,8 +9067,8 @@ class Game {
     const gap = 6;
 
     this.roundRect(ctx, innerX, bodyY + 12, innerW, storyH, 10, "rgba(255,250,236,0.84)", "rgba(36,64,46,0.12)");
-    this.roundRect(ctx, innerX + 10, bodyY + 25, 7, 7, 4, "#2f765c");
-    const storyLayout = this.drawFittedTextBlock(ctx, promise.story || "选择一条守护原则。", innerX + 24, bodyY + 36, innerW - 34, 16, {
+    this.roundRect(ctx, innerX + 10, bodyY + 22, 7, 7, 4, "#2f765c");
+    const storyLayout = this.drawFittedTextBlock(ctx, this.compactDescriptionText(promise.story || "选择一条守护原则。", 18), innerX + 24, bodyY + 32, innerW - 34, 28, {
       size: 11,
       minSize: 10,
       lineHeight: 14,
@@ -7486,7 +9094,7 @@ class Game {
       const collapsed = !!selectedId && !selected;
       const cardH = selected ? expandedH : (collapsed ? collapsedH : overviewH);
       const route = STRATEGY_ROUTES[card.route] || STRATEGY_ROUTES.balanced;
-      const riskLabel = card.risk === "risky" ? "高风险·点数判定" : card.risk === "balanced" ? "折中" : "稳妥";
+      const riskLabel = card.risk === "risky" ? "高风险" : card.risk === "balanced" ? "折中" : "稳妥";
       const layout = { id: card.id, selected, collapsed, x: innerX, y: cy, w: innerW, h: cardH, routeSize: 9, riskSize: 9 };
       modal.renderedChoiceLayout.push(layout);
 
@@ -7497,26 +9105,26 @@ class Game {
 
       if (collapsed) {
         const labelW = innerW - 84;
-        const labelSize = this.fitTextSize(ctx, card.label, labelW, 12, 10, "700");
-        layout.labelSize = labelSize;
-        this.text(ctx, this.truncateTextToWidth(ctx, card.label, labelW, labelSize, "700"), innerX + 62, cy + 23, labelSize, "#1c3325", "700");
+        this.drawFittedTextBlock(ctx, card.label, innerX + 62, cy + 22, labelW, 18, {
+          size: 12, minSize: 10, keepSize: true, lineHeight: 14, weight: "700", color: "#1c3325"
+        });
         this.text(ctx, "›", innerX + innerW - 15, cy + 28, 18, "#2f765c", "700", "center");
       } else {
-        const labelW = innerW - 138;
-        const labelSize = this.fitTextSize(ctx, card.label, labelW, 12, 10, "700");
-        layout.labelSize = labelSize;
-        this.text(ctx, this.truncateTextToWidth(ctx, card.label, labelW, labelSize, "700"), innerX + 62, cy + 23, labelSize, "#1c3325", "700");
-        this.text(ctx, riskLabel, innerX + innerW - 10, cy + 22, 9, card.risk === "risky" ? "#98733a" : "#788078", "700", "right");
+        const labelW = innerW - 118;
+        this.drawFittedTextBlock(ctx, card.label, innerX + 62, cy + 22, labelW, 18, {
+          size: 12, minSize: 10, keepSize: true, lineHeight: 14, weight: "700", color: "#1c3325"
+        });
+        this.text(ctx, riskLabel, innerX + innerW - 10, cy + 22, 10, card.risk === "risky" ? "#98733a" : "#788078", "700", "right");
 
         if (selected) {
-          const rowH = 27;
-          const benefitLayout = this.drawStrategicDetailRow(ctx, innerX + 9, cy + 34, innerW - 18, rowH, "收益", card.primaryBenefit || "长期稳定", true);
-          const costLayout = this.drawStrategicDetailRow(ctx, innerX + 9, cy + 65, innerW - 18, rowH, "代价", card.primaryCost || "持续影响", false);
-          const permanentH = Math.max(24, cardH - 101);
-          const permanentLayout = this.drawFittedTextBlock(ctx, `持续  ${card.consequenceText || "长期生效"}`, innerX + 12, cy + 105, innerW - 38, permanentH, {
-            size: 10,
-            minSize: 9,
-            lineHeight: 13,
+          const rowH = 32;
+          const benefitLayout = this.drawStrategicDetailRow(ctx, innerX + 9, cy + 36, innerW - 18, rowH, "收益", this.compactDescriptionText(card.primaryBenefit || "长期稳定", 12), true);
+          const costLayout = this.drawStrategicDetailRow(ctx, innerX + 9, cy + 72, innerW - 18, rowH, "代价", this.compactDescriptionText(card.primaryCost || "持续影响", 12), false);
+          const permanentH = Math.max(28, cardH - 118);
+          const permanentLayout = this.drawFittedTextBlock(ctx, this.compactDescriptionText(card.consequenceText || "长期生效", 22), innerX + 12, cy + 114, innerW - 38, permanentH, {
+            size: 11,
+            minSize: 10,
+            lineHeight: 14,
             color: "#425448",
             weight: "700"
           });
@@ -7526,7 +9134,7 @@ class Game {
           this.roundRect(ctx, innerX + innerW - 30, cy + cardH - 22, 22, 16, 6, "#2f765c");
           this.text(ctx, "✓", innerX + innerW - 19, cy + cardH - 10, 10, "#fff8df", "700", "center");
         } else {
-          const coreText = card.primaryBenefit || "长期稳定";
+          const coreText = this.compactDescriptionText(card.primaryBenefit || "长期稳定", 12);
           this.roundRect(ctx, innerX + 10, cy + 39, 7, 7, 4, "#2f765c");
           const coreW = innerW - 52;
           const coreSize = this.fitTextSize(ctx, coreText, coreW, 11, 10, "700");
@@ -7662,7 +9270,16 @@ class Game {
       const preview = modal.preview || {};
       const innerX = x + 28;
       const innerW = w - 56;
-      this.drawDiceStage(ctx, modal, innerX, bodyY + 48, innerW, bodyH - 58, {
+      const score = modal.rescueScore;
+      if (score) {
+        const contextText = `第${score.chapter}章 · ${score.populationTypeLabel} ${score.speciesName}`;
+        const rescueText = `${score.rescueTypeLabel} · 本章第${score.rescueIndex}次`;
+        const scoreText = `当前总分 ${score.totalScore}/${score.targetScore}  ·  本次得分 +${score.shotScore}`;
+        this.text(ctx, this.truncateTextToWidth(ctx, contextText, innerW, 11, "700"), x + w / 2, bodyY + 14, 11, "#31533b", "700", "center");
+        this.text(ctx, this.truncateTextToWidth(ctx, rescueText, innerW, 10, "700"), x + w / 2, bodyY + 29, 10, "#31533b", "700", "center");
+        this.text(ctx, this.truncateTextToWidth(ctx, scoreText, innerW, 11, "700"), x + w / 2, bodyY + 44, 11, "#a65332", "700", "center");
+      }
+      this.drawDiceStage(ctx, modal, innerX, bodyY + 58, innerW, bodyH - 68, {
         // 解救弓箭舞台只保留靶心、弓箭和结果提示；旧公式文字会
         // 压到罗盘和提示条上，累计点数已在弹窗底部独立展示。
         formula: "",
@@ -7729,8 +9346,16 @@ class Game {
     const phase = modal.phase || "ready";
     const motion = modal.diceMotion || {};
     const elapsed = Math.max(0, Date.now() - (motion.startedAt || Date.now()));
-    const flight = phase === "rolling" ? Math.min(1, elapsed / (motion.duration || 612)) : 0;
-    const charge = phase === "ready" ? (0.5 + 0.5 * Math.sin((this.animT() || Date.now()) * .006)) : 1;
+    const drawDur = Math.max(0, Number(motion.drawDuration) || 0);
+    const flyDur = Math.max(1, Number(motion.duration) || 720);
+    const inShot = phase === "rolling" || phase === "resolving";
+    const isLanded = phase === "resolved" || phase === "result";
+    const isDrawing = inShot && elapsed < drawDur;
+    const isFlying = inShot && elapsed >= drawDur;
+    const flight = isLanded ? 1 : isFlying ? Math.min(1, (elapsed - drawDur) / flyDur) : 0;
+    const charge = phase === "ready"
+      ? (0.42 + 0.18 * Math.sin((this.animT() || Date.now()) * .005))
+      : isDrawing ? Math.min(1, elapsed / Math.max(1, drawDur)) : 1;
     const cx = target.x + target.size / 2;
     const top = target.y;
     ctx.save();
@@ -7754,7 +9379,13 @@ class Game {
       modal.renderedArcheryTerrain = { source: "loading", sharedWithSandbox: false };
     }
     ctx.restore();
-    const prompt = phase === "ready" ? "蓄力 / 发射 · 点击弓箭进行发射" : phase === "rolling" ? "箭矢飞行中…" : `本次获得 ${Math.max(1, Math.min(6, modal.displayRoll || 1))} 点`;
+    const scored = Math.max(1, Math.min(6, modal.displayRoll || 1));
+    const prompt = phase === "ready"
+      ? (modal.kind === "collectionDice" ? "看准中心 · 点击下方发射" : "看准中心 · 点击发射")
+      : isDrawing ? "拉弓…"
+      : isFlying ? "射出…"
+      : modal.archeryPerfect ? `Perfect / 完美！ · 本次获得 ${scored} 点`
+      : `本次获得 ${scored} 点`;
     modal.renderedArcheryPrompt = null;
     if (!layout.separateCaption && !layout.externalControls) {
       this.roundRect(ctx, x + 20, y + 2, w - 40, 22, 11, "rgba(255,250,236,.90)", "rgba(176,146,76,.35)");
@@ -7771,70 +9402,131 @@ class Game {
     shelf.addColorStop(0, "#8e5b32"); shelf.addColorStop(.18, "#e1ae62"); shelf.addColorStop(.5, "#f0c777"); shelf.addColorStop(.82, "#bd7c3a"); shelf.addColorStop(1, "#70472b");
     ctx.fillStyle = shelf; ctx.fillRect(cx - target.size * .40, top + target.size * .80, target.size * .80, 7);
     ctx.strokeStyle = "rgba(255,232,159,.55)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx - target.size * .34, top + target.size * .815); ctx.lineTo(cx + target.size * .27, top + target.size * .815); ctx.stroke();
-    const ringColors = ["#f5ead0", "#273d32", "#d35a43", "#e7c45a"];
-    ringColors.forEach((color, i) => { const radius = target.size * (.42 - i * .085); const fill = ctx.createRadialGradient(cx - radius * .28, targetCy - radius * .34, radius * .04, cx, targetCy, radius); fill.addColorStop(0, i === 0 ? "#fff9e7" : color); fill.addColorStop(.68, color); fill.addColorStop(1, i === 0 ? "#d1c5a8" : "rgba(27,45,35,.72)"); ctx.fillStyle = fill; ctx.beginPath(); ctx.arc(cx, targetCy, radius, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = i === 0 ? "rgba(255,255,235,.85)" : "rgba(31,45,35,.28)"; ctx.lineWidth = 1.5; ctx.stroke(); });
-    ctx.save(); ctx.globalAlpha = .65; ctx.strokeStyle = "rgba(255,248,206,.7)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx - target.size * .025, targetCy - target.size * .025, target.size * .31, Math.PI * 1.06, Math.PI * 1.68); ctx.stroke(); ctx.restore();
+    const ringColors = ["#273d32", "#d35a43", "#e7c45a"];
+    ringColors.forEach((color, i) => { const radius = target.size * (.38 - i * .095); const fill = ctx.createRadialGradient(cx - radius * .28, targetCy - radius * .34, radius * .04, cx, targetCy, radius); fill.addColorStop(0, color); fill.addColorStop(.68, color); fill.addColorStop(1, "rgba(27,45,35,.72)"); ctx.fillStyle = fill; ctx.beginPath(); ctx.arc(cx, targetCy, radius, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = "rgba(31,45,35,.28)"; ctx.lineWidth = 1.5; ctx.stroke(); });
+    ctx.save();
+    ctx.globalAlpha = .22;
+    ctx.strokeStyle = "rgba(255,236,176,.55)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx - target.size * .04, targetCy - target.size * .05, target.size * .22, Math.PI * 1.12, Math.PI * 1.55);
+    ctx.stroke();
+    ctx.restore();
     const shown = phase === "ready" ? "?" : String(Math.max(1, Math.min(6, modal.displayRoll || 1)));
     this.text(ctx, shown, cx, top + target.size * .47, 22, phase === "ready" ? "#fff8df" : "#c54838", "700", "center");
-    // 弓、选择环和箭线；蓄力时弓弦有可见张力变化。
     const compassR = Math.min(64, Math.max(40, w * .22));
     const captionTop = layout.separateCaption ? layout.formula.y : Infinity;
     const compassLabelBottomOffset = -9 + compassR * .45 + 4;
-    // 拉开靶与箭的距离，给箭矢飞行和命中反馈留出清晰的纵向路径。
     const bowY = layout.externalControls ? y + h - 32 : Math.min(y + Math.min(Math.max(target.size + 116, h - 84), h - 64), captionTop - 10 - compassLabelBottomOffset);
     modal.renderedArcheryGraphics = { x, y, w, h, bottom: bowY + compassLabelBottomOffset };
     const bowCx = x + w / 2;
-    const aimStarted = Number(modal.archeryAimStartedAt) || Date.now();
-    const aimPhase = ((Date.now() - aimStarted) * .0042) % (Math.PI * 2);
-    // The launcher sweeps left/right while ready. Once fired, keep the exact
-    // selected angle so the flight path and target impact use the same value.
-    const aimValue = Number.isFinite(Number(modal.archeryAimValue))
-      ? Math.max(0, Math.min(1, Number(modal.archeryAimValue)))
-      : (Math.sin(aimPhase) + 1) / 2;
+    const hubY = bowY - 9;
+    const aimValue = this.archeryAimValueFor(modal);
     const hitOffset = (aimValue * 2 - 1) * .36;
-    const aimScore = Math.max(1, Math.min(6, 6 - Math.floor(Math.abs(hitOffset) * 14)));
+    const aimScore = this.archeryScoreFor(modal);
     const impactX = cx + hitOffset * target.size;
-    ctx.save(); ctx.globalAlpha = .88; ctx.strokeStyle = "rgba(245,239,203,.80)"; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(bowCx, bowY - 9, compassR, Math.PI, Math.PI * 2); ctx.stroke();
-    for (let i = 0; i <= 6; i++) { const a = Math.PI + Math.PI * i / 6; ctx.beginPath(); ctx.moveTo(bowCx + Math.cos(a) * (compassR - 5), bowY - 9 + Math.sin(a) * (compassR - 5)); ctx.lineTo(bowCx + Math.cos(a) * compassR, bowY - 9 + Math.sin(a) * compassR); ctx.stroke(); }
-    const pointerX = bowCx + (aimValue * 2 - 1) * (compassR - 4);
-    ctx.strokeStyle = "#d34f43"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(pointerX, bowY - 9); ctx.lineTo(pointerX, bowY - 9 - 18); ctx.stroke();
-    if (!layout.hideHitLabel) this.text(ctx, `命中区 ${aimScore}分`, bowCx, bowY - 9 + compassR * .45, 10, "#fff8df", "700", "center");
-    ctx.restore();
+    const centerAngle = Math.PI * 1.5;
     ctx.save();
-    ctx.globalAlpha = phase === "ready" ? (.20 + charge * .18) : .12;
-    ctx.strokeStyle = "#e2b94d"; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(bowCx, bowY - 12, 40 + charge * 8, Math.PI * 1.08, Math.PI * 1.92); ctx.stroke();
-    ctx.restore();
-    ctx.strokeStyle = "rgba(47,118,92,.25)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(bowCx, bowY, 37 + charge * 5, Math.PI, Math.PI * 2); ctx.stroke();
-    const bowRadius = Math.min(48, Math.max(38, w * .20));
-    const bowWood = ctx.createLinearGradient(bowCx - bowRadius, bowY - 18, bowCx + bowRadius, bowY + 18);
-    bowWood.addColorStop(0, "#70401f"); bowWood.addColorStop(.20, "#d9953d"); bowWood.addColorStop(.50, "#f0bd62"); bowWood.addColorStop(.78, "#b96e29"); bowWood.addColorStop(1, "#63391f");
-    ctx.save(); ctx.shadowColor = "rgba(42,37,21,.38)"; ctx.shadowBlur = 5; ctx.shadowOffsetY = 4; ctx.strokeStyle = bowWood; ctx.lineWidth = 10; ctx.beginPath(); ctx.arc(bowCx, bowY, bowRadius, Math.PI * 1.08, Math.PI * 1.92); ctx.stroke(); ctx.restore();
-    ctx.strokeStyle = "rgba(255,222,132,.72)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(bowCx, bowY - 1, bowRadius - 3, Math.PI * 1.10, Math.PI * 1.90); ctx.stroke();
-    ctx.strokeStyle = "#e9dfbf"; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(bowCx - bowRadius, bowY - 8); ctx.lineTo(bowCx, bowY - 3 - charge * 16); ctx.lineTo(bowCx + bowRadius, bowY - 8); ctx.stroke();
-    ctx.strokeStyle = "rgba(70,42,22,.48)"; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(bowCx + 2, bowY - 4 - charge * 13); ctx.lineTo(bowCx + 2, bowY - 70); ctx.stroke();
-    ctx.strokeStyle = "#f3d05e"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(bowCx, bowY - 4 - charge * 13); ctx.lineTo(bowCx, bowY - 70); ctx.stroke();
-    ctx.fillStyle = "rgba(68,42,22,.45)"; ctx.beginPath(); ctx.moveTo(bowCx + 2, bowY - 80); ctx.lineTo(bowCx + 7, bowY - 66); ctx.lineTo(bowCx + 2, bowY - 68); ctx.closePath(); ctx.fill();
-    const arrowHead = ctx.createLinearGradient(bowCx - 5, bowY - 84, bowCx + 5, bowY - 66); arrowHead.addColorStop(0, "#fff0a5"); arrowHead.addColorStop(.45, "#edab42"); arrowHead.addColorStop(1, "#9f5b2c");
-    ctx.fillStyle = arrowHead; ctx.beginPath(); ctx.moveTo(bowCx, bowY - 84); ctx.lineTo(bowCx - 5, bowY - 68); ctx.lineTo(bowCx + 5, bowY - 68); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = "rgba(255,243,170,.82)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(bowCx, bowY - 81); ctx.lineTo(bowCx, bowY - 70); ctx.stroke();
-    if (phase === "rolling") {
-      const ax = bowCx + (impactX - bowCx) * flight; const ay = bowY - 70 + (top + target.size * .4 - (bowY - 70)) * flight;
-      ctx.save(); ctx.globalAlpha = .28 * (1 - flight); ctx.strokeStyle = "#fff3c4"; ctx.lineWidth = 2; ctx.setLineDash([4, 5]); ctx.beginPath(); ctx.moveTo(bowCx, bowY - 70); ctx.quadraticCurveTo(impactX - 18, top + target.size * .75, impactX, top + target.size * .4); ctx.stroke(); ctx.restore();
-      ctx.strokeStyle = "rgba(69,42,22,.52)"; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(ax + 2, ay); ctx.lineTo(ax + 2, ay - 22); ctx.stroke();
-      ctx.strokeStyle = "#fff3c4"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax, ay - 22); ctx.stroke();
-    } else if (phase === "resolved") {
-      ctx.save(); ctx.strokeStyle = "#fff3c4"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(impactX, top + target.size * .4 - 16); ctx.lineTo(impactX, top + target.size * .4 + 16); ctx.stroke(); ctx.restore();
-    } else if (phase === "ready") {
-      ctx.save(); ctx.globalAlpha = .55 + charge * .35; ctx.fillStyle = "#fff1a8"; ctx.beginPath(); ctx.arc(bowCx, bowY - 82, 4 + charge * 2, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "rgba(24,38,28,.52)";
+    ctx.lineWidth = 16;
+    ctx.beginPath();
+    ctx.arc(bowCx, hubY, compassR - 1, Math.PI, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,248,214,.2)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(bowCx, hubY, compassR + 7, Math.PI, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,214,96,.94)";
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.arc(bowCx, hubY, compassR - 1, centerAngle - .42, centerAngle + .42);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(86,176,118,.98)";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(bowCx, hubY, compassR - 1, centerAngle - .07, centerAngle + .07);
+    ctx.stroke();
+    ctx.lineCap = "butt";
+    ctx.strokeStyle = "rgba(255,236,176,.4)";
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i <= 6; i += 1) {
+      const a = Math.PI + Math.PI * i / 6;
+      ctx.beginPath();
+      ctx.moveTo(bowCx + Math.cos(a) * (compassR - 8), hubY + Math.sin(a) * (compassR - 8));
+      ctx.lineTo(bowCx + Math.cos(a) * (compassR + 2), hubY + Math.sin(a) * (compassR + 2));
+      ctx.stroke();
     }
-    if (phase === "resolved" && !layout.separateCaption && !layout.externalControls) {
+    ctx.restore();
+    const pointer = this.drawArcheryAimNeedle(ctx, bowCx, hubY, compassR, aimValue, aimScore, isLanded);
+    modal.renderedArcheryPointer = {
+      x: pointer.tipX,
+      y: pointer.tipY,
+      angle: pointer.angle,
+      score: aimScore,
+      hubX: bowCx,
+      hubY
+    };
+    if (!layout.hideHitLabel) this.text(ctx, isLanded && modal.archeryPerfect ? "Perfect / 完美！" : `命中区 ${aimScore}分`, bowCx, hubY + compassR * .45, isLanded && modal.archeryPerfect ? 12 : 10, isLanded && modal.archeryPerfect ? "#ffe36b" : "#fff8df", "700", "center");
+    const bowRadius = Math.min(46, Math.max(36, w * .19));
+    const bowWood = ctx.createLinearGradient(bowCx - bowRadius, bowY - 16, bowCx + bowRadius, bowY + 16);
+    bowWood.addColorStop(0, "#70401f"); bowWood.addColorStop(.22, "#d9953d"); bowWood.addColorStop(.5, "#f0bd62"); bowWood.addColorStop(.78, "#b96e29"); bowWood.addColorStop(1, "#63391f");
+    ctx.save();
+    ctx.shadowColor = "rgba(42,37,21,.32)";
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetY = 3;
+    ctx.strokeStyle = bowWood;
+    ctx.lineWidth = 8;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.arc(bowCx, bowY + 6, bowRadius, Math.PI * 1.12, Math.PI * 1.88);
+    ctx.stroke();
+    ctx.restore();
+    ctx.strokeStyle = "rgba(255,222,132,.55)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(bowCx, bowY + 5, bowRadius - 2.5, Math.PI * 1.14, Math.PI * 1.86);
+    ctx.stroke();
+    if (phase === "ready" || isDrawing) {
+      ctx.strokeStyle = "rgba(233,223,191,.88)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(bowCx - bowRadius + 4, bowY + 2);
+      ctx.lineTo(bowCx, bowY + 8 - charge * 10);
+      ctx.lineTo(bowCx + bowRadius - 4, bowY + 2);
+      ctx.stroke();
+    }
+    const flightAngle = Math.atan2(targetCy - hubY, impactX - bowCx);
+    if (isFlying) {
+      const ax = bowCx + (impactX - bowCx) * flight;
+      const ay = hubY + (targetCy - hubY) * flight;
+      ctx.save();
+      ctx.globalAlpha = .28 * (1 - flight);
+      ctx.strokeStyle = "#fff3c4";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 5]);
+      ctx.beginPath();
+      ctx.moveTo(bowCx, hubY);
+      ctx.quadraticCurveTo(bowCx + (impactX - bowCx) * .45, hubY + (targetCy - hubY) * .55, impactX, targetCy);
+      ctx.stroke();
+      ctx.restore();
+      this.drawArcheryHitArrow(ctx, ax, ay, Math.max(18, target.size * .28), false, flightAngle);
+      if (flight > .86) this.drawArcheryImpactBurst(ctx, impactX, targetCy, target.size, modal.archeryPerfect, (flight - .86) / .14);
+      modal.renderedArcheryHitArrow = { x: ax, y: ay, angle: flightAngle, landed: false };
+    } else if (isLanded) {
+      this.drawArcheryImpactBurst(ctx, impactX, targetCy, target.size, modal.archeryPerfect, 1);
+      this.drawArcheryHitArrow(ctx, impactX, targetCy, target.size * .46, !!modal.archeryPerfect, flightAngle);
+      modal.renderedArcheryHitArrow = { x: impactX, y: targetCy, angle: flightAngle, landed: true };
+    } else {
+      modal.renderedArcheryHitArrow = null;
+    }
+    if (isLanded && !layout.separateCaption && !layout.externalControls) {
       const resultW = Math.min(w - 28, 230);
       const resultX = x + (w - resultW) / 2;
       const resultY = Math.max(y + 30, bowY - compassR - 14);
       this.roundRect(ctx, resultX, resultY, resultW, 28, 14, "rgba(255,249,226,.96)", "rgba(176,146,76,.48)");
-      this.text(ctx, `本次获得 ${Math.max(1, Math.min(6, modal.displayRoll || 1))} 点`, resultX + resultW / 2, resultY + 19, 13, "#c54838", "700", "center");
+      this.text(ctx, modal.archeryPerfect ? "Perfect / 完美！" : `本次获得 ${Math.max(1, Math.min(6, modal.displayRoll || 1))} 点`, resultX + resultW / 2, resultY + 19, 13, modal.archeryPerfect ? "#a56b12" : "#c54838", "700", "center");
       modal.renderedArcheryResult = { x: resultX, y: resultY, w: resultW, h: 28, roll: modal.displayRoll || 1 };
     } else {
       modal.renderedArcheryResult = null;
@@ -7844,27 +9536,141 @@ class Game {
     this.addHit(target.x, target.y, target.size, target.size, activate, "none");
     if (layout.externalControls) {
       this.addHit(bowCx - compassR, bowY - compassR - 12, compassR * 2, compassR + 28, activate, "none");
-    } else if (!layout.separateCaption) {
-      this.roundRect(ctx, x + w - 92, buttonY, 82, 28, 14, phase === "ready" ? "#dcae31" : "#9aa093", "#f3df8d");
-      this.text(ctx, phase === "ready" ? "发射" : phase === "rolling" ? "飞行中" : "已命中", x + w - 51, buttonY + 18, 11, "#fff8df", "700", "center");
-      this.addHit(x + w - 98, buttonY - 4, 94, 36, activate, "none");
-    } else {
+    } else if (layout.separateCaption) {
       const promptBox = { x: x + 8, y: captionTop + 10, w: w - 16, h: 32 };
       this.roundRect(ctx, promptBox.x, promptBox.y, promptBox.w, promptBox.h, 14, "rgba(255,250,232,.96)", "rgba(176,146,76,.48)");
       this.text(ctx, prompt, x + w / 2, promptBox.y + 21, this.fitTextSize(ctx, prompt, w - 32, 12, 10, "700"), phase === "resolved" ? "#c54838" : "#31533b", "700", "center");
       this.addHit(promptBox.x, promptBox.y, promptBox.w, promptBox.h, activate, "none");
       this.addHit(bowCx - compassR, bowY - compassR - 12, compassR * 2, compassR + 28, activate, "none");
       modal.renderedArcheryPrompt = Object.assign({ text: prompt }, promptBox);
-      modal.renderedArcheryResult = phase === "resolved" ? Object.assign({ roll: modal.displayRoll || 1 }, promptBox) : null;
+      modal.renderedArcheryResult = isLanded ? Object.assign({ roll: modal.displayRoll || 1 }, promptBox) : null;
       modal.renderedArcheryCaption = {
         graphicsBottom: bowY + compassLabelBottomOffset,
         formula: layout.formula, note: layout.note,
         stageBottom: y + h, separateCaption: true
       };
+    } else if (modal.kind !== "collectionDice") {
+      this.roundRect(ctx, x + w - 92, buttonY, 82, 28, 14, phase === "ready" ? "#dcae31" : "#9aa093", "#f3df8d");
+      this.text(ctx, phase === "ready" ? "发射" : isDrawing ? "拉弓" : isFlying ? "射出" : "已命中", x + w - 51, buttonY + 18, 11, "#fff8df", "700", "center");
+      this.addHit(x + w - 98, buttonY - 4, 94, 36, activate, "none");
     }
     const formulaSize = this.fitTextSize(ctx, layout.formulaText || "", layout.formula ? layout.formula.w : w, 13, 10, "700");
     if (layout.formulaText) this.text(ctx, layout.formulaText, x + w / 2, (layout.formula.y || (buttonY + 30)) + 17, formulaSize, "#1c3325", "700", "center");
     String(layout.noteText || "").split("\n").slice(0, 2).forEach((line, i) => { if (line) this.text(ctx, line, x + w / 2, (layout.note.y || (buttonY + 58)) + 11 + i * 13, this.fitTextSize(ctx, line, w - 8, 10, 9, "400"), "#755f45", "400", "center"); });
+    ctx.restore();
+  }
+
+  drawArcheryImpactBurst(ctx, x, y, targetSize, perfect = false, strength = 1) {
+    const t = Math.max(0, Math.min(1, Number(strength) || 0));
+    ctx.save();
+    ctx.globalAlpha = (perfect ? .82 : .42) * t;
+    ctx.shadowColor = perfect ? "#ffe36b" : "#fff3c4";
+    ctx.shadowBlur = perfect ? 22 : 10;
+    ctx.strokeStyle = perfect ? "#ffe36b" : "rgba(255,243,196,.88)";
+    ctx.lineWidth = perfect ? 5 : 3;
+    ctx.beginPath();
+    ctx.arc(x, y, targetSize * (perfect ? .24 : .12) * (0.82 + t * .18), 0, Math.PI * 2);
+    ctx.stroke();
+    if (perfect) {
+      ctx.globalAlpha = .55 * t;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, targetSize * .32 * (0.7 + t * .3), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = `rgba(255,227,107,${0.16 * t})`;
+      ctx.beginPath();
+      ctx.arc(x, y, targetSize * .13, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  drawArcheryAimNeedle(ctx, hubX, hubY, compassR, aimValue, aimScore, isLanded = false) {
+    const t = Math.max(0, Math.min(1, Number(aimValue) || 0));
+    const angle = Math.PI + t * Math.PI;
+    const inner = Math.max(6, compassR * .18);
+    const outer = compassR + 7;
+    const tipX = hubX + Math.cos(angle) * outer;
+    const tipY = hubY + Math.sin(angle) * outer;
+    const tailX = hubX - Math.cos(angle) * inner;
+    const tailY = hubY - Math.sin(angle) * inner;
+    const nx = Math.cos(angle + Math.PI / 2);
+    const ny = Math.sin(angle + Math.PI / 2);
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "rgba(24,32,22,.28)";
+    ctx.lineWidth = 4.5;
+    ctx.beginPath();
+    ctx.moveTo(tailX + 1, tailY + 1.5);
+    ctx.lineTo(tipX + 1, tipY + 1.5);
+    ctx.stroke();
+    const shaft = ctx.createLinearGradient(tailX, tailY, tipX, tipY);
+    shaft.addColorStop(0, isLanded ? "#f3d27a" : "#efe0b4");
+    shaft.addColorStop(.55, isLanded ? "#d7a13a" : "#e2c36a");
+    shaft.addColorStop(1, aimScore >= 5 ? "#ffe36b" : "#c48a2c");
+    ctx.strokeStyle = shaft;
+    ctx.lineWidth = 3.2;
+    ctx.beginPath();
+    ctx.moveTo(tailX, tailY);
+    ctx.lineTo(tipX, tipY);
+    ctx.stroke();
+    ctx.fillStyle = isLanded ? "#fff3c4" : "#fff8df";
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(tipX - Math.cos(angle) * 11 + nx * 4.2, tipY - Math.sin(angle) * 11 + ny * 4.2);
+    ctx.lineTo(tipX - Math.cos(angle) * 11 - nx * 4.2, tipY - Math.sin(angle) * 11 - ny * 4.2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#5a4324";
+    ctx.beginPath();
+    ctx.arc(hubX, hubY, 4.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ffe9a8";
+    ctx.beginPath();
+    ctx.arc(hubX - .6, hubY - .6, 2.1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    return { tipX, tipY, angle, hubX, hubY };
+  }
+
+  drawArcheryHitArrow(ctx, x, y, size = 18, perfect = false, angle = -Math.PI / 2) {
+    const len = Math.max(14, Number(size) || 18);
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Number.isFinite(angle) ? angle : -Math.PI / 2);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "rgba(42,32,18,.28)";
+    ctx.lineWidth = perfect ? 3.4 : 2.6;
+    ctx.beginPath();
+    ctx.moveTo(len * .06, 1.2);
+    ctx.lineTo(-len * .92, 1.2);
+    ctx.stroke();
+    const shaft = ctx.createLinearGradient(len * .12, 0, -len, 0);
+    shaft.addColorStop(0, perfect ? "#fff3c4" : "#f4e2b0");
+    shaft.addColorStop(.55, perfect ? "#e8c56a" : "#d7b06a");
+    shaft.addColorStop(1, "#8a5a2a");
+    ctx.strokeStyle = shaft;
+    ctx.lineWidth = perfect ? 2.6 : 2.1;
+    ctx.beginPath();
+    ctx.moveTo(len * .08, 0);
+    ctx.lineTo(-len, 0);
+    ctx.stroke();
+    ctx.fillStyle = perfect ? "#ffe36b" : "#f3d48a";
+    ctx.beginPath();
+    ctx.moveTo(len * .22, 0);
+    ctx.lineTo(-len * .02, -len * .13);
+    ctx.lineTo(-len * .02, len * .13);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = perfect ? "rgba(255,227,107,.92)" : "rgba(196,91,66,.88)";
+    ctx.beginPath();
+    ctx.moveTo(-len * .58, 0);
+    ctx.lineTo(-len * .98, -len * .16);
+    ctx.lineTo(-len * .82, 0);
+    ctx.lineTo(-len * .98, len * .16);
+    ctx.closePath();
+    ctx.fill();
     ctx.restore();
   }
 
@@ -7922,13 +9728,14 @@ class Game {
     const pop = profile.population || 0;
     const status = profile.status || { trend: "→", status: "稳定" };
     const importance = profile.importance || { level: "稳定", score: 50 };
+    const breeding = Math.max(0, Math.round(Number(profile.breeding) || 0));
     const compact = bodyH < 350;
     const panelX = x + 26;
     const panelW = w - 52;
     const innerX = panelX + 12;
     const innerW = panelW - 24;
     const gap = compact ? 6 : 8;
-    const summaryH = compact ? 46 : 52;
+    const summaryH = compact ? 62 : 70;
     const feedbackH = compact ? 48 : 56;
     const friendH = compact ? 50 : 58;
     const recentDialogues = (Array.isArray(profile.dialogues) ? profile.dialogues : [profile.dialogue])
@@ -7946,9 +9753,11 @@ class Game {
     this.drawChangeTag(ctx, innerX + 84, cy + 21, this.reserveDisplayDelta(populationKey, pop), "left", { key: populationKey });
     this.text(ctx, "当前状态", panelX + panelW * 0.56, cy + 16, 10, "#8b7355", "700");
     this.text(ctx, status.status, panelX + panelW * 0.56, cy + 36, 14, trendColor, "700");
-    this.roundRect(ctx, panelX + panelW - 66, cy + 8, 56, summaryH - 16, 8, "rgba(240,211,118,0.12)", "rgba(216,174,62,0.24)");
+    this.roundRect(ctx, panelX + panelW - 66, cy + 8, 56, 36, 8, "rgba(240,211,118,0.12)", "rgba(216,174,62,0.24)");
     this.text(ctx, "重要性", panelX + panelW - 38, cy + 21, 9, "#8b7355", "700", "center");
     this.text(ctx, importance.level, panelX + panelW - 38, cy + 38, 11, importance.score >= 70 ? "#c44735" : "#1f8a55", "700", "center");
+    this.text(ctx, "本章繁殖剩余", innerX, cy + summaryH - 10, 10, "#8b7355", "700");
+    this.text(ctx, `+${breeding}`, innerX + 92, cy + summaryH - 11, 13, breeding ? "#1f8a55" : "#8b7355", "700");
     cy += summaryH + gap;
 
     this.roundRect(ctx, panelX, cy, panelW, feedbackH, 9, "#fff7df", "rgba(216,174,62,0.25)");
@@ -8229,12 +10038,17 @@ class Game {
     ctx.scale(this.dpr, this.dpr);
     ctx.fillStyle = "rgba(12,18,15,.48)";
     ctx.fillRect(0, 0, this.width, this.height);
+    this.addHit(0, 0, this.width, this.height, () => {});
     const compact = this.height < 620;
     const focusMode = this.settlementFocusMode(modal);
     const focusedExploration = focusMode === "exploration";
     const focusedOutcome = !!focusMode;
     const w = Math.min(this.width - 32, 360);
-    const h = Math.min(this.height - 48, focusedOutcome ? (compact ? 346 : 356) : (compact ? 438 : 464));
+    const habitatImpact = !focusedOutcome && this.settlementHabitatFocus(modal);
+    const h = Math.min(this.height - 48, focusedOutcome ? (compact ? 346 : 356)
+      : modal.dailyFullClear ? (compact ? 378 : 400)
+      : habitatImpact ? (compact ? 464 : 492)
+      : (compact ? 438 : 464));
     const x = (this.width - w) / 2;
     const y = Math.max(26, Math.round((this.height - h) / 2));
     const layout = this.settlementModalLayout(ctx, modal, x, y, w, h, compact);
@@ -8251,10 +10065,14 @@ class Game {
       : focusMode === "recovery" ? "回收完成"
       : focusMode === "mystery" ? "珍稀封存"
       : breakthrough ? (breakthrough.kicker || "重大突破") : "任务完成";
-    const kickerW = focusedOutcome ? 88 : breakthrough ? 104 : 90;
-    this.roundRect(ctx, x + 16, y + 16, kickerW, 24, 12, crisisAction ? "#f47b73" : "#fff0b2", crisisAction ? "rgba(255,255,255,.48)" : "rgba(216,174,62,.42)");
-    this.text(ctx, kickerLabel, x + 16 + kickerW / 2, y + 32, 12, crisisAction ? "#ffffff" : "#6d5220", "700", "center");
-    modal.renderedSettlementGradeBadge = this.drawSettlementGradeBadge(ctx, layout.badge.x, layout.badge.y, modal.grade || "C", modal.guardianScore || 0, modal.scoreDelta || 0);
+    const kickerW = focusedOutcome ? 88 : modal.dailyFullClear ? 118 : breakthrough ? 104 : 90;
+    const kickerH = modal.dailyFullClear ? 26 : 24;
+    this.roundRect(ctx, x + 16, y + 16, kickerW, kickerH, 12, crisisAction ? "#f47b73" : "#fff0b2", crisisAction ? "rgba(255,255,255,.48)" : "rgba(216,174,62,.42)");
+    this.text(ctx, kickerLabel, x + 16 + kickerW / 2, y + 16 + kickerH / 2 + 4, modal.dailyFullClear ? 14 : 12, crisisAction ? "#ffffff" : "#6d5220", "700", "center");
+    const presentGrade = String(modal.grade || "").toUpperCase();
+    modal.renderedSettlementGradeBadge = this.settlementGradeShouldPresent(presentGrade)
+      ? this.drawSettlementGradeBadge(ctx, layout.badge.x, layout.badge.y, presentGrade, modal.guardianScore || 0, modal.scoreDelta || 0)
+      : null;
     ctx.font = `700 ${layout.title.size}px ${UI_FONT_STACK}`;
     layout.title.lines.forEach((line, index) => {
       this.text(ctx, line, layout.title.x, layout.title.y + index * layout.title.lineHeight, layout.title.size, "#fff8df", "700");
@@ -8273,7 +10091,7 @@ class Game {
     const rewardLines = this.settlementRewardDisplayLines(modal, compact);
     if (focusedOutcome) this.drawFocusedOutcomeSummary(ctx, modal, focusMode, x + 26, rewardY + 6, w - 52, rewardH - 12);
     else this.drawSettlementRewardRows(ctx, modal, rewardLines, x + 26, rewardY + 6, w - 52, rewardH - 12, compact);
-    if (!focusedOutcome) {
+    if (!focusedOutcome && layout.next.h > 0) {
       const nextY = layout.next.y;
       this.roundRect(ctx, x + 14, nextY, w - 28, layout.next.h, 9, "rgba(255,248,223,.94)", "rgba(216,174,62,.28)");
       const nextLabel = modal.goalDone ? "达成 ✓" : "明日";
@@ -8288,17 +10106,19 @@ class Game {
     }
     const speechH = layout.speech.h;
     const speechY = layout.speech.y;
-    this.roundRect(ctx, x + 14, speechY + 3, w - 28, speechH, 15, "rgba(18,61,52,.11)");
-    this.roundRect(ctx, x + 14, speechY, w - 28, speechH, 15, "rgba(255,253,244,.98)", "rgba(46,135,110,.22)");
-    if (modal.speakerAnimal) this.drawAnimalAvatar(ctx, modal.speakerAnimal, x + 42, speechY + speechH / 2, 36, true);
-    else this.drawPlayerToken(ctx, x + 42, speechY + speechH / 2, modal.speakerBadge, "#1c3325");
     const animalReady = !modal.animalRevealAt || Date.now() >= modal.animalRevealAt;
     const echoLabel = animalReady ? `${modal.speaker || "动物"}` : "动物正在观察…";
-    this.text(ctx, echoLabel, x + 70, speechY + 22, 13, animalReady && modal.emotionalEcho ? "#8b6f2a" : "#1c3325", "700");
-    if (!focusedOutcome && animalReady && modal.emotionalEcho && modal.emotionalEcho.impact) {
-      this.text(ctx, this.truncateTextToWidth(ctx, modal.emotionalEcho.impact, 92, 10, "700"), x + w - 18, speechY + 21, 10, "#1f7a52", "700", "right");
+    if (speechH > 0) {
+      this.roundRect(ctx, x + 14, speechY + 3, w - 28, speechH, 15, "rgba(18,61,52,.11)");
+      this.roundRect(ctx, x + 14, speechY, w - 28, speechH, 15, "rgba(255,253,244,.98)", "rgba(46,135,110,.22)");
+      if (modal.speakerAnimal) this.drawAnimalAvatar(ctx, modal.speakerAnimal, x + 42, speechY + speechH / 2, 36, true);
+      else this.drawPlayerToken(ctx, x + 42, speechY + speechH / 2, modal.speakerBadge, "#1c3325");
+      this.text(ctx, echoLabel, x + 70, speechY + 22, 13, animalReady && modal.emotionalEcho ? "#8b6f2a" : "#1c3325", "700");
+      if (!focusedOutcome && animalReady && modal.emotionalEcho && modal.emotionalEcho.impact) {
+        this.text(ctx, this.truncateTextToWidth(ctx, modal.emotionalEcho.impact, 92, 10, "700"), x + w - 18, speechY + 21, 10, "#1f7a52", "700", "right");
+      }
+      this.wrapText(ctx, animalReady ? modal.speech : "先让数字落定，它会用自己的行动回应你。", x + 70, speechY + 42, w - 104, compact ? 10 : 11, compact ? 14 : 15, "#4b594e", focusedOutcome ? 1 : compact ? 1 : 2);
     }
-    this.wrapText(ctx, animalReady ? modal.speech : "先让数字落定，它会用自己的行动回应你。", x + 70, speechY + 42, w - 104, compact ? 10 : 11, compact ? 14 : 15, "#4b594e", focusedOutcome ? 1 : compact ? 1 : 2);
     const buttonY = layout.buttons.y;
     const btnW = (w - 44) / 2;
     const returnScreen = modal.returnScreen || "action";
@@ -8323,7 +10143,9 @@ class Game {
       focusedExploration,
       focusedOutcome,
       focusMode,
-      echoLabel,
+      echoLabel: speechH > 0 ? echoLabel : "",
+      nextVisible: layout.next.h > 0,
+      speechVisible: speechH > 0,
       secondaryAction: "close",
       messageOrder: modal.goalDone ? ["操作结果", "新任务"] : ["操作结果"]
     };
@@ -8376,12 +10198,13 @@ class Game {
     this.activeTaskLock = null;
     this.reserveDisplayTargetCache = null;
     this.reserveDisplayTargetRefreshLeft = 0;
-    // Start a visible 600ms count-up for the three core resources together.
+    // Start a visible count-up for fund, water, grass and animal total.
     // The settlement card has already shown the before/after explanation.
-    // Keep the post-settlement transition long enough for fund, water and
-    // grass to visibly roll together after the result is acknowledged.
-    this.numberAnimationBurstUntil = Date.now() + 1800;
+    this.numberAnimationBurstUntil = Date.now() + 2200;
     this.numberAnimationBurstCause = "task";
+    this.numberAnimationMetricFocus = modal.metricFocus === "grass" || modal.metricFocus === "water"
+      ? modal.metricFocus
+      : "";
     this.maybeShowInterstitialForSettlement(modal, returnScreen);
   }
 
@@ -8417,6 +10240,12 @@ class Game {
 
   maybeShowInterstitialForSettlement(modal = {}, returnScreen = "home", options = {}) {
     const proceed = () => this.continueAfterSettlement(modal, returnScreen, options);
+    // 物资页就地采购必须立刻把点击交还页面。插屏 show() 成功但看不见、
+    // 又不回调 onClose 时，showing 会把所有按钮锁死在当前库存页。
+    if (options.skipInterstitial || options.preserveCurrentScreen) {
+      proceed();
+      return Promise.resolve({ shown: false, reason: "skipped" });
+    }
     const adContext = this.interstitialContextForSettlement(modal);
     if (!this.interstitialAds || !this.interstitialAds.shouldShow(adContext)) {
       proceed();
@@ -8435,31 +10264,29 @@ class Game {
     this.enqueueEmotionEvent(modal.emotionEvent);
     if (modal.goalDone) this.queueMissionPush("settlement");
     this.queueChapterStoriesForSettlement(Object.assign({}, modal, { deferChapterStory: true }));
+    if (modal.chapterTransition || modal.finalChapterEnding) this.pendingChapterAdvance = true;
     this.suppressNextHomeMission = (returnScreen || "home") === "home";
     this.deferQueuedMissionPush = true;
     const targetScreen = returnScreen || "home";
     // 完成任务回到沙盘时统一恢复总览比例尺（“-”状态），让玩家先看到整张保护区。
     // 玩家随后仍可用地图缩放控件主动放大查看动物和设施。
     if (targetScreen === "home") {
-      this.mapZoom = 0;
+      this.restoreSandboxOverviewCamera();
     }
     const preserveCurrentScreen = !!options.preserveCurrentScreen && this.screen === targetScreen;
     if (preserveCurrentScreen) this.render();
     else this.setScreen(targetScreen);
     this.deferQueuedMissionPush = false;
+    if (preserveCurrentScreen) return;
     if (this.openPendingFirstPatrolTransfer()) return;
-    if (!this.chapterStoryModal && this.screen === "home" && modal.chapterTransition) {
-      // A chapter transition is always a dedicated interstitial. Do not let
-      // normal story pacing postpone or skip the promotion scene.
-      this.openQueuedChapterStory();
-    }
-    if (!this.chapterStoryModal && this.screen === "home") {
+    if (!this.chapterStoryModal && this.screen === "home" && !modal.chapterTransition && !modal.finalChapterEnding) {
       const reserve = (this.state.world || {}).reserve || {};
       const actions = Number((reserve.progression || {}).totalActions) || 0;
       const lastStoryAction = Number(((this.state.ui || {}).lastChapterStoryAction) || 0);
       const pacing = this.storyPacingMode();
       if (!pacing.slow && actions - lastStoryAction >= 2) this.openQueuedChapterStory({ paced: true });
     }
+    if (this.tryPresentPendingChapterAdvance()) return;
     if (this.chapterStoryModal) return;
     if (this.patrolTaskModal) return;
     if (this.infoDetailModal) return;
@@ -8480,7 +10307,31 @@ class Game {
   }
 
   shouldResolveMaterialActionInline(actionId, returnScreen) {
-    return returnScreen === "role" && actionId === "salvage";
+    return returnScreen === "role" && ["salvage", "buySupplies"].includes(actionId);
+  }
+
+  ecologyCardHeadline(text, max = 12) {
+    const value = String(text || "").replace(/\s+/g, " ").trim();
+    if (!value) return "记录";
+    if (value.length <= max) return value;
+    const sentence = (value.split(/[。！？；]/)[0] || value).trim();
+    const clause = (sentence.split(/[，、]/)[0] || sentence).trim();
+    if (clause && clause.length <= max) return clause;
+    if (sentence.length <= max) return sentence;
+    return `${value.slice(0, Math.max(1, max - 1))}…`;
+  }
+
+  ecologyArchiveItem(tag, title, options = {}) {
+    const full = String(title || "").trim();
+    return {
+      tag,
+      title: this.ecologyCardHeadline(full, options.max || 12),
+      body: this.compactDescriptionText(options.body || "", 16),
+      detailBody: options.detailBody || full,
+      largeText: options.largeText !== false,
+      stackTag: true,
+      inlineTitle: false
+    };
   }
 
   ecologyDecisionButtonLabel(choiceId = "", fallback = "选择方案") {
@@ -8502,7 +10353,9 @@ class Game {
       seasonal_zones: "划分轮换区",
       natural_shift: "自然竞争",
       preserve_process: "保留共生地",
-      sanitary_clear: "清理风险点"
+      sanitary_clear: "清理风险点",
+      open_shelter: "打开避险点",
+      ride_it_out: "随季忍耐"
     };
     return labels[choiceId] || fallback;
   }
@@ -8512,6 +10365,7 @@ class Game {
       rescue: { key: "medicalKit", need: 1, label: "医疗包" },
       isolate: { key: "medicalKit", need: 1, label: "医疗包" },
       disperse: { key: "fieldKit", need: 1, label: "野外工具包" },
+      open_shelter: { key: "fieldKit", need: 1, label: "野外工具包" },
       buffer: { key: "fund", need: 60, label: "保护基金" },
       quiet_guard: { key: "fund", need: 40, label: "保护基金" },
       corridor_guard: { key: "fund", need: 30, label: "保护基金" },
@@ -8535,43 +10389,26 @@ class Game {
     };
   }
 
-  openEcologyNarrativeChoiceConfirm(eventId, choiceId) {
-    const parentModal = this.infoDetailModal && this.infoDetailModal.kind === "ecologyNarrativeDecision"
-      ? this.infoDetailModal
-      : null;
-    const reserve = (this.state.world || {}).reserve || {};
-    const state = normalizeEcologyNarrative(reserve.ecologyNarrative || {});
-    const event = state.pendingDecision;
-    const choice = event && event.id === eventId && (event.choices || []).find((item) => item.id === choiceId);
-    if (!event || !choice) {
-      this.toast("这个生态现场已经发生变化");
+  executeEcologyNarrativeChoice(eventId, choiceId) {
+    if (this.infoDetailModal && this.infoDetailModal.kind === "ecologyNarrativeDecision" && this.infoDetailModal.phase === "result") {
       return false;
     }
-    const beat = event.narrativeBeat || {};
-    const previewReserve = JSON.parse(JSON.stringify(reserve));
-    const previewResult = applyEcologyNarrativeDecision(previewReserve, event.id, choice.id);
-    const businessPreview = this.eventBusinessForecast(previewReserve);
-    this.infoDetailModal = {
-      kind: "ecologyNarrativeChoiceConfirm",
-      kicker: "生态现场 · 行动确认",
-      title: choice.label,
-      icon: ((event.artifact || {}).icon) || "trail",
-      eventId,
-      choice,
-      availability: this.ecologyChoiceAvailability(choice.id),
-      narrativeBeat: beat,
-      eventStakes: event.stakes,
-      details: {
-        business: previewResult.ok ? `基金${this.signed((previewReserve.fund || 0) - (reserve.fund || 0))}星币；下次招募约${businessPreview.visitors}人（预估）` : "先补齐所需资源，确认后才结算。",
-        immediate: choice.preview || "行动后立即结算",
-        delayed: ecologyDecisionDebt(event.type, choice.id, event.stakes),
-        requirement: choice.cost || "无需额外物资"
-      },
-      footer: "先看清收益与代价，再确认执行。",
-      returnInfoDetailModal: parentModal
-    };
-    this.render();
+    const availability = this.ecologyChoiceAvailability(choiceId);
+    if (!availability.available) {
+      if (this.infoDetailModal && this.infoDetailModal.kind === "ecologyNarrativeDecision") {
+        this.infoDetailModal.availability = availability;
+        this.infoDetailModal.eventId = eventId;
+      }
+      this.toast(`当前缺少${availability.missingLabel}`);
+      this.render();
+      return false;
+    }
+    this.resolveEcologyNarrativeDecision(eventId, choiceId);
     return true;
+  }
+
+  openEcologyNarrativeChoiceConfirm(eventId, choiceId) {
+    return this.executeEcologyNarrativeChoice(eventId, choiceId);
   }
 
   routeEcologyChoiceResources(availability = {}) {
@@ -8588,16 +10425,14 @@ class Game {
 
   confirmEcologyNarrativeChoice() {
     const modal = this.infoDetailModal;
-    if (!modal || modal.kind !== "ecologyNarrativeChoiceConfirm" || !modal.choice) return false;
-    const availability = this.ecologyChoiceAvailability(modal.choice.id);
-    if (!availability.available) {
-      modal.availability = availability;
-      this.toast(`当前缺少${availability.missingLabel}`);
-      this.render();
-      return false;
+    if (modal && modal.kind === "ecologyNarrativeDecision") {
+      if (modal.phase === "result") return false;
+      const choice = (modal.choices || [])[0];
+      if (!choice) return false;
+      return this.executeEcologyNarrativeChoice(modal.eventId || choice.eventId, choice.id);
     }
-    this.resolveEcologyNarrativeDecision(modal.eventId, modal.choice.id);
-    return true;
+    if (!modal || modal.kind !== "ecologyNarrativeChoiceConfirm" || !modal.choice) return false;
+    return this.executeEcologyNarrativeChoice(modal.eventId, modal.choice.id);
   }
 
   openPendingEcologyDecision() {
@@ -8605,7 +10440,7 @@ class Game {
     const reserve = (this.state.world || {}).reserve || {};
     const state = normalizeEcologyNarrative(reserve.ecologyNarrative || {});
     const event = state.pendingDecision;
-    if (!event || !event.id || !event.choices || event.choices.length < 2) return false;
+    if (!event || !event.id || !event.choices || !event.choices.length) return false;
     reserve.ecologyNarrative = state;
     const voices = (event.dialogues || []).map((line) => `${line.speaker}（${line.tone || "立场"}）：“${line.text}”`).join("\n");
     const artifact = event.artifact || {};
@@ -8613,72 +10448,50 @@ class Game {
     const businessFactors = eventBusinessFactors(reserve);
     const businessDemand = Math.round((businessFactors.demand - 1) * 100);
     const businessSignal = businessDemand === 0 ? "客流暂稳" : `客流${businessDemand > 0 ? "↑" : "↓"}${Math.abs(businessDemand)}%`;
+    const remainingChoice = (event.choices || [])[0] || {};
+    const remainingCost = remainingChoice.cost || "无需额外物资";
     this.markPopupQuiet(4);
     this.infoDetailModal = {
       kind: "ecologyNarrativeDecision",
+      phase: "ready",
+      eventId: event.id,
+      availability: this.ecologyChoiceAvailability(remainingChoice.id),
       kicker: `自然规则 · 第${event.day}日`,
       title: event.title,
       icon: artifact.icon || "trail",
       expandableItems: true,
       items: [
-        { tag: "现场", title: beat.scene || event.scene, body: "" },
-        { tag: "真实原因", title: event.cause, body: "" },
-        {
-          tag: "两方立场",
-          title: voices || "动物没有留下可辨认的回应。",
-          body: "",
+        this.ecologyArchiveItem("现场", beat.scene || event.scene),
+        this.ecologyArchiveItem("真实原因", event.cause),
+        this.ecologyArchiveItem("两方立场", voices || "动物没有留下可辨认的回应。", {
           detailBody: (event.actors || []).map((actor) => `${actor.name}：${actor.stance}`).join("；")
-        },
-        { tag: "两难", title: beat.dilemma || event.stakes, body: "" },
-        {
-          tag: "生态物证",
-          title: `${artifact.name || "现场记录"}｜${artifact.reality || "待检验"}`,
-          body: "",
+        }),
+        this.ecologyArchiveItem("两难", beat.dilemma || event.stakes),
+        this.ecologyArchiveItem("生态物证", `${artifact.name || "现场记录"}｜${artifact.reality || "待检验"}`, {
           detailBody: `${artifact.story || ""}${artifact.easterEgg ? ` 未解线索：${artifact.easterEgg}` : ""}`
-        },
-        {
-          tag: "方案对比",
-          title: "查看两种方案的收益与代价",
-          body: "",
+        }),
+        this.ecologyArchiveItem("方案", event.choices.map((choice) => choice.label).join("、") || "处理现场", {
           detailBody: event.choices.map((choice) => `${choice.label}\n代价：${choice.cost}\n${choice.preview}`).join("\n\n")
-        }
+        })
       ],
       summaryItems: [
-        {
-          tag: "游客影响",
-          title: businessSignal,
-          body: "事件已进入客流模型",
+        this.ecologyArchiveItem("游客影响", businessSignal, {
           detailBody: `当前需求 ${businessSignal}；活跃度与留存会随方案更新。游客收入 = 规模 × 活跃度 × 留存。`
-        },
-        {
-          tag: "现场",
-          title: beat.scene || event.scene,
-          body: "点击查看原因与现场证据",
-          detailBody: `现场：${beat.scene || event.scene}\n原因：${event.cause}\n物证：${artifact.name || "现场记录"}｜${artifact.reality || "待检验"}`
-        },
-        {
-          tag: "两难",
-          title: beat.dilemma || event.stakes,
-          body: "影响动物停留，也影响客流与基金",
-          detailBody: `${voices || "动物没有留下可辨认的回应。"}\n${(event.actors || []).map((actor) => `${actor.name}：${actor.stance}`).join("；")}`
-        },
-        {
-          tag: "行动",
-          title: "两种方案可选",
-          body: "先选行动，再看收益与代价",
-          detailBody: event.choices.map((choice) => `${choice.label}\n代价：${choice.cost}\n${choice.preview}`).join("\n\n")
-        }
+        }),
+        this.ecologyArchiveItem("两难", beat.dilemma || event.stakes, {
+          body: remainingCost,
+          detailBody: `${beat.dilemma || event.stakes}\n代价：${remainingCost}\n${voices || "动物没有留下可辨认的回应。"}\n${(event.actors || []).map((actor) => `${actor.name}：${actor.stance}`).join("；")}`
+        })
       ],
       choices: event.choices.map((choice) => ({
         id: choice.id,
         label: this.ecologyDecisionButtonLabel(choice.id, choice.label),
         fullLabel: choice.label,
-        action: () => this.openEcologyNarrativeChoiceConfirm(event.id, choice.id)
+        action: () => this.executeEcologyNarrativeChoice(event.id, choice.id)
       })),
       narrativeBeat: beat
     };
     this.infoDetailModal.summaryItems.forEach((item) => { item.largeText = true; });
-    this.infoDetailModal.summaryItems.splice(1, 1);
     this.trackNarrative("narrative.beat_view", { kind: "ecology", eventType: event.type, beatId: beat.id || event.id });
     this.render();
     return true;
@@ -8720,49 +10533,52 @@ class Game {
     const businessAfter = this.eventBusinessForecast(reserve);
     const businessChange = result.businessChange || {};
     const businessPulse = eventBusinessSummary(businessChange);
+    const visitorHeadline = `游客${this.signed(businessChange.visitorsDelta || 0)} · 基金${this.signed(businessChange.fundDelta || 0)}`;
     const factorPulse = (value) => {
       const delta = Math.round((Number(value || 1) - 1) * 100);
       return delta === 0 ? "稳定" : `${delta > 0 ? "↑" : "↓"}${Math.abs(delta)}%`;
     };
     const businessText = `${businessPulse}；下一波招募约 ${businessBefore.visitors} → ${businessAfter.visitors} 人`;
-    this.infoDetailModal = {
-      kind: "ecologyNarrativeOutcome",
-      kicker: "选择已经写入保护区",
-      title: result.choice.label,
-      icon: artifact.icon || "trail",
+    const previous = this.infoDetailModal && this.infoDetailModal.kind === "ecologyNarrativeDecision"
+      ? this.infoDetailModal
+      : {};
+    this.infoDetailModal = Object.assign({}, previous, {
+      kind: "ecologyNarrativeDecision",
+      phase: "result",
+      eventId,
+      completionTask: { key: `ecology:${eventId}`, title: result.event.title },
+      kicker: previous.kicker || `自然规则 · 第${result.event.day || ""}日`,
+      title: previous.title || result.event.title,
+      icon: previous.icon || artifact.icon || "trail",
       items: [
-        { tag: "结果", title: beat.immediateConsequence || result.outcome, body: "这次决定已经发生，另一方的处境不会因此消失。" },
-        { tag: "游客与基金", title: businessText, body: `客流需求 ${factorPulse(businessChange.demand)} · 活跃度 ${factorPulse(businessChange.activity)} · 留存 ${factorPulse(businessChange.retention)}。${businessChange.immediate ? "当前客流已即时修正。" : "当前暂无已入场游客，影响会在下一波客流体现。"} 规模 × 活跃度 × 留存共同决定收入。` },
-        { tag: "变化", title: changes, body: "" },
-        { tag: "未还代价", title: beat.delayedDebt || result.event.stakes, body: "这笔代价不会在今夜消失。" },
-        { tag: "现实记录", title: artifact.reality || "现场物证已经封存。", body: "" },
-        { tag: "物件故事", title: artifact.story || "这一夜被收入生态档案。", body: artifact.easterEgg ? `仍未解释：${artifact.easterEgg}` : "长期观察继续。" },
-        { tag: "长期线", title: beat.nextHook || result.event.foreshadow, body: "相同物种和领地再次相遇时，动物会记得你的选择。" }
+        this.ecologyArchiveItem("结果", beat.immediateConsequence || result.outcome, { body: "决定已生效" }),
+        this.ecologyArchiveItem("游客影响", visitorHeadline, {
+          body: `下一波${businessBefore.visitors}→${businessAfter.visitors}人`,
+          detailBody: `${businessText}\n客流需求 ${factorPulse(businessChange.demand)} · 活跃度 ${factorPulse(businessChange.activity)} · 留存 ${factorPulse(businessChange.retention)}。${businessChange.immediate ? "当前客流已即时修正。" : "当前暂无已入场游客，影响会在下一波客流体现。"}`
+        }),
+        this.ecologyArchiveItem("变化", changes),
+        this.ecologyArchiveItem("未还代价", beat.delayedDebt || result.event.stakes, { body: "代价仍在" }),
+        this.ecologyArchiveItem("现实记录", artifact.reality || "现场物证已经封存。"),
+        this.ecologyArchiveItem("物件故事", artifact.story || "这一夜被收入生态档案。", { body: artifact.easterEgg ? "仍有未解线索" : "继续观察" }),
+        this.ecologyArchiveItem("长期线", beat.nextHook || result.event.foreshadow, { body: "动物会记得" })
       ],
       expandableItems: true,
       summaryItems: [
-        {
-          tag: "结果与变化",
-          title: beat.immediateConsequence || result.outcome,
-          body: businessText,
-          detailBody: `${beat.immediateConsequence || result.outcome}\n${businessText}\n游客贡献预估 ${businessBefore.income} → ${businessAfter.income} 星币。\n变化：${changes}`
-        },
-        {
-          tag: "未还代价",
-          title: beat.delayedDebt || result.event.stakes,
-          body: "点击查看持续影响",
-          detailBody: `${beat.delayedDebt || result.event.stakes}\n代价不会今夜消失。`
-        },
-        {
-          tag: "长期线",
-          title: beat.nextHook || result.event.foreshadow,
-          body: "动物会记住你的选择",
-          detailBody: `现实记录：${artifact.reality || "现场物证已封存。"}\n物件故事：${artifact.story || "收入生态档案。"}${artifact.easterEgg ? `\n未解线索：${artifact.easterEgg}` : ""}\n长期线：${beat.nextHook || result.event.foreshadow}`
-        }
+        this.ecologyArchiveItem("结果", beat.immediateConsequence || result.outcome, {
+          body: "查看变化",
+          detailBody: `${beat.immediateConsequence || result.outcome}\n变化：${changes}\n未还代价：${beat.delayedDebt || result.event.stakes}\n长期线：${beat.nextHook || result.event.foreshadow}`
+        }),
+        this.ecologyArchiveItem("游客影响", visitorHeadline, {
+          body: `${businessBefore.visitors}→${businessAfter.visitors}人`,
+          detailBody: `${businessText}\n游客贡献预估 ${businessBefore.income} → ${businessAfter.income} 星币。`
+        }),
       ],
-      footer: `摘要 · 点击卡片查看更多 · ${artifact.name || "生态现场记录"}已封存`,
+      choices: [],
+      actionLabel: "关闭",
+      footer: "点击卡片查看更多",
       narrativeBeat: beat
-    };
+    });
+    this.infoDetailModal.summaryItems.forEach((item) => { item.largeText = true; });
     this.trackNarrative("narrative.consequence_view", { kind: "ecology", eventType: result.event.type, beatId: beat.id || eventId, permanence: beat.permanence || "memory" });
     this.render();
   }
@@ -8864,11 +10680,12 @@ class Game {
       kicker: `第${chapter}章 · 守护承诺已写下`,
       title: result.choice.label,
       icon: "reserve_level",
+      expandableItems: true,
       items: changeItems.concat([
-        result.businessChange ? { tag: "游客与基金", title: eventBusinessSummary(result.businessChange), body: "守护承诺已影响下一波客流；安全、生态与动物关系会继续改变收入。" } : null,
-        { tag: "永久规则", title: result.choice.primaryBenefit, body: `${result.choice.primaryCost}。${result.choice.longTerm}` },
-        { tag: "沙盘变化", title: result.choice.mapTag, body: "承诺已经成为保护区的一处可见痕迹；之后相关行动都会读取这条规则。" }
-      ]).slice(0, 5),
+        result.businessChange ? this.ecologyArchiveItem("游客影响", `游客${this.signed(result.businessChange.visitorsDelta || 0)} · 基金${this.signed(result.businessChange.fundDelta || 0)}`, {
+          detailBody: eventBusinessSummary(result.businessChange)
+        }) : null
+      ]).filter(Boolean).slice(0, 5),
       actionLabel: "继续守护",
       action: () => {
         this.infoDetailModal = null;
@@ -8941,7 +10758,9 @@ class Game {
       route,
       namedIndividual,
       selectedChoiceId,
-      footer: namedIndividual ? `已预选推荐方案；可改选。${namedIndividual.name}的长期后果会随选择展开。` : `已预选推荐方案，可改选后确认。当前方针：${route.label}。`
+      footer: choiceCards.length <= 1
+        ? `确认后执行。当前方针：${route.label}。`
+        : namedIndividual ? `已预选推荐方案；可改选。${namedIndividual.name}的长期后果会随选择展开。` : `已预选推荐方案，可改选后确认。当前方针：${route.label}。`
     };
     this.render();
     return true;
@@ -8986,6 +10805,7 @@ class Game {
       kicker: "高风险方案 · 点数判定",
       title: choice.label,
       icon: "trail",
+      archeryAimStartedAt: Date.now(),
       dilemma,
       choice,
       namedIndividual,
@@ -9008,6 +10828,7 @@ class Game {
     const modal = this.infoDetailModal;
     if (!modal || modal.kind !== "strategicDice" || modal.phase !== "ready") return;
     this.playSfx("dice");
+    this.lockArcheryAim(modal);
     const finalRoll = this.archeryScoreFor(modal);
     const preview = modal.dicePreview || {};
     const reserve = (this.state.world || {}).reserve || {};
@@ -9023,21 +10844,23 @@ class Game {
     const token = `${Date.now()}_${dilemmaId}_${choiceId}_${finalRoll}`;
     this.strategicRollToken = token;
     modal.phase = "rolling";
-    modal.actionLabel = "点数生成中";
-    modal.diceMotion = { startedAt: Date.now(), duration: 455 };
+    modal.actionLabel = "拉弓";
+    this.beginArcheryFlight(modal, 720);
     let frame = 0;
     const animate = () => {
       if (this.strategicRollToken !== token || this.infoDetailModal !== modal) return;
       frame += 1;
-      modal.displayRoll = frame >= 8 ? finalRoll : ((finalRoll + frame * (modal.explorationMode === "animalDice" ? 2 : 5)) % 6) + 1;
+      modal.displayRoll = frame >= 12 ? finalRoll : ((finalRoll + frame * (modal.explorationMode === "animalDice" ? 2 : 5)) % 6) + 1;
+      modal.actionLabel = frame <= 2 ? "拉弓" : "射出";
       this.render();
-      if (frame < 8) {
-        setTimeout(animate, 65);
+      if (frame < 12) {
+        setTimeout(animate, 72);
         return;
       }
       modal.phase = "resolved";
       modal.diceMotion = null;
       modal.actionLabel = `结算 ${finalRoll} 点`;
+      this.playArcheryImpact(finalRoll);
       this.render();
       setTimeout(() => {
         if (this.strategicRollToken !== token || this.infoDetailModal !== modal) return;
@@ -9073,7 +10896,7 @@ class Game {
       title: choice.label,
       businessSentiment: result.dice ? (result.dice.success ? .05 : -.05) : .025
     }, choiceId);
-    reserve.progression = reserveProgressionFor(reserve);
+    reserve.progression = this.commitReserveProgression(reserve);
     this.state.world.reserve = reserve;
     this.currentGoalView(true);
     saveState(this.state);
@@ -9108,6 +10931,7 @@ class Game {
       animalOutcome
     });
     this.infoDetailModal = {
+      completionTask: !result.dice || result.dice.success ? { key: `strategy:${dilemmaId}:${(reserve.strategy || {}).totalChoices || 0}`, title: choice.label } : null,
       revealAt: Date.now() + 900,
       animalRevealAt: animalOutcome ? Date.now() + 1500 : 0,
       kicker: animalOutcome
@@ -9169,12 +10993,20 @@ class Game {
     return !!(event && ["rare", "return", "birth", "death", "injury", "departure", "independence", "wild_visit"].includes(event.type));
   }
 
-  markPopupQuiet(actionGap = 2) {
+  markPopupQuiet(actionGap = 2, quietMs = POPUP_DISMISS_QUIET_MS) {
     const totalActions = (((((this.state.world || {}).reserve || {}).progression || {}).totalActions) || 0);
     this.state.ui = Object.assign({}, this.state.ui || {}, {
-      quietUntilAction: Math.max(((this.state.ui || {}).quietUntilAction) || 0, totalActions + Math.max(1, actionGap))
+      quietUntilAction: Math.max(((this.state.ui || {}).quietUntilAction) || 0, totalActions + Math.max(1, actionGap)),
+      popupQuietUntil: Math.max(((this.state.ui || {}).popupQuietUntil) || 0, Date.now() + Math.max(0, Number(quietMs) || 0))
     });
     saveState(this.state);
+  }
+
+  popupFlowQuiet(now = Date.now()) {
+    const ui = (this.state && this.state.ui) || {};
+    if (Number(ui.popupQuietUntil) > now) return true;
+    const totalActions = (((((this.state.world || {}).reserve || {}).progression || {}).totalActions) || 0);
+    return totalActions < (Number(ui.quietUntilAction) || 0);
   }
 
   openOfflineBrief() {
@@ -9248,7 +11080,7 @@ class Game {
   openAnimalLetterPrompt() {
     if (!this.pendingAnimalLetterId || !this.state.character || this.screen !== "home") return false;
     if (((this.state.ui || {}).onboarding) && this.onboardingProgress().active) return false;
-    if (this.chapterStoryModal || this.settlementModal || this.patrolTaskModal || this.infoDetailModal) return false;
+    if (this.chapterStoryModal || this.settlementOccupiesFlow() || this.patrolTaskModal || this.infoDetailModal) return false;
     const letters = this.currentAnimalLetters();
     const letter = letters.find((item) => item.id === this.pendingAnimalLetterId && !item.readAt)
       || letters.find((item) => item.dateKey === animalLetterDateKey() && !item.readAt);
@@ -9281,6 +11113,7 @@ class Game {
     const unread = letters.filter((letter) => !letter.readAt).length;
     return {
       kind: "animalLetterInbox",
+      shareRewardType: "animals",
       kicker: `保护区记忆 · 未读 ${unread}`,
       title: "动物来信",
       icon: "signal",
@@ -9303,6 +11136,12 @@ class Game {
     const current = animalLetterInbox(this.state.world.lifeMemory).find((item) => item.id === letter.id) || letter;
     saveState(this.state);
     const animal = this.animalForLetter(current);
+    const shareRewardType = this.resolveMailShareRewardType(parentModal, "animals");
+    const reward = shareRewardPreview(this.state, {
+      rewardType: shareRewardType,
+      sourceKind: shareRewardType === "animals" ? "animal" : "visitor",
+      kind: "birth"
+    });
     this.infoDetailModal = {
       kind: "animalLetterReader",
       kicker: `${current.species} · 第${current.day}日来信`,
@@ -9313,9 +11152,13 @@ class Game {
       prose: this.letterBody(current, "animal"),
       meta: current.factLabel ? `${current.factLabel} ${current.factValue}` : "动物把它们经历的事写了下来",
       returnInfoDetailModal: parentModal,
+      shareRewardType,
       choices: [
         { label: "返回保护区来信", action: () => parentModal ? this.dismissInfoDetailModal() : this.openReserveLetterInbox() },
-        { label: "分享这封信", action: () => this.shareAnimalLetter(current) }
+        {
+          label: reward.eligible ? `分享这封信 · ${reward.label}+${reward.amount}` : `${reward.label}本章分享已用完`,
+          action: () => this.shareMailLetter(current, shareRewardType)
+        }
       ]
     };
     this.render();
@@ -9325,7 +11168,9 @@ class Game {
   shareAnimalLetter(letter) {
     if (!letter) return false;
     const animal = this.animalForLetter(letter);
-    const quote = (letter.paragraphs || [])[1] || (letter.paragraphs || [])[0] || "今天，我们还在这里。";
+    const quote = (letter.paragraphs || [])[1] || (letter.paragraphs || [])[0]
+      || this.letterBody(letter, letter.sourceKind || "animal")
+      || "今天，我们还在这里。";
     const payload = sharePayload(this.state.world || {}, null, {
       id: letter.id,
       forceDaily: true,
@@ -9338,10 +11183,33 @@ class Game {
     this.state.world.lifeMemory = markAnimalLetterShared(this.state.world.lifeMemory, letter.id);
     saveState(this.state);
     this.shareForestPostcard(null, Object.assign({}, payload, {
+      rewardType: "animals",
+      sourceKind: "animal",
       shareTitle: `${letter.animalName}写给我的一封信`,
       imageUrl: SHARE_IMAGES.warm,
       text: `第${letter.day}日，${letter.animalName}写道：${quote}`,
       letter: Object.assign({}, letter, { animal })
+    }));
+    return true;
+  }
+
+  shareVisitorLetter(letter) {
+    if (!letter) return false;
+    const body = this.letterBody(letter, letter.sourceKind || "visitor");
+    const payload = sharePayload(this.state.world || {}, null, {
+      id: letter.id,
+      forceDaily: true,
+      quote: body,
+      title: letter.title || "保护区来信",
+      body
+    });
+    this.shareForestPostcard(null, Object.assign({}, payload, {
+      rewardType: "visitors",
+      sourceKind: "visitor",
+      shareTitle: `${letter.sourceLabel || "保护区"}：${letter.title || "来信"}`,
+      imageUrl: SHARE_IMAGES.warm,
+      text: `第${letter.day || ((this.state.world || {}).day || 1)}日，${body}`,
+      letter
     }));
     return true;
   }
@@ -9364,14 +11232,19 @@ class Game {
   settlementModalLayout(ctx, modal, x, y, w, h, compact = h < 620) {
     const focusMode = this.settlementFocusMode(modal);
     const focusedOutcome = !!focusMode;
+    const dailyFull = !!modal.dailyFullClear;
     const badge = { x: x + w - 82, y: y + 18, w: 64, h: 72 };
     const titleText = this.settlementFocusedTitle(modal, focusMode) || modal.title || "巡护完成";
-    const title = this.settlementTitleLayout(ctx, titleText, w - 124, compact, focusedOutcome);
+    const title = this.settlementTitleLayout(ctx, titleText, w - 124, compact, focusedOutcome, dailyFull ? 2 : 0);
     title.x = x + 20;
     title.y = y + 70;
     const titleBottom = title.y + Math.max(1, title.lines.length) * title.lineHeight - 4;
     const headerBottom = Math.max(y + 88, badge.y + badge.h, titleBottom);
-    const summary = { y: headerBottom + (compact ? 12 : 14), h: focusedOutcome ? 50 : compact ? 72 : 76 };
+    const habitatImpact = !focusedOutcome && this.settlementHabitatFocus(modal);
+    const summary = {
+      y: headerBottom + (compact ? 12 : 14),
+      h: focusedOutcome ? 50 : dailyFull ? (compact ? 108 : 116) : habitatImpact ? (compact ? 100 : 108) : compact ? 72 : 76
+    };
     const scene = { y: summary.y + summary.h, h: 0 };
     const stats = {
       y: scene.y,
@@ -9380,20 +11253,22 @@ class Game {
     };
     const reward = {
       y: summary.y + summary.h + (compact ? 10 : 12),
-      h: focusedOutcome ? 36 : compact ? 72 : 76
+      h: focusedOutcome ? 36 : dailyFull ? (compact ? 90 : 98) : compact ? 72 : 76
     };
-    const next = { y: reward.y + reward.h + (focusedOutcome ? 0 : 8), h: focusedOutcome ? 0 : 32 };
+    const hideNext = focusedOutcome || dailyFull;
+    const hideSpeech = dailyFull;
+    const next = { y: reward.y + reward.h + (hideNext ? 0 : 8), h: hideNext ? 0 : 32 };
     const speech = {
-      h: focusedOutcome ? 54 : compact ? 60 : 64,
-      y: next.y + next.h + (focusedOutcome ? 10 : 8)
+      h: hideSpeech ? 0 : focusedOutcome ? 54 : compact ? 60 : 64,
+      y: next.y + next.h + (hideSpeech ? 0 : focusedOutcome ? 10 : 8)
     };
-    const buttons = { y: speech.y + speech.h + 10, h: 44 };
+    const buttons = { y: (hideSpeech ? reward.y + reward.h : speech.y + speech.h) + (hideSpeech ? 12 : 10), h: 44 };
     return { badge, title, summary, scene, stats, reward, next, speech, buttons };
   }
 
-  settlementTitleLayout(ctx, title, maxWidth, compact, emphasized = false) {
-    const baseSize = emphasized ? (compact ? 22 : 24) : compact ? 18 : 20;
-    const minSize = emphasized ? 18 : 15;
+  settlementTitleLayout(ctx, title, maxWidth, compact, emphasized = false, sizeBoost = 0) {
+    const baseSize = (emphasized ? (compact ? 22 : 24) : compact ? 18 : 20) + Math.max(0, Number(sizeBoost) || 0);
+    const minSize = (emphasized ? 18 : 15) + Math.max(0, Number(sizeBoost) || 0);
     let selected = { size: minSize, lineHeight: minSize + 4, lines: [String(title || "")] };
     for (let size = baseSize; size >= minSize; size -= 1) {
       const lines = this.wrapTextLines(ctx, title || "巡护完成", maxWidth, size);
@@ -9469,6 +11344,51 @@ class Game {
     };
   }
 
+  drawSettlementMetricHero(ctx, item, x, y, w, compact, progress, role = "primary") {
+    const tone = this.settlementChangeTone(item);
+    const state = this.settlementAnimatedMetric(item, progress);
+    const pulse = role === "primary" ? Math.sin(Math.min(1, progress) * Math.PI) : 0;
+    if (pulse > 0.02) this.roundRect(ctx, x - 4, y - 2, w + 8, 45, 13, `rgba(${tone.rgb},${(0.08 + pulse * 0.12).toFixed(3)})`);
+    this.roundRect(ctx, x, y + 2, 5, 38, 3, tone.color);
+    this.text(ctx, this.truncateTextToWidth(ctx, item.label, w - 72, 11, "700"), x + 14, y + 15, 11, "#66715f", "700");
+
+    const deltaText = item.customValue
+      ? (/封存/.test(item.customValue) ? "珍藏" : `+${progress >= 1 ? item.amount : Math.max(0, Math.round(item.amount * progress))}`)
+      : item.key === "animalTotal"
+        ? `${this.signed(state.delta)}只`
+        : this.signed(state.delta);
+    ctx.font = `700 12px ${UI_FONT_STACK}`;
+    const deltaW = Math.max(42, Math.min(64, 18 + ctx.measureText(deltaText).width));
+    this.roundRect(ctx, x + w - deltaW, y + 17, deltaW, 24, 10, tone.pill, "rgba(255,255,255,.72)");
+    this.text(ctx, deltaText, x + w - deltaW / 2, y + 34, 12, tone.color, "700", "center");
+
+    const dataW = w - deltaW - 24;
+    if (item.customValue) {
+      const value = this.settlementAnimatedCustomValue(item, progress);
+      const valueSize = this.fitTextSize(ctx, value, dataW, compact ? 23 : 25, 18, "700");
+      this.text(ctx, value, x + 14 + dataW / 2, y + 39, valueSize, tone.color, "700", "center");
+      return Object.assign({}, item, { role, beneficial: tone.beneficial, valueSize, shownValue: value, progress });
+    }
+    const beforeText = `${Math.round(item.before)}`;
+    const afterText = item.key === "animalTotal" ? `${Math.round(state.after)}只` : `${Math.round(state.after)}`;
+    const beforeSize = compact ? 12 : 13;
+    const afterSize = this.fitTextSize(ctx, afterText, Math.max(42, dataW * .5), compact ? 22 : 24, 17, "700");
+    ctx.font = `700 ${beforeSize}px ${UI_FONT_STACK}`;
+    const beforeW = ctx.measureText(beforeText).width;
+    ctx.font = `700 12px ${UI_FONT_STACK}`;
+    const arrowW = ctx.measureText("→").width;
+    ctx.font = `700 ${afterSize}px ${UI_FONT_STACK}`;
+    const afterW = ctx.measureText(afterText).width;
+    const groupW = beforeW + arrowW + afterW + 14;
+    let gx = x + 14 + Math.max(0, (dataW - groupW) / 2);
+    this.text(ctx, beforeText, gx, y + 37, beforeSize, "#7a857e", "700");
+    gx += beforeW + 6;
+    this.text(ctx, state.delta > 0 ? "↑" : state.delta < 0 ? "↓" : "=", gx, y + 36, 12, state.delta ? "#d84b42" : "#7a857e", "700");
+    gx += arrowW + 8;
+    this.text(ctx, afterText, gx, y + 39, afterSize, tone.color, "700");
+    return Object.assign({}, item, { role, beneficial: tone.beneficial, valueSize: afterSize, shownValue: state.after, progress });
+  }
+
   drawSettlementChangeStrip(ctx, modal, x, y, w, compact = false) {
     const display = this.settlementDisplayChanges(modal);
     const primary = display.primary;
@@ -9479,45 +11399,33 @@ class Game {
       this.text(ctx, "没有关键数值越过变化线", x + 2, y + 47, 10, "#66715f", "700");
       return;
     }
-    const primaryState = this.settlementAnimatedMetric(primary, progress);
-    const tone = this.settlementChangeTone(primary);
-    const pulse = Math.sin(Math.min(1, progress) * Math.PI);
-    if (pulse > 0.02) this.roundRect(ctx, x - 4, y - 2, w + 8, 45, 13, `rgba(${tone.rgb},${(0.08 + pulse * 0.12).toFixed(3)})`);
-    this.roundRect(ctx, x, y + 2, 5, 38, 3, tone.color);
-    this.text(ctx, this.truncateTextToWidth(ctx, primary.label, w - 72, 11, "700"), x + 14, y + 15, 11, "#66715f", "700");
+    modal.renderedSettlementChanges.push(this.drawSettlementMetricHero(ctx, primary, x, y, w, compact, progress, "primary"));
 
-    const deltaText = primary.customValue
-      ? (/封存/.test(primary.customValue) ? "珍藏" : `+${progress >= 1 ? primary.amount : Math.max(0, Math.round(primary.amount * progress))}`)
-      : this.signed(primaryState.delta);
-    const deltaW = Math.max(42, Math.min(58, 18 + ctx.measureText(deltaText).width));
-    this.roundRect(ctx, x + w - deltaW, y + 17, deltaW, 24, 10, tone.pill, "rgba(255,255,255,.72)");
-    this.text(ctx, deltaText, x + w - deltaW / 2, y + 34, 12, tone.color, "700", "center");
-
-    const dataW = w - deltaW - 24;
-    if (primary.customValue) {
-      const value = this.settlementAnimatedCustomValue(primary, progress);
-      const valueSize = this.fitTextSize(ctx, value, dataW, compact ? 23 : 25, 18, "700");
-      this.text(ctx, value, x + 14 + dataW / 2, y + 39, valueSize, tone.color, "700", "center");
-      modal.renderedSettlementChanges.push(Object.assign({}, primary, { role: "primary", beneficial: tone.beneficial, valueSize, shownValue: value, progress }));
-    } else {
-      const beforeText = `${Math.round(primary.before)}`;
-      const afterText = `${Math.round(primaryState.after)}`;
-      const beforeSize = compact ? 12 : 13;
-      const afterSize = this.fitTextSize(ctx, afterText, Math.max(42, dataW * .46), compact ? 24 : 25, 18, "700");
-      ctx.font = `700 ${beforeSize}px ${UI_FONT_STACK}`;
-      const beforeW = ctx.measureText(beforeText).width;
-      ctx.font = `700 12px ${UI_FONT_STACK}`;
-      const arrowW = ctx.measureText("→").width;
-      ctx.font = `700 ${afterSize}px ${UI_FONT_STACK}`;
-      const afterW = ctx.measureText(afterText).width;
-      const groupW = beforeW + arrowW + afterW + 14;
-      let gx = x + 14 + Math.max(0, (dataW - groupW) / 2);
-      this.text(ctx, beforeText, gx, y + 37, beforeSize, "#7a857e", "700");
-      gx += beforeW + 6;
-      this.text(ctx, primaryState.delta > 0 ? "↑" : primaryState.delta < 0 ? "↓" : "=", gx, y + 36, 12, primaryState.delta ? "#d84b42" : "#7a857e", "700");
-      gx += arrowW + 8;
-      this.text(ctx, afterText, gx, y + 39, afterSize, tone.color, "700");
-      modal.renderedSettlementChanges.push(Object.assign({}, primary, { role: "primary", beneficial: tone.beneficial, valueSize: afterSize, shownValue: primaryState.after, progress }));
+    const animalImpact = display.animalImpact;
+    const chipY = animalImpact ? y + 78 : y + 47;
+    if (animalImpact) {
+      this.roundRect(ctx, x, y + 46, w, 28, 10, "rgba(227,243,223,.92)", "rgba(46,135,110,.22)");
+      const animalState = this.settlementAnimatedMetric(animalImpact, progress);
+      const animalTone = this.settlementChangeTone(animalImpact);
+      const arrow = animalState.delta > 0 ? "↑" : animalState.delta < 0 ? "↓" : "→";
+      const countText = `${Math.round(animalImpact.before)} ${arrow} ${Math.round(animalState.after)}只`;
+      const capacityDelta = Number(animalImpact.capacityDelta) || 0;
+      const deltaText = animalState.delta
+        ? `${this.signed(animalState.delta)}只`
+        : capacityDelta
+          ? `承载${this.signed(capacityDelta)}`
+          : "持平";
+      this.text(ctx, this.truncateTextToWidth(ctx, animalSourceFlowLabel(modal.animalSourceDelta) || "动物总数", 72, 11, "700"), x + 10, y + 63, 11, "#31533b", "700");
+      this.text(ctx, countText, x + w / 2 + 6, y + 64, compact ? 13 : 14, animalTone.color, "700", "center");
+      this.roundRect(ctx, x + w - 62, y + 51, 54, 18, 8, animalTone.pill, "rgba(255,255,255,.72)");
+      this.text(ctx, deltaText, x + w - 35, y + 64, 11, animalTone.color, "700", "center");
+      modal.renderedSettlementChanges.push(Object.assign({}, animalImpact, {
+        role: "animalImpact",
+        beneficial: animalTone.beneficial,
+        valueSize: compact ? 13 : 14,
+        shownValue: animalState.after,
+        progress
+      }));
     }
 
     const secondary = display.secondary.slice(0, 3);
@@ -9528,39 +11436,39 @@ class Game {
       const itemTone = this.settlementChangeTone(item);
       const itemState = this.settlementAnimatedMetric(item, progress);
       const arrow = itemState.delta > 0 ? "↑" : itemState.delta < 0 ? "↓" : "→";
-      const unit = item.key === "fund" ? " 星币" : item.key === "visitors" ? " 人" : "";
-      const displayLabel = item.key === "fund" ? "保护基金" : item.label;
+      const unit = item.key === "fund" ? " 星币" : item.key === "visitors" ? " 人" : item.key === "animalTotal" || item.key === "carryingCapacity" ? " 只" : "";
+      const displayLabel = item.key === "fund" ? "保护基金" : item.key === "animalTotal" ? "动物总数" : item.label;
       const text = item.customValue
         ? `${displayLabel} ${this.settlementAnimatedCustomValue(item, progress)}`
         : `${displayLabel} ${Math.round(item.before)} ${arrow} ${Math.round(itemState.after)}${unit}  ${arrow}${Math.abs(itemState.delta)}`;
-      this.roundRect(ctx, dx, y + 47, chipW, 18, 7, itemTone.soft, "rgba(36,64,46,.08)");
-      const resourceMetric = item.key === "fund" || item.key === "visitors";
+      this.roundRect(ctx, dx, chipY, chipW, 18, 7, itemTone.soft, "rgba(36,64,46,.08)");
+      const resourceMetric = item.key === "fund" || item.key === "visitors" || item.key === "animalTotal";
       const size = this.fitTextSize(ctx, text, chipW - 10, resourceMetric ? 11 : 10, 10, "700");
       const rendered = this.truncateTextToWidth(ctx, text, chipW - 10, size, "700");
-      this.drawChangeText(ctx, rendered, dx + chipW / 2, y + 60, size, itemTone.color, "700", "center");
+      this.drawChangeText(ctx, rendered, dx + chipW / 2, chipY + 13, size, itemTone.color, "700", "center");
       modal.renderedSettlementChanges.push(Object.assign({}, item, { role: "secondary", beneficial: itemTone.beneficial, valueSize: size, shownValue: itemState.after, progress }));
     });
   }
 
   drawDailyFullChangeStrip(ctx, modal, x, y, w, compact = false) {
     const stats = (modal.stats || []).slice(0, 6);
-    this.text(ctx, "保护区数值已更新", x + 2, y + 13, compact ? 12 : 13, "#1c3325", "700");
+    this.text(ctx, "保护区数值已更新", x + 2, y + 16, compact ? 15 : 16, "#1c3325", "700");
     const cols = 3;
     const gap = 6;
     const chipW = (w - gap * (cols - 1)) / cols;
-    const chipH = compact ? 22 : 24;
+    const chipH = compact ? 28 : 30;
     stats.forEach((item, index) => {
       const col = index % cols;
       const row = Math.floor(index / cols);
       const dx = x + col * (chipW + gap);
-      const dy = y + 19 + row * (chipH + 4);
+      const dy = y + 24 + row * (chipH + 6);
       const delta = Number(item.delta) || 0;
       const tone = delta > 0 ? "#1f7a52" : delta < 0 ? "#a43f39" : "#66715f";
       const arrow = delta > 0 ? "↑" : delta < 0 ? "↓" : "→";
       const label = item.key === "fund" ? "基金" : item.key === "visitors" ? "游客" : item.label;
       const text = `${label} ${Math.round(item.before || 0)} ${arrow} ${Math.round(item.after || 0)} ${delta > 0 ? "+" : ""}${Math.round(delta)}`;
-      this.roundRect(ctx, dx, dy, chipW, chipH, 7, "rgba(236,244,224,.92)", "rgba(46,135,110,.18)");
-      const size = this.fitTextSize(ctx, text, chipW - 8, compact ? 9 : 10, 8, "700");
+      this.roundRect(ctx, dx, dy, chipW, chipH, 8, "rgba(236,244,224,.92)", "rgba(46,135,110,.18)");
+      const size = this.fitTextSize(ctx, text, chipW - 8, compact ? 12 : 13, 10, "700");
       this.drawChangeText(ctx, this.truncateTextToWidth(ctx, text, chipW - 8, size, "700"), dx + chipW / 2, dy + chipH * .68, size, tone, "700", "center");
     });
     modal.renderedSettlementChanges = stats.map((item) => Object.assign({}, item, { role: "daily-full", shownValue: item.after }));
@@ -9602,6 +11510,15 @@ class Game {
   }
 
   drawFocusedOutcomeSummary(ctx, modal, mode, x, y, w, h) {
+    if (mode === "rescue" && modal.rescueScore) {
+      const score = modal.rescueScore;
+      const context = `第${score.chapter}章 · ${score.populationTypeLabel} ${score.speciesName} · ${score.rescueTypeLabel} · 本章第${score.rescueIndex}次`;
+      const total = `当前总分 ${score.totalScore}/${score.targetScore} · 本次得分 +${score.shotScore}`;
+      this.text(ctx, this.truncateTextToWidth(ctx, context, w, 10, "700"), x + 2, y + 15, 10, "#31533b", "700");
+      this.text(ctx, this.truncateTextToWidth(ctx, total, w, 11, "700"), x + 2, y + 34, 11, "#a65332", "700");
+      modal.renderedRescueScore = Object.assign({}, score, { context, total });
+      return;
+    }
     let tag = "去向";
     let summary = "结果已记录";
     if (mode === "exploration") {
@@ -9629,11 +11546,24 @@ class Game {
     modal.renderedSettlementRewardRows = [{ tag, text: summary, rendered, size: summarySize, truncated: rendered !== summary }];
   }
 
-  settlementDisplayChanges(modal = {}) {
-    const stats = (modal.stats || []).filter((item) => Number.isFinite(item.delta) && item.delta !== 0).map((item) => Object.assign({}, item, {
-      label: String(item.label || "变化").replace("指数", ""),
+  settlementHabitatFocus(modal = {}) {
+    if (modal.metricFocus === "water" || modal.metricFocus === "grass") return modal.metricFocus;
+    const commandText = String(modal.command || "");
+    if (/恢复草场|补播耐旱草|草场承载/.test(commandText) && !/修复饮水点|清理饮水点|疏通水线|补充水源/.test(commandText)) return "grass";
+    if (/修复饮水点|清理饮水点|疏通水线|补充水源/.test(commandText) && !/恢复草场|补播耐旱草|草场承载/.test(commandText)) return "water";
+    const actionType = modal.actionType || this.reserveActionIdFromCommand(modal.command || "");
+    return actionType === "habitat" ? "habitat" : "";
+  }
+
+  settlementNormalizeStat(item = {}) {
+    return Object.assign({}, item, {
+      label: String(item.label || "变化").replace("指数", "").replace("动物数量", "动物总数"),
       inverse: item.inverse || /偷猎|疾病|风险|威胁|压力/.test(String(item.label || ""))
-    }));
+    });
+  }
+
+  settlementDisplayChanges(modal = {}) {
+    const stats = (modal.stats || []).filter((item) => Number.isFinite(item.delta) && item.delta !== 0).map((item) => this.settlementNormalizeStat(item));
     const fundDelta = Number(modal.fundAfter) - Number(modal.fundBefore);
     const fund = Number.isFinite(fundDelta) && fundDelta !== 0
       ? { key: "fund", label: "保护基金", before: Number(modal.fundBefore), after: Number(modal.fundAfter), delta: fundDelta }
@@ -9647,19 +11577,26 @@ class Game {
       ? { key: "guardianScore", label: "守护分", before: Number(modal.guardianScore || 0) - scoreDelta, after: Number(modal.guardianScore || 0), delta: scoreDelta }
       : null;
     const rankedStats = stats.slice().sort((a, b) => this.settlementChangePriority(b) - this.settlementChangePriority(a));
-    const statByKey = rankedStats.reduce((map, item) => {
-      if (item && item.key) map[item.key] = item;
+    const statByKey = (modal.stats || []).reduce((map, item) => {
+      if (item && item.key) map[item.key] = this.settlementNormalizeStat(item);
       return map;
     }, {});
+    rankedStats.forEach((item) => {
+      if (item && item.key) statByKey[item.key] = item;
+    });
+    const habitatFocus = this.settlementHabitatFocus(modal);
     const actionType = modal.actionType || this.reserveActionIdFromCommand(modal.command || "");
     const commandText = String(modal.command || "");
-    const waterFocus = actionType === "habitat" && statByKey.water && (
+    const waterFocus = habitatFocus !== "grass" && (habitatFocus === "water" || (actionType === "habitat" && statByKey.water && (
       /水源|水位|水线|饮水|河岸|湿地/.test(commandText)
+      || !habitatFocus
       || !statByKey.grass
       || Number(statByKey.water.before) <= Number(statByKey.grass.before)
       || Number(statByKey.water.delta) > 0
-    );
-    const actionPrimary = actionType === "habitat" ? (waterFocus ? statByKey.water : statByKey.grass || null)
+    )));
+    const actionPrimary = actionType === "habitat" || habitatFocus
+      ? (habitatFocus === "grass" ? (statByKey.grass || null)
+        : waterFocus ? statByKey.water : statByKey.grass || null)
       : actionType === "antiPoacher" ? (statByKey.poacherPressure || statByKey.safety || null)
       : actionType === "intervention" ? (statByKey.disease || statByKey.grass || null)
       : actionType === "houndScout" ? (statByKey.poacherPressure || statByKey.safety || null)
@@ -9686,16 +11623,35 @@ class Game {
       // Lead with the two core operating metrics; ecology explains their cause.
       primary = fund || visitors || rankedStats[0] || score;
     }
-    const pool = [fund, visitors].filter(Boolean).concat(rankedStats, score ? [score] : []);
-    const seen = new Set(primary ? [primary.key || primary.label] : []);
+    const animalRaw = statByKey.animalTotal;
+    const capacityRaw = statByKey.carryingCapacity;
+    const animalImpact = habitatFocus && animalRaw
+      ? Object.assign({}, animalRaw, {
+        label: "动物总数",
+        capacityBefore: capacityRaw ? Number(capacityRaw.before) || 0 : 0,
+        capacityAfter: capacityRaw ? Number(capacityRaw.after) || 0 : 0,
+        capacityDelta: capacityRaw ? Number(capacityRaw.delta) || 0 : 0
+      })
+      : null;
+    const habitatLead = habitatFocus
+      ? [
+        habitatFocus === "grass" ? null : statByKey.grass,
+        capacityRaw && Number(capacityRaw.delta) && (!animalImpact || !Number(animalImpact.delta)) ? capacityRaw : null,
+        fund,
+        visitors
+      ].filter((item) => item && Number(item.delta))
+      : [];
+    const pool = habitatLead.concat([fund, visitors].filter(Boolean), rankedStats, score ? [score] : []);
+    const seen = new Set([primary && (primary.key || primary.label), animalImpact && "animalTotal"].filter(Boolean));
     const secondary = [];
     pool.forEach((item) => {
       const key = item.key || item.label;
+      if (habitatFocus === "grass" && key === "water") return;
       if (seen.has(key) || secondary.length >= 3) return;
       seen.add(key);
       secondary.push(item);
     });
-    return { primary, secondary };
+    return { primary, secondary, animalImpact };
   }
 
   settlementChangePriority(item = {}) {
@@ -9703,8 +11659,9 @@ class Game {
     const magnitude = Math.abs(Number(item.delta) || 0);
     const danger = /偷猎|疾病|风险|威胁|压力/.test(label) ? 14 : 0;
     const survival = /安全|水源|迁移/.test(label) ? 3 : 0;
+    const animals = /动物总数|动物数量|动物承载/.test(label) ? 9 : 0;
     const economy = /基金|游客/.test(label) ? 12 : 0;
-    return magnitude + danger + survival + economy;
+    return magnitude + danger + survival + animals + economy;
   }
 
   settlementChangeTone(item = {}) {
@@ -9750,6 +11707,7 @@ class Game {
   }
 
   drawSettlementRewardRows(ctx, modal, lines, x, y, w, h, compact = false) {
+    const dailyFull = !!modal.dailyFullClear;
     const rows = (lines || []).slice(0, 3).map((line, index) => {
       const value = String(line || "");
       const splitAt = value.search(/[:：]/);
@@ -9761,18 +11719,49 @@ class Game {
     });
     const rowGap = rows.length >= 3 ? Math.max(14, Math.floor(h / 3)) : Math.max(16, Math.floor(h / Math.max(1, rows.length)));
     modal.renderedSettlementRewardRows = [];
+    let cursorY = y + (dailyFull ? 16 : 10);
     rows.forEach((row, index) => {
-      const lineY = y + 10 + index * rowGap;
-      const isResource = /保护基金|游客数量/.test(row.tag);
-      const tagW = isResource ? Math.min(78, Math.max(64, 14 + row.tag.length * 11)) : index === 0 ? 42 : 38;
-      this.roundRect(ctx, x, lineY - 11, tagW, 16, 6, index === 0 ? "rgba(216,174,62,.18)" : "rgba(36,64,46,.07)");
-      this.text(ctx, row.tag, x + tagW / 2, lineY + 1, isResource ? 10 : 9, index === 0 ? "#8b6f2a" : "#66715f", "700", "center");
-      const size = isResource ? (compact ? 11 : 12) : index === 0 ? (compact ? 10 : 11) : 10;
+      const isResource = /保护基金|游客数量|动物总数|动物承载/.test(row.tag);
+      const tagSize = dailyFull ? (compact ? 12 : 13) : isResource ? 10 : 9;
+      const size = dailyFull ? (compact ? 13 : 14) : isResource ? (compact ? 11 : 12) : index === 0 ? (compact ? 10 : 11) : 10;
+      const tagW = isResource ? Math.min(78, Math.max(64, 14 + row.tag.length * 11)) : dailyFull ? (index === 0 ? 56 : 52) : index === 0 ? 42 : 38;
+      const tagH = dailyFull ? 22 : 16;
+      const weight = index === 0 ? "700" : dailyFull ? "700" : "400";
       const available = w - tagW - 7;
-      const rendered = this.truncateTextToWidth(ctx, row.text, available, size, index === 0 ? "700" : "400");
-      this.drawChangeText(ctx, rendered, x + tagW + 7, lineY + 1, size, index === 0 ? "#1c3325" : "#4b594e", index === 0 ? "700" : "400");
-      modal.renderedSettlementRewardRows.push({ tag: row.tag, text: row.text, rendered, size, truncated: rendered !== row.text });
+      const textLines = dailyFull
+        ? this.wrapTextLines(ctx, row.text, available, size, weight).slice(0, 2)
+        : [this.truncateTextToWidth(ctx, row.text, available, size, weight)];
+      const lineHeight = dailyFull ? size + 5 : 0;
+      const blockH = dailyFull ? Math.max(tagH, textLines.length * lineHeight) : tagH;
+      this.roundRect(ctx, x, cursorY - (dailyFull ? 15 : 11), tagW, tagH, 6, index === 0 ? "rgba(216,174,62,.18)" : "rgba(36,64,46,.07)");
+      this.text(ctx, row.tag, x + tagW / 2, cursorY + 1, tagSize, index === 0 ? "#8b6f2a" : "#66715f", "700", "center");
+      textLines.forEach((line, lineIndex) => {
+        this.drawChangeText(ctx, line, x + tagW + 7, cursorY + 1 + lineIndex * lineHeight, size, index === 0 ? "#1c3325" : "#4b594e", weight);
+      });
+      modal.renderedSettlementRewardRows.push({
+        tag: row.tag,
+        text: row.text,
+        rendered: textLines.join(""),
+        size,
+        truncated: textLines.join("") !== row.text.replace(/\s/g, "") && textLines.join("") !== row.text
+      });
+      cursorY += dailyFull ? blockH + 10 : rowGap;
     });
+  }
+
+  settlementFundRewardAmount(modal = {}) {
+    return ((modal.goalResult && Array.isArray(modal.goalResult.rewards) ? modal.goalResult.rewards : [])
+      .filter((item) => item && item.type === "fund")
+      .reduce((sum, item) => sum + Math.max(0, Math.round(Number(item.amount) || 0)), 0));
+  }
+
+  settlementFundSplitLine(modal = {}) {
+    const cost = Math.max(0, Math.round(Number((modal.actionFundCost || {}).cost) || 0));
+    const taskFund = this.settlementFundRewardAmount(modal);
+    if (cost > 0 && taskFund > 0) return `行动成本 -${cost} · 任务奖励 +${taskFund}`;
+    if (cost > 0) return `行动成本 -${cost}`;
+    if (taskFund > 0) return `任务奖励 +${taskFund}`;
+    return "";
   }
 
   settlementRewardDisplayLines(modal, compact) {
@@ -9788,8 +11777,7 @@ class Game {
         : "逐项奖励已到账";
       return [
         `全部任务奖励：${each}`,
-        `全清奖励：${extra.length ? extra.join("、") : "额外奖励已到账"}`,
-        "所有奖励与保护区数值变化已写入经营数据"
+        `全清奖励：${extra.length ? extra.join("、") : "额外奖励已到账"}`
       ];
     }
     const fundBefore = Number(modal.fundBefore);
@@ -9798,12 +11786,35 @@ class Game {
     const visitorsAfter = Number(modal.visitorsAfter);
     const hasFund = Number.isFinite(fundBefore) && Number.isFinite(fundAfter);
     const hasVisitors = Number.isFinite(visitorsBefore) && Number.isFinite(visitorsAfter);
+    const habitatFocus = this.settlementHabitatFocus(modal);
+    if (habitatFocus) {
+      const direction = (delta) => delta > 0 ? "↑" : delta < 0 ? "↓" : "→";
+      const animal = (modal.stats || []).find((item) => item.key === "animalTotal");
+      const capacity = (modal.stats || []).find((item) => item.key === "carryingCapacity");
+      const lines = [];
+      if (animal) {
+        const delta = Number(animal.delta) || 0;
+        lines.push(delta
+          ? `动物总数：${Math.round(animal.before)} ${direction(delta)} ${Math.round(animal.after)} 只（${direction(delta)}${Math.abs(delta)}）`
+          : `动物总数：${Math.round(animal.after)} 只 · 持平`);
+      }
+      if (capacity && Number(capacity.delta)) {
+        const delta = Number(capacity.delta) || 0;
+        lines.push(`动物承载：${Math.round(capacity.before)} ${direction(delta)} ${Math.round(capacity.after)} 只（${direction(delta)}${Math.abs(delta)}）`);
+      } else if (hasFund) {
+        const split = this.settlementFundSplitLine(modal);
+        const delta = fundAfter - fundBefore;
+        lines.push(split || (delta ? `保护基金：${fundBefore} ${direction(delta)} ${fundAfter} 星币（${direction(delta)}${Math.abs(delta)}）` : `保护基金：${fundAfter} 星币 · 持平`));
+      }
+      if (lines.length) return lines.slice(0, 2);
+    }
     if (hasFund || hasVisitors) {
       const resourceLines = [];
       const direction = (delta) => delta > 0 ? "↑" : delta < 0 ? "↓" : "→";
       if (hasFund) {
+        const split = this.settlementFundSplitLine(modal);
         const delta = fundAfter - fundBefore;
-        resourceLines.push(delta ? `保护基金：${fundBefore} ${direction(delta)} ${fundAfter} 星币（${direction(delta)}${Math.abs(delta)}）` : `保护基金：${fundAfter} 星币 · 持平`);
+        resourceLines.push(split || (delta ? `保护基金：${fundBefore} ${direction(delta)} ${fundAfter} 星币（${direction(delta)}${Math.abs(delta)}）` : `保护基金：${fundAfter} 星币 · 持平`));
       }
       if (hasVisitors) {
         const delta = visitorsAfter - visitorsBefore;
@@ -10123,7 +12134,7 @@ class Game {
     const progress = this.onboardingProgress();
     if (!progress.active) return null;
     if (progress.totalActions <= 0) {
-      return { step: 1, title: "先完成第一次巡线", body: "水边有两件事，只选一件先处理。", label: "开始选择", stage: "first_choice" };
+      return { step: 1, title: "先完成第一次巡线", body: "先从水边脚印开始，做完立刻看结果。", label: "开始巡线", stage: "first_choice" };
     }
     if (progress.totalActions === 1) {
       if (progress.stage === "second_action") {
@@ -10163,32 +12174,26 @@ class Game {
 
   openFirstOnboardingChoice() {
     const progress = this.onboardingProgress();
-    if (this.screen !== "home" || !progress.active || progress.totalActions !== 0 || this.chapterStoryModal || this.settlementModal || this.patrolTaskModal || this.infoDetailModal) return false;
+    if (this.screen !== "home" || !progress.active || progress.totalActions !== 0 || this.chapterStoryModal || this.settlementOccupiesFlow() || this.patrolTaskModal || this.infoDetailModal) return false;
     this.saveOnboardingProgress({ startedAt: progress.startedAt || Date.now(), stage: "first_choice" });
     const reserve = (this.state.world || {}).reserve || {};
-    const ecology = reserve.ecology || {};
     const supplies = reserve.supplies || {};
     const houndStatus = this.actionResourceStatus("houndScout", reserve);
     const houndCards = this.patrolTaskChangeCards("houndScout", reserve, houndStatus);
     const houndResult = houndCards.find((card) => card.label === "偷猎") || houndCards.find((card) => card.label === "发现") || {};
     const houndCost = houndCards.find((card) => card.label === "消耗") || {};
-    const water = ecology.water || 0;
-    const fund = reserve.fund || 0;
-    const economy = chapterEconomy(reserve);
     this.infoDetailModal = {
       kind: "onboardingChoice",
       kicker: "第一次选择",
-      title: "水边先处理哪一处？",
+      title: "先从水边脚印开始",
       icon: "trail",
       items: [
-        { tag: "修复水源", title: `水源 ${water}→${Math.min(100, water + 4)}~${Math.min(100, water + 7)}`, body: `基金 ${fund}→${Math.max(0, fund - economy.habitatCost)} · 工具包 -1 · 草场 +6` },
         { tag: "侦察脚印", title: `${houndResult.label || "偷猎"} ${houndResult.value || "预计下降"}`, body: `狗粮 ${houndCost.value || `${supplies.dogFood || 0}→${Math.max(0, (supplies.dogFood || 0) - 1)}`} · 可能发现回收物` }
       ],
       choices: [
-        { label: "修复水源", action: () => this.executeOnboardingAction("habitat") },
         { label: "侦察脚印", action: () => this.executeOnboardingAction("houndScout") }
       ],
-      footer: "选一项，立即看数字和动物回应。"
+      footer: "执行后立即看数字和动物回应。"
     };
     this.render();
     return true;
@@ -10207,11 +12212,14 @@ class Game {
     this.command = option.placeholder.replace("例如：", "");
     this.pendingTaskOriginScreen = "home";
     this.saveOnboardingProgress({ stage: "first_action", firstChoice: option.id });
+    this.pendingOnboardingFirstAction = true;
     this.submitCommand();
+    this.pendingOnboardingFirstAction = false;
     if (this.settlementModal) {
       this.settlementModal.onboardingFirstAction = true;
       this.settlementModal.breakthrough = { kicker: "第一次选择" };
       this.settlementModal.title = `你选择了 · ${option.shortLabel || option.label}`;
+      this.configureSettlementReveal(this.settlementModal, this.settlementModal.returnScreen || "home");
       this.saveOnboardingProgress({ stage: "first_result", firstActionDone: true });
       this.render();
     }
@@ -10320,11 +12328,61 @@ class Game {
     if (this.infoDetailModal && progress.active && !["onboardingChoice", "onboardingGuide", "visitorRecruitment"].includes(this.infoDetailModal.kind)) {
       this.infoDetailModal = null;
     }
-    if (this.screen !== "home" || this.chapterStoryModal || this.settlementModal || this.patrolTaskModal || this.infoDetailModal) return false;
+    if (this.screen !== "home" || this.chapterStoryModal || this.settlementOccupiesFlow() || this.patrolTaskModal || this.infoDetailModal) return false;
     this.saveOnboardingProgress({ stage, seen: { [stage]: true } });
     this.infoDetailModal = this.onboardingGuideDetail(stage);
     this.render();
     return true;
+  }
+
+  isTodaysDailyGoal(goal = {}) {
+    return !!goal && (goal.kind === "daily" || /^daily:/.test(String(goal.id || "")));
+  }
+
+  dailyPresentationKey() {
+    const reserve = ((this.state || {}).world || {}).reserve || {};
+    const chapter = Math.max(1, Number((reserve.progression || {}).stage || (reserve.progression || {}).displayChapter) || 1);
+    return `daily:${chapter}:${goalDateKey()}`;
+  }
+
+  remainingDailyObjective() {
+    const objectives = ((((this.state || {}).world || {}).goals || {}).daily || {}).objectives || [];
+    return objectives.find((item) => item && !item.complete && Number(item.progress || 0) < Number(item.target || 1)) || null;
+  }
+
+  dailyPartialCompletionLine(progress = {}) {
+    const titles = ((progress && progress.completions) || [])
+      .filter((item) => item && item.type === "daily_objective")
+      .map((item) => item.title)
+      .filter(Boolean);
+    return titles.length ? `${titles.join("、")}已完成` : "今日事项已完成一项";
+  }
+
+  currentDailyMatchesGoal(goal = {}) {
+    if (this.isTodaysDailyGoal(goal)) return true;
+    const remaining = this.remainingDailyObjective();
+    if (!remaining || !goal) return false;
+    const action = String(goal.recommendedAction || "");
+    if (remaining.recommendedAction && remaining.recommendedAction === action) return true;
+    if (remaining.kind === "visitor") return action === "viewVisitors" || action === "visitorAdjust";
+    if (remaining.kind === "ecology") return action === "habitat" || action === "intervention";
+    return false;
+  }
+
+  todaysDailyAlreadyPresented() {
+    const key = this.dailyPresentationKey();
+    const ui = ((this.state || {}).ui) || {};
+    if (ui.dailyAutoShownKey === key || ui.missionPushSeenKey === key) return true;
+    const daily = ((((this.state || {}).world || {}).goals || {}).daily || {});
+    if (String(daily.dateKey || "") !== goalDateKey()) return false;
+    if (daily.completedPrevious) return true;
+    return (daily.objectives || []).some((item) => item && (item.complete || Number(item.progress || 0) >= Number(item.target || 1)));
+  }
+
+  markDailyPresentationSeen() {
+    const key = this.dailyPresentationKey();
+    this.state.ui = Object.assign({}, this.state.ui || {}, { dailyAutoShownKey: key });
+    return key;
   }
 
   missionPushKey() {
@@ -10332,15 +12390,23 @@ class Game {
     const reserve = world.reserve || {};
     const view = this.currentGoalView();
     const primary = view.primary || {};
+    const dateKey = goalDateKey();
+    const urgentMission = primary.kind === "crisis" || !!primary.shortage;
+    // 危机/短缺用独立键，避免被每日展示键挡住。其余情况下，同一章同一天的
+    // 每日事项共用一个键，防止下一项每日被当成新的自动弹窗。
+    if (!urgentMission && (this.isTodaysDailyGoal(primary) || this.currentDailyMatchesGoal(primary) || this.remainingDailyObjective())) {
+      return this.dailyPresentationKey();
+    }
     return [
       ((reserve.progression || {}).level) || 1,
       primary.id || "goal",
       primary.recommendedAction || "",
-      (((world.goals || {}).daily || {}).cycle) || 1
+      dateKey
     ].join("|");
   }
 
   currentGoalView(forceRefresh = false) {
+    if (!forceRefresh && this.painting && this.frameMemoStore && this.frameMemoStore.goalView) return this.frameMemoStore.goalView;
     const world = this.state.world || (this.state.world = {});
     const now = Date.now();
     const saved = world.goals;
@@ -10358,17 +12424,29 @@ class Game {
       || saved.daily.schemaVersion !== GOAL_BALANCE.dailySchemaVersion
       || saved.daily.dateKey !== goalDateKey(now)
       || !saved.active
-      || !saved.active.primary
       || emergencyGoalStale
       || Number(saved.active.generatedAtAction || 0) !== Number(totalActions);
     if (needsRefresh) {
       const normalized = normalizeGoalState(saved, this.state, now);
       world.goals = resolveGoals(this.state, normalized, forceRefresh ? "explicit_refresh" : "state_refresh");
     }
-    return buildGoalView(this.state, world.goals);
+    const view = buildGoalView(this.state, world.goals);
+    this.frameMemoStore = this.frameMemoStore || {};
+    this.frameMemoStore.goalView = view;
+    return view;
   }
 
   goalTypeLabel(goal = {}) {
+    const sourceLabel = {
+      natural_event: "真实事件",
+      story: "剧情",
+      user_triggered: "主动触发",
+      sandbox: "沙盘",
+      metric: "指标触发",
+      survival: "生存",
+      animal: "动物"
+    }[goal.taskCategory];
+    if (sourceLabel) return sourceLabel;
     if (goal.storyAligned) return "主线";
     return {
       crisis: "紧急",
@@ -10418,7 +12496,7 @@ class Game {
     const lock = this.activeTaskLock;
     if (!lock) return false;
     // A visible task or a pending settlement still owns the interaction.
-    if (this.infoDetailModal || this.patrolTaskModal || this.settlementModal || this.chapterStoryModal) {
+    if (this.infoDetailModal || this.patrolTaskModal || this.settlementOccupiesFlow() || this.chapterStoryModal) {
       this.toast("请先完成或关闭当前任务");
       return true;
     }
@@ -10456,9 +12534,15 @@ class Game {
 
   openGoalCenter(selectedGoalId = "") {
     if (this.resumeActiveTask()) return true;
-    let view = this.currentGoalView();
+    let view = this.currentGoalView(true);
     let goals = [view.primary].concat(view.alternatives || []).filter(Boolean);
-    if (!goals.length) return false;
+    if (!goals.length) {
+      const fallback = this.chapterCoreFallbackGoal();
+      if (fallback) return !!this.executeGoalAction(fallback);
+      this.toast("暂无新目标，可以自由探索沙盘");
+      this.render();
+      return false;
+    }
     if (selectedGoalId && selectedGoalId !== ((view.primary || {}).id)) {
       const world = this.state.world || (this.state.world = {});
       world.goals = selectActiveGoal(world.goals, selectedGoalId);
@@ -10530,12 +12614,7 @@ class Game {
       }
       goal = Object.assign({}, goal, objective, {
         id: goal.id, kind: "daily",
-        // A daily exploration needs a playable action, not a bare channel
-        // visit that leaves the progress counter unchanged on every retry.
-        // Exploration tasks are completed from the survival channel.  Keep
-        // this route explicit so a stale objective cannot fall through to the
-        // materials inventory page.
-        targetScreen: objective.recommendedAction === "exploreMaterials" ? "survival" : objective.targetScreen
+        targetScreen: objective.targetScreen
       });
     }
     const world = this.state.world || (this.state.world = {});
@@ -10543,16 +12622,89 @@ class Game {
       world.goals = selectActiveGoal(world.goals, goal.id);
       saveState(this.state);
     }
-    const action = goal.recommendedAction || "exploreMaterials";
+    const action = goal.recommendedAction || "viewVisitors";
+    if (this.isTodaysDailyGoal(goal) || this.currentDailyMatchesGoal(goal)) this.markDailyPresentationSeen();
+    if (this.isTodaysDailyGoal(goal)) this.markMissionPushSeen(this.missionPushKey());
     this.infoDetailModal = null;
-    if (["guideSandbox", "viewFund", "viewVisitors", "viewSurvival", "viewDiscovery"].includes(action)) {
+    const liveEmergency = (((this.state.world || {}).reserve || {}).emergency || {}).active || null;
+    if (action === "realEvent" || (goal.kind === "crisis" && isRealNatureEventType(liveEmergency && liveEmergency.type))) {
+      const definition = worldEventDefinition(liveEmergency && liveEmergency.type);
+      const opened = this.openWorldEventDetail({
+        type: "crisis",
+        kind: "exclamation",
+        eventType: liveEmergency && liveEmergency.type,
+        title: (liveEmergency && liveEmergency.title) || (definition && definition.title) || "真实事件"
+      }, definition);
+      if (!opened) this.activeTaskLock = null;
+      return opened;
+    }
+    const visitorCrisisGoal = isVisitorArcheryEvent(liveEmergency && liveEmergency.type)
+      && goal.kind === "crisis";
+    if (action === "visitorAdjust" || visitorCrisisGoal) {
+      const opened = this.openVisitorIncidentDice({
+        type: "visitorIncident",
+        kind: "visitorIncident",
+        recommendAction: "visitorAdjust",
+        title: (liveEmergency && liveEmergency.title) || "游客现场需要调节",
+        dailyTask: goal.kind === "daily" && !isVisitorArcheryEvent(liveEmergency && liveEmergency.type)
+      });
+      if (!opened) this.activeTaskLock = null;
+      return opened;
+    }
+    if (action === "harshNature" || isHarshNatureEvent(goal) || isHarshNatureEvent(liveEmergency || {})) {
+      const opened = this.openHarshNatureArchery(Object.assign({}, goal, liveEmergency || {}, {
+        title: (goal && goal.title) || (liveEmergency && liveEmergency.title) || "自然灾害"
+      }));
+      if (!opened) this.activeTaskLock = null;
+      return opened;
+    }
+    const exchangeCrisisGoal = isNeighborExchangeEvent(liveEmergency && liveEmergency.type)
+      && goal.kind === "crisis";
+    if (action === "neighborExchange" || exchangeCrisisGoal) {
+      const opened = this.openNeighborEventDice({
+        type: "crisis",
+        kind: "exclamation",
+        eventType: (liveEmergency && liveEmergency.type) || "neighbor_exchange",
+        recommendAction: "neighborExchange",
+        title: (liveEmergency && liveEmergency.title) || "邻区提出物品交换"
+      });
+      if (!opened) this.activeTaskLock = null;
+      return opened;
+    }
+    if (["guideSandbox", "viewFund", "viewSurvival", "viewDiscovery"].includes(action)) {
       return this.openGuidedChannel(action);
+    }
+    if (action === "viewVisitors") {
+      this.infoDetailModal = null;
+      return this.openVisitorRecruitment();
+    }
+    if (action === "visitorReception") {
+      this.infoDetailModal = null;
+      return this.openVisitorReception();
     }
     if (action === "rescueAnimal") {
       // 解救入口由 openChapterRescueTask 统一持有任务锁；不要先把晋级
       // 目标锁成普通 goal，否则进入解救弹窗时会被 activeTaskLock 拦截。
       this.activeTaskLock = null;
-      return this.openChapterRescueTask(goal.animalId || goal.targetId || "");
+      return this.openChapterRescueTask(goal.targetId || goal.animalId || "");
+    }
+    if (action === "habitat" && (goal.metricFocus === "water" || goal.metricFocus === "grass")) {
+      const resourceStatus = this.actionResourceStatus("habitat", (this.state.world || {}).reserve || {}, goal.purchaseId || null);
+      if (!resourceStatus.canRun && this.canOpenMaterialsForMissing(resourceStatus)) {
+        this.activeTaskLock = null;
+        this.openMaterialsForMissing(resourceStatus);
+        return true;
+      }
+      this.activeTaskLock = { id: goal.id || "task", kind: goal.kind || "goal", goal: Object.assign({}, goal), startedAt: Date.now() };
+      const opened = this.openMetricImprovementTask(goal.metricFocus);
+      if (!opened) this.activeTaskLock = null;
+      return opened;
+    }
+    if (action === "chapterSpecial") {
+      this.activeTaskLock = { id: goal.id || "chapterSpecial", kind: "chapterSpecial", goal: Object.assign({}, goal), startedAt: Date.now() };
+      const opened = this.openChapterSpecialTask();
+      if (!opened) this.activeTaskLock = null;
+      return opened;
     }
     // 先检查行动资源，再打开巡护操作页。资源不足时继续打开“修复/驱赶”
     // 会让玩家看到一个无法提交的任务卡，表现为“点击没反应”。直接定位到
@@ -10579,7 +12731,7 @@ class Game {
     }
     if (action === "facilityBuild") {
       const reserve = (this.state.world || {}).reserve || {};
-      if (goal.nodeId) return this.focusReserveDevelopmentNode(goal.nodeId, true, goal.developmentTask || "build");
+      if (goal.nodeId) return this.focusReserveDevelopmentNode(goal.nodeId, true, goal.developmentTask || "build", goal.preferredChoiceId);
       if (goal.facilityId) return this.focusReserveFacility(goal.facilityId, true);
       const day = ((reserve.guardianCycle || {}).day) || (world.day || 1);
       const developmentViews = reserveDevelopmentViews(reserve, day);
@@ -10600,14 +12752,6 @@ class Game {
       return true;
     }
     if (action === "exploreMaterials") {
-      if (goal.targetScreen === "survival") {
-        this.survivalExploreFocusUntil = Date.now() + 6000;
-        this.setScreen("survival");
-        this.prepareLocalAssetsForScreen("survival");
-        this.toast("已进入生存频道 · 探索或交换补给，再回来执行任务");
-        this.render();
-        return true;
-      }
       this.setScreen("role");
       this.openMaterialExploration();
       return true;
@@ -10624,6 +12768,10 @@ class Game {
       this.toast("已定位到物资收取");
       return true;
     }
+    if (goal.chapterCore || action === "viewChapterCore") {
+      this.activeTaskLock = null;
+      return this.openCoreMetricDetail(goal.coreMetricId || "animals");
+    }
     if (action === "animalCare") {
       const characters = (world.knownCharacters || []).filter((animal) => animal && animal.id);
       const explicitId = goal.animalId || goal.targetAnimalId || goal.targetId || "";
@@ -10638,17 +12786,6 @@ class Game {
       this.toast("沙盘暂时没有可安抚的命名动物");
       return true;
     }
-    if (action === "visitorAdjust") {
-      const opened = this.openVisitorIncidentDice({
-        type: "visitorIncident",
-        kind: "visitorIncident",
-        recommendAction: "visitorAdjust",
-        title: "游客现场需要调节",
-        dailyTask: goal.kind === "daily"
-      });
-      if (!opened) this.activeTaskLock = null;
-      return opened;
-    }
         if (action === "observeReserve") return this.completeFallbackObservation();
     const opened = this.openReserveViewAction(action, "sandbox-task", goal.purchaseId || null);
     if (!opened) this.activeTaskLock = null;
@@ -10658,7 +12795,7 @@ class Game {
   openGuidedChannel(action = "guideSandbox") {
     // Entering a channel completes channel guidance; no extra card click is required.
     if (["viewDiscovery", "viewSurvival"].includes(action)) {
-      const beforeState = JSON.parse(JSON.stringify(this.state));
+      const beforeState = this.cloneStateForGoalProgress();
       const progress = this.syncSandboxGoalState(beforeState, action);
       // Channel-entry objectives finish at the moment the channel opens. The
       // old task lock was left behind because the channel has no result card,
@@ -10691,7 +12828,6 @@ class Game {
       this.render();
       return true;
     }
-    this.focusedReserveMetric = null;
     this.setScreen("home");
     this.toast("已回到沙盘 · 先看看动物、游客和现场标记");
     this.render();
@@ -10699,7 +12835,7 @@ class Game {
   }
 
   completeFallbackObservation() {
-    const beforeState = JSON.parse(JSON.stringify(this.state));
+    const beforeState = this.cloneStateForGoalProgress();
     const reserve = (this.state.world || {}).reserve || {};
     const accepted = addPendingRecovered(reserve, "researchSample", 1);
     reserve.progression = reserve.progression || {};
@@ -10751,6 +12887,9 @@ class Game {
   queueMissionPush(reason = "settlement") {
     const key = this.missionPushKey();
     if (this.pendingMissionPush && this.pendingMissionPush.key === key) return false;
+    const currentPrimary = ((this.currentGoalView && this.currentGoalView()) || {}).primary || {};
+    const urgentMission = currentPrimary.kind === "crisis" || currentPrimary.kind === "recovery" || !!currentPrimary.shortage;
+    if (!urgentMission && (this.currentDailyMatchesGoal(currentPrimary) || this.todaysDailyAlreadyPresented())) return false;
     const reserve = (this.state.world || {}).reserve || {};
     this.pendingMissionPush = {
       key,
@@ -10767,10 +12906,14 @@ class Game {
   openQueuedMissionPush() {
     const pending = this.pendingMissionPush;
     if (!pending || this.screen !== "home") return false;
-    if (this.chapterStoryModal || this.settlementModal || this.patrolTaskModal || this.infoDetailModal) return false;
+    if (this.chapterStoryModal || this.settlementOccupiesFlow() || this.patrolTaskModal || this.infoDetailModal) return false;
     this.pendingMissionPush = null;
     this.state.ui = Object.assign({}, this.state.ui || {});
     delete this.state.ui.pendingMissionPush;
+    if (!(this.currentGoalView(true).primary)) {
+      saveState(this.state);
+      return false;
+    }
     const experienced = this.missionExperienceSeconds() >= MISSION_AUTOPUSH_EXPERIENCE_SECONDS;
     const opened = this.maybeOpenMissionPush(pending.reason || "settlement", experienced ? {} : { force: true });
     if (!opened) {
@@ -10783,6 +12926,25 @@ class Game {
 
   dismissInfoDetailModal() {
     const dismissedModal = this.infoDetailModal;
+    if (dismissedModal && dismissedModal.kind === "materialExploration") {
+      if (dismissedModal.phase === "rolling") return;
+      if (dismissedModal.phase === "resolved") {
+        this.materialExplorationRollToken = null;
+        return this.executeMaterialExploration(dismissedModal.targetId || "", dismissedModal.displayRoll || 1);
+      }
+    }
+    if (dismissedModal && dismissedModal.kind === "collectionDice") {
+      this.collectionRollToken = null;
+      this.infoDetailModal = null;
+      this.render();
+      return;
+    }
+    if (dismissedModal && (dismissedModal.kind === "taskCompletionNotice" || dismissedModal.kind === "realNatureSettlement")) {
+      this.infoDetailModal = null;
+      if (this.tryPresentPendingChapterAdvance()) return;
+      this.render();
+      return;
+    }
     // 任务结算可能已经写入保护区状态，但顶部数值缓存仍停留在旧快照。
     // 关闭结果页时立即刷新目标快照，让下一帧统一播放基金、水源、草场等数字变化。
     if (dismissedModal) {
@@ -10794,8 +12956,7 @@ class Game {
       if (dismissedModal.phase === "rolling" && dismissedModal.kind === "materialExploration") return;
       this.activeTaskLock = null;
     }
-    if (dismissedModal && ["visitorRoutine", "visitorIncidentDice"].includes(dismissedModal.kind) && dismissedModal.phase !== "rolling" && dismissedModal.phase !== "resolving") {
-      // 关闭或完成游客任务后释放锁；否则“稍后维护”会把后续任务永久挡住。
+    if (dismissedModal && ["visitorRoutine", "visitorIncidentDice", "chapterSpecialTask"].includes(dismissedModal.kind) && dismissedModal.phase !== "rolling" && dismissedModal.phase !== "resolving") {
       this.activeTaskLock = null;
     }
     // 新手弹窗关闭后停留在当前沙盘，不要立刻被待处理事件或任务队列重新顶回来。
@@ -10827,7 +12988,10 @@ class Game {
     if (dismissedModal && dismissedModal.returnInfoDetailModal) {
       const parent = dismissedModal.returnInfoDetailModal;
       this.infoDetailModal = parent.kind === "visitorLetterInbox"
-        ? Object.assign({}, parent, this.buildReserveLetterInbox({ unreadOnly: parent.unreadOnly }), { letterScrollY: parent.letterScrollY || 0 })
+        ? Object.assign({}, parent, this.buildReserveLetterInbox({
+          unreadOnly: parent.unreadOnly,
+          shareRewardType: parent.shareRewardType
+        }), { letterScrollY: parent.letterScrollY || 0 })
         : parent.kind === "animalLetterInbox"
           ? Object.assign(this.buildAnimalLetterInbox(), { letterScrollY: parent.letterScrollY || 0 }) : parent;
       if (parent.kind === "visitorLetterInbox") {
@@ -10836,8 +13000,11 @@ class Game {
       this.render();
       return;
     }
+    if (dismissedModal && ["mapAnimalAction", "animalComfort"].includes(dismissedModal.kind)) {
+      this.clearAnimalSelection();
+    }
     this.infoDetailModal = null;
-    if (dismissedModal && !this.patrolTaskModal && !this.settlementModal
+    if (dismissedModal && !this.patrolTaskModal && !this.settlementOccupiesFlow()
       && !["rolling", "resolving", "resolved"].includes(dismissedModal.phase)) {
       // X/关闭 must release the same task ownership as the result's confirm
       // button. Progress remains in the save and can be resumed later.
@@ -10848,7 +13015,12 @@ class Game {
       this.render();
       return;
     }
-    if (!this.openNextSandboxEvent() && !this.openQueuedMissionPush()) this.render();
+    if (this.tryPresentPendingChapterAdvance()) return;
+    // 关闭弹窗后把沙盘还给玩家去做当前任务，不要立刻再塞下一个系统弹窗。
+    this.currentGoalView(true);
+    this.markPopupQuiet(2);
+    this.suppressNextHomeMission = true;
+    this.render();
   }
 
   openInfoListItemDetail(parentModal, item = {}, index = 0) {
@@ -10913,24 +13085,23 @@ class Game {
     stats.lastAt = Date.now();
     ui.sandboxInteractions = stats;
     this.state.ui = ui;
-    // 这是低频埋点，不在每次点击都触发整页重绘或同步云端。
     if (stats.total % 3 === 0) saveState(this.state);
     return true;
   }
 
   syncSandboxGoalState(beforeState = null, action = "", options = {}) {
     if (!this.state || !this.state.character) return null;
-    const before = beforeState || JSON.parse(JSON.stringify(this.state));
+    const before = beforeState || this.cloneStateForGoalProgress();
     const progress = applyGoalProgress(before, this.state, {
       action,
       derivedOnly: !!options.derivedOnly,
       now: Date.now()
     });
     this.state = progress.state;
+    if ((progress.completions || []).some((item) => item && String(item.type || "").startsWith("daily_"))) {
+      this.markDailyPresentationSeen();
+    }
 
-    // 沙盘操作与任务卡共用同一个目标投影。只要玩家已经从沙盘完成了
-    // 当前动作，清掉旧的待推送任务并把新的主目标标记为已看，避免同一
-    // 个剧情在“地图标记 → 任务卡 → 地图标记”之间重复出现。
     const reserve = ((this.state.world || {}).reserve) || {};
     const totalActions = Number((((reserve || {}).progression || {}).totalActions) || 0);
     const key = this.missionPushKey();
@@ -10950,6 +13121,16 @@ class Game {
     this.state.ui = ui;
     saveState(this.state);
     return progress;
+  }
+
+  cloneStateForGoalProgress(state = this.state) {
+    if (!state) return state;
+    const world = state.world;
+    return JSON.parse(JSON.stringify({
+      character: state.character,
+      ui: state.ui,
+      world: world ? Object.assign({}, world, { reserveView: undefined }) : world
+    }));
   }
 
   sandboxInteractionRatio() {
@@ -10978,19 +13159,29 @@ class Game {
     };
   }
 
+  chapterTaskCadence() {
+    const progression = (((this.state || {}).world || {}).reserve || {}).progression || {};
+    const chapter = Math.max(1, Number(progression.stage) || 1);
+    const level = Math.max(1, Math.min(7, Number(progression.level) || 1));
+    const extra = TASK_POPUP_EXTRA_GAP_MS;
+    if (chapter <= 2) return { actionGap: 10 + level * 2, intervalMs: 65000 + Math.min(2, level - 1) * 8000 + extra, cooldownMs: 120000 + extra, routineSlots: 3, mapGuided: false };
+    if (chapter <= 10) return { actionGap: 6, intervalMs: 75000 + extra, cooldownMs: 90000 + extra, routineSlots: 4, mapGuided: true };
+    if (chapter <= 15) return { actionGap: 5, intervalMs: 65000 + extra, cooldownMs: 75000 + extra, routineSlots: 4, mapGuided: true };
+    return { actionGap: 4, intervalMs: 55000 + extra, cooldownMs: 60000 + extra, routineSlots: 4, mapGuided: true };
+  }
+
   maybeOpenMissionPush(reason = "home", options = {}) {
     if (!this.state || !this.state.character || this.screen !== "home") return false;
     if (this.activeTaskLock) return false;
-    if (this.onboardingProgress().active && !options.force) return false;
-    if (this.chapterStoryModal || this.settlementModal || this.patrolTaskModal || this.infoDetailModal) return false;
     const reserve = (this.state.world || {}).reserve || {};
+    if (Object.keys(((reserve.sandboxTaskRhythm || {}).visible) || {}).length) return false;
+    if (this.onboardingProgress().active && !options.force) return false;
+    if (this.chapterStoryModal || this.settlementOccupiesFlow() || this.patrolTaskModal || this.infoDetailModal) return false;
+    if (!options.force && this.popupFlowQuiet()) return false;
     const daily = ((this.state.world || {}).goals || {}).daily || {};
     if (!daily.title && !daily.story && !daily.recommendedAction) return false;
     const key = this.missionPushKey();
     const ui = this.state.ui || {};
-    // System-generated task cards must never follow a player-started task too
-    // closely. Player actions remain unrestricted; only the next system push
-    // waits for the shared 30-second quiet window.
     const lastUserTaskAt = Number(ui.lastUserTaskTriggerAt || 0);
     if (lastUserTaskAt > 0 && Date.now() - lastUserTaskAt <= SYSTEM_TASK_TRIGGER_GAP_MS) return false;
     const lastSystemTaskAt = Number(ui.lastSystemTaskTriggerAt || 0);
@@ -10998,34 +13189,43 @@ class Game {
     if (!options.force && ui.missionPushSeenKey === key) return false;
     const progression = reserve.progression || {};
     const totalActions = progression.totalActions || 0;
-    const level = Math.max(1, Math.min(7, progression.level || 1));
-    // 操作次数只作旧存档兜底；真正的任务节奏由上面的实时秒数控制。
-    // 保留较轻的动作门槛，避免老存档没有时间戳时把任务卡永久压住。
-    const minActionGap = 10 + level * 2;
+    const cadence = this.chapterTaskCadence();
+    const minActionGap = cadence.actionGap;
     const firstMission = totalActions === 0;
     const chapterIntro = reason === "chapter" || reason === "newbie";
     const experiencedPlayer = this.missionExperienceSeconds() >= MISSION_AUTOPUSH_EXPERIENCE_SECONDS;
     const earlyOpening = this.missionExperienceSeconds() < MISSION_AUTOPUSH_EARLY_DELAY_SECONDS;
     const lastAutoPushAt = Number(ui.lastMissionAutoPushAt || 0);
-    const taskIntervalMs = MISSION_AUTOPUSH_MIN_INTERVAL_MS
-      + Math.min(2, Math.max(0, level - 1)) * MISSION_AUTOPUSH_INTERVAL_STEP_MS;
-    if (lastAutoPushAt > 0 && ui.missionPushSeenKey && Date.now() - lastAutoPushAt < taskIntervalMs) return false;
+    const taskIntervalMs = cadence.intervalMs;
+    // Extra 15s between popups is a global real-time gap. Chapter advance
+    // must not skip or replace it with chapter-scaled waits.
+    if (lastAutoPushAt > 0 && Date.now() - lastAutoPushAt < SYSTEM_TASK_TRIGGER_GAP_MS) return false;
+    if (!options.force && !chapterIntro && lastAutoPushAt > 0 && Date.now() - lastAutoPushAt < taskIntervalMs) return false;
     const activeEmergency = ((reserve.emergency || {}).active) || null;
     const currentPrimary = this.currentGoalView().primary || {};
-    const urgentMission = !!activeEmergency || currentPrimary.kind === "crisis" || !!currentPrimary.shortage;
+    const urgentMission = !!activeEmergency || currentPrimary.kind === "crisis" || currentPrimary.kind === "recovery"
+      || !!currentPrimary.shortage;
+    // 每日游客/水草只走每日事件入口，不自动弹出当前目标卡。登录时即使当前
+    // 目标不是每日，也不要用自动弹窗抢走每日清单。水源/草场危机仍可弹出。
+    if (!urgentMission && this.currentDailyMatchesGoal(currentPrimary) && (!options.force || this.todaysDailyAlreadyPresented())) {
+      this.markDailyPresentationSeen();
+      return false;
+    }
+    if (!urgentMission && reason === "login" && this.remainingDailyObjective()) return false;
+    // 完成任一项后，剩下的每日事项只留在清单入口，不再自动当成新的每日任务弹窗。
+    if (!urgentMission && this.remainingDailyObjective() && this.todaysDailyAlreadyPresented()) {
+      this.markDailyPresentationSeen();
+      return false;
+    }
+    if (!urgentMission && !options.force && this.todaysDailyAlreadyPresented()) return false;
     if (earlyOpening && !firstMission && !urgentMission && !chapterIntro) return false;
-    // 地图任务增多后，常规卡片任务只保留约 3/5 的自动推送机会。
-    // 按实际推送尝试计数而不是行动次数，避免某个固定行动节点长期
-    // 被跳过；紧急事件、章节硬节点和玩家主动打开入口仍完整保留。
     if (!options.force && !urgentMission && !chapterIntro) {
       const attempts = Number(ui.missionAutoPushAttempts || 0) + 1;
       ui.missionAutoPushAttempts = attempts;
-      if (attempts > 1 && [0, 1].includes(attempts % MISSION_AUTOPUSH_ROUTINE_SAMPLE_SIZE)) { saveState(this.state); return false; }
+      if (attempts > 1 && attempts % MISSION_AUTOPUSH_ROUTINE_SAMPLE_SIZE < MISSION_AUTOPUSH_ROUTINE_SAMPLE_SIZE - cadence.routineSlots) { saveState(this.state); return false; }
     }
-    // 玩家已经在沙盘上形成连续操作后，任务卡降级为被动入口；
-    // 危机和章节硬节点仍然可以主动打断，避免错过必须处理的事件。
-    if (!options.force && this.sandboxLedMode() && !urgentMission && !chapterIntro) return false;
-    if (options.force && this.sandboxLedMode() && !urgentMission && !chapterIntro && reason !== "login") return false;
+    if (!cadence.mapGuided && !options.force && this.sandboxLedMode() && !urgentMission && !chapterIntro) return false;
+    if (!cadence.mapGuided && options.force && this.sandboxLedMode() && !urgentMission && !chapterIntro && reason !== "login") return false;
     const routinePatrol = currentPrimary.kind === "daily"
       && ["houndScout", "antiPoacher", "habitat", "intervention"].includes(currentPrimary.recommendedAction)
       && !activeEmergency
@@ -11033,7 +13233,7 @@ class Game {
       && !currentPrimary.storyAligned;
     if (!options.force && !chapterIntro && totalActions < (ui.quietUntilAction || 0)) return false;
     if (!options.force && !chapterIntro && experiencedPlayer && !urgentMission && lastAutoPushAt > 0
-      && Date.now() - lastAutoPushAt < MISSION_AUTOPUSH_COOLDOWN_MS) return false;
+      && Date.now() - lastAutoPushAt < cadence.cooldownMs) return false;
     const hasPriorTaskPush = lastAutoPushAt > 0 || Number(ui.lastMissionAutoAction || 0) > 0 || !!ui.missionPushSeenKey;
     if (!options.force && !firstMission && !chapterIntro && !urgentMission && hasPriorTaskPush
       && totalActions - (ui.lastMissionAutoAction || 0) < minActionGap) return false;
@@ -11041,8 +13241,11 @@ class Game {
     if (!options.force && !firstMission && !chapterIntro && reason !== "login" && routinePatrol
       && totalActions - (ui.lastMissionAutoAction || 0) < routinePatrolGap) return false;
     this.markMissionPushSeen(key, totalActions);
-    ui.lastSystemTaskTriggerAt = Date.now();
-    this.state.ui = ui;
+    if (this.currentDailyMatchesGoal(currentPrimary)) this.markDailyPresentationSeen();
+    this.state.ui = Object.assign({}, this.state.ui || {}, {
+      lastSystemTaskTriggerAt: Date.now(),
+      missionAutoPushAttempts: ui.missionAutoPushAttempts
+    });
     saveState(this.state);
     return this.openGoalCenter();
   }
@@ -11242,7 +13445,6 @@ class Game {
     ctx.save();
     ctx.fillStyle = "#9bc85a";
     ctx.fillRect(x, y, w, h);
-    const now = this.animT();
     for (let i = 0; i < 26; i += 1) {
       const px = x + ((i * 83) % Math.max(1, w - 12)) + 6;
       const py = y + 16 + ((i * 47) % Math.max(1, h - 28));
@@ -11264,9 +13466,7 @@ class Game {
     if (this.state.character && !((((this.state || {}).ui || {}).prologue) || {}).version) {
       return { version: 1, stage: "complete", completed: true, revealStartedAt: 0, active: false, legacy: true };
     }
-    if (saved.stage === "reveal") saved.stage = "trail";
-    const validStages = ["fog", "trail"];
-    if (!validStages.includes(saved.stage)) saved.stage = "fog";
+    saved.stage = "fog";
     return Object.assign(saved, { active: true });
   }
 
@@ -11294,8 +13494,7 @@ class Game {
   prologueCanAdvance(stage, force = false) {
     if (force) return true;
     const elapsed = this.prologueStageRuntime(stage).elapsed;
-    if (stage === "fog") return elapsed >= 1050;
-    if (stage === "trail") return elapsed >= 1250;
+    if (stage === "fog") return elapsed >= 900;
     return false;
   }
 
@@ -11306,7 +13505,7 @@ class Game {
     const next = createCharacter(this.selectedAnimal, "保护区卫士");
     next.ui = Object.assign({}, next.ui || {}, previousUi, {
       onboarding: { version: 2, stage: "chapter", firstChoice: "", firstActionDone: false, recruitmentDone: false, completed: false, seen: {} },
-      prologue: Object.assign({}, previousUi.prologue || {}, { version: 1, stage: "trail", completed: false })
+      prologue: Object.assign({}, previousUi.prologue || {}, { version: 1, stage: "fog", completed: false })
     });
     this.state = next;
     const dailyLetters = this.ensureAnimalLettersForToday();
@@ -11314,9 +13513,9 @@ class Game {
       ? ((((dailyLetters.todayLetters || []).find((letter) => !letter.readAt)) || {}).id || "")
       : "";
     normalizeAudioSettings(this.state);
-    if (this.audio) this.audio.attachState(this.state);
-    this.selectedTarget = this.state.world.knownCharacters[0];
-    this.speakingAnimalId = (this.selectedTarget && this.selectedTarget.id) || null;
+    try { if (this.audio) this.audio.attachState(this.state); } catch (error) {}
+    this.selectedTarget = null;
+    this.speakingAnimalId = null;
     this.selectedRegionId = this.defaultRegionId();
     this.displayStats = this.initialDisplayStats();
     this.displayReserveStats = this.initialDisplayReserveStats();
@@ -11334,23 +13533,14 @@ class Game {
   advancePlayablePrologue(force = false) {
     const prologue = this.playablePrologueState();
     if (!prologue.active) return false;
-    if (prologue.stage === "fog") {
-      if (!this.prologueCanAdvance("fog", force)) return false;
-      this.savePlayablePrologue({ stage: "trail", firstDiscoveryAt: Date.now() });
-      this.prologueRuntime = { stage: "trail", startedAt: Date.now() };
-        this.render();
-      return true;
-    }
-    if (prologue.stage === "trail") {
-      if (!this.prologueCanAdvance("trail", force)) return false;
-      return this.completePlayablePrologue(force);
-    }
-    return false;
+    if (prologue.stage !== "fog") return false;
+    if (!this.prologueCanAdvance("fog", force)) return false;
+    return this.completePlayablePrologue(force);
   }
 
   completePlayablePrologue(force = false) {
     const prologue = this.playablePrologueState();
-    if (!prologue.active || prologue.stage !== "trail" || !this.prologueCanAdvance("trail", force)) return false;
+    if (!prologue.active || !this.prologueCanAdvance("fog", force)) return false;
     this.ensurePlayablePrologueGuardian();
     const ui = Object.assign({}, this.state.ui || {});
     ui.prologue = Object.assign({}, ui.prologue || {}, { version: 1, stage: "complete", completed: true, completedAt: Date.now() });
@@ -11362,11 +13552,66 @@ class Game {
     this.dailyHeroExpanded = false;
     this.dailyHeroCollapseAt = 0;
     saveState(this.state);
-    this.playSfx("success");
+    this.ensureLocalMapAsset();
+    this.holdPrologueMapUntilIllustrated = !this.mapImageSource();
     this.suppressNextHomeMission = true;
     this.setScreen("home");
-    this.openFirstOnboardingChoice();
+    try { this.playSfx("success"); } catch (error) {}
+    try { this.openFirstOnboardingChoice(); } catch (error) {}
     return true;
+  }
+
+  playablePrologueEnterReady() {
+    if (this.screen !== "choose") return false;
+    if (this.prologueEnterArmed) return true;
+    if (this.enteringPlayableGame || this.justEnteredPlayableGame) return true;
+    if (this.renderedPlayablePrologue && this.renderedPlayablePrologue.actionEnabled) return true;
+    return this.prologueCanAdvance("fog");
+  }
+
+  tryEnterPlayableGame() {
+    if (this.screen !== "choose") return false;
+    if (this.infoDetailModal || this.patrolTaskModal || this.chapterStoryModal || this.settlementBlocksCurrentScreen()) {
+      return false;
+    }
+    if (!this.playablePrologueEnterReady() && !(this.state && this.state.character && this.playablePrologueState().completed)) {
+      return false;
+    }
+    this.enteringPlayableGame = true;
+    this.justEnteredPlayableGame = true;
+    this.justEnteredPlayableGameUntil = Date.now() + 520;
+    this.suppressNextTouchEndTap = true;
+    this.gesture = null;
+    let entered = false;
+    try {
+      if (this.playablePrologueState().active) entered = !!this.advancePlayablePrologue(true);
+    } catch (error) {
+      if (typeof console !== "undefined" && console.error) console.error("enter game failed", error);
+    }
+    if (this.screen === "choose" && !entered) this.forceRevealHomeFromPrologue();
+    const ok = entered || this.screen !== "choose";
+    this.enteringPlayableGame = !ok;
+    return ok;
+  }
+
+  forceRevealHomeFromPrologue() {
+    try {
+      this.ensurePlayablePrologueGuardian();
+      this.savePlayablePrologue({ stage: "complete", completed: true, completedAt: Date.now() });
+      this.chapterStoryModal = null;
+      this.suppressNextHomeMission = true;
+      this.ensureLocalMapAsset();
+      this.holdPrologueMapUntilIllustrated = !this.mapImageSource();
+      this.screen = "home";
+      this.prepareLocalAssetsForScreen("home");
+      this.render();
+      try { this.openFirstOnboardingChoice(); } catch (error) {}
+    } catch (error) {
+      this.screen = "home";
+      this.holdPrologueMapUntilIllustrated = !this.mapImageSource();
+      try { this.render(); } catch (renderError) {}
+    }
+    return this.screen !== "choose";
   }
 
   drawProloguePawprints(ctx, fromX, fromY, toX, toY, count = 4, alpha = 1) {
@@ -11437,10 +13682,9 @@ class Game {
       return false;
     }
     const loadedAt = Number(panelOne.loadedAt || 0);
-    const assetAlpha = loadedAt > 0 ? Math.max(0, Math.min(1, (Date.now() - loadedAt) / 320)) : 1;
+    const assetAlpha = 1;
     this.prologueCinematicAssetAlpha = assetAlpha;
-    const transition = stage === "trail" ? this.prologueComicPanelTransition(elapsed) : 0;
-    this.prologueCinematicTransition = stage === "trail" ? transition : assetAlpha;
+    this.prologueCinematicTransition = assetAlpha;
     const drawPanel = (image, alpha = 1, settledDrift = 0) => {
       ctx.save();
       ctx.globalAlpha = alpha * assetAlpha;
@@ -11452,13 +13696,7 @@ class Game {
       ctx.restore();
     };
 
-    // 两段序章共用同一张背景图，第二段只通过文字、雾效和角色动效推进。
-    drawPanel(panelOne, 1, stage === "trail" ? Math.min(1, (elapsed - 760) / 7000) : 0);
-    if (stage === "trail" && transition > 0 && transition < 1) {
-      const dip = Math.sin(transition * Math.PI);
-      ctx.fillStyle = `rgba(2,11,10,${dip * .35})`;
-      ctx.fillRect(0, 0, this.width, this.height);
-    }
+    drawPanel(panelOne, 1, 0);
 
     const grade = ctx.createLinearGradient(0, 0, 0, this.height);
     grade.addColorStop(0, "rgba(3,15,17,.58)");
@@ -11496,47 +13734,99 @@ class Game {
     return { x, y, w, h, cloud: false, singleSilhouette: true, layered: true, style: "survival-manifesto" };
   }
 
+  prologueOpeningGoals() {
+    const target = chapterTargets(1);
+    const rescue = Math.max(1, Math.round(Number(targetCount(1)) || 1));
+    return {
+      rescue,
+      visitors: target.visitors,
+      animals: target.animals,
+      items: [
+        { icon: "paw", text: `解救 ${rescue} 只动物` },
+        { icon: "people", text: `招募 ${target.visitors} 名游客` },
+        { icon: "paw", text: `让保护区的种群扩大到 ${target.animals} 只` }
+      ]
+    };
+  }
+
   drawPrologueDialogue(ctx, stage, runtime) {
-    const elapsed = runtime.elapsed;
-    let speaker = "现实规则 01";
-    let line = "这里没有无代价的善意，每一次守护你都要买单";
-    let typedElapsed = elapsed;
-    if (stage === "trail") {
-      speaker = "现实规则 02";
-      line = "遵循自然，衡量利益，让你的保护区活下去";
-      typedElapsed = elapsed - 120;
-    }
-    const displayLine = this.prologueTypedLine(line, typedElapsed, stage === "fog" ? 220 : 20, 18);
+    const speaker = "第一章目标";
+    const goals = this.prologueOpeningGoals();
+    const lines = goals.items.map((item) => item.text);
+    const line = lines.join("\n");
+    const rule = "这里没有无代价的善意，每一次守护你都要买单";
     const topSafe = Math.max(24, this.systemTopInset() + 8);
     const cardW = Math.min(this.width - 34, 334);
     const cardX = (this.width - cardW) / 2;
-    const cardY = Math.max(topSafe + 50, this.height * .16);
-    const cardH = 126;
-    const captionStart = stage === "fog" ? 180 : 260;
-    const captionRaw = Math.max(0, Math.min(1, (elapsed - captionStart) / 420));
-    const captionIn = .5 - Math.cos(captionRaw * Math.PI) * .5;
-    const enterY = (1 - captionIn) * (stage === "trail" ? -10 : 8);
+    const cardY = Math.max(topSafe + 58, this.height * .168);
+    const rowH = 42;
+    const cardH = 228;
     let cloudVisual = null;
-    ctx.save();
-    ctx.globalAlpha = captionIn;
-    ctx.translate(0, enterY);
     cloudVisual = this.drawPrologueCloudBubble(ctx, cardX, cardY, cardW, cardH, {
       fill: "rgba(10,39,31,.94)", shadow: "rgba(0,10,8,.54)"
     });
-    this.text(ctx, speaker, cardX + 22, cardY + 34, 10, "#e2bd67", "700");
-    this.drawFittedTextBlock(ctx, displayLine || "……", cardX + 22, cardY + 66, cardW - 44, 52, {
-      size: 18,
-      minSize: 16,
-      lineHeight: 24,
-      color: "#fff8df",
-      weight: "700"
+    this.text(ctx, speaker, cardX + 22, cardY + 32, 12, "#e2bd67", "700");
+    goals.items.forEach((item, index) => {
+      const rowY = cardY + 66 + index * rowH;
+      const iconX = cardX + 34;
+      const iconY = rowY - 6;
+      this.roundRect(ctx, iconX - 13, iconY - 13, 26, 26, 8, "rgba(255,232,156,.12)", "rgba(225,190,102,.42)");
+      this.drawPrologueGoalGlyph(ctx, item.icon, iconX, iconY, "#ffe27d");
+      this.text(ctx, item.text, cardX + 54, rowY, this.fitTextSize(ctx, item.text, cardW - 76, 18, 14, "700"), "#fff8df", "700");
     });
-    if (displayLine.length < line.length && displayLine.length > 0) {
-      const caretAlpha = .35 + (Math.sin(this.animT() * .009) + 1) * .28;
-      this.text(ctx, "▌", cardX + cardW - 20, cardY + cardH - 18, 11, `rgba(255,214,90,${caretAlpha})`, "700", "center");
+    this.drawFittedTextBlock(ctx, rule, cardX + 22, cardY + 188, cardW - 44, 30, {
+      size: 12,
+      minSize: 11,
+      lineHeight: 16,
+      color: "#d7c48a",
+      weight: "600",
+      keepSize: true
+    });
+    return {
+      speaker,
+      line,
+      rule,
+      goals: lines,
+      icons: goals.items.map((item) => item.icon),
+      displayed: line,
+      x: cardX,
+      y: cardY,
+      w: cardW,
+      h: cardH,
+      style: "survival-manifesto",
+      cloud: false,
+      layeredCloud: !!(cloudVisual && cloudVisual.layered),
+      textPriority: "primary",
+      entrance: 1
+    };
+  }
+
+  drawPrologueGoalGlyph(ctx, kind, x, y, color) {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.6;
+    if (kind === "people") {
+      ctx.beginPath();
+      ctx.arc(x, y - 5, 4.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x - 8, y + 9);
+      ctx.quadraticCurveTo(x - 6.5, y - 1, x, y - 1);
+      ctx.quadraticCurveTo(x + 6.5, y - 1, x + 8, y + 9);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.ellipse(x, y + 5, 7.2, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      [-6.2, -2.1, 2.1, 6.2].forEach((dx, index) => {
+        ctx.beginPath();
+        ctx.ellipse(x + dx, y - (index % 2 ? 6.8 : 7.8), 2.5, 3.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
     }
     ctx.restore();
-    return { speaker, line, displayed: displayLine, x: cardX, y: cardY + enterY, w: cardW, h: cardH, style: "survival-manifesto", cloud: false, layeredCloud: !!(cloudVisual && cloudVisual.layered), textPriority: "primary", entrance: captionIn };
   }
 
   drawPrologueActionGlyph(ctx, label, cx, cy, color) {
@@ -11579,7 +13869,6 @@ class Game {
     const x = (this.width - w) / 2;
     const y = this.height - 72 + (1 - eased) * 28;
     const h = 46;
-    const pulse = .35 + (Math.sin(this.animT() * .006) + 1) * .18;
     ctx.save();
     ctx.globalAlpha = .30 + eased * .70;
     this.roundRect(ctx, x, y + 7, w, h, 23, "rgba(0,0,0,.34)");
@@ -11591,23 +13880,20 @@ class Game {
       fill.addColorStop(0, "rgba(31,70,59,.88)");
       fill.addColorStop(1, "rgba(13,42,35,.88)");
     }
-    this.roundRect(ctx, x, y, w, h, 23, fill, enabled ? `rgba(92,63,9,${.74 + pulse * .18})` : "rgba(255,255,255,.20)");
+    this.roundRect(ctx, x, y, w, h, 23, fill, enabled ? "rgba(92,63,9,.86)" : "rgba(255,255,255,.20)");
     this.roundRect(ctx, x + 8, y + 5, w - 16, 5, 3, enabled ? "rgba(255,255,255,.62)" : "rgba(255,255,255,.10)");
     this.roundRect(ctx, x + 10, y + 10, 28, 28, 14, enabled ? "rgba(23,61,52,.95)" : "rgba(59,78,69,.72)", "rgba(255,255,255,.44)");
     this.drawPrologueActionGlyph(ctx, label, x + 24, y + 24, enabled ? "#ffe978" : "#c7d7d0");
     this.text(ctx, label, x + 43 + (w - 49) / 2, y + 30, 13, enabled ? "#173d34" : "#c7d7d0", "700", "center");
     ctx.restore();
     if (enabled) {
-      ctx.save();
-      ctx.globalAlpha = eased;
-      this.roundRect(ctx, x - 3, y - 3, w + 6, h + 6, 25, null, `rgba(255,214,90,${pulse})`);
-      ctx.restore();
-      this.addHit(x, y, w, h, onTap, "none");
+      this.roundRect(ctx, x - 3, y - 3, w + 6, h + 6, 25, null, "rgba(255,214,90,.46)");
+      this.addHit(x, y, w, h, onTap, "none", "hud");
     }
     return { x, y, w, h, label, enabled, entrance: eased, compact: true, cartoon: true };
   }
 
-  drawPrologueCinematicVignette(ctx, stage, transition = 1) {
+  drawPrologueCinematicVignette(ctx, stage, transition = 1, options = {}) {
     const topShade = ctx.createLinearGradient(0, 0, 0, Math.max(170, this.height * .28));
     topShade.addColorStop(0, "rgba(1,10,9,.70)");
     topShade.addColorStop(1, "rgba(1,10,9,0)");
@@ -11618,8 +13904,9 @@ class Game {
     bottomShade.addColorStop(1, "rgba(1,10,9,.72)");
     ctx.fillStyle = bottomShade;
     ctx.fillRect(0, this.height * .58, this.width, this.height * .42);
+    if (options && options.chrome === false) return;
     const top = Math.max(24, this.systemTopInset() + 8);
-    const reveal = stage === "trail" ? Math.max(0, Math.min(1, Number(transition) || 0)) : 0;
+    const reveal = 0;
     const labelW = 118;
     this.roundRect(ctx, 20, top, labelW, 25, 12, "rgba(3,20,17,.58)", "rgba(255,226,125,.34)");
     ctx.save();
@@ -11648,88 +13935,64 @@ class Game {
 
   drawChoose(ctx) {
     const prologue = this.playablePrologueState();
-    const stage = prologue.active ? prologue.stage : "trail";
-    const runtime = this.prologueStageRuntime(stage);
+    const stage = "fog";
+    const runtime = this.prologueStageRuntime(prologue.active ? "fog" : "fog");
 
     const cinematicArtReady = this.drawPrologueCinematicArt(ctx, stage, runtime.elapsed);
-    const panelTransition = Math.max(0, Math.min(1, Number(this.prologueCinematicTransition) || 0));
-    const movement = stage === "trail" ? panelTransition : 0;
-    const dogFromX = this.width * .43;
-    const dogFromY = this.height * .61;
-    const dogToX = this.width * .49;
-    const dogToY = this.height * .53;
-    const dogX = dogFromX + (dogToX - dogFromX) * movement;
-    const dogY = dogFromY + (dogToY - dogFromY) * movement;
-    const fogVisual = this.drawPlayablePrologueFog(ctx, stage, dogX, dogY, movement);
-    if (stage === "trail") this.drawProloguePawprints(ctx, this.width * .55, this.height * .82, dogToX, dogToY, 5, movement);
+    const panelTransition = Math.max(0, Math.min(1, Number(this.prologueCinematicAssetAlpha) || 0));
+    const dogX = this.width * .43;
+    const dogY = this.height * .61;
+    const fogVisual = this.drawPlayablePrologueFog(ctx, stage, dogX, dogY, 0);
     const cinematicAssetAlpha = Number(this.prologueCinematicAssetAlpha || 0);
     if (!cinematicArtReady || cinematicAssetAlpha < .99) {
-      const baseDogAlpha = .74 + (.94 - .74) * movement;
-      const dogAlpha = baseDogAlpha * Math.max(0, 1 - cinematicAssetAlpha);
       ctx.save();
       ctx.shadowColor = "rgba(255,232,156,.44)";
       ctx.shadowBlur = 14;
-      this.drawAnimalSticker(ctx, dogX, dogY, { id: "prologue_hound", species: "野犬", name: "砾灰" }, dogAlpha, 1.55, false);
+      this.drawAnimalSticker(ctx, dogX, dogY, { id: "prologue_hound", species: "野犬", name: "砾灰" }, .74 * Math.max(0, 1 - cinematicAssetAlpha), 1.55, false);
       ctx.restore();
     }
-    this.drawPrologueCinematicVignette(ctx, stage, panelTransition);
-    if (stage === "fog" && runtime.elapsed >= 430 && runtime.elapsed < 2050) {
-      const cueIn = Math.min(1, (runtime.elapsed - 430) / 420);
-      const cueOut = runtime.elapsed > 1540 ? Math.max(0, 1 - (runtime.elapsed - 1540) / 510) : 1;
-      const cueAlpha = cueIn * cueOut;
-      const cueSize = 19 + Math.min(5, (runtime.elapsed - 430) / 260);
-      ctx.save();
-      ctx.shadowColor = "rgba(255,222,119,.65)";
-      ctx.shadowBlur = 18;
-      this.text(ctx, "叮——", this.width / 2, this.height * .32, cueSize, `rgba(255,242,188,${cueAlpha})`, "700", "center");
-      ctx.restore();
-    }
-    const comicTransitioning = stage === "trail" && panelTransition < .999;
-    const dialogueRuntime = stage === "trail"
-      ? Object.assign({}, runtime, { elapsed: Math.max(0, runtime.elapsed - 620) })
-      : runtime;
-    const dialogue = comicTransitioning
-      ? { speaker: "现实规则 02", line: "遵循自然，衡量利益，让你的保护区活下去", displayed: "", hidden: true, style: "survival-manifesto", textPriority: "primary" }
-      : this.drawPrologueDialogue(ctx, stage, dialogueRuntime);
+    this.drawPrologueCinematicVignette(ctx, stage, 0);
+    const dialogue = this.drawPrologueDialogue(ctx, stage, runtime);
 
-    let actionLabel = "听……";
-    const action = () => this.advancePlayablePrologue();
-    const enabled = this.prologueCanAdvance(stage);
-    if (stage === "fog") actionLabel = enabled ? "看清代价" : "听……";
-    else if (stage === "trail") actionLabel = enabled ? "接管保护区" : "衡量利益";
-    const unlockAt = stage === "fog" ? 1050 : 1250;
-    const actionEntrance = Math.max(0, Math.min(1, (runtime.elapsed - unlockAt) / 260));
-    const actionHidden = comicTransitioning || !enabled || actionEntrance <= .02;
-    const actionVisual = actionHidden
-      ? { x: 26, y: this.height - 76, w: this.width - 52, h: 0, label: actionLabel, enabled: false, hidden: true }
-      : this.drawPrologueAction(ctx, actionLabel, enabled, action, actionEntrance);
+    const enabled = this.prologueCanAdvance("fog") || this.enteringPlayableGame;
     if (enabled) {
-      this.addHit(dogX - 56, dogY - 56, 112, 112, () => this.advancePlayablePrologue(), "none");
+      this.prologueEnterArmed = true;
+      this.ensureLocalMapAsset();
+    }
+    const actionLabel = this.enteringPlayableGame ? "正在进入…" : (enabled ? "进入游戏" : "听……");
+    if (enabled) {
+      this.addHit(0, 0, this.width, this.height, () => this.tryEnterPlayableGame(), "none", "hud");
+    }
+    const actionVisual = enabled
+      ? this.drawPrologueAction(ctx, actionLabel, true, () => this.tryEnterPlayableGame(), 1)
+      : { x: 26, y: this.height - 76, w: this.width - 52, h: 0, label: actionLabel, enabled: false, hidden: true };
+    if (enabled) {
+      this.addHit(dogX - 56, dogY - 56, 112, 112, () => this.tryEnterPlayableGame(), "none");
     }
     this.renderedPlayablePrologue = {
-      stage,
+      stage: "fog",
       dynamicMap: false,
       staticUnderlay: true,
       staticChapterArt: false,
       cinematicArt: cinematicArtReady,
       comicPanels: 1,
-      panel: stage === "fog" ? 1 : 2,
-      panelTransition,
+      panel: 1,
+      panelTransition: 0,
       panelOneReady: !!(this.art && this.art.prologueFog && this.art.prologueFog.loaded),
       panelTwoReady: false,
-      cinematicDurationMs: 2300,
+      cinematicDurationMs: 900,
       fogOpacity: fogVisual.outerAlpha,
       clearRadius: fogVisual.radius,
       imageEntryProgress: panelTransition,
-      imageTransitionMode: "fade-through-dark",
+      imageTransitionMode: "hold",
       transitionFlash: false,
       geometryContinuous: true,
       lateLoadHold: true,
       avoidsDoubleExposure: true,
       dogBounds: { x: dogX - 56, y: dogY - 56, w: 112, h: 112 },
       dialogue,
-      soundCue: stage === "fog" ? "叮——" : "",
-      beat: stage === "fog" ? "listen" : "enter",
+      soundCue: "叮——",
+      beat: enabled ? "enter" : "listen",
       stageElapsed: runtime.elapsed,
       actionLabel,
       actionEnabled: enabled,
@@ -11851,13 +14114,27 @@ class Game {
       blocked,
       recommended: !!option.recommended
     });
-    this.addHit(x, y - this.scrollY, w, h, () => {
-      this.selectedReserveAction = option.id;
-      this.command = option.placeholder.replace("例如：", "");
-      // 资源不足的卡片直接进入补给分流，避免打开后只剩一个无法继续的空任务页。
-      if (blocked) this.openResourceShortfallModal(resourceStatus, option);
-      else this.openPatrolTaskModal(option);
+    this.addHit(x - 6, y - this.scrollY - 6, w + 12, h + 12, () => {
+      this.beginPatrolTaskFromBoard(option, resourceStatus);
     });
+  }
+
+  beginPatrolTaskFromBoard(option, resourceStatus = null) {
+    if (!option || !option.id) return false;
+    const reserve = ((this.state.world || {}).reserve) || {};
+    const status = resourceStatus || this.actionResourceStatus(option.id, reserve);
+    this.selectedReserveAction = option.id;
+    this.command = String(option.placeholder || "").replace("例如：", "");
+    if (this.settlementBlocksCurrentScreen()) {
+      this.toast("请先关闭当前结算，再开始巡护");
+      return false;
+    }
+    if (!status.canRun) {
+      this.openResourceShortfallModal(status, option);
+      return true;
+    }
+    this.openPatrolTaskModal(option);
+    return true;
   }
 
   patrolActionTilePreview(id, reserve, status) {
@@ -11911,8 +14188,15 @@ class Game {
     const badgeW = 58;
     this.roundRect(ctx, cardX + cardW - badgeW - 10, cardY + 12, badgeW, 28, 10, priority.badgeFill, priority.badgeStroke);
     this.text(ctx, priority.status, cardX + cardW - badgeW / 2 - 10, cardY + 31, 10, priority.color, "700", "center");
+    const canAct = priority.type !== "stable" && this.isPatrolTaskAction(priority.actionId);
+    const actionHint = canAct
+      ? (priority.actionId === "antiPoacher" ? "去驱赶 ›"
+        : priority.actionId === "habitat" ? "去修复 ›"
+          : priority.actionId === "intervention" ? "去干预 ›"
+            : "去侦察 ›")
+      : priority.guide;
     const guideW = Math.max(90, cardW - 208);
-    this.text(ctx, this.truncateTextToWidth(ctx, priority.guide, guideW, 9, "600"), cardX + 132, cardY + 39, 9, "#66715f", "600");
+    this.text(ctx, this.truncateTextToWidth(ctx, canAct ? actionHint : priority.guide, guideW, 9, "600"), cardX + 132, cardY + 39, 9, canAct ? "#8a4a2c" : "#66715f", "700");
 
     const resources = [
       { icon: "fund", label: "资金", value: `${base.fund || 0}` },
@@ -11936,15 +14220,21 @@ class Game {
       status: priority.status,
       guide: priority.guide,
       recommendedAction: priority.actionId,
-      readOnly: true,
-      clickable: false,
+      readOnly: !canAct,
+      clickable: canAct,
       x: cardX, y: cardY, w: cardW, h: cardH
     };
     this.renderedPatrolThreatTiles.push(priorityTile);
+    if (canAct) {
+      this.addHit(cardX - 4, cardY - this.scrollY - 4, cardW + 8, cardH + 8, () => {
+        const option = this.reserveMetricAction(priority.type, base);
+        this.beginPatrolTaskFromBoard(option);
+      });
+    }
     this.renderedPatrolThreatBoard = {
       x, y, w, h,
       metrics: 1,
-      readOnly: true,
+      readOnly: !canAct,
       purpose: "选择1项巡护任务并结算",
       instruction: "选1项任务，结算后返回沙盘",
       priority: priorityTile,
@@ -12086,6 +14376,7 @@ class Game {
 
   recommendedPatrolAction(reserve) {
     const emergency = ((reserve || {}).emergency || {}).active;
+    if (emergency && (isVisitorArcheryEvent(emergency.type) || isNeighborExchangeEvent(emergency.type))) return "";
     if (emergency && this.isPatrolTaskAction(emergency.recommendedAction)) return emergency.recommendedAction;
     const risk = criticalPatrolRisk(reserve);
     if (risk) return risk.action;
@@ -12246,7 +14537,8 @@ class Game {
       this.toast(`${base.itemLabel}库存已满`);
       return;
     }
-    const missing = Math.max(1, Math.min(room, (base.target || 1) - stock));
+    const fillLine = supplyFillLine(base, reserve);
+    const missing = Math.max(1, Math.min(room, Math.max(fillLine, stock + 1) - stock));
     this.selectedPurchaseId = id;
     this.selectedPurchaseQuantity = missing;
     this.infoDetailModal = {
@@ -12360,8 +14652,8 @@ class Game {
       if (goods < 1) warnings.push("无库存：先去探索");
     } else if (id === "buySupplies") {
       costs.push(`基金 ${purchase.cost}`);
-      costs.push(purchase.batch ? `${purchase.items.length} 项补至安全线` : `${purchase.itemLabel} +${purchase.amount}`);
-      if ((base.fund || 0) < purchase.cost) missing.push("基金");
+      costs.push(purchase.batch ? `${purchase.items.length} 项${purchase.fillToCap ? "补至仓库上限" : "补至安全线"}` : `${purchase.itemLabel} +${purchase.amount}`);
+      if (Math.max(0, Number(base.fund) || 0) < purchase.cost) missing.push("基金");
       if (purchase.batch && !purchase.items.length) missing.push("补给已足");
       if (!purchase.batch && (supplies[purchase.id] || 0) >= purchase.cap) missing.push("库存已满");
     }
@@ -12448,7 +14740,7 @@ class Game {
     this.patrolTaskModal = null;
     this.patrolOperationPlan = null;
     this.infoDetailModal = null;
-    if ((status.missing || []).includes("基金")) return this.openFundSamples(status);
+    if ((status.missing || []).includes("基金")) return this.openFundReplenishModal(status);
     // 标记这次物资访问来自未完成的任务；采购结算后由统一结算流程返回沙盘。
     this.pendingGuidedSupplyReturnScreen = "home";
     this.setScreen("role");
@@ -12459,6 +14751,42 @@ class Game {
     const level = Math.max(1, Math.min(7, Number((reserve.progression || {}).level) || 1));
     const threshold = Math.max(BALANCE_V2.fundHealth[level].danger, Number(this.fundSampleTarget) || 0);
     return Number(reserve.fund || 0) < threshold;
+  }
+
+  openFundReplenishModal(status = {}) {
+    const reserve = (this.state.world || {}).reserve || {};
+    const purchase = status.purchase || {};
+    const actionCost = status.id === "habitat" ? chapterEconomy(reserve).habitatCost
+      : status.id === "intervention" ? chapterEconomy(reserve).interventionCost : 0;
+    const cost = Math.max(0, Number(purchase.cost) || Number(actionCost) || 0);
+    const fund = Math.max(0, Number(reserve.fund) || 0);
+    const need = Math.max(0, cost - fund);
+    const ad = emergencyFundAdStatus(reserve);
+    this.fundSampleTarget = Math.max(0, cost);
+    this.patrolTaskModal = null;
+    this.patrolOperationPlan = null;
+    this.infoDetailModal = {
+      kind: "fundReplenish",
+      kicker: "补充物资 · 保护基金不足",
+      title: need ? `还缺 ${need} 星币` : "先补充保护基金",
+      icon: "fund",
+      prose: "采购物资需要保护基金。先去收取研究样本并出售，也可幸运获得应急拨款。",
+      status,
+      luckyLabel: `幸运获得（看广告给${ad.reward || 1000}）`,
+      luckyReward: ad.reward || 1000
+    };
+    this.render();
+    return true;
+  }
+
+  chooseFundReplenishSamples() {
+    this.infoDetailModal = null;
+    this.openSampleHandoverTask();
+    return true;
+  }
+
+  chooseFundReplenishLucky() {
+    return this.claimEmergencyFundAd({ fromReplenish: true });
   }
 
   openFundSamples(status = {}) {
@@ -12499,7 +14827,11 @@ class Game {
     }
     const previousDraft = String(this.command || "").replace(/\[(?:路线|途中):[^\]]*\]/g, "").trim();
     const belongsToOtherTask = this.reserveActionOptions().some(item => item.id !== selected.id && previousDraft === String(item.placeholder || "").replace("例如：", "").trim());
-    this.command = !previousDraft || belongsToOtherTask ? selected.placeholder.replace("例如：", "") : previousDraft;
+    const metricFocus = selected.metricFocus === "grass" || selected.metricFocus === "water" ? selected.metricFocus : "";
+    // 从指标详情打开的水/草任务必须覆盖上一次栖息地草稿，否则草场任务会带着水源指令去结算。
+    this.command = metricFocus
+      ? this.habitatCommandForMetricFocus(metricFocus, selected)
+      : (!previousDraft || belongsToOtherTask ? selected.placeholder.replace("例如：", "") : previousDraft);
     // 任务因资源不足把玩家带到物资页时，补充完成应回到沙盘继续任务。
     // 普通从物资页发起的采购仍保留原来的返回位置。
     this.pendingTaskOriginScreen = this.pendingGuidedSupplyReturnScreen
@@ -12668,11 +15000,11 @@ class Game {
     this.addHit(22, y + 39 - this.scrollY, this.width - 44, 27, () => this.openTourismDestinationDetail());
     this.text(ctx, `收入 = 规模 × 活跃度 × 留存 · 设施联动${snapshot.facilityImpact.activeFacilities || 0}座`, 28, y + 78, 11, "#dbe8d8", "700");
     const recruitmentOnboarding = this.onboardingProgress().active && this.onboardingProgress().totalActions >= 2 && !this.onboardingProgress().recruitmentDone;
-    const recruitLabel = recruitmentOnboarding ? "新手招募" : recruitment.canRecruit ? "发布招募" : recruitment.canWatchAd ? "查看广告-招募" : "今日次数用完";
-    this.button(ctx, this.width - 132, y + 10, 108, 30, recruitLabel, recruitment.canRecruit ? UI_THEME.gold : "#607a6e", () => {
-      if (recruitment.canRecruit) this.openVisitorRecruitment();
-      else this.openVisitorRecruitment();
-    }, recruitment.canRecruit ? UI_THEME.leatherDeep : "#fff8df", 9);
+    const recruitLabel = this.visitorRecruitmentCtaLabel(recruitment, recruitmentOnboarding ? "onboarding" : "page");
+    const recruitAccent = !!(recruitmentOnboarding || recruitment.canRecruit || recruitment.canWatchAd);
+    this.button(ctx, this.width - 132, y + 10, 108, 30, recruitLabel, recruitAccent ? UI_THEME.gold : "#607a6e", () => {
+      this.openVisitorRecruitment();
+    }, recruitAccent ? UI_THEME.leatherDeep : "#fff8df", 9);
     const metrics = [
       ["今日到访", `${displayTodayVisitors}人`],
       ["今日收入", `+${today.income || 0}`],
@@ -12687,14 +15019,18 @@ class Game {
     });
     this.text(ctx, `规模${displayTodayVisitors}人 · 活跃${tourism.activity}% · 留存${tourism.retention}%`, 28, y + 99, 11, "#dbe8d8", "700");
     y += 158;
-    const letters = this.allIncomingLetters();
+    const allLetters = this.allIncomingLetters();
+    // 游客频道只展示游客来源的邮箱数量；动物来信由种群频道承接，避免
+    // 招募后动物未读信改变游客入口的首项和分享语义。
+    const letters = allLetters.filter((letter) => letter.sourceKind !== "animal");
     y = this.drawVisitorMailboxEntry(ctx, y, letters);
     const openCount = views.filter((view) => ["operational", "managed"].includes(view.phase)).length;
     // 建筑页采用发现页的主标题层级：先读懂“可解锁建筑”，再查看每个治理节点。
     this.text(ctx, "可解锁建筑", 28, y + 26, 22, "#173d34", "700");
     this.text(ctx, `${openCount}/${views.length}`, this.width - 28, y + 24, 14, "#8b6f2a", "700", "right");
     y += 36;
-    const visibleViews = stageOneLight ? views.slice(0, 2) : views;
+    // 四个建筑始终完整展示；首阶段仅调整提示强度，不隐藏建筑节点。
+    const visibleViews = views;
     const renderedBuildingCards = [];
     visibleViews.forEach((view) => {
       const active = ["operational", "managed"].includes(view.phase);
@@ -12768,8 +15104,10 @@ class Game {
     this.text(ctx, "保护区邮箱", x + 52, y + 25, 14, "#173d34", "700");
     this.text(ctx, `未读 ${unread} · 最近 ${letters.length}/50封`, x + 52, y + 46, 10, "#657267", "700");
     this.text(ctx, "查看 ›", x + w - 16, y + 35, 11, "#946a25", "700", "right");
-    this.addHit(x, y - this.scrollY, w, h, () => this.openReserveLetterInbox());
-    this.renderedVisitorMailboxEntry = { x, y, w, h, unread, total: letters.length, retentionLimit: 50, clickable: true };
+    // 游客频道的邮箱必须锁定游客分享来源。动物来信在动物频道单独查看，
+    // 不能因为招募后出现一封新的动物未读信，就把游客奖励入口变成动物奖励。
+    this.addHit(x, y - this.scrollY, w, h, () => this.openReserveLetterInbox({ shareRewardType: "visitors" }));
+    this.renderedVisitorMailboxEntry = { x, y, w, h, unread, total: letters.length, retentionLimit: 50, shareRewardType: "visitors", clickable: true };
     return y + h + 12;
   }
 
@@ -12834,8 +15172,8 @@ class Game {
     y += heroH + 8;
     const gap = 7;
     const cardW = (this.width - 24 - gap * 2) / 3;
-    const adSize = this.nativeTemplateAdLayoutSize();
-    const adReserve = adSize ? 30 + adSize.height + 10 + 8 : 0;
+    const adFrameH = this.nativeTemplateAdReservedHeight();
+    const adReserve = adFrameH ? adFrameH + 8 : 0;
     const available = this.height - this.navHeight() - y - 10 - adReserve;
     const cardH = Math.min(148, Math.floor((available - gap) / 2));
     const shelfNames = {
@@ -12922,6 +15260,7 @@ class Game {
     const pageCount = Math.max(1, Math.ceil(items.length / 6));
     this.collectionPage = Math.max(0, Math.min(pageCount - 1, this.collectionPage || 0));
     const pageItems = items.slice(this.collectionPage * 6, this.collectionPage * 6 + 6);
+    ensureCollectionDiceLead(this.state);
     const lead = collection.leads.find((entry) => entry.caseId === caseDef.id) || null;
     const activeDiscovery = collection.discovery && collection.discovery.active && collection.discovery.active.caseId === caseDef.id
       ? collection.discovery.active : null;
@@ -12968,8 +15307,8 @@ class Game {
     y += heroH + 8;
     const pagerY = this.height - this.navHeight() - 48;
     const gap = 7;
-    const adSize = this.nativeTemplateAdLayoutSize();
-    const adReserve = adSize ? 30 + adSize.height + 10 + 8 : 0;
+    const adFrameH = this.nativeTemplateAdReservedHeight();
+    const adReserve = adFrameH ? adFrameH + 8 : 0;
     const cardW = (this.width - 24 - gap * 2) / 3;
     const gridAreaH = pagerY - y - 6 - adReserve;
     const cardH = Math.min(150, Math.floor((gridAreaH - 7) / 2));
@@ -13069,8 +15408,8 @@ class Game {
       label = "线索齐全 · 决定结局";
       action = () => this.openCollectionEnding(caseDef.id);
       ctaKind = "ending";
-    } else if (caseDef.hidden && lead) {
-      label = `调查线索 ×${caseLeadCount}`;
+    } else if (lead) {
+      label = `用点数调查 ×${caseLeadCount || 1}`;
       action = () => this.openCollectionInvestigation(lead.id);
       ctaKind = "lead";
     }
@@ -13244,18 +15583,25 @@ class Game {
     } else if (!entry && activeDiscovery) {
       actionLabel = activeDiscovery.actionLabel;
       action = () => { this.infoDetailModal = null; this.openPatrolOperationScreen(activeDiscovery.actionId); };
-    } else if (!entry && caseDef.hidden && pendingLead) {
+    } else if (!entry && pendingLead) {
       actionLabel = "继续调查";
       action = () => this.resumeCollectionInvestigation();
     } else if (!entry && item.condition && item.condition.finale && preFinalCount >= 7 && !caseState.ending && !caseDef.hidden) {
       actionLabel = "决定案件结局";
       action = () => this.openCollectionEnding(item.caseId);
-    } else if (!entry && caseDef.hidden && lead) {
-      actionLabel = "调查这条线索";
+    } else if (!entry && lead) {
+      actionLabel = "用点数调查";
       action = () => this.openCollectionInvestigation(lead.id);
     } else if (!entry) {
-      actionLabel = "去沙盘听动物";
-      action = () => { this.infoDetailModal = null; this.setScreen("home"); };
+      ensureCollectionDiceLead(this.state);
+      const refreshedLead = (this.state.world.collection.leads || []).find((candidate) => candidate.caseId === item.caseId) || null;
+      if (refreshedLead) {
+        actionLabel = "用点数调查";
+        action = () => this.openCollectionInvestigation(refreshedLead.id);
+      } else {
+        actionLabel = "去沙盘听动物";
+        action = () => { this.infoDetailModal = null; this.setScreen("home"); };
+      }
     }
     this.infoDetailModal = {
       kind: "collectionItem",
@@ -13330,7 +15676,7 @@ class Game {
     this.infoDetailModal = {
       kind: "collectionDice", kicker: "点数调查", title: method.name, icon: method.icon,
       lead, method, phase: "ready", displayRoll: 1,
-      footer: `点数 + 线索质量${lead.quality ? ` +${lead.quality}` : " +0"} + 方法/关系修正 = 调查总点数`,
+      footer: "",
       action: () => this.rollCollectionDice()
     };
     this.render();
@@ -13371,7 +15717,7 @@ class Game {
   }
 
   finishCollectionInvestigation(roll) {
-    const beforeState = JSON.parse(JSON.stringify(this.state));
+    const beforeState = this.cloneStateForGoalProgress();
     const result = resolveInvestigation(this.state, roll);
     if (!result.ok) { this.toast(result.error); this.infoDetailModal = null; this.render(); return; }
     const investigationReserve = (this.state.world || {}).reserve || {};
@@ -13386,6 +15732,7 @@ class Game {
     saveState(this.state);
     if (result.success) {
       this.infoDetailModal = {
+        completionTask: { key: `investigation:${result.item.id}`, title: `调查${result.item.name}` },
         kicker: result.endingReady ? "案件关键物集齐" : "剧情新发现", title: result.item.name, icon: result.item.icon,
         collectionItem: result.item,
         items: [
@@ -13434,7 +15781,7 @@ class Game {
   confirmCollectionEnding() {
     const modal = this.infoDetailModal;
     if (!modal || modal.kind !== "collectionEnding" || !modal.selectedChoiceId) { this.toast("先选择案件结局"); return; }
-    const beforeState = JSON.parse(JSON.stringify(this.state));
+    const beforeState = this.cloneStateForGoalProgress();
     const result = submitCaseEnding(this.state, modal.caseDef.id, modal.selectedChoiceId);
     if (!result.ok) { this.toast(result.error); return; }
     const goalProgress = applyGoalProgress(beforeState, this.state, { action: "collectionInvestigate", derivedOnly: true, now: Date.now() });
@@ -13449,6 +15796,7 @@ class Game {
     const repairedFacility = facilityByCaseId(modal.caseDef.id);
     saveState(this.state);
     this.infoDetailModal = {
+      completionTask: { key: `case:${modal.caseDef.id}`, title: modal.caseDef.title },
       kicker: "案件永久结案", title: result.finale.name, icon: result.finale.icon,
       collectionItem: result.finale,
       items: [
@@ -13475,6 +15823,7 @@ class Game {
   drawLeague(ctx) {
     const worldLeaderboardLocked = this.firstSessionRestrictionsEnabled() && this.firstSessionFocusStatus().active;
     if (worldLeaderboardLocked && this.leagueScope === "world") this.leagueScope = "friends";
+    if (this.leagueScope === "world") this.scrollY = 0;
     const scopeName = this.leagueScope === "friends" ? "好友" : "世界";
     const topInset = this.compactStageTop();
     if (topInset > 0) { ctx.fillStyle = UI_THEME.forest800; ctx.fillRect(0, 0, this.width, topInset); }
@@ -13542,28 +15891,26 @@ class Game {
       y += 166;
     }
 
+    if (this.leagueScope === "world") {
+      this.drawWorldLeagueBoard(ctx, y, rows, visibleRows, pagination, reserve, scopeName, league);
+      return;
+    }
+
     this.text(ctx, `${scopeName}榜单`, 18, y + 18, 16, "#1c3325", "700");
-    const listStatus = rows.length
-      ? `共${rows.length}座 · ${pagination.page + 1}/${pagination.pageCount}页`
-      : "正在同步真实玩家";
+    const listStatus = rows.length ? `共${rows.length}座 · ${pagination.page + 1}/${pagination.pageCount}页` : "正在同步真实玩家";
     this.text(ctx, listStatus, this.width - 18, y + 18, 10, "#8b6f2a", "700", "right");
     y += 34;
     this.renderedLeagueRows = [];
     const listY = y;
     visibleRows.forEach((row, index) => {
       const absoluteIndex = pagination.start + index;
-      const rank = this.leagueScope === "world" && Number(row.rank) > 0 ? Math.round(Number(row.rank)) : absoluteIndex + 1;
+      const rank = absoluteIndex + 1;
       const rowLayout = this.drawLeagueRankingRow(ctx, row, rank, 18, y, this.width - 36, 58);
       this.renderedLeagueRows.push(Object.assign({ id: row.id, rank, y, h: 58, mine: !!row.mine, simulated: !!row.simulated }, rowLayout));
       y += 64;
     });
     if (pagination.pageCount > 1) {
       y = this.drawLeaguePagination(ctx, 18, y, this.width - 36, Object.assign({}, pagination, { listY }));
-    }
-
-    if (this.leagueScope === "world") {
-      this.drawEcologyCompetitionCard(ctx, 18, y, this.width - 36, reserve);
-      y += 88;
     }
 
     this.drawReserveNetworkStory(ctx, 18, y, this.width - 36, 98, reserve, scopeName);
@@ -13575,6 +15922,100 @@ class Game {
       this.text(ctx, this.truncateTextToWidth(ctx, `· ${log}`, this.width - 68, 10, "400"), 34, y + 45 + index * 16, 10, "#4b594e", "400");
     });
     this.bottom(y + 78);
+  }
+
+  drawWorldLeagueBoard(ctx, startY, rows, visibleRows, pagination, reserve, scopeName, league) {
+    this.scrollY = 0;
+    this.hitClip = null;
+    const listX = 18;
+    const listW = this.width - 36;
+    const titleH = 32;
+    const rowH = WORLD_LEAGUE_ROW_HEIGHT;
+    const rowStep = WORLD_LEAGUE_ROW_STEP;
+    const listCardY = startY - 6;
+    const navTop = this.height - this.navHeight();
+    const listCardH = Math.max(148, navTop - 8 - listCardY);
+    this.roundRect(ctx, listX, listCardY, listW, listCardH, 14, "#fffefa", "rgba(60,60,67,.16)");
+    this.text(ctx, "世界保护区市值榜", listX, listCardY + 22, 15, "#1c3325", "700");
+    const listStatus = rows.length
+      ? `上下滑动 · 点详情 · ${pagination.page + 1}/${pagination.pageCount}页`
+      : "正在同步真实玩家";
+    this.text(ctx, listStatus, listX + listW, listCardY + 22, 10, "#2f7d62", "700", "right");
+
+    const bodyY = listCardY + titleH;
+    const bodyH = Math.max(72, listCardH - titleH - 6);
+    const rowsContentH = Math.max(rowStep, visibleRows.length * rowStep);
+    const extraStart = rowsContentH + (pagination.pageCount > 1 ? 50 : 8);
+    const extraH = 88 + 106 + 86;
+    const contentH = extraStart + extraH;
+    const maxScroll = Math.max(0, contentH - bodyH);
+    this.worldLeagueListScrollY = Math.max(0, Math.min(maxScroll, Number(this.worldLeagueListScrollY) || 0));
+    const listScroll = this.worldLeagueListScrollY;
+    const screenView = { x: listX, y: bodyY - this.scrollY, w: listW, h: bodyH };
+    this.renderedWorldLeagueList = Object.assign({}, screenView, {
+      scrollY: listScroll,
+      maxScroll,
+      rowHeight: rowH,
+      rowStep,
+      headerPinned: true
+    });
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(listX + 1, bodyY, listW - 2, bodyH);
+    ctx.clip();
+    this.hitClip = screenView;
+    try {
+      const originY = bodyY - listScroll;
+      this.renderedLeagueRows = [];
+      visibleRows.forEach((row, index) => {
+        const absoluteIndex = pagination.start + index;
+        const rank = Number(row.rank) > 0 ? Math.round(Number(row.rank)) : absoluteIndex + 1;
+        const rowY = originY + index * rowStep;
+        const rowLayout = this.drawLeagueRankingRow(ctx, row, rank, listX, rowY, listW, rowH);
+        this.renderedLeagueRows.push(Object.assign({
+          id: row.id, rank, y: rowY, h: rowH, mine: !!row.mine, simulated: !!row.simulated
+        }, rowLayout));
+      });
+      if (!this.infoDetailModal && visibleRows.length && this.wechatFriends && this.wechatFriends.drawWorldRows) {
+        this.wechatFriends.drawWorldRows(ctx, listX, originY, listW, rowsContentH,
+          visibleRows.map((row, index) => Object.assign({}, row, {
+            name: this.leaguePlayerTitle(row), rank: row.rank || pagination.start + index + 1,
+            id: row.mine ? ((this.cloudService || {}).session || {}).publicId || row.id : row.id,
+            worldPlayerId: row.worldPlayerId || ((row.mine ? ((this.cloudService || {}).session || {}).publicId : String(row.id || "").replace(/^cloud_/, ""))),
+            friendMatchKey: row.friendMatchKey || ""
+          })), 0, rowStep);
+      }
+
+      let extraY = originY + rowsContentH;
+      if (pagination.pageCount > 1) {
+        extraY = this.drawLeaguePagination(ctx, listX, extraY, listW, Object.assign({}, pagination, { listY: bodyY }));
+      } else {
+        extraY += 8;
+      }
+      this.drawEcologyCompetitionCard(ctx, listX, extraY, listW, reserve);
+      extraY += 88;
+      this.drawReserveNetworkStory(ctx, listX, extraY, listW, 98, reserve, scopeName);
+      extraY += 106;
+      this.panel(ctx, listX, extraY, listW, 78);
+      this.text(ctx, "最近战报", listX + 16, extraY + 24, 14, "#1c3325", "700");
+      (league.logs || []).slice(-2).reverse().forEach((log, index) => {
+        this.text(ctx, this.truncateTextToWidth(ctx, `· ${log}`, listW - 32, 10, "400"), listX + 16, extraY + 45 + index * 16, 10, "#4b594e", "400");
+      });
+    } finally {
+      this.hitClip = null;
+      ctx.restore();
+    }
+
+    if (maxScroll > 0) {
+      const trackH = Math.max(28, bodyH - 16);
+      const thumbH = Math.max(18, trackH * (bodyH / Math.max(bodyH, contentH)));
+      const thumbY = bodyY + 8 + (trackH - thumbH) * (listScroll / maxScroll);
+      this.roundRect(ctx, listX + listW - 7, bodyY + 8, 3, trackH, 1, "rgba(47,125,98,.10)");
+      this.roundRect(ctx, listX + listW - 8, thumbY, 4, thumbH, 2, "rgba(47,125,98,.42)");
+    }
+
+    this.contentHeight = Math.max(this.height - this.navHeight(), navTop);
   }
 
   leaguePagination(scope = this.leagueScope, total = 0) {
@@ -13599,7 +16040,12 @@ class Game {
     const safeScope = scope === "world" ? "world" : "friends";
     this.leaguePageByScope = Object.assign({ friends: 0, world: 0 }, this.leaguePageByScope || {});
     this.leaguePageByScope[safeScope] = Math.max(0, Math.round(Number(page) || 0));
-    this.scrollY = Math.max(0, Number(listY) || 0);
+    if (safeScope === "world") {
+      this.worldLeagueListScrollY = 0;
+      this.scrollY = 0;
+    } else {
+      this.scrollY = Math.max(0, Number(listY) || 0);
+    }
     this.render();
   }
 
@@ -13767,8 +16213,10 @@ class Game {
       const patrolFill = ((reserve.supplies || {}).dogFood || 0) > 0 ? "#1c3325" : "#9aa093";
       this.button(ctx, x + 16, compactY, compactW, 27, "边界巡查", patrolFill, () => this.raidRival(), "#fff8df", 10);
       const socialAction = this.leagueScope === "friends" ? "好友交换" : "资源交换";
+      const socialReady = !!proposeAutoExchange(reserve);
+      const socialFill = socialReady ? "#2f7c8f" : "#9aa093";
       const socialHandler = this.leagueScope === "friends" ? () => this.collaborateWithRival() : () => this.exchangeWithWorld();
-      this.button(ctx, x + 16 + compactW + compactGap, compactY, compactW, 27, socialAction, "#2f7c8f", socialHandler, "#fff8df", 10);
+      this.button(ctx, x + 16 + compactW + compactGap, compactY, compactW, 27, socialAction, socialFill, socialHandler, "#fff8df", 10);
       this.button(ctx, x + 16 + (compactW + compactGap) * 2, compactY, compactW, 27, "加固", "#d8c27a", () => this.upgradeShield(), "#26352b", 10);
       this.renderedLeagueBattle = {
         x, y, w, h,
@@ -13806,7 +16254,10 @@ class Game {
     const patrolFill = ((reserve.supplies || {}).dogFood || 0) > 0 ? "#1c3325" : "#9aa093";
     this.button(ctx, x + 16, y + 226, actionW, 28, "边界巡查", patrolFill, () => this.raidRival(), "#fff8df", 10);
     const socialAction = this.leagueScope === "friends" ? "好友交换" : "资源交换";
-    const socialFill = this.leagueScope === "friends" ? "#2f7c8f" : "#1c3325";
+    const socialReady = !!proposeAutoExchange(reserve);
+    const socialFill = socialReady
+      ? (this.leagueScope === "friends" ? "#2f7c8f" : "#1c3325")
+      : "#9aa093";
     const socialHandler = this.leagueScope === "friends" ? () => this.collaborateWithRival() : () => this.exchangeWithWorld();
     this.button(ctx, x + 16 + actionW + actionGap, y + 226, actionW, 28, socialAction, socialFill, socialHandler, "#fff8df", 10);
     this.button(ctx, x + 16 + (actionW + actionGap) * 2, y + 226, actionW, 28, "加固", "#d8c27a", () => this.upgradeShield(), "#26352b", 10);
@@ -13843,6 +16294,7 @@ class Game {
   }
 
   drawLeagueRankingRow(ctx, row, rank, x, y, w, h) {
+    if (this.leagueScope === "world") return this.drawWorldLeagueRankingRow(ctx, row, rank, x, y, w, h);
     const active = row.id === this.selectedRivalId && !row.mine;
     const medal = rank <= 3;
     const fill = row.mine ? "#e4efd8" : active ? "#fff1d1" : "#fffaf0";
@@ -13870,6 +16322,41 @@ class Game {
     this.text(ctx, row.mine ? "我的详情 ›" : active ? "目标 · 详情 ›" : "查看详情 ›", x + w - 14, y + 44, 9, active ? "#1f7a52" : "#8b6f2a", "700", "right");
     this.addHit(x, y - this.scrollY, w, h, () => this.openLeaguePlayerDetail(row, rank));
     return { avatar, rankBounds: { x: x + 4, y: y + h - 21, w: rankW, h: 17 }, textBounds: { x: textX, y: y + 8, w: textW, h: h - 16 } };
+  }
+
+  // 世界榜沿用微信好友榜的紧凑名单式排版：连续白底行、排名、头像、
+  // 账号匹配后的微信昵称与头像由开放数据域绘制。
+  drawWorldLeagueRankingRow(ctx, row, rank, x, y, w, h) {
+    const rowH = Math.max(36, Number(h) || WORLD_LEAGUE_ROW_HEIGHT);
+    const rankColor = rank <= 3 ? "#c08a27" : "#6b746f";
+    if (rank > 1) {
+      ctx.fillStyle = "rgba(60,60,67,.10)";
+      ctx.fillRect(x + 48, y, w - 62, 1);
+    }
+    this.text(ctx, `${rank}`, x + 16, y + rowH * 0.62, rank <= 3 ? 13 : 11, rankColor, "700", "center");
+    const avatarSize = Math.min(28, Math.max(24, rowH - 12));
+    const avatar = this.drawLeaguePlayerAvatar(ctx, row, x + 48, y + rowH / 2, avatarSize, row.mine);
+    const scoreReserve = 72;
+    const textX = x + 68;
+    const textW = Math.max(48, x + w - scoreReserve - textX);
+    const title = this.leaguePlayerTitle(row);
+    this.text(ctx, this.truncateTextToWidth(ctx, title, textW, 11, "700"), textX, y + rowH * 0.38, 11, "#1f2d27", "700");
+    const identity = row.mine
+      ? `等级${row.level || 1} · ${row.animals || 0}只动物`
+      : row.profileComplete === false || !(row.animals > 0 && row.shield > 0)
+        ? `真实玩家 · 等级${row.level || 1} · 动物待同步`
+        : `${row.friend === true ? "微信好友 · " : ""}等级${row.level || 1} · ${row.animals || 0}只动物`;
+    this.text(ctx, this.truncateTextToWidth(ctx, identity, textW, 9, "400"), textX, y + rowH * 0.76, 9, row.friend === true ? "#2f7d62" : "#6b746f", "400");
+    this.text(ctx, `${this.leagueRowValue(row)}`, x + w - 14, y + rowH * 0.40, 15, "#2f7d62", "700", "right");
+    this.text(ctx, row.mine ? "我的市值 ›" : "市值 ›", x + w - 14, y + rowH * 0.76, 8, "#7a847e", "600", "right");
+    this.addHit(x, y - this.scrollY, w, rowH, () => this.openLeaguePlayerDetail(row, rank));
+    return {
+      avatar,
+      layout: "friend-list",
+      rowH,
+      rankBounds: { x: x + 4, y: y + 4, w: 28, h: rowH - 8 },
+      textBounds: { x: textX, y: y + 4, w: textW, h: rowH - 8 }
+    };
   }
 
   leaguePlayerAvatarStyle(row = {}) {
@@ -13911,29 +16398,12 @@ class Game {
     ctx.fill();
     this.text(ctx, style.initial, cx, cy + size * .16, Math.max(13, Math.round(size * .42)), "#fffaf0", "700", "center");
     ctx.restore();
-    let wechatAvatarRequested = false;
-    if (row.mine && this.leagueScope === "world" && this.wechatFriends && typeof this.wechatFriends.drawSelfAvatar === "function") {
-      const reserve = ((this.state || {}).world || {}).reserve || {};
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-      ctx.clip();
-      wechatAvatarRequested = this.wechatFriends.drawSelfAvatar(
-        ctx,
-        cx - radius,
-        cy - radius,
-        size,
-        reserve,
-        this.reserveRankingValue(reserve)
-      );
-      ctx.restore();
-    }
     ctx.strokeStyle = active ? "#d8c27a" : "rgba(36,64,46,.28)";
     ctx.lineWidth = active ? 2 : 1;
     ctx.beginPath();
     ctx.arc(cx, cy, radius - .5, 0, Math.PI * 2);
     ctx.stroke();
-    return Object.assign({}, style, { cx, cy, size, active, wechatAvatarRequested });
+    return Object.assign({}, style, { cx, cy, size, active });
   }
 
   leaguePlayerTitle(row = {}) {
@@ -14016,41 +16486,38 @@ class Game {
       return null;
     }
     delete reserve.league.pendingTop10Broadcast;
-    const body = formatTop10Broadcast(diff);
+    const body = formatTop10List(current);
     const report = {
-      id: `world_top10_${day}_${current.map((row) => `${row.id}:${row.rank}:${row.animals}:${row.valuation}`).join("_")}`,
+      id: `world_top10_${day}`,
       day,
       type: "public",
       sourceKind: "leaderboard",
       sourceLabel: "世界榜播报",
+      openTarget: "world",
       readAt: 0,
-      title: "世界榜 Top 10 变化",
+      title: "世界榜 Top 10",
       body,
-      visual: { eventCard: { tag: "世界榜播报", title: "Top 10 榜单更新", body } }
+      visual: { eventCard: { tag: "世界榜播报", title: "最新 Top 10", body } }
     };
     const broadcasts = Array.isArray(reserve.league.broadcasts) ? reserve.league.broadcasts : [];
-    const duplicate = broadcasts.some((item) => item.id === report.id);
+    const sameDay = (item) => item && Number(item.day) === day && isWorldTop10Letter(item);
+    const existing = broadcasts.find(sameDay);
     const policy = reserve.league.broadcastPolicy && typeof reserve.league.broadcastPolicy === "object"
       ? reserve.league.broadcastPolicy : {};
     if (policy.day !== day) Object.assign(policy, { day, screenCount: 0, reportCount: 0, dailyLetterCount: 0 });
-    // 世界榜变化可以持续刷新快照，但每天最多落一封两封进保护区信箱。
-    // 超过限额的变化留在下一次榜单同步中，不制造刷屏式历史信件。
-    if (!duplicate && Number(policy.dailyLetterCount || 0) >= 2) {
+    // 世界榜每天只留一封最新 Top 10；同日后续变化覆盖正文，收件箱也只展示这一封。
+    if (existing && existing.body === body && existing.id === report.id) {
       reserve.league.broadcastPolicy = policy;
       saveState(this.state);
       return null;
     }
-    if (!duplicate) {
-      reserve.league.broadcasts = broadcasts.concat(report).slice(-30);
-      this.state.reports = (this.state.reports || []).concat(report).slice(-12);
-      policy.dailyLetterCount = (Number(policy.dailyLetterCount) || 0) + 1;
-      policy.reportCount = (Number(policy.reportCount) || 0) + 1;
-      // 世界榜变化只进入保护区信箱，不再通过沙盘 toast 主动推送到屏幕。
-      // 用户仍可从游客频道邮箱或手动打开世界榜查看完整播报。
-      reserve.league.broadcastPolicy = policy;
-      saveState(this.state);
-    }
-    return duplicate ? null : report;
+    reserve.league.broadcasts = broadcasts.filter((item) => !isWorldTop10Letter(item)).concat(report);
+    this.state.reports = (this.state.reports || []).filter((item) => !isWorldTop10Letter(item)).concat(report).slice(-12);
+    if (!existing) policy.reportCount = (Number(policy.reportCount) || 0) + 1;
+    policy.dailyLetterCount = 1;
+    reserve.league.broadcastPolicy = policy;
+    saveState(this.state);
+    return report;
   }
 
   leagueRows(scope = this.leagueScope) {
@@ -14095,9 +16562,13 @@ class Game {
       return Object.keys(realById).map((id) => realById[id]).sort((a, b) => this.leagueRowValue(b) - this.leagueRowValue(a));
     }
     const savedWorld = saved.filter((rival) => rival.scope === "world");
-    const cloudWorld = this.cloudService && this.cloudService.feature("worldLeaderboard")
-      ? (this.cloudService.rows || []).map((rival) => Object.assign({}, rival, { mine: false, scope: "world", simulated: false, source: "cloud" }))
-      : [];
+    const cloud = this.cloudService;
+    const linkedFriends = cloud && cloud.feature("socialTrade") ? (cloud.friendRows || []).filter((row) => row && row.registered !== false) : [];
+    const cloudWorld = cloud && cloud.feature("worldLeaderboard")
+      ? (cloud.rows || []).map((rival) => Object.assign({}, rival, {
+        friend: rival.friend === true || linkedFriends.some(friend => friend.id === rival.id),
+        mine: false, scope: "world", simulated: false, source: "cloud"
+      })) : [];
     const realById = {};
     cloudWorld.concat(savedWorld.filter((rival) => !rival.simulated)).forEach((rival) => {
       if (!realById[rival.id]) realById[rival.id] = rival;
@@ -14123,7 +16594,10 @@ class Game {
     if (!cloud.feature("worldLeaderboard")) return cloud.configStatus === "loading" ? "连接世界中…" : "世界榜 · 本地";
     if (cloud.authStatus === "logging_in") return "微信登录中…";
     if (cloud.status === "offline") return cloud.rows.length ? "世界榜 · 缓存" : "世界榜 · 离线";
-    if (cloud.rows.length) return `全球实时 · ${cloud.rows.length}座`;
+    if (cloud.rows.length) {
+      const friendCount = cloud.rows.filter((row) => row.friend === true).length;
+      return friendCount ? `全球实时 · ${cloud.rows.length}座 · 好友${friendCount}位` : `全球实时 · ${cloud.rows.length}座`;
+    }
     return "全球实时 · 等待首位玩家";
   }
 
@@ -14213,6 +16687,7 @@ class Game {
       reserve.base.protectedAnimals.antelope = (reserve.base.protectedAnimals.antelope || 0) + animals;
       if (reserve.ecology && reserve.ecology.herbivores) {
         reserve.ecology.herbivores.antelope = (reserve.ecology.herbivores.antelope || 0) + animals;
+        recordIncrease(reserve, "immigrated", animals);
         reserve.safety = Math.max(0, (reserve.safety || 55) + 1);
         reserve.migration = { trend: "in", delta: animals, reason: "边界巡查压住噪声，迁移线更偏向你的保护区" };
       }
@@ -14288,21 +16763,11 @@ class Game {
   }
 
   collaborateWithRival() {
-    const selected = this.selectedRival();
-    if (!selected || selected.scope !== "friends") {
-      this.toast("先选择好友保护区");
-      return;
-    }
-    this.openWildernessTradeCenter("", "friends");
+    this.openAutoExchangeModal("league", "friends");
   }
 
   exchangeWithWorld() {
-    const selected = this.selectedRival();
-    if (!selected || selected.scope !== "world") {
-      this.toast("先选择世界保护区");
-      return;
-    }
-    this.openWildernessTradeCenter("", "world");
+    this.openAutoExchangeModal("league", "world");
   }
 
   applySurvivalTradeInbox(receipts = []) {
@@ -14398,12 +16863,15 @@ class Game {
     if (box === "outbox") {
       if (record.mode === "barter_v1" || record.escrow) {
         const pending = record.status === "open";
+        const partner = record.partnerName || (record.partnerKind === "npc" ? "巡护员" : "真实玩家");
         return {
-          tag: `${pending ? "托管中" : `${channel}成交`} · ${time}`,
+          tag: `${pending ? "求援待匹配" : "求援已匹配"} · ${time}`,
           title: pending
-            ? `托管 ${record.label || "生存素材"} ×1 → 等待真实玩家`
-            : `送出 ${record.label || "生存素材"} ×1 → ${record.partnerName || "真实玩家"}`,
-          body: `想要：${record.wantedItemLabel || "约定素材"} ×1${record.purpose ? ` · ${record.purpose}` : ""}`,
+            ? `发出需求：用 ${record.label || "生存素材"} 换 ${record.wantedItemLabel || "约定素材"}`
+            : `发出需求：用 ${record.label || "生存素材"} 换 ${record.wantedItemLabel || "约定素材"}`,
+          body: pending
+            ? "等待真实玩家或巡护员接手"
+            : `已匹配 ${partner}${record.purpose ? ` · ${record.purpose}` : ""}`,
           stackTag: true
         };
       }
@@ -14416,11 +16884,11 @@ class Game {
     }
     const claimed = record.claimed === false && !record.claimedAt ? "等待登录领取" : "已领取入库";
     const payment = record.paymentLabel || ((record.mode === "barter_v1" || record.escrow)
-      ? `${record.wantedItemLabel || "约定素材"} ×1（已托管）`
+      ? `${record.wantedItemLabel || "约定素材"} ×1`
       : "无需额外物资（对方主动发起）");
     const reward = record.rewardLabel || (Number(record.fundDelta) > 0 ? `回执奖励：基金 +${Math.round(Number(record.fundDelta))}` : "");
     return {
-      tag: `${channel}收件 · ${time}`,
+      tag: `交换结果 · ${time}`,
       title: `收到 ${record.label || "生存素材"} ×${Math.max(1, Number(record.receivedAmount) || 1)} ← ${record.partnerName || "远方保护区"}`,
       body: `我方付出：${payment}${reward ? ` · ${reward}` : ""} · ${claimed}`,
       stackTag: true
@@ -14437,15 +16905,15 @@ class Game {
     this.infoDetailModal = {
       kind: "wildernessTradeMailbox",
       mailboxTab: tab,
-      kicker: `真实玩家交换 · ${records.length} 条`,
+      kicker: `物资交换往来 · ${records.length} 条`,
       title: tab === "inbox" ? "交换收件箱" : "交换发件箱",
       icon: "community",
       items: visible.length ? visible.map((record) => this.wildernessTradeMailboxItem(record, tab)) : [{
         tag: "暂无记录",
-        title: tab === "inbox" ? "还没有收到交换素材" : "还没有发出交换素材",
-        body: tab === "inbox" ? "其他玩家发来的素材会在登录时领取，并记录我方是否有额外付出。" : "从已解锁素材中选择交换后，会记录对象、送出物和得到的回报。"
+        title: tab === "inbox" ? "还没有交换结果" : "还没有发出求援",
+        body: tab === "inbox" ? "沙盘或排行榜完成交换后，收到的物资会记在这里。" : "从沙盘求援或排行榜发起后，发出的需求和匹配对象会记在这里。"
       }],
-      footer: records.length > visible.length ? `显示最近 ${visible.length}/${records.length} 条 · 服务器保留最近 50 条` : "每笔记录都标明物品、对象、所得与我方付出",
+      footer: records.length > visible.length ? `显示最近 ${visible.length}/${records.length} 条 · 服务器保留最近 50 条` : "求援看发件箱，交换结果看收件箱",
       choices: [
         { label: `收件箱 ${inboxCount}`, action: () => this.openWildernessTradeMailbox("inbox", false) },
         { label: `发件箱 ${outboxCount}`, action: () => this.openWildernessTradeMailbox("outbox", false) }
@@ -14547,131 +17015,15 @@ class Game {
   }
 
   openWildernessTradeCenter(itemId = "", presetScope = "") {
-    const reserve = ((this.state.world || {}).reserve) || {};
-    const item = wildernessFindById(itemId) || bestWildernessTradeItem(reserve);
-    const summary = wildernessKnowledgeSummary(reserve);
-    if (this.cloudService) this.cloudService.track("survival.trade.open", { itemId: item ? item.id : "", stock: summary.tradeCount, presetScope: presetScope || "choice" });
-    if (!item || summary.tradeCount <= 0) {
-      this.infoDetailModal = {
-        kind: "wildernessTradeEmpty",
-        kicker: "真实玩家交换",
-        title: "先找到一份可交换素材",
-        icon: "leaf",
-        items: [
-          { tag: "当前保障", title: summary.readiness.label, body: "探索得到的实物先进入生存保障库存；知识图鉴永久保留。" },
-          { tag: "5分钟目标", title: "完成一次动物引路探索", body: "找到素材后，可以选择想要的回报并进入真实玩家托管池。" }
-        ],
-        footer: "探索 → 获得素材 → 发布报价 → 匹配后入库",
-        actionLabel: "去探索",
-        action: () => { this.infoDetailModal = null; this.openMaterialExploration(); }
-      };
-      this.render();
-      return;
-    }
-    if (!this.reciprocalTradeAvailable()) {
-      this.ensureReciprocalTradeCapability(item, () => {
-        if (this.screen === "survival"
-          && this.infoDetailModal
-          && this.infoDetailModal.kind === "wildernessTradeUnavailable") {
-          this.openWildernessTradeCenter(item.id, presetScope);
-        }
-      });
-      return;
-    }
-    const day = Math.max(1, Number((this.state.world || {}).day) || 1);
-    const usage = wildernessTradeDailyUsage(reserve, day);
-    if (usage.remaining <= 0) {
-      this.infoDetailModal = {
-        kind: "wildernessTradeLimit",
-        kicker: `今日 ${usage.used}/${usage.limit}`,
-        title: "今日交换额度已用完",
-        icon: "community",
-        items: [
-          { tag: "节奏限制", title: "每天最多托管 3 份素材", body: "交换只能补足部分短板，主要物资仍需通过探索与经营获得。" },
-          { tag: "已有报价", title: "已托管的报价仍会继续匹配", body: "匹配成功后，回件会进入交换收件箱。" }
-        ],
-        footer: "明日可以继续发布新的交换报价。"
-      };
-      this.render();
-      return;
-    }
-    if (presetScope === "friends" || presetScope === "world") {
-      this.prepareWildernessTrade(presetScope, item.id);
-      return;
-    }
-    const wanted = wildernessTradeRecommendations(reserve, item.id)[0];
-    const friendPreview = wildernessTradePreview(reserve, item.id, "friends", { id: "matching_pool", name: "真实好友匹配" }, wanted && wanted.id);
-    const worldPreview = wildernessTradePreview(reserve, item.id, "world", { id: "matching_pool", name: "世界玩家匹配" }, wanted && wanted.id);
-    this.infoDetailModal = {
-      kind: "wildernessTradeChannel",
-      kicker: `${item.label} · 库存 ${summary.state.tradeStock[item.id] || 0}`,
-      title: "选择交换对象",
-      icon: item.icon,
-      items: [
-        { tag: "微信好友", title: friendPreview.valueText, body: "只在真实同玩好友的相反需求中匹配。" },
-        { tag: "世界玩家", title: worldPreview.valueText, body: "在真实世界玩家报价中匹配，不使用模拟玩家。" },
-        { tag: "持有价值", title: `${summary.readiness.label} · 抵消压力 ${summary.readiness.careRelief}`, body: "交换会消耗 1 份实物，也会降低当前生存保障；请在应急储备与即时收益之间选择。" }
-      ],
-      footer: `今日还可发布 ${usage.remaining}/${usage.limit} 份 · 物资由服务器托管，匹配后同时成交。`,
-      choices: [
-        { label: "微信好友", action: () => this.prepareWildernessTrade("friends", item.id) },
-        { label: "世界玩家", action: () => this.prepareWildernessTrade("world", item.id) }
-      ]
-    };
-    this.render();
+    this.openAutoExchangeModal(this.screen === "league" ? "league" : "sandbox", presetScope === "world" ? "world" : "friends");
   }
 
   prepareWildernessTrade(scope, itemId) {
-    if (this.survivalTradePending) return;
-    const cloud = this.cloudService;
-    if (!cloud || !cloud.feature("socialTrade")) {
-      this.toast("真实交换服务暂未开放");
-      return;
-    }
-    if (!this.reciprocalTradeAvailable()) {
-      const item = wildernessFindById(itemId);
-      this.ensureReciprocalTradeCapability(item, () => {
-        if (this.screen === "survival"
-          && this.infoDetailModal
-          && this.infoDetailModal.kind === "wildernessTradeUnavailable") {
-          this.prepareWildernessTrade(scope, itemId);
-        }
-      });
-      return;
-    }
-    this.cloudService.track("survival.trade.channel", { scope, itemId });
-    this.openWildernessTradeWant(itemId, scope, 0);
+    this.openAutoExchangeModal(this.screen === "league" ? "league" : "sandbox", scope === "world" ? "world" : "friends");
   }
 
   openWildernessTradeWant(itemId, scope = "world", optionIndex = 0) {
-    const reserve = ((this.state.world || {}).reserve) || {};
-    const offered = wildernessFindById(itemId);
-    const options = wildernessTradeRecommendations(reserve, itemId);
-    if (!offered || !options.length) {
-      this.toast("暂时没有价值相近的可换素材");
-      return;
-    }
-    const index = ((Number(optionIndex) || 0) % options.length + options.length) % options.length;
-    const wanted = options[index];
-    const preview = wildernessTradePreview(reserve, itemId, scope, { id: "matching_pool", name: "等待真实玩家匹配" }, wanted.id);
-    this.infoDetailModal = {
-      kind: "wildernessTradeWant",
-      kicker: `${scope === "friends" ? "好友" : "世界"}托管池 · ${wanted.tradeKindLabel}`,
-      title: "选择想要的回报",
-      icon: wanted.icon,
-      items: [
-        { tag: "我送出", title: `${offered.label} ×1`, body: "确认后进入托管，不会直接改变保护区数值。" },
-        { tag: "我想要", title: `${wanted.label} ×1`, body: `${wanted.tradeKindLabel} · 只与价值相近的相反报价匹配。` },
-        { tag: "交换动机", title: preview.motive, body: "用当前优势库存换取更紧迫的生存能力。" },
-        { tag: "具体用途", title: preview.purpose, body: "收到后仍需在对应生存行动中使用。" }
-      ],
-      footer: `第 ${index + 1}/${options.length} 个建议 · 未匹配时素材继续由服务器托管。`,
-      choices: [
-        { label: "换一个需求", action: () => this.openWildernessTradeWant(itemId, scope, index + 1) },
-        { label: "确认这个需求", action: () => this.confirmWildernessTrade(itemId, scope, null, wanted.id) }
-      ]
-    };
-    this.render();
+    this.openAutoExchangeModal(this.screen === "league" ? "league" : "sandbox", scope === "world" ? "world" : "friends");
   }
 
   confirmWildernessTrade(itemId, scope, target = null, wantedItemId = "") {
@@ -14825,6 +17177,10 @@ class Game {
     this.render();
   }
 
+  nativeTemplateAdChrome() {
+    return { headerH: 34, bottomPad: 12 };
+  }
+
   nativeTemplateAdLayoutSize() {
     const controller = this.nativeTemplateAds;
     const supported = !!(controller && (typeof controller.isSupported !== "function" || controller.isSupported()));
@@ -14836,28 +17192,48 @@ class Game {
     };
   }
 
+  nativeTemplateAdReservedHeight() {
+    const size = this.nativeTemplateAdLayoutSize();
+    if (!size) return 0;
+    const chrome = this.nativeTemplateAdChrome();
+    return chrome.headerH + size.height + chrome.bottomPad;
+  }
+
   drawNativeTemplateAdSlot(ctx, x, y, w) {
     const size = this.nativeTemplateAdLayoutSize();
     if (!size) return y;
-    const headerH = 30;
-    const bottomPad = 10;
-    const frameH = headerH + size.height + bottomPad;
-    this.drawPremiumParchmentPanel(ctx, x, y, w, frameH, 12, { rivets: true });
-    this.text(ctx, "广告内容", x + 14, y + 20, 10, "#66715f", "700");
-    this.text(ctx, "从两侧或标题区上下滑动", x + w - 14, y + 20, 10, "#2f7d62", "700", "right");
-    const adTop = y + headerH;
+    const chrome = this.nativeTemplateAdChrome();
+    const frameH = chrome.headerH + size.height + chrome.bottomPad;
+    this.drawPremiumParchmentPanel(ctx, x, y, w, frameH, 14, { rivets: true });
+    this.drawSmallGlyph(ctx, "leaf", x + 22, y + 21, UI_THEME.goldDeep, 0.7);
+    this.text(ctx, "林间公告", x + 34, y + 24, 11, "#5a4630", "700");
+    const badgeW = 34;
+    const badgeX = x + w - 14 - badgeW;
+    this.roundRect(ctx, badgeX, y + 10, badgeW, 16, 8, "rgba(47,125,98,.12)", "rgba(47,125,98,.34)");
+    this.text(ctx, "广告", badgeX + badgeW / 2, y + 22, 9, "#2f7d62", "700", "center");
+    if (w >= 280) this.text(ctx, "两侧滑动", badgeX - 8, y + 22, 9, "#7a8474", "700", "right");
+    const adTop = y + chrome.headerH;
     const adLeft = (this.width - size.width) / 2;
-    this.roundRect(ctx, adLeft, adTop, size.width, size.height, 8, "rgba(230,234,226,.92)", "rgba(36,64,46,.10)");
-    this.text(ctx, "广告加载区域", this.width / 2, adTop + size.height / 2 + 4, 10, "#8a928b", "700", "center");
+    this.roundRect(ctx, adLeft - 4, adTop - 3, size.width + 8, size.height + 6, 10, "#24382c", "rgba(210,173,88,.42)");
+    this.roundRect(ctx, adLeft - 1, adTop - 1, size.width + 2, size.height + 2, 8, "#1b2c23");
+    if (!(this.nativeTemplateAds && this.nativeTemplateAds.shown)) {
+      const well = ctx.createLinearGradient(adLeft, adTop, adLeft, adTop + size.height);
+      well.addColorStop(0, "#e7eedf");
+      well.addColorStop(1, "#d4ddcc");
+      this.roundRect(ctx, adLeft, adTop, size.width, size.height, 8, well);
+      this.drawSmallGlyph(ctx, "leaf", this.width / 2, adTop + size.height / 2 - 8, "rgba(47,118,92,.26)", 1.35);
+      this.text(ctx, "公告即将展开", this.width / 2, adTop + size.height / 2 + 16, 10, "#6d7a6c", "700", "center");
+    }
     const railWidth = Math.max(0, adLeft);
     this.nativeTemplateAdSlot = { x: adLeft, y: adTop, w: size.width, h: size.height };
     this.renderedNativeTemplateAdSlot = {
       frame: { x, y, w, h: frameH },
       slot: Object.assign({}, this.nativeTemplateAdSlot),
       railWidth,
-      headerDragHeight: headerH,
+      headerDragHeight: chrome.headerH,
       reservedHeight: frameH,
       inline: true,
+      visualStyle: "field-bulletin-v2",
       visible: false
     };
     return y + frameH;
@@ -14971,9 +17347,21 @@ class Game {
       ctx.restore();
       this.text(ctx, "请从这里探索", this.width - 66, y + 68, 9, "#ff5c3f", "800", "center");
     }
-    this.drawSectionActionButton(ctx, this.width - 104, y + 76, 76, "去探索", "#d8c27a", () => this.openMaterialExploration(), false);
+    this.drawSectionActionButton(ctx, this.width - 104, y + 76, 76, "去探索", "#d8c27a", () => this.openMaterialExploration(this.survivalFocusMaterialId || ""), false);
     this.renderedSurvivalHero = { x: 12, y, w: this.width - 24, h: heroH, unlocked: summary.unlocked, total: summary.total, progressRatio, exploreFocused, style: "green-achievement-progress-card" };
     y += heroH + 12;
+
+    this.text(ctx, "生存经营 · 留住动物，吸引游客", 20, y + 18, 14, "#1c3325", "700");
+    y += 48;
+    this.renderedSurvivalImpacts = survivalImpact(reserve);
+    this.renderedSurvivalImpacts.forEach((impact) => {
+      const lines = impact.lines.flatMap(line => this.wrapTextLines(ctx, line, this.width - 52, 11));
+      const panelH = 44 + lines.length * 18;
+      this.drawPremiumParchmentPanel(ctx, 12, y, this.width - 24, panelH, 12, { rivets: false });
+      this.text(ctx, impact.title, 26, y + 24, 15, "#23644d", "700");
+      lines.forEach((line, index) => this.text(ctx, line, 26, y + 45 + index * 18, 11, "#435b49", "500"));
+      y += panelH + 10;
+    });
 
     const entryGap = 10;
     const entryH = 60;
@@ -15009,6 +17397,7 @@ class Game {
     const gap = DISCOVERY_ITEM_CARD_GAP;
     this.text(ctx, "素材图鉴", 18, y + 18, 18, "#1c3325", "700");
     this.text(ctx, "实物可交换，学会的知识不会消失", this.width - 18, y + 18, 10, "#6b745f", "700", "right");
+    this.renderedSurvivalCatalog = { x: 12, y, w: this.width - 24, h: 34, title: "素材图鉴" };
     y += 34;
     const cardH = DISCOVERY_ITEM_CARD_HEIGHT;
     this.renderedSurvivalCards = [];
@@ -15019,7 +17408,27 @@ class Game {
       map.get(key).push(item);
       return map;
     }, new Map()).entries()).sort((a, b) => a[0] - b[0]);
-    groups.forEach(([level, items]) => {
+    // 等级素材改为横向标签切换，避免所有等级纵向堆叠造成页面过长。
+    const levels = groups.map(([level]) => level);
+    const selectedLevel = levels.includes(Number(this.survivalMaterialLevel)) ? Number(this.survivalMaterialLevel) : levels[0];
+    this.survivalMaterialLevel = selectedLevel;
+    const tabGap = 6;
+    const tabW = (this.width - 24 - tabGap * Math.max(0, levels.length - 1)) / Math.max(1, levels.length);
+    // 标签栏吸顶，滚动素材卡片时始终可见并可切换等级。
+    const tabY = Math.max(y + 28, this.scrollY + topInset + 42);
+    this.roundRect(ctx, 0, tabY - 6, this.width, 42, 0, "#eef0dd");
+    levels.forEach((level, index) => {
+      const tabX = 12 + index * (tabW + tabGap);
+      const active = level === selectedLevel;
+      this.roundRect(ctx, tabX, tabY, tabW, 28, 10, active ? "#2f765c" : "#e8ddbd", "#7d9b7d");
+      this.text(ctx, `等级${level}`, tabX + tabW / 2, tabY + 19, 11, active ? "#fff8df" : "#315b45", "700", "center");
+      this.addHit(tabX, tabY - this.scrollY, tabW, 28, () => {
+        this.survivalMaterialLevel = level;
+        this.render();
+      });
+    });
+    y += 64;
+    groups.filter(([level]) => level === selectedLevel).forEach(([level, items]) => {
       const groupX = 12;
       const groupW = this.width - 24;
       const headerH = 62;
@@ -15051,13 +17460,24 @@ class Game {
         const unlocked = !!(discovery && discovery.count > 0);
         const activation = wildernessActivation(item, reserve);
         const stock = Number(state.tradeStock[item.id]) || 0;
+        const focused = this.survivalFocusMaterialId === item.id && Number(this.survivalFocusMaterialUntil || 0) > Date.now();
         const shell = this.drawPremiumItemCardShell(ctx, cx, cy, cardW, cardH, {
           locked: !unlocked,
-          active: unlocked,
-          accent: unlocked ? "#5d8d6f" : "#858b83",
+          active: unlocked || focused,
+          accent: focused ? "#2f765c" : unlocked ? "#5d8d6f" : "#858b83",
           headerLabel: unlocked ? item.rarity : `等级${item.minLevel}`,
           headerColor: unlocked ? "#26785c" : "#737a73"
         });
+        if (focused) {
+          const pulse = 0.62 + 0.38 * Math.sin(Date.now() / 180);
+          ctx.save();
+          ctx.strokeStyle = `rgba(47,118,92,${pulse})`;
+          ctx.lineWidth = 3;
+          ctx.strokeRect(cx + 1, cy + 1, cardW - 2, cardH - 2);
+          ctx.restore();
+          this.roundRect(ctx, cx + 8, cy + 6, 72, 18, 9, `rgba(47,118,92,${0.16 + 0.12 * pulse})`);
+          this.text(ctx, "收集这份", cx + 44, cy + 19, 9, "#1f5a3f", "800", "center");
+        }
         const artCx = cx + cardW / 2;
         const artCy = cy + 47;
         const downloadedArtwork = false;
@@ -15103,22 +17523,18 @@ class Game {
           iconSource: "cartoon-vector",
           transparentArtwork: true,
           stateStyle: stateButton.style,
-          groupLevel: level
+          groupLevel: level,
+          focused
         });
       });
-      this.renderedSurvivalGroups.push({ level, x: groupX, y, w: groupW, h: groupH, unlocked: unlockedCount, total: items.length, style: "green-achievement-floor-card" });
+      this.renderedSurvivalGroups.push({
+        level, x: groupX, y, w: groupW, h: groupH, unlocked: unlockedCount, total: items.length,
+        style: "green-achievement-floor-card", selected: true,
+        focusedMaterialId: this.survivalFocusMaterialId || ""
+      });
       y += groupH + 14;
     });
-    this.drawPremiumLeatherPanel(ctx, 12, y, this.width - 24, 72, 14, { rivets: true });
-    this.text(ctx, "真实玩家素材交换", 26, y + 22, 12, "#fff3c4", "700");
-    const usage = wildernessTradeDailyUsage(reserve, Math.max(1, Number((this.state.world || {}).day) || 1));
-    this.text(ctx, `生存物资 · 稀有素材 · 线索 · 今日可换 ${usage.remaining}/${usage.limit}`, 26, y + 43, 10, "#dbe8d8", "700");
-    this.drawSectionActionButton(ctx, this.width - 102, y + 17, 76, summary.tradeCount > 0 ? "选择交换" : "先去探索", summary.tradeCount > 0 ? "#f0d376" : "#d7d2bf", () => {
-      if (summary.tradeCount > 0) this.openWildernessTradeCenter();
-      else this.openMaterialExploration();
-    }, false);
-    this.renderedSurvivalTradePanel = { x: 12, y, w: this.width - 24, h: 72, readiness: summary.readiness, tradeCount: summary.tradeCount, enabled: summary.tradeCount > 0 };
-    this.bottom(y + 84);
+    this.bottom(y + 12);
   }
 
   openWildernessKnowledgeItem(id) {
@@ -15144,7 +17560,7 @@ class Game {
         actionLabel: "去探索",
         action: () => {
           this.infoDetailModal = null;
-          this.openMaterialExploration();
+          this.openMaterialExploration(item.id);
         }
       };
       this.render();
@@ -15163,7 +17579,7 @@ class Game {
       wildernessItem: item,
       expandableItems: true,
       summaryItems: null,
-      actionSummary: offer.available > 0 ? "你现在可以：交换这份素材" : "你现在可以：继续探索",
+      actionSummary: offer.available > 0 ? "交换从沙盘求援或排行榜发起" : "你现在可以：继续探索",
       items: [
         {
           tag: "现实与代价",
@@ -15178,18 +17594,18 @@ class Game {
           detailBody: `物件故事：${item.story}\n${storyLink && storyLink.type === "active" ? "已写入当前案件记录。" : "收入本章生态档案。"}\n生态影响：${impact ? impact.summary : `首次发现使${effect.label || "保护区"}${effectDelta >= 0 ? "+" : ""}${effectDelta}`}\n未解线索：${item.easterEgg}`
         },
         {
-          tag: "库存与交换",
-          title: `${item.material} · 可交换 ${offer.available} 份`,
-          body: `发现 ${discovery.count || 0} 次 · 交换价值 ${item.tradeValue}`,
-          detailBody: `可交换 ${offer.available} 份；交易消耗实物。持有保障抵消压力 ${summary.readiness.careRelief}，知识不会消失。`
+          tag: "库存与往来",
+          title: `${item.material} · 库存 ${offer.available} 份`,
+          body: `发现 ${discovery.count || 0} 次 · 交换从沙盘求援或排行榜发起`,
+          detailBody: `库存 ${offer.available} 份。求援会按缺乏和拥有自动匹配；结果记入生存收件箱与发件箱。持有保障抵消压力 ${summary.readiness.careRelief}。`
         }
       ],
-      footer: `摘要 · 点击卡片查看更多 · 发现×${discovery.count || 0} · 可交换×${offer.available}`,
-      actionLabel: offer.available > 0 ? "交换这份素材" : "继续探索",
+      footer: `摘要 · 点击卡片查看更多 · 发现×${discovery.count || 0} · 库存×${offer.available}`,
+      actionLabel: offer.available > 0 ? "关闭" : "继续探索",
       action: () => {
         this.infoDetailModal = null;
-        if (offer.available > 0) this.openWildernessTradeCenter(item.id);
-        else this.openMaterialExploration();
+        if (offer.available > 0) this.render();
+        else this.openMaterialExploration(item.id);
       }
     };
     this.render();
@@ -15295,20 +17711,30 @@ class Game {
     });
   }
 
+  drawRewardedAdPlate(ctx, x, y, w, h, label, enabled, onTap) {
+    if (enabled) this.drawPremiumBrassPlate(ctx, x, y, w, h, Math.min(12, h / 2));
+    else this.drawPremiumLeatherPanel(ctx, x, y, w, h, Math.min(12, h / 2), { light: true });
+    this.text(ctx, this.truncateTextToWidth(ctx, label, w - 18, 11, "700"), x + w / 2, y + Math.round(h / 2) + 4, 11, enabled ? UI_THEME.leatherDeep : "#f6efdd", "700", "center");
+    const hitY = y - this.scrollY;
+    if (hitY >= 0 && hitY + h <= this.height - this.navHeight() - 2) {
+      this.addHit(x, hitY, w, h, onTap);
+    }
+  }
+
   drawSupplyDepot(ctx, x, y, w, reserve) {
     const supplies = reserve.supplies || {};
     const primary = (((((this.state.world || {}).goals || {}).active || {}).primary) || {});
     const taskRequirement = primary.purchaseId ? supplyPurchaseById(primary.purchaseId, reserve) : actionSupplyRequirement(primary.intendedAction || primary.recommendedAction, reserve);
     const needLabel = primary.storyAligned || primary.kind === "crisis" ? "剧情需要" : "任务需要";
     const items = [
-      { id: "dogFood", name: "狗粮", value: supplies.dogFood || 0, target: 6, icon: "dogFood" },
-      { id: "tranquilizer", name: "麻醉弹", value: supplies.tranquilizer || 0, target: 3, icon: "tranquilizer" },
-      { id: "alarm", name: "警报器", value: supplies.alarm || 0, target: 2, icon: "signal" },
-      { id: "fieldKit", name: "野外工具包", value: supplies.fieldKit || 0, target: 2, icon: "habitat" },
-      { id: "medicalKit", name: "医疗包", value: supplies.medicalKit || 0, target: 2, icon: "fieldKit" },
-      { id: "evidenceTrap", name: "证据陷阱", value: supplies.evidenceTrap || 0, target: 2, icon: "eye" }
-    ];
-    const lowCount = items.filter(item => item.value < item.target).length;
+      { id: "dogFood", name: "狗粮", value: supplies.dogFood || 0, target: 6, cap: supplyCapFor("dogFood", reserve), icon: "dogFood" },
+      { id: "tranquilizer", name: "麻醉弹", value: supplies.tranquilizer || 0, target: 3, cap: supplyCapFor("tranquilizer", reserve), icon: "tranquilizer" },
+      { id: "alarm", name: "警报器", value: supplies.alarm || 0, target: 2, cap: supplyCapFor("alarm", reserve), icon: "signal" },
+      { id: "fieldKit", name: "野外工具包", value: supplies.fieldKit || 0, target: 6, cap: supplyCapFor("fieldKit", reserve), icon: "habitat" },
+      { id: "medicalKit", name: "医疗包", value: supplies.medicalKit || 0, target: 2, cap: supplyCapFor("medicalKit", reserve), icon: "fieldKit" },
+      { id: "evidenceTrap", name: "证据陷阱", value: supplies.evidenceTrap || 0, target: 2, cap: supplyCapFor("evidenceTrap", reserve), icon: "eye" }
+    ].map((item) => Object.assign(item, { fillLine: supplyFillLine(item, reserve) }));
+    const lowCount = items.filter(item => item.value < item.cap).length;
     const h = 356;
     this.drawPremiumParchmentPanel(ctx, x, y, w, h, 12, { rivets: true });
     this.drawSectionMarker(ctx, x + 18, y + 24, lowCount ? "#c45b42" : "#5cb87a");
@@ -15319,7 +17745,7 @@ class Game {
     this.drawPremiumBrassPlate(ctx, replenishX, y + 8, 100, 27, 10, { muted: !lowCount });
     this.text(ctx, replenishLabel, replenishX + 50, y + 26, 11, lowCount ? "#173b2a" : "#557063", "700", "center");
     this.addHit(replenishX, y + 8 - this.scrollY, 100, 27, () => {
-      if (!lowCount) return this.toast("当前物资充足");
+      if (!lowCount) return this.toast("仓库库存已满");
       // 总入口始终执行批量补齐；单项卡片才打开单项数量选择器。
       return this.useMaterialAction("buySupplies", "all");
     });
@@ -15342,17 +17768,11 @@ class Game {
       this.addHit(cx, cy - this.scrollY, cardW, cardH, () => this.openSupplyQuantityPicker(item.id));
     });
     const adStatus = emergencySupplyAdStatus(reserve);
-    const adLabel = !adStatus.shortages.length ? "库存充足，无需应急补给" : "看视频 · 补齐全部应急物资 ›";
+    const adLabel = !adStatus.shortages.length ? "库存充足，无需应急补给" : "看广告 · 补齐全部应急物资";
     const adX = x + 16;
     const adY = y + 316;
     const adW = w - 32;
-    if (adStatus.eligible) this.drawPremiumBrassPlate(ctx, adX, adY, adW, 28, 10);
-    else this.drawPremiumLeatherPanel(ctx, adX, adY, adW, 28, 10, { light: true });
-    this.text(ctx, adLabel, adX + adW / 2, adY + 19, 11, adStatus.eligible ? UI_THEME.leatherDeep : "#f6efdd", "700", "center");
-    const adHitY = adY - this.scrollY;
-    if (adHitY >= 0 && adHitY + 28 <= this.height - this.navHeight() - 4) {
-      this.addHit(adX, adHitY, adW, 28, () => adStatus.eligible ? this.claimEmergencySupplyAd() : this.toast(adLabel));
-    }
+    this.drawRewardedAdPlate(ctx, adX, adY, adW, 28, adLabel, adStatus.eligible, () => adStatus.eligible ? this.claimEmergencySupplyAd() : this.toast(adLabel));
   }
 
   claimEmergencySupplyAd() {
@@ -15384,7 +17804,8 @@ class Game {
     return true;
   }
 
-  claimEmergencyFundAd() {
+  claimEmergencyFundAd(options = {}) {
+    const fromReplenish = !!(options && options.fromReplenish);
     const reserve = ((this.state.world || {}).reserve) || {};
     const status = emergencyFundAdStatus(reserve);
     if (!status.eligible) {
@@ -15405,7 +17826,11 @@ class Game {
       saveState(this.state);
       this.playSfx("success");
       this.toast(`保护基金 +${reward.amount} 星币`);
-      this.infoDetailModal = this.screen === "role" ? null : this.buildReserveMetricDetail("fund");
+      if (fromReplenish || (this.infoDetailModal && this.infoDetailModal.kind === "fundReplenish")) {
+        this.infoDetailModal = null;
+      } else {
+        this.infoDetailModal = this.screen === "role" ? null : this.buildReserveMetricDetail("fund");
+      }
       this.render();
     });
     return true;
@@ -15456,8 +17881,9 @@ class Game {
 
   drawSupplyCard(ctx, item, x, y, w, h) {
     const displayValue = typeof item.displayValue === "number" ? item.displayValue : item.value;
-    const ratio = Math.max(0, Math.min(1, displayValue / item.target));
-    const low = displayValue < item.target;
+    const fillLine = Math.max(1, Number(item.fillLine != null ? item.fillLine : item.target) || 1);
+    const ratio = Math.max(0, Math.min(1, displayValue / fillLine));
+    const low = displayValue < fillLine;
     const currentNeed = !!item.currentNeed;
     const accent = low ? "#b85a47" : currentNeed ? "#b2862f" : "#5d8d6f";
     const shell = this.drawPremiumItemCardShell(ctx, x, y, w, h, {
@@ -15477,7 +17903,7 @@ class Game {
     const valStr = `${displayValue}`;
     this.text(ctx, valStr, x + w - 10, y + 67, this.fitTextSize(ctx, valStr, 28, 22, 17, "700"), low ? "#b85a47" : "#1c3325", "700", "right");
     this.text(ctx, this.truncateTextToWidth(ctx, item.name, w - 18, 11, "700"), x + w / 2, y + 90, 11, "#1c3325", "700", "center");
-    const stateLabel = low ? `补充 ${displayValue}/${item.target} ›` : `库存 ${displayValue}`;
+    const stateLabel = low ? `补充 ${displayValue}/${fillLine} ›` : `库存 ${displayValue}/${item.cap || fillLine}`;
     const stateButton = this.drawPremiumItemStateButton(ctx, x + 8, y + h - 25, w - 16, 20, stateLabel, {
       active: low,
       accent
@@ -15630,7 +18056,7 @@ class Game {
       this.roundRect(ctx, x + 14, y + 76, w - 28, guidanceH - 6, 9, "#fff1ca", "rgba(176,122,22,.32)");
       this.wrapText(ctx, hint, x + 24, y + 92, w - 48, 12, 17, "#76581f", 2);
       if (fundAd.eligible) {
-        this.button(ctx, x + 24, y + 116, w - 48, 32, `自愿看视频 · 基金 +${fundAd.reward}`, "#e8ddbd", () => this.claimEmergencyFundAd(), "#26352b", 12);
+        this.drawRewardedAdPlate(ctx, x + 24, y + 116, w - 48, 32, `看广告 · 基金 +${fundAd.reward}`, true, () => this.claimEmergencyFundAd());
       }
     }
     const notice = this.materialChangeNotice;
@@ -15664,7 +18090,7 @@ class Game {
     this.text(ctx, guide, x + w / 2, y + 84, this.fitTextSize(ctx, guide, w - 44, 12, 10, "700"), "#fff8df", "700", "center");
     this.addHit(x + 12, y + 62 - this.scrollY, w - 24, 34, () => {
       this.infoDetailModal = null;
-      this.focusedRescueTarget = target.speciesId;
+      this.focusRescueTargetOnMap(target.speciesId);
       this.setScreen("home");
       this.toast(`已定位沙盘解救点 · ${target.speciesName}`);
       this.render();
@@ -15686,7 +18112,7 @@ class Game {
       this.drawSmallGlyph(ctx, item.icon || "leaf", cx + 15, cy + 15, "#2f8062", .5);
       this.text(ctx, this.truncateTextToWidth(ctx, item.label, cardW - 70, 10, "700"), cx + 30, cy + 20, 10, "#245b48", "700");
       this.text(ctx, `库存 ${count} · 点数 ${this.animatedRescuePoints(item.id, progress.current)}/${progress.required}`, cx + 10, cy + 40, 11, progress.completed ? "#2f765c" : "#b07a16", "700");
-      this.text(ctx, progress.required && !progress.completed ? "继续射箭 ›" : (needed ? "本次需要 ›" : "去收集 ›"), cx + cardW - 8, cy + 20, 8, "#946e20", "700", "right");
+      this.text(ctx, progress.required && !progress.completed ? "继续射箭 ›" : (needed ? "本次需要 ›" : "去收集 ›"), cx + cardW - 8, cy + 20, 9, "#946e20", "700", "right");
       this.addHit(cx, cy - this.scrollY, cardW, 52, () => this.startRescueMaterialExploration(item.id));
     this.renderedRescueSupplies.cards.push({ id: item.id, x: cx, y: cy, w: cardW, h: 52, count, needed, progress });
     });
@@ -15931,6 +18357,11 @@ class Game {
     // 即时出售不推进游戏日，但与巡护移交一样需要登记任务进度。
     recordSevenDayProgress(reserve, "salvage");
     advanceLedgerSampleHandover(reserve, (reserve.guardianCycle || {}).day || this.state.world.day || 0);
+    this.commitReserveProgression(reserve);
+    if (this.pendingChapterPromotion) {
+      this.pendingChapterAdvance = true;
+      this.queueChapterAdvance(this.pendingChapterPromotion.from, this.pendingChapterPromotion.to, this.pendingChapterPromotion.summary || {});
+    }
     const labels = { shedAntlerA: "A级鹿角", shedAntlerB: "B级鹿角", naturalHide: "自然生命档案", researchSample: "研究样本", recoveredTrap: "陷阱证据" };
     const inventoryDelta = {};
     sale.sold.forEach((key) => { inventoryDelta[key] = (inventoryDelta[key] || 0) - 1; });
@@ -15939,6 +18370,9 @@ class Game {
     this.currentGoalView(true);
     saveState(this.state);
     this.toast(`出售完成 · 基金 +${sale.value} · 余额 ${reserve.fund}`);
+    if (this.pendingChapterPromotion) {
+      this.showNextTaskCompletionNotice() || this.tryPresentPendingChapterAdvance();
+    }
     this.render();
     return sale;
   }
@@ -16057,30 +18491,36 @@ class Game {
     this.render();
   }
 
+  markMaterialGatheringForActiveTask() {
+    if (!this.activeTaskLock) return null;
+    this.activeTaskLock = Object.assign({}, this.activeTaskLock, { allowMaterialGathering: true });
+    return this.activeTaskLock;
+  }
+
+  taskLockAllowsMaterialGathering(lock = this.activeTaskLock) {
+    if (!lock) return true;
+    if (lock.allowMaterialGathering) return true;
+    const action = String((lock.goal && lock.goal.recommendedAction) || "");
+    return ["exploreMaterials", "viewSurvival", "facilityBuild"].includes(action);
+  }
+
   openMaterialExploration(targetId = "") {
     const lock = this.activeTaskLock;
-    const rescueRecord = this.activeRescueRecord();
-    const lockedGoalAction = lock && lock.goal && String(lock.goal.recommendedAction || "");
-    const explorationTask = !!(lock && ["exploreMaterials", "viewSurvival"].includes(lockedGoalAction));
-    if (lock && !explorationTask && !(rescueRecord && rescueRecord.status !== "rescued" && rescueRecord.requiredItems.includes(targetId))) {
+    const rescueRecord = this.activeRescueRecord() || this.rescueRecordOwningItem(targetId);
+    if (lock && !this.taskLockAllowsMaterialGathering(lock) && !(rescueRecord && rescueRecord.status !== "rescued" && (rescueRecord.requiredItems || []).includes(targetId))) {
       this.toast("请先完成或关闭当前任务");
       return false;
     }
     const reserve = (this.state.world || {}).reserve || {};
-    const target = explorationGoodById(targetId);
+    const target = explorationGoodById(targetId) || wildernessFindById(targetId);
     const rescueRequiredScore = rescueRecord && (rescueRecord.requiredItems || []).includes(targetId)
       ? rescuePointTarget(rescueRecord, targetId) : 0;
     const savedRescuePoints = rescueRecord && rescueRecord.pointProgress
       ? Math.max(0, Number(rescueRecord.pointProgress[targetId]) || 0)
       : 0;
-    // A rescue record is the source of truth. The material map is only a
-    // compatibility mirror for ordinary exploration and old saves.
     const mirroredRescuePoints = !rescueRecord && targetId
       ? Math.max(0, Number(reserve.materialExplorationProgress && reserve.materialExplorationProgress[targetId]) || 0)
       : 0;
-    // Once a rescue task is active, never read another animal's shared
-    // material mirror. The per-record ledger is what makes later chapters
-    // and repeated species-safe tasks independent.
     const effectiveRescuePoints = rescueRecord ? savedRescuePoints : mirroredRescuePoints;
     const collectionProgress = rescueRecord && rescueRequiredScore
       ? { current: Math.min(effectiveRescuePoints, rescueRequiredScore), required: rescueRequiredScore, completed: effectiveRescuePoints >= rescueRequiredScore }
@@ -16097,12 +18537,14 @@ class Game {
       target,
       explorationMode: target && target.kind === "rescue" ? "archery" : "animalDice",
       collectionProgress,
+      rescueTargetId: rescueRecord && rescueRecord.targetId || "",
+      rescueScore: rescueRecord ? this.rescueArcheryContext(reserve, rescueRecord.targetId, 0, collectionProgress.current) : null,
       preview,
       kicker: "动物引路 · 物资与知识",
       title: `探索${target ? target.label : "自然遗留物"}`,
       icon: "eye",
       items: [
-        { tag: "目标", title: target ? target.label : "随机线索", body: target ? `${target.story} 目标只提高寻找方向，不保证本次一定出现。` : "不指定目标时，会根据本次探索质量从可发现物中随机抽取。" },
+        { tag: "目标", title: target ? target.label : "随机线索", body: target && target.kind === "rescue" ? `${target.story} 累计点数后获得解救物品。` : wildernessFindById(targetId) ? `${target.story || target.storyHook || ""} 点数达到门槛即可取得这件生存素材。` : target ? `${target.story} 目标只提高寻找方向，不保证本次一定出现。` : "不指定目标时，会根据本次探索质量从可发现物中随机抽取。" },
         { tag: "等级", title: `等级${preview.level} · +${preview.levelContribution}`, body: "决定区域与品质上限" },
         { tag: "关系", title: `安全 ${preview.relationship.securityAverage} · 野性 ${preview.relationship.wildnessAverage} · +${preview.relationshipContribution}`, body: helper ? `${helper.name}（${helper.species}）带路` : "暂无动物带路" },
         { tag: "点数 · 累计进度", title: collectionProgress.required ? `六面点数 ${collectionProgress.current}/${collectionProgress.required}` : "六面点数 1—6点", body: collectionProgress.required ? `每次射箭获得 1—6 点，累计达到 ${collectionProgress.required} 点（本任务可继续累加）后获得物品。` : "点数 + 等级 + 关系 = 结果" },
@@ -16118,17 +18560,102 @@ class Game {
     return true;
   }
 
+  archeryAimSwingRate() {
+    return 0.0021;
+  }
+
   archeryAimValueFor(modal = {}, now = Date.now()) {
     if (Number.isFinite(Number(modal.archeryAimValue))) return Math.max(0, Math.min(1, Number(modal.archeryAimValue)));
     const started = Number(modal.archeryAimStartedAt);
     if (!started) return .5;
-    return (Math.sin((now - started) * .0042) + 1) / 2;
+    return (Math.sin((now - started) * this.archeryAimSwingRate()) + 1) / 2;
   }
 
   archeryScoreFor(modal = {}) {
-    const aim = this.archeryAimValueFor(modal);
-    const hitOffset = (aim * 2 - 1) * .36;
-    return Math.max(1, Math.min(6, 6 - Math.floor(Math.abs(hitOffset) * 14)));
+    const distance = Math.abs(this.archeryAimValueFor(modal) - .5);
+    if (distance <= .036) return 6;
+    if (distance <= .10) return 5;
+    if (distance <= .18) return 4;
+    if (distance <= .36) return 3;
+    if (distance <= .46) return 2;
+    return 1;
+  }
+
+  lockArcheryAim(modal) {
+    if (!modal) return .5;
+    modal.archeryAimValue = this.archeryAimValueFor(modal);
+    modal.archeryPerfect = this.archeryScoreFor(modal) >= 6;
+    return modal.archeryAimValue;
+  }
+
+  beginArcheryFlight(modal, duration = 720) {
+    if (!modal) return;
+    modal.diceMotion = { startedAt: Date.now(), drawDuration: 150, duration };
+  }
+
+  playArcheryImpact(roll = 1) {
+    if (roll >= 6) {
+      this.playSfx("taskComplete");
+      this.pulseArcheryVibration("perfect");
+      return;
+    }
+    this.playSfx(roll >= 3 ? "success" : "warning");
+  }
+
+  pulseArcheryVibration(kind = "hit") {
+    try {
+      if (typeof wx !== "undefined" && typeof wx.vibrateShort === "function") {
+        wx.vibrateShort({ type: kind === "perfect" ? "medium" : "light" });
+        return;
+      }
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        navigator.vibrate(kind === "perfect" ? [18, 24, 40] : [10]);
+      }
+    } catch (error) { /* vibration is optional on PC simulators */ }
+  }
+
+  rescueArcheryContext(reserve = {}, targetId = "", shotScore = 0, previousTotal = null) {
+    const rescue = reserve.chapterRescue || {};
+    const records = Object.values(rescue.animals || {}).filter((item) => item && !item.legacyOnly);
+    const poacherState = poacherRescueState(reserve);
+    const poacherRecords = (poacherState.active || []).concat(poacherState.history || []);
+    const active = this.activeRescueRecord(reserve);
+    const record = active && (active.targetId === targetId || (active.requiredItems || []).includes(targetId)) ? active
+      : records.find((item) => item.targetId === targetId)
+        || poacherRecords.find((item) => item && item.targetId === targetId)
+        || records.find((item) => item.speciesId === targetId)
+        || poacherRecords.find((item) => item && item.speciesId === targetId);
+    const chapter = Math.max(1, Number(record && record.chapter) || Number((reserve.progression || {}).stage) || 1);
+    const itemId = record && (record.requiredItems || []).includes(targetId) ? targetId : ((record || {}).requiredItems || [])[0] || targetId;
+    const previous = previousTotal == null
+      ? Math.max(0, Number(record && record.pointProgress && record.pointProgress[itemId]) || 0)
+      : Math.max(0, Number(previousTotal) || 0);
+    const required = record ? rescuePointTarget(record, itemId) : 15;
+    const targets = Array.isArray(rescue.targets) ? rescue.targets : [];
+    const chapterPoacherRecords = poacherRecords.filter((item, index, all) => item && Number(item.chapter) === chapter
+      && all.findIndex((other) => other && other.targetId === item.targetId) === index)
+      .sort((a, b) => (Number(a.createdDay) || 0) - (Number(b.createdDay) || 0) || String(a.targetId).localeCompare(String(b.targetId)));
+    const rescueType = record && record.recurring ? "poacher" : "chapter";
+    const populationType = record ? speciesPopulationGroup(record.speciesId) : "";
+    const rescueIndex = rescueType === "poacher"
+      ? Math.max(1, chapterPoacherRecords.findIndex((item) => item.targetId === record.targetId) + 1)
+      : Math.max(1, targets.findIndex((item) => item && item.targetId === (record && record.targetId)) + 1);
+    return {
+      speciesId: record && record.speciesId || "",
+      targetId: record && record.targetId || "",
+      speciesName: record && record.speciesName || targetId || "动物",
+      chapter,
+      populationType,
+      populationTypeLabel: ({ herbivores: "食草种群", predators: "捕食种群", birds: "鸟类种群" })[populationType] || "其他种群",
+      rescueType,
+      rescueTypeLabel: rescueType === "poacher" ? "盗猎解救" : "章节关卡解救",
+      rescueIndex,
+      itemId,
+      totalScore: Math.min(required, previous + Math.max(0, Number(shotScore) || 0)),
+      previousTotal: previous,
+      shotScore: Math.max(0, Number(shotScore) || 0),
+      targetScore: required
+    };
   }
 
   rollMaterialExplorationDice(targetId = "") {
@@ -16136,37 +18663,50 @@ class Game {
     if (!modal || modal.kind !== "materialExploration" || modal.phase !== "ready") return;
     this.playSfx("dice");
     if (modal.explorationMode !== "animalDice") {
-      modal.archeryAimValue = this.archeryAimValueFor(modal);
+      this.lockArcheryAim(modal);
     }
     const finalRoll = modal.explorationMode === "animalDice"
       ? Math.max(1, Math.min(6, Math.floor(Math.random() * 6) + 1))
       : this.archeryScoreFor(modal);
+    modal.archeryPerfect = modal.explorationMode !== "animalDice" && finalRoll >= 6;
     const token = `${Date.now()}_${finalRoll}`;
     this.materialExplorationRollToken = token;
     modal.phase = "rolling";
-    modal.diceMotion = { startedAt: Date.now(), duration: 455 };
-    modal.actionLabel = "点数生成中";
+    this.beginArcheryFlight(modal, modal.explorationMode === "animalDice" ? 455 : 720);
+    modal.actionLabel = modal.explorationMode === "animalDice" ? "点数生成中" : "拉弓";
     let frame = 0;
+    const frames = modal.explorationMode === "animalDice" ? 8 : 12;
+    const step = modal.explorationMode === "animalDice" ? 65 : 72;
     const animate = () => {
       if (this.materialExplorationRollToken !== token || this.infoDetailModal !== modal) return;
       frame += 1;
-      modal.displayRoll = frame >= 8 ? finalRoll : ((finalRoll + frame * 5) % 6) + 1;
+      modal.displayRoll = frame >= frames ? finalRoll : ((finalRoll + frame * 5) % 6) + 1;
+      if (modal.explorationMode !== "animalDice") modal.actionLabel = frame <= 2 ? "拉弓" : "射出";
       this.render();
-      if (frame < 8) {
-        setTimeout(animate, 65);
+      if (frame < frames) {
+        setTimeout(animate, step);
         return;
       }
       modal.phase = "resolved";
+      if (modal.explorationMode === "archery" && modal.rescueTargetId) {
+        modal.rescueScore = this.rescueArcheryContext(
+          (this.state.world || {}).reserve || {}, modal.rescueTargetId, finalRoll,
+          modal.collectionProgress && modal.collectionProgress.current
+        );
+      }
       modal.diceMotion = null;
       modal.actionLabel = `掷出 ${finalRoll} 点`;
+      if (modal.explorationMode !== "animalDice") this.playArcheryImpact(finalRoll);
+      else if (modal.archeryPerfect) {
+        this.playSfx("taskComplete");
+        this.pulseArcheryVibration("perfect");
+      }
       this.render();
-      // Keep the final score on screen long enough to read the hit result and
-      // cumulative progress before applying the collection outcome.
       setTimeout(() => {
         if (this.materialExplorationRollToken !== token || this.infoDetailModal !== modal) return;
         this.materialExplorationRollToken = null;
         this.executeMaterialExploration(targetId, finalRoll);
-      }, modal.explorationMode === "animalDice" ? 260 : 1800);
+      }, modal.explorationMode === "animalDice" ? 260 : 420);
     };
     animate();
   }
@@ -16178,11 +18718,12 @@ class Game {
     }
     const reserve = (this.state.world || {}).reserve || {};
     const rescueLock = this.activeTaskLock && this.activeTaskLock.kind === "chapterRescue" ? this.activeTaskLock : null;
-    const rescueTarget = rescueLock ? this.activeRescueRecord(reserve) : null;
-    // Every rescue record owns a cumulative point target.  Poacher rescues
-    // use the fixed 10 point rule; chapter rescues use the item's configured
-    // target.  Leaving chapter rescues at 0 makes the simulator treat a shot
-    // as an ordinary exploration and can never settle the rescue item.
+    const boundTargetId = (this.infoDetailModal || {}).rescueTargetId;
+    // 只有当前解救任务（锁或详情）才写入解救账本。图鉴/生存频道的独立累计
+    // 走 materialExplorationProgress，避免章节解救记录把未打开的收集进度覆盖掉。
+    const rescueTarget = boundTargetId
+      ? this.rescueRecordFor(boundTargetId, reserve)
+      : (rescueLock ? this.activeRescueRecord(reserve) : null);
     const rescueScoreTarget = rescueTarget && (rescueTarget.requiredItems || []).includes(targetId)
       ? rescuePointTarget(rescueTarget, targetId) : 0;
     const rescueHint = rescueScoreTarget ? ` rescueTask:${rescueTarget.recurring ? "poacher" : "chapter"} rescueScore:${rescueScoreTarget}` : "";
@@ -16202,6 +18743,7 @@ class Game {
     this.infoDetailModal = null;
     this.patrolTaskModal = null;
     this.patrolOperationPlan = null;
+    try { this.render(); } catch (error) {}
     this.selectedReserveAction = "exploreMaterials";
     this.trackNarrativeFollowThrough("exploreMaterials");
     this.recordActivePlay(Date.now(), true);
@@ -16237,40 +18779,68 @@ class Game {
     this.reconcileDerivedGoalProgress(beforeWorldForEcho, result, "exploreMaterials");
     result.world = this.state.world;
     const explorationCard = result.visual && result.visual.materialExploration;
-    if (targetId && explorationCard && explorationCard.collectionProgress && explorationCard.collectionProgress.required) {
+    const progressCard = explorationCard && explorationCard.collectionProgress;
+    const liveProgress = targetId ? explorationProgressFor((result.world || {}).reserve || {}, targetId) : null;
+    const progressTo = progressCard && Number.isFinite(Number(progressCard.current))
+      ? Number(progressCard.current)
+      : liveProgress ? Number(liveProgress.current) || 0 : 0;
+    const progressFrom = progressCard && Number.isFinite(Number(progressCard.before))
+      ? Number(progressCard.before)
+      : Math.max(0, progressTo - Math.max(1, Math.min(6, safeRoll)));
+    if (targetId && (progressTo > 0 || (progressCard && progressCard.required))) {
       const targetReserve = result.world.reserve || {};
       targetReserve.materialExplorationProgress = targetReserve.materialExplorationProgress || {};
       if (rescuePointRecord) {
-        const clonedRescueRecord = this.activeRescueRecord(targetReserve);
-        if (clonedRescueRecord) clonedRescueRecord.pointProgress = Object.assign({}, clonedRescueRecord.pointProgress || {}, { [targetId]: explorationCard.collectionProgress.current });
-        // Keep the legacy aggregate mirror updated for existing UI/tests, but
-        // never use it as the source of truth for a new rescue record.
-        targetReserve.materialExplorationProgress[targetId] = explorationCard.collectionProgress.current;
-      } else targetReserve.materialExplorationProgress[targetId] = explorationCard.collectionProgress.current;
-      this.rescuePointAnimations = Object.assign({}, this.rescuePointAnimations, {
-        [targetId]: { from: explorationCard.collectionProgress.before || 0, to: explorationCard.collectionProgress.current, startedAt: null }
-      });
+        const clonedRescueRecord = this.rescueRecordFor(rescuePointRecord.targetId, targetReserve);
+        if (clonedRescueRecord) clonedRescueRecord.pointProgress = Object.assign({}, clonedRescueRecord.pointProgress || {}, { [targetId]: progressTo });
+        targetReserve.materialExplorationProgress[targetId] = progressTo;
+      } else targetReserve.materialExplorationProgress[targetId] = progressTo;
+      const pointAnimation = {
+        from: Math.min(progressFrom, Math.max(0, progressTo - Math.max(1, Math.min(6, safeRoll)))),
+        to: progressTo,
+        startedAt: null
+      };
+      this.rescuePointAnimations = Object.assign({}, this.rescuePointAnimations, { [targetId]: pointAnimation });
+      if (rescuePointRecord) {
+        this.rescuePointAnimations[`${rescuePointRecord.targetId}:${targetId}`] = pointAnimation;
+      }
       result.world.reserve = targetReserve;
       this.state.world = result.world;
     }
-    // `simulateDay` returns a cloned reserve.  Re-read the active record from
-    // that reserve instead of retaining the pre-action object; otherwise the
-    // next shot starts from the same point and cumulative rescue progress is
-    // silently reset on every shot.
-    const rescueTargetAfterAction = this.activeTaskLock && this.activeTaskLock.kind === "chapterRescue"
-      ? this.activeRescueRecord(result.world.reserve || {})
-      : null;
+    const rescueTargetAfterAction = rescuePointRecord
+      ? this.rescueRecordFor(rescuePointRecord.targetId, result.world.reserve || {}) : null;
     const requestedRescueItem = targetId && rescueTargetAfterAction && (rescueTargetAfterAction.requiredItems || []).includes(targetId) ? targetId : "";
     if (rescuePointRecord && requestedRescueItem && explorationCard && explorationCard.collectionProgress) {
       rescueTargetAfterAction.pointProgress = Object.assign({}, rescueTargetAfterAction.pointProgress || {}, {
         [requestedRescueItem]: explorationCard.collectionProgress.current
       });
+      const scoreContext = this.rescueArcheryContext(
+        result.world.reserve || {}, rescueTargetAfterAction.targetId || rescueTargetAfterAction.speciesId,
+        safeRoll, explorationCard.collectionProgress.before || 0
+      );
+      rescueTargetAfterAction.pointHistory = (rescueTargetAfterAction.pointHistory || []).concat({
+        targetId: rescueTargetAfterAction.targetId,
+        chapter: scoreContext.chapter,
+        speciesId: scoreContext.speciesId,
+        populationType: scoreContext.populationType,
+        rescueType: scoreContext.rescueType,
+        rescueIndex: scoreContext.rescueIndex,
+        itemId: requestedRescueItem,
+        shotScore: Math.max(1, Math.min(6, Math.round(Number(explorationCard.roll) || scoreContext.shotScore || 0))),
+        totalScore: explorationCard.collectionProgress.current,
+        recordedAt: Date.now()
+      }).slice(-30);
+      result.world.reserve.lastRescueShot = {
+        rescueTargetId: rescueTargetAfterAction.targetId || rescueTargetAfterAction.speciesId,
+        itemId: requestedRescueItem,
+        shotScore: scoreContext.shotScore,
+        totalScore: explorationCard.collectionProgress.current,
+        recordedAt: Date.now()
+      };
     }
     if (requestedRescueItem && rescueTargetAfterAction) {
       const gotRequested = !!(explorationCard && explorationCard.reward && explorationCard.reward.id === requestedRescueItem);
       const rescueKey = rescueTargetAfterAction.targetId || rescueTargetAfterAction.speciesId;
-      // Track attempts here; the single inventory grant below owns settlement.
-      // Collection is gated only by cumulative points, never by failed-shot count.
       const recorded = recordRescueExploration(result.world.reserve, rescueKey, requestedRescueItem, false);
       if (gotRequested && recorded) recorded.itemFailures[requestedRescueItem] = 0;
     }
@@ -16287,6 +18857,8 @@ class Game {
       saveState(this.state);
     }
     this.scheduleFirstReturnHookFromResult(result);
+    const fromStage = Math.max(1, Math.round(Number((beforeReserve.progression || {}).stage || (beforeReserve.progression || {}).displayChapter) || 1));
+    this.commitReserveProgression((result.world || {}).reserve || this.state.world.reserve, undefined, fromStage);
     saveState(this.state);
     const afterReserve = this.reserveSnapshot((result.world || {}).reserve || {});
     this.materialChangeNotice = this.buildMaterialChangeNotice(beforeReserve, afterReserve);
@@ -16308,6 +18880,13 @@ class Game {
       delayMs: patrolReplay ? 1200 : 0
     });
     this.settlementModal = this.buildPatrolSettlement(beforeReserve, afterReserve, result, command);
+    if (rescuePointRecord && explorationCard && explorationCard.collectionProgress) {
+      this.settlementModal.rescueScore = this.rescueArcheryContext(
+        result.world.reserve || {}, rescuePointRecord.targetId || rescuePointRecord.speciesId,
+        safeRoll, explorationCard.collectionProgress.before || 0
+      );
+      this.settlementModal.rescueScore.totalScore = explorationCard.collectionProgress.current;
+    }
     this.settlementModal.pendingDisplayBefore = beforeReserve;
     this.settlementModal.storyReplay = !!patrolReplay;
     this.configureSettlementReveal(this.settlementModal, returnScreen);
@@ -16373,14 +18952,18 @@ class Game {
     };
     if (kind === "supply" && supplyConfigs[id]) {
       const purchase = supplyPurchaseById(id) || this.currentSupplyPurchase(reserve);
+      const fillLine = supplyFillLine(purchase, reserve);
       const item = Object.assign({}, supplyConfigs[id], {
-        target: purchase.target,
+        target: fillLine,
+        safetyTarget: purchase.target,
+        cap: purchase.cap,
         use: purchase.use,
         actionId: "buySupplies",
         actionLabel: `采购${purchase.itemLabel}`,
         purchase
       });
       const low = item.value < item.target;
+      const lineLabel = supplyReplenishUsesSafetyLine(reserve) ? "安全线" : "仓库上限";
       return Object.assign({
         kicker: "巡护补给",
         title: `${item.title} ×${item.value}`,
@@ -16389,7 +18972,7 @@ class Game {
         footer: "库存决定可执行的巡护。",
         items: [
           { tag: "用途", title: item.use, body: item.risk },
-          { tag: "库存", title: low ? `低于安全线 ${item.target}` : "库存充足", body: `当前 ${item.value} / 安全线 ${item.target}` },
+          { tag: "库存", title: low ? `低于${lineLabel} ${item.target}` : "库存充足", body: `当前 ${item.value} / ${lineLabel} ${item.target}` },
           { tag: "影响", title: this.materialImpactLabel(id), body: this.materialImpactBody(id, reserve) },
           { tag: "执行后", title: `${purchase.itemLabel} +${purchase.amount} / 基金 -${purchase.cost}`, body: "仅此项变化" },
           { tag: "建议", title: item.actionLabel, body: low ? "建议先补齐" : "巡护页使用" }
@@ -16516,8 +19099,15 @@ class Game {
           ? supplyPurchaseForQuantity(purchaseId, quantity, reserve)
           : this.currentSupplyPurchase(reserve));
       if (!purchase || purchase.amount <= 0) {
-        this.toast("补给已达到安全线");
+        this.toast("仓库库存已满");
         return;
+      }
+      if (Math.max(0, Number(reserve.fund) || 0) < (purchase.cost || 0)) {
+        return this.openFundReplenishModal({
+          id: "buySupplies",
+          missing: ["基金"],
+          purchase
+        });
       }
       selected.purchaseId = purchase.id;
       selected.purchaseAmount = purchase.amount;
@@ -16577,7 +19167,7 @@ class Game {
   }
 
   collectRecoveredGood(id) {
-    const beforeState = JSON.parse(JSON.stringify(this.state));
+    const beforeState = this.cloneStateForGoalProgress();
     const reserve = (this.state.world || {}).reserve || {};
     const pending = reserve.pendingRecovered || {};
     const amount = pending[id] || 0;
@@ -16606,8 +19196,9 @@ class Game {
       this.activeTaskLock = null;
       if (goalProgress.completions.some((item) => item.type === "daily_full")) {
         this.openDailyFullClearModal(beforeState, goalProgress.rewards || []);
-      } else {
-        this.toast("每日任务已完成 · 可继续下一项");
+      } else if (goalProgress.completions.some((item) => item.type === "daily_objective")) {
+        const checklist = this.dailyEventChecklist();
+        this.toast(`${this.dailyPartialCompletionLine(goalProgress)} · ${checklist.complete}/${checklist.total}`);
       }
     }
     saveState(this.state);
@@ -16642,8 +19233,13 @@ class Game {
       items.push({ id: key, label: labels[key] || "巡护样本", amount: accepted });
       room -= accepted;
     });
-    const total = items.reduce((sum, item) => sum + item.amount, 0);
-    if (!total) return null;
+    let total = items.reduce((sum, item) => sum + item.amount, 0);
+    if (!total) {
+      const starter = Math.min(room, Math.max(0, Number(reserve.inventory.researchSample) || 0), 2);
+      if (!starter) return null;
+      items.push({ id: "researchSample", label: "研究样本", amount: starter });
+      total = starter;
+    }
     const record = {
       version: 1,
       actionId,
@@ -16658,7 +19254,7 @@ class Game {
   }
 
   openPendingFirstPatrolTransfer() {
-    if (this.screen !== "home" || this.chapterStoryModal || this.settlementModal || this.patrolTaskModal || this.infoDetailModal) return false;
+    if (this.screen !== "home" || this.chapterStoryModal || this.settlementOccupiesFlow() || this.patrolTaskModal || this.infoDetailModal) return false;
     const ui = Object.assign({}, this.state.ui || {});
     const record = ui.firstPatrolRecovery;
     if (!record || !record.promptPending) return false;
@@ -16732,16 +19328,6 @@ class Game {
 
   drawAnimalConversationSand(ctx, x, y, w, h, options = {}) {
     const world = this.state.world || {};
-    const activeEmergency = (((world.reserve || {}).emergency || {}).active) || null;
-    if (!options.prologue && activeEmergency && activeEmergency.visualKind === "wildfire"
-      && this.mapEmergencyFocusId !== activeEmergency.id) {
-      const region = this.findRegion(activeEmergency.regionId || "meadow") || this.findRegion("meadow");
-      if (region) {
-        this.mapZoom = Math.max(1.35, Math.min(2, Number(this.mapZoom) || 0));
-        this.mapCamera = this.clampMapCamera(region.x, region.y, this.currentMapScale(), this.mapCameraFrame);
-        this.mapEmergencyFocusId = activeEmergency.id;
-      }
-    }
     const activeMapEvents = this.activeSandboxMapEvents(world);
     const animalPriorityContext = this.mapAnimalPriorityContext(world, activeMapEvents);
     const animals = this.visibleSandAnimals(world, animalPriorityContext);
@@ -16756,33 +19342,23 @@ class Game {
     const active = prologue ? null : (this.speakingAnimalId
       ? (animals.find((animal) => animal.id === this.speakingAnimalId) || null)
       : null);
-    const mapX = x + 3;
-    const mapY = y + 3;
-    const mapW = w - 6;
-    const mapH = h - 6;
-    let camera = this.mapCrisisCameraInfo(this.mapCameraInfo(mapX, mapY, mapW, mapH));
-    // When a rescue task sends the player to the sandbox, center the map on
-    // the captive marker so the next action is always visible and reachable.
-    if (this.focusedRescueTarget) {
-      const rescueState = this.chapterRescueState();
-      const focusRecord = (rescueState.targets || []).find((entry) => entry.speciesId === this.focusedRescueTarget && entry.status !== "rescued");
-      const focusMap = focusRecord && (focusRecord.map || focusRecord.position);
-      if (focusMap && Number.isFinite(Number(focusMap.x)) && Number.isFinite(Number(focusMap.y))) {
-        const focusScale = Math.max(1, Math.min(1.45, Number(this.mapZoom) || 1.12));
-        this.mapCamera = this.clampMapCamera(Number(focusMap.x), Number(focusMap.y), focusScale, this.mapCameraFrame);
-        camera = this.mapCrisisCameraInfo(this.mapCameraInfo(mapX, mapY, mapW, mapH));
-      }
-    }
+    const mapX = x + 2;
+    const mapY = y + 2;
+    const mapW = w - 4;
+    const mapH = h - 4;
+    let camera = this.applyFocusedRescueCamera(mapX, mapY, mapW, mapH);
     const fast = this.isFastMapRender();
     this.mapViewport = this.visibleMapViewport(mapX, mapY, mapW, mapH);
     this.mapCameraFrame = camera;
+    // 每次绘制重新安排任务提示，避免事件、好友协作和剧情入口叠在同一点。
+    this.mapTaskPromptRects = [];
     this.roundRect(ctx, x - 2, y + 6, w + 4, h, 15, "rgba(4,12,8,.36)");
     const frame = ctx.createLinearGradient(x, y, x + w, y + h);
     frame.addColorStop(0, "#213e2c");
     frame.addColorStop(.5, "#987a37");
     frame.addColorStop(1, "#183724");
     this.roundRect(ctx, x, y, w, h, 15, frame, "rgba(242,218,142,.55)");
-    this.roundRect(ctx, x + 3, y + 3, w - 6, h - 6, 12, "#0d1b14", "rgba(255,248,223,.20)");
+    this.roundRect(ctx, x + 2, y + 2, w - 4, h - 4, 13, "#0d1b14", "rgba(255,248,223,.20)");
     this.drawMapStage(ctx, camera);
     ctx.save();
     ctx.beginPath();
@@ -16793,7 +19369,7 @@ class Game {
     this.drawWeatherLinkedMapOverlay(ctx, camera, fast);
     this.drawActiveWorldEventOverlay(ctx, camera, fast);
     this.drawPersistentSandboxConsequences(ctx, camera, fast, visibleFacilities);
-    this.drawMapAmbientDynamics(ctx, camera, fast);
+    this.drawMapAmbientDynamics(ctx, camera, fast || this.isQuietSandboxPaint());
     this.drawMapPatrolReplay(ctx, camera);
     const collectionLocked = this.firstSessionRestrictionsEnabled() && this.firstSessionFocusStatus().active;
     const storyDiscovery = collectionLocked ? null : storyDiscoverySummary(this.state).active;
@@ -16819,20 +19395,71 @@ class Game {
     // A captive species is removed from the free-roaming population layer;
     // its only map representation is the single locked rescue marker.
     const captiveSpecies = new Set();
+    // Rescue records store the stable species id (for example `antelope`),
+    // while older saves and the live animal roster often only carry the
+    // localized display name (for example `羚羊`).  Keep every alias in the
+    // set so a captive animal cannot leak back into the free-roaming motion
+    // layer just because the two records use different identifiers.
+    const addCaptiveSpeciesAlias = (value) => {
+      if (!value) return;
+      const raw = String(value).trim().toLowerCase();
+      if (!raw) return;
+      captiveSpecies.add(raw);
+      const resolved = getSpeciesById(value) || SPECIES_BY_NAME[value] || SPECIES_BY_NAME[raw];
+      if (resolved) {
+        [resolved.id, resolved.name].filter(Boolean).forEach((alias) => {
+          captiveSpecies.add(String(alias).trim().toLowerCase());
+        });
+      }
+    };
     const rescueStateForMap = this.chapterRescueState();
+    // Build one captive set for every rescue representation used by saves:
+    // normalized chapter targets, legacy chapter animal records and recurring
+    // poacher rescues.  This is intentionally independent of the current
+    // chapter so a captive from any chapter can never enter the moving layer.
+    const captiveRecordIds = new Set();
+    [captiveSpeciesSet(world.reserve || {}), chapterCaptiveSpeciesSet(world.reserve || {})]
+      .forEach((ids) => (ids || []).forEach((id) => captiveRecordIds.add(id)));
+    Object.values(rescueStateForMap.animals || {}).forEach((record) => {
+      if (record && record.status !== "rescued") captiveRecordIds.add(record.speciesId || record.speciesName);
+    });
+    // `captive` on the chapter record is static metadata from the chapter
+    // definition.  After a target is rescued it must re-enter the roaming
+    // layer, so only still-pending records stay in this set.
+    (rescueStateForMap.captive || []).forEach((id) => {
+      const record = (rescueStateForMap.animals || {})[id]
+        || (rescueStateForMap.targets || []).find((item) => item && (item.speciesId === id || item.targetId === id));
+      if (!record || record.status !== "rescued") captiveRecordIds.add(id);
+    });
+    captiveRecordIds.forEach(addCaptiveSpeciesAlias);
     (rescueStateForMap.targets || [])
       .concat((((world.reserve || {}).poacherRescue || {}).active || []))
       .filter((record) => record && record.status !== "rescued")
       .forEach((record) => {
         const species = record.speciesId && getSpeciesById(record.speciesId);
         [record.speciesId, record.speciesName, species && species.id, species && species.name]
-          .filter(Boolean).forEach((value) => captiveSpecies.add(String(value).trim().toLowerCase()));
+          .filter(Boolean).forEach(addCaptiveSpeciesAlias);
       });
+    const releasingId = this.mapConsequencePulse && this.mapConsequencePulse.rescueSpeciesId
+      && Date.now() < this.mapConsequencePulse.expiresAt
+      ? String(this.mapConsequencePulse.rescueSpeciesId).trim().toLowerCase()
+      : "";
+    const releasingSpecies = releasingId && (getSpeciesById(releasingId) || SPECIES_BY_NAME[releasingId]);
+    const releasingAliases = new Set([releasingId, releasingSpecies && releasingSpecies.id, releasingSpecies && releasingSpecies.name]
+      .filter(Boolean).map((value) => String(value).trim().toLowerCase()));
     const mapAnimals = animals.filter((animal) => {
       const species = animal.speciesId && getSpeciesById(animal.speciesId);
       const aliases = [animal.speciesId, animal.species, species && species.id, species && species.name]
         .filter(Boolean).map((value) => String(value).trim().toLowerCase());
-      return !aliases.some((alias) => captiveSpecies.has(alias));
+      const status = String(animal.status || animal.rescueStatus || animal.rescueState || "").trim().toLowerCase();
+      const explicitlyCaptive = animal.isCaptive === true
+        || animal.captive === true
+        || animal.trapped === true
+        || animal.captured === true
+        || !!animal.rescueTargetId
+        || ["captive", "trapped", "captured", "rescue"].includes(status);
+      const releasing = releasingAliases.size > 0 && aliases.some((alias) => releasingAliases.has(alias));
+      return !explicitlyCaptive && !releasing && !aliases.some((alias) => captiveSpecies.has(alias));
     });
     const animalGroupCounts = this.mapAnimalVisualGroupCounts(mapAnimals, world.reserve || {}, animalPriorityContext);
     this.renderedAnimalGroups = [];
@@ -16854,7 +19481,7 @@ class Game {
         ownsMoment,
         eventHighlight: !animal.isMapSighting && this.isAnimalEventHighlight(animal, world, animalPriorityContext),
         mapPriority: this.mapAnimalPriority(animal, world, null, animalPriorityContext),
-        groupCount: animalGroupCounts[animal.id] || 1,
+        groupCount: Math.min(2, animalGroupCounts[animal.id] || 1),
         showBubble: false
       };
     });
@@ -16884,17 +19511,19 @@ class Game {
     const overlaps = (a, b) => Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2;
     const occupied = placements.map((placement) => ({ x: placement.sx, y: placement.sy - 18 * camera.scale, w: 48 * camera.scale, h: 54 * camera.scale }));
     visibleFacilities.forEach((facility) => {
-      const facilityPoint = this.mapPoint(facility.x, facility.y, camera);
+      const facilityPoint = this.facilityMapPoint(facility, camera);
       occupied.push({ x: facilityPoint.x, y: facilityPoint.y - 12 * camera.scale, w: 86 * camera.scale, h: 66 * camera.scale });
     });
     const markerPlacements = mapMarkers.map((marker, index) => {
       const region = this.findRegion(marker.regionId);
       if (!region) return null;
-      const point = this.mapPoint(region.x, region.y, camera);
+      const regionPoint = this.clampSandboxWorldPoint(region.x, region.y);
+      const point = this.mapPoint(regionPoint.x, regionPoint.y, camera);
       const labelW = marker.eventType === "animal_interaction" ? 118 : 100;
+      const inset = this.sandboxScreenInset(mapX, mapY, mapW, mapH);
       const candidates = markerSlots.map(([sx, sy]) => ({
-        x: Math.max(mapX + labelW / 2 + 8, Math.min(mapX + mapW - labelW / 2 - 8, point.x + sx * mapW)),
-        y: Math.max(mapY + 52, Math.min(mapY + mapH - 36, point.y + sy * mapH)),
+        x: Math.max(inset.left, Math.min(inset.right, point.x + sx * mapW)),
+        y: Math.max(inset.top, Math.min(inset.bottom, point.y + sy * mapH)),
         w: labelW * camera.scale,
         h: 76 * camera.scale
       }));
@@ -16906,6 +19535,31 @@ class Game {
       markerBoxes.push(chosen);
       return { marker, index, px: chosen.x, py: chosen.y + 18 * camera.scale, clearOfHud: prologue || chosen.y >= camera.y + 126 };
     }).filter(Boolean);
+    // 事件入口占用一小块地图空间。动物不能穿过或停在入口上，避免
+    // 动物图标覆盖事件卡片、导致点击误触。位置只在渲染层避让，不改动物
+    // 的真实生态坐标，因此关闭事件后会自然恢复原来的行走路线。
+    const eventExclusionZones = markerPlacements.map((placement) => {
+      const region = this.findRegion(placement.marker.regionId);
+      if (!region || placement.marker.presentation === "resource-flow") return null;
+      const regionPoint = this.clampSandboxWorldPoint(region.x, region.y);
+      const center = this.mapPoint(regionPoint.x, regionPoint.y, camera);
+      return { x: center.x, y: center.y, radius: Math.max(58, 72 * camera.scale) };
+    }).filter(Boolean);
+    placements.forEach((placement) => {
+      eventExclusionZones.forEach((zone) => {
+        const dx = placement.sx - zone.x;
+        const dy = placement.sy - zone.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance >= zone.radius) return;
+        const angle = distance > 1 ? Math.atan2(dy, dx) : ((placement.motion && placement.motion.phase) || 0);
+        placement.sx = zone.x + Math.cos(angle) * zone.radius;
+        placement.sy = zone.y + Math.sin(angle) * zone.radius;
+      });
+      // Keep the animal in world coordinates.  Clamping to the current
+      // viewport made it stick to an edge while the map was panned or zoomed,
+      // which broke its alignment with the terrain and nearby buildings.
+      placement.eventBlocked = eventExclusionZones.some((zone) => Math.hypot(placement.sx - zone.x, placement.sy - zone.y) < zone.radius + 22);
+    });
     const activeLivingViews = livingReserveViews.filter((view) => ["operational", "managed"].includes(view.phase));
     const leadLivingView = activeLivingViews.slice().sort((a, b) => b.visitors - a.visitors)[0] || livingReserveViews[0];
     const livingReserveView = Object.assign({}, leadLivingView, {
@@ -16915,13 +19569,19 @@ class Game {
     // 招募是即时发生的运营动作；在下一次守护日结算前，也要把这批游客
     // 作为地图上的实时客流展示，而不是只更新游客运营页的数字。
     const operationsToday = (((world.reserve || {}).development || {}).operations || {}).today || {};
-    const recruitedToday = Number(operationsToday.day) === Number(developmentDay)
+    const sameOperationsDay = Number(operationsToday.day) === Number(developmentDay);
+    const recruitedToday = sameOperationsDay
       ? Math.max(0, Number(operationsToday.recruitedVisitors) || 0)
       : 0;
-    livingReserveView.visitors += recruitedToday;
+    const hostedToday = sameOperationsDay
+      ? chapterHostedVisitors(world.reserve || {}, developmentDay)
+      : 0;
+    livingReserveView.visitors += recruitedToday + hostedToday;
     const visitorPlacements = this.mapVisitorPlacements(livingReserveView, { fast });
     visitorPlacements.forEach((placement) => {
-      const point = this.mapPoint(placement.motion.x, placement.motion.y, camera);
+      const point = this.mapPoint(this.clampSandboxWorldX(placement.motion.x), this.clampSandboxWorldY(placement.motion.y), camera);
+      // Visitors are also map entities; let them leave the viewport naturally
+      // during a pan instead of pinning them to the visible edge.
       placement.sx = point.x;
       placement.sy = point.y;
     });
@@ -16957,18 +19617,13 @@ class Game {
       mapReminderSuppressed: collectionLocked
     };
     const ecologyDropsVisible = !consequenceVisible && feedbackCycle.phase === "production";
-    // Only one population may own the map focus ring at a time. Prefer the
-    // explicitly selected animal, then the current event/moment candidate.
-    const explicitFocus = placements.find((placement) => this.speakingAnimalId && this.speakingAnimalId === placement.animal.id);
-    const focusOwner = explicitFocus
-      || placements.find((placement) => placement.eventHighlight)
-      || placements.find((placement) => placement.ownsMoment)
-      || null;
-    const focusOwnerId = focusOwner && focusOwner.animal && focusOwner.animal.id;
+    // 选中圈只跟玩家点选走。事件任务已经有独立地图标记，不能再按
+    // 区域把圈套回沉牙狼这类中心区动物，否则关掉面板后会一直亮着。
+    const explicitFocus = placements.find((placement) => this.speakingAnimalId && this.speakingAnimalId === placement.animal.id) || null;
+    const focusOwnerId = explicitFocus && explicitFocus.animal && explicitFocus.animal.id;
     placements.forEach((placement) => {
-      const isOwner = !!(focusOwnerId && placement.animal && placement.animal.id === focusOwnerId);
-      placement.focusKind = isOwner
-        ? (explicitFocus ? "selected" : placement.eventHighlight ? "event" : "moment")
+      placement.focusKind = (focusOwnerId && placement.animal && placement.animal.id === focusOwnerId)
+        ? "selected"
         : "";
     });
     this.renderedAnimalFocusOwnerId = focusOwnerId || null;
@@ -17050,15 +19705,31 @@ class Game {
       this.renderedAnimalGroups.push({ id: animal.id, species: animal.species, count: placement.groupCount });
       if (placement.showBubble) this.renderedMapSpeechBubbles.push({ key: speechCandidate.key, kind: "animal" });
       if (!prologue && !fast) {
+        if (placement.eventBlocked) return;
         const focusPriority = selected ? 3 : placement.ownsMoment ? 2 : placement.eventHighlight ? 1 : 0;
         const hitScale = focusPriority > 0 ? 1.30 : 1;
+        const groupCount = Math.max(1, Math.min(2, Number(placement.groupCount) || 1));
         animalHitTargets.push({
           animal,
           x: sx,
           y: metrics.hitY,
-          size: Math.max(metrics.hitSize, focusPriority > 0 ? 68 * camera.scale : 48) * hitScale,
+          size: Math.max(metrics.hitSize, focusPriority > 0 ? 72 * camera.scale : 56) * hitScale,
           priority: focusPriority
         });
+        if (groupCount >= 2) {
+          const animalScale = camera.scale * (closeView ? 0.56 : 0.48);
+          const bodySize = this.animalVisualSize(animal.species) * animalScale * 1.28;
+          const companionGap = Math.max(34 * camera.scale, bodySize * 1.12);
+          this.animalGroupRenderOffsets(sx, groupCount, companionGap, bodySize, camera.scale, camera).forEach((offset) => {
+            animalHitTargets.push({
+              animal,
+              x: sx + offset.x,
+              y: metrics.hitY + offset.y,
+              size: Math.max(44 * camera.scale, metrics.hitSize * 0.86) * hitScale,
+              priority: focusPriority
+            });
+          });
+        }
       }
     });
     if (!fast) {
@@ -17079,6 +19750,11 @@ class Game {
         bounds: { x: mapX + 42, y: mapY + 140, w: mapW - 84, h: mapH - 184 }
       });
     }
+    // The release pulse deliberately hides rescue markers for its duration.
+    // Clear the hit/render cache even while that branch is hidden; otherwise
+    // the just-rescued marker survives one or more home renders and can leave
+    // the map in a stale rescue state after the canvas has been redrawn.
+    this.renderedRescueMapMarkers = [];
     if (!prologue && !consequenceVisible) this.drawChapterRescueMarkers(ctx, camera, fast);
     if (!fast && !consequenceVisible) {
       this.drawMapVisitorCountChip(ctx, camera, livingReserveViews, developmentDay);
@@ -17092,7 +19768,20 @@ class Game {
     // 从任务弹窗返回沙盘时，首帧仍可能处于手势状态，不能因此跳过
     // 绳索剪断和动物离开动画。
     if (this.mapConsequencePulse && this.mapConsequencePulse.rescueSpeciesId) {
-      this.drawMapConsequencePulse(ctx, camera);
+      // Rescue records can come from older saves. Keep a bad legacy portrait
+      // or coordinate from aborting the whole render after the canvas was
+      // cleared; the map itself must remain visible while the result is shown.
+      try {
+        this.drawMapConsequencePulse(ctx, camera);
+      } catch (error) {
+        this.lastRescueMapRenderError = String((error && error.message) || error || "unknown");
+        try {
+          this.drawRescueReleaseFallback(ctx, camera, this.mapConsequencePulse);
+        } catch (fallbackError) {
+          this.lastRescueMapRenderError = `${this.lastRescueMapRenderError}; fallback: ${String((fallbackError && fallbackError.message) || fallbackError || "unknown")}`;
+          this.mapConsequencePulse = null;
+        }
+      }
     } else if (!fast) {
       this.drawMapConsequencePulse(ctx, camera);
     }
@@ -17323,10 +20012,11 @@ class Game {
   openDailyEvents() {
     // Opening the checklist must not automatically execute a saved task.
     // Keep any unfinished task for the explicit “continue” click instead.
-    if (this.activeTaskLock && (this.patrolTaskModal || this.settlementModal || this.chapterStoryModal
+    if (this.activeTaskLock && (this.patrolTaskModal || this.settlementOccupiesFlow() || this.chapterStoryModal
       || (this.infoDetailModal && this.infoDetailModal.kind !== "dailyEvents"))) return this.resumeActiveTask();
     this.currentGoalView(true);
     const checklist = this.dailyEventChecklist();
+    this.markDailyPresentationSeen();
     const active = checklist.objectives.find((item) => !item.complete) || null;
     if (this.activeTaskLock && String(this.activeTaskLock.id || "").startsWith("daily:")
       && !checklist.objectives.some(item => item.goalId === this.activeTaskLock.id && !item.complete)) this.activeTaskLock = null;
@@ -17378,7 +20068,7 @@ class Game {
   }
 
   executeDailyEvent(id, dateKey) {
-    if (this.patrolTaskModal || this.settlementModal || this.chapterStoryModal
+    if (this.patrolTaskModal || this.settlementOccupiesFlow() || this.chapterStoryModal
       || (this.infoDetailModal && this.infoDetailModal.kind !== "dailyEvents")) return false;
     const checklist = this.dailyEventChecklist();
     const objective = checklist.objectives.find((item) => item.id === id);
@@ -17395,32 +20085,31 @@ class Game {
       this.toast("这项每日任务已经完成");
       return false;
     }
-    if (!active || active.id !== id) {
-      this.toast("请先完成当前进行中的每日任务");
+    if (!active) {
+      this.toast("今日每日任务都已完成");
       return false;
     }
     if (this.activeTaskLock && this.activeTaskLock.id === objective.goalId && this.activeTaskLock.startedAt
       && this.screen === "survival"
-      && !this.patrolTaskModal && !this.settlementModal) {
+      && !this.patrolTaskModal && !this.settlementOccupiesFlow()) {
       this.toast("任务已打开，请先完成当前操作");
       return false;
     }
     if (this.activeTaskLock && this.activeTaskLock.id === objective.goalId) this.activeTaskLock = null;
     this.infoDetailModal = null;
-    const fallbackAction = objective.kind === "visitor" ? "visitorAdjust"
+    const fallbackAction = objective.kind === "visitor" ? "viewVisitors"
       : objective.kind === "economy" ? "buySupplies"
         : objective.kind === "animal" ? "animalCare"
-          // Patrol goals were retired as a generic daily fallback. Old saves
-          // without a recommendation must route to exploration instead of
-          // opening the removed patrol screen and trapping the daily task.
-          : objective.kind === "guard" ? "exploreMaterials" : "habitat";
+          : "habitat";
     const savedAction = objective.recommendedAction;
-    const recommendedAction = this.isPatrolTaskAction(savedAction) ? "exploreMaterials" : (savedAction || fallbackAction);
+    const retiredForcedSurvival = ["houndScout", "antiPoacher", "exploreMaterials", "viewSurvival"].includes(savedAction);
+    const recommendedAction = retiredForcedSurvival
+      ? (objective.kind === "visitor" ? "viewVisitors" : "habitat")
+      : (savedAction || fallbackAction);
     return this.executeGoalAction(Object.assign({}, objective, {
       id: objective.goalId, kind: "daily",
-      // 老存档可能没有保存 recommendedAction；按剧情任务类型补齐，避免跳到默认猎犬页。
       recommendedAction,
-      targetScreen: recommendedAction === "exploreMaterials" ? "materials" : objective.targetScreen
+      targetScreen: recommendedAction === "viewVisitors" ? "collection" : objective.targetScreen
     }));
   }
 
@@ -17452,7 +20141,6 @@ class Game {
     }
     const rows = checklist.objectives;
     const activeIndex = rows.findIndex((item) => !item.complete);
-    const activeId = activeIndex >= 0 ? rows[activeIndex].id : null;
     // Keep readable type and a real button; paginate instead of compressing rows on small phones.
     const pageSize = bodyH >= 400 ? 4 : bodyH >= 220 ? 2 : 1;
     const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
@@ -17466,7 +20154,7 @@ class Game {
     modal.renderedDailyItems = [];
     visibleRows.forEach((item, index) => {
       const rx = x + 22, ry = bodyY + 8 + index * (rowH + gap), rw = w - 44;
-      const isActive = item.id === activeId;
+      const isActive = !item.complete;
       this.drawPremiumParchmentPanel(ctx, rx, ry, rw, rowH, 14, { muted: item.complete });
       const titleSize = 15;
       const title = this.truncateTextToWidth(ctx, item.title, rw - 76, titleSize, "700");
@@ -17485,7 +20173,7 @@ class Game {
         this.modalButton(ctx, button.x, button.y, button.w, button.h, button.label, "#1c3325",
           () => this.executeDailyEvent(item.id, checklist.dateKey), "#fff8df", 12);
       } else {
-        this.text(ctx, item.complete ? "✓ 奖励已领取" : "完成上一项后解锁", rx + rw / 2, ry + rowH - 18, 13,
+        this.text(ctx, item.complete ? "✓ 奖励已领取" : "完成后可领今日奖励", rx + rw / 2, ry + rowH - 18, 13,
           item.complete ? "#2f765c" : "#657267", "700", "center");
       }
       modal.renderedDailyItems.push({ id: item.id, complete: item.complete, active: isActive, x: rx, y: ry, w: rw, h: rowH, titleSize, description, reward, button });
@@ -17512,25 +20200,26 @@ class Game {
       return;
     }
     const dailyPending = checklist.remaining > 0;
+    const dailyOnGoalBar = this.currentDailyMatchesGoal(((this.currentGoalView && this.currentGoalView()) || {}).primary);
     const poacherTask = nextPoacherRescue((this.state.world || {}).reserve || {});
     const rescueTask = (poacherTask && poacherTask.taskVisible !== false) ? poacherTask
       : nextRescueTask((this.state.world || {}).reserve || {}, (getCurrentChapter((this.state.world || {}).reserve || {}) || {}).chapter || 1);
     const uiState = this.state.ui || (this.state.ui = {});
     // Rescue is a chapter gate, not a prerequisite for today's other work.
-    // Keep ordinary daily tasks as the default map entry; the rescue marker
-    // remains available and becomes the primary chapter prompt only when the
-    // rest of the chapter gates are complete.
+    // If 当前目标 already is today's daily, do not also show 每日事件.
+    // Same chapter, one real-world day → one daily presentation.
     const preferredOpportunity = uiState.opportunityTurn === "rescue" ? "rescue" : "daily";
+    const canShowDailyChip = dailyPending && !dailyOnGoalBar;
     const opportunityMode = preferredOpportunity === "rescue"
-      ? (rescueTask ? "rescue" : dailyPending ? "daily" : "none")
-      : (dailyPending ? "daily" : rescueTask ? "rescue" : "none");
+      ? (rescueTask ? "rescue" : canShowDailyChip ? "daily" : "none")
+      : (canShowDailyChip ? "daily" : rescueTask ? "rescue" : "none");
     const shownRescueTask = opportunityMode === "rescue" ? rescueTask : null;
     const shownDailyPending = opportunityMode === "daily" && dailyPending;
     const count = (plan.hidden || []).length;
     const sandboxLed = this.sandboxLedMode();
     const mapHints = (plan.hidden || []).filter((item) => item && item.kind !== "goal");
     const label = shownRescueTask
-      ? (dailyPending ? `每日事件 ${checklist.complete}/${checklist.total} · 解救${shownRescueTask.speciesName} ›` : `解救${shownRescueTask.speciesName} · 收集物品 ›`)
+      ? (shownDailyPending ? `每日事件 ${checklist.complete}/${checklist.total} · 解救${shownRescueTask.speciesName} ›` : `解救${shownRescueTask.speciesName} · 收集物品 ›`)
       : shownDailyPending ? `每日事件 ${checklist.complete}/${checklist.total} ›`
       : sandboxLed
       ? `探索沙盘${mapHints.length ? ` · ${mapHints.length}条线索` : ""} ›`
@@ -17562,15 +20251,15 @@ class Game {
     if (dailyShortcut) {
       this.roundRect(ctx, x + mainW + 4, y + 4, w - mainW - 8, h - 8, 11, "rgba(241,208,116,.20)", "rgba(190,147,60,.54)");
       this.text(ctx, "日", x + mainW + (w - mainW) / 2, y + 20, 10, UI_THEME.goldDeep, "700", "center");
-      this.addMapRectHit(x + mainW, y, w - mainW, h, () => { uiState.opportunityTurn = "rescue"; saveState(this.state); this.openDailyEvents(); });
+      this.addHit(x + mainW, y - (this.scrollY || 0), w - mainW, h, () => { uiState.opportunityTurn = "rescue"; saveState(this.state); this.openDailyEvents(); }, "tap", "hud");
     }
-    this.addMapRectHit(x, y, mainW, h, () => shownRescueTask
-      ? (uiState.opportunityTurn = "daily", saveState(this.state), this.openChapterRescueTask(shownRescueTask.speciesId))
+    this.addHit(x, y - (this.scrollY || 0), mainW, h, () => shownRescueTask
+      ? (uiState.opportunityTurn = "daily", saveState(this.state), this.openChapterRescueTask(shownRescueTask.targetId || shownRescueTask.speciesId))
       : shownDailyPending
       ? (uiState.opportunityTurn = "rescue", saveState(this.state), this.openDailyEvents())
       : sandboxLed
-      ? mapHints.length ? this.openNextSandboxOpportunity(mapHints) : this.toast("地图暂时安静，点击动物、设施或事件标记继续")
-        : count ? this.openNextSandboxOpportunity(plan.hidden) : this.toast("暂无新线索，可以自由探索沙盘"));
+      ? mapHints.length ? this.openNextSandboxOpportunity(mapHints) : this.activateSandboxPrimaryGuidance() || this.toast("地图暂时安静，点击动物、设施或事件标记继续")
+        : count ? this.openNextSandboxOpportunity(plan.hidden) : this.activateSandboxPrimaryGuidance() || this.toast("暂无新线索，可以自由探索沙盘"), "tap", "hud");
     this.renderedMapOpportunityAggregate = {
       visible: true,
       count,
@@ -17579,18 +20268,86 @@ class Game {
       y,
       w,
       h,
-      mode: sandboxLed ? "sandbox" : dailyPending ? "dailyEvents" : "clues",
+      mode: sandboxLed ? "sandbox" : shownDailyPending ? "dailyEvents" : "clues",
       progressiveDisclosure: true,
       sandboxLed,
       mapHintCount: mapHints.length
-      ,rescueTask: shownRescueTask ? { speciesId: shownRescueTask.speciesId, speciesName: shownRescueTask.speciesName } : null
+      ,rescueTask: shownRescueTask ? { targetId: shownRescueTask.targetId, speciesId: shownRescueTask.speciesId, speciesName: shownRescueTask.speciesName } : null
       ,opportunityMode
       ,idleNudge
       ,idleMs
     };
   }
 
+  chapterCoreFallbackGoal() {
+    if (!this.state || !this.state.character) return null;
+    const reserve = ((this.state.world || {}).reserve) || {};
+    const chapter = getCurrentChapter(reserve) || {};
+    const chapterNumber = Math.max(1, Number((reserve.progression || {}).stage || (reserve.progression || {}).displayChapter || chapter.chapter || 1));
+    const core = chapterCoreMetrics(reserve, chapterNumber);
+    if (!core || core.complete) return null;
+    const rows = [
+      { id: "animals", label: "动物总数", value: Number(core.animals) || 0, target: Number(core.target.animals) || 0, percent: Number(core.percentages.animals) || 0, detailId: "animals" },
+      { id: "species", label: "种群数量", value: Number(core.species) || 0, target: Number(core.target.species) || 0, percent: Number(core.percentages.species) || 0, detailId: "species" },
+      { id: "visitors", label: "游客", value: Number(core.visitors) || 0, target: Number(core.target.visitors) || 0, percent: Number(core.percentages.visitors) || 0, detailId: "visitors" }
+    ].filter((row) => row.value < row.target);
+    const lagging = rows.sort((a, b) => a.percent - b.percent || (a.target - a.value) - (b.target - b.value))[0];
+    if (!lagging) return null;
+    if (lagging.id === "animals") {
+      const rescueTask = nextPoacherRescue(reserve) || nextRescueTask(reserve, chapterNumber);
+      if (rescueTask) {
+        return {
+          id: `core:animals:rescue:${rescueTask.targetId || rescueTask.speciesId}`,
+          kind: "stage",
+          title: `增加动物总数：解救${rescueTask.speciesName || "被困动物"}`,
+          body: `本章晋级还差动物总数 ${Math.max(0, lagging.target - lagging.value)}。完成这次解救，放归数量会直接计入动物总数。`,
+          recommendedAction: "rescueAnimal",
+          buttonLabel: "前往沙盘解救",
+          icon: "paw",
+          progress: lagging.value,
+          target: lagging.target,
+          chapter: chapterNumber,
+          animalId: rescueTask.speciesId,
+          targetId: rescueTask.targetId || rescueTask.speciesId,
+          taskCategory: "animal"
+        };
+      }
+      const ecology = reserve.ecology || {};
+      const metricFocus = Number(ecology.water || 0) <= Number(ecology.grass || 0) ? "water" : "grass";
+      return {
+        id: `core:animals:habitat:${metricFocus}`,
+        kind: "stage",
+        title: `增加动物总数：${metricFocus === "water" ? "修复饮水点" : "恢复草场"}`,
+        body: `本章晋级还差动物总数 ${Math.max(0, lagging.target - lagging.value)}。完成这次栖息地修复，已有种群会靠近。`,
+        recommendedAction: "habitat",
+        buttonLabel: metricFocus === "water" ? "修复饮水点" : "恢复草场",
+        icon: "paw",
+        progress: lagging.value,
+        target: lagging.target,
+        chapter: chapterNumber,
+        metricFocus,
+        taskCategory: "metric"
+      };
+    }
+    return {
+      id: `core:${lagging.id}`,
+      kind: "stage",
+      title: `把${lagging.label}提升到 ${lagging.target}`,
+      body: `本章晋级还差${lagging.label} ${Math.max(0, lagging.target - lagging.value)}。`,
+      recommendedAction: "viewChapterCore",
+      buttonLabel: "去处理",
+      icon: lagging.id === "visitors" ? "community" : "paw",
+      progress: lagging.value,
+      target: lagging.target,
+      chapter: chapterNumber,
+      coreMetricId: lagging.detailId,
+      chapterCore: true,
+      taskCategory: "metric"
+    };
+  }
+
   sandboxGoalBarData() {
+    if (this.painting && this.frameMemoStore && this.frameMemoStore.goalBar) return this.frameMemoStore.goalBar;
     const goalView = (this.currentGoalView ? this.currentGoalView() : {}) || {};
     const primary = goalView.primary || {};
     const reserve = ((this.state || {}).world || {}).reserve || {};
@@ -17601,19 +20358,22 @@ class Game {
     // 只有没有更高优先级目标时，才让新手/守护提示接管文案。
     const useGuidance = !!(guidance
       && !["crisis", "recovery", "stage"].includes(primary.kind)
-      && (guidance.onboarding || guidance.guardianBeat || guidance.locatedDiscovery));
+      && (guidance.onboarding || guidance.guardianBeat || guidance.locatedDiscovery || guidance.chapterCore));
     const displayGuidance = useGuidance ? guidance : null;
-    const title = String((displayGuidance && displayGuidance.title) || primary.title || "观察保护区")
+    const fallback = !primary.id && !displayGuidance && this.chapterCoreFallbackGoal ? this.chapterCoreFallbackGoal() : null;
+    if (!primary.id && !displayGuidance && !fallback) return null;
+    const shown = primary.id || displayGuidance ? primary : (fallback || {});
+    const title = String((displayGuidance && displayGuidance.title) || shown.title || "")
       .replace(/^今日目标：/, "")
       .trim();
-    const target = Number(primary.target) || 0;
-    const progress = Math.max(0, Number(primary.progress) || 0);
-    const progressText = target > 1 ? `${Math.min(progress, target)} / ${target}` : (primary.complete ? "已完成" : "进行中");
-    const action = String(primary.buttonLabel || (displayGuidance && displayGuidance.onboarding && displayGuidance.onboarding.actionLabel) || "立即前往").trim();
+    const target = Number(shown.target) || 0;
+    const progress = Math.max(0, Number(shown.progress) || 0);
+    const progressText = target > 1 ? `${Math.min(progress, target)} / ${target}` : (shown.complete ? "已完成" : "进行中");
+    const action = String(shown.buttonLabel || (displayGuidance && displayGuidance.onboarding && displayGuidance.onboarding.actionLabel) || "立即前往").trim();
     const chapterTitle = String(chapter.title || (goalView.stage || {}).title || `第${chapterNumber}章`).trim();
-    return {
-      id: (displayGuidance && displayGuidance.id) || primary.id || "primary",
-      chapter: chapterNumber,
+    const data = {
+      id: (displayGuidance && displayGuidance.id) || shown.id || "primary",
+      chapter: Number(shown.chapter) || chapterNumber,
       chapterTitle,
       title,
       progress,
@@ -17621,8 +20381,11 @@ class Game {
       progressText,
       action,
       guidance: displayGuidance,
-      goal: primary
+      goal: primary.id ? primary : (fallback || primary)
     };
+    this.frameMemoStore = this.frameMemoStore || {};
+    this.frameMemoStore.goalBar = data;
+    return data;
   }
 
   drawSandboxGoalBar(ctx, camera, options = {}) {
@@ -17732,7 +20495,9 @@ class Game {
     this.drawUiIcon(ctx, "signal", x + 16, y + h / 2, 18, false, .96)
       || this.drawSmallGlyph(ctx, "signal", x + 16, y + h / 2, UI_THEME.goldDeep, .42);
     this.text(ctx, label, x + 30, y + 20, 10, UI_THEME.tint, "700");
-    this.addMapRectHit(x, y, w, h, () => this.openReserveLetterInbox({ unreadOnly: true }));
+    if (!this.settlementPresentationActive()) {
+      this.addMapRectHit(x, y, w, h, () => this.openReserveLetterInbox({ unreadOnly: true }));
+    }
     this.renderedMapVisitorCountChip = {
       visible: true, mode: "reserveLetters", letters: letters.length, unread, unreadLeaderboard,
       label, x, y, w, h, clickable: true
@@ -17788,7 +20553,7 @@ class Game {
     this.renderedMapSpeechBubbles = this.renderedMapSpeechBubbles || [];
     this.renderedMapFacilityLabels = [];
     facilities.forEach((facility) => {
-      const point = this.mapPoint(facility.x, facility.y, camera);
+      const point = this.facilityMapPoint(facility, camera);
       const labelMargin = 48;
       // 地图上的高地、边界、浅滩等只是地形提示，不再以文字胶囊覆盖画面；
       // 节点本身仍保留图标和点击区域，设施名称继续正常显示。
@@ -17918,9 +20683,11 @@ class Game {
       const showLabel = !visibleLabelKeys || !!visibleLabelKeys[`drop:${drop.id}`];
       const label = this.ecologyDropLabel(drop, catalog);
       if (showLabel) {
-        const labelW = Math.min(132, Math.max(72, label.length * 9 + 18));
-        this.roundRect(ctx, cx - labelW / 2, cy + 27 * scale, labelW, 22, 10, "rgba(255,253,244,.95)", "rgba(45,76,58,.28)");
-        this.text(ctx, this.truncateTextToWidth(ctx, label, labelW - 14, 9, "700"), cx, cy + 42 * scale, 9, "#28483b", "700", "center");
+        const labelSize = this.mapDescriptionFont(9, camera.scale || 1);
+        const labelW = Math.min(144, Math.max(76, label.length * labelSize * .76 + 20));
+        const labelH = Math.max(22, labelSize + 12);
+        this.roundRect(ctx, cx - labelW / 2, cy + 27 * scale, labelW, labelH, 10, "rgba(255,253,244,.95)", "rgba(45,76,58,.28)");
+        this.text(ctx, this.truncateTextToWidth(ctx, label, labelW - 14, labelSize, "700"), cx, cy + 27 * scale + labelSize + 5, labelSize, "#28483b", "700", "center");
       }
       this.renderedAnimalEcologyDrops.push({
         id: drop.id,
@@ -17948,13 +20715,15 @@ class Game {
     if (!item || !region) { this.renderedStoryDiscoveryMarker = null; return; }
     const point = this.mapPoint(region.x, region.y, camera);
     const scale = Math.max(.72, Math.min(1.08, camera.scale || 1));
+    const copyScale = this.mapDescriptionScaleForScale(camera.scale || 1);
+    const labelSize = this.mapDescriptionFont(10, camera.scale || 1);
     const now = Date.now();
     const guide = this.storyDiscoveryGuide;
     const guided = !!(guide && guide.itemId === item.id && now < guide.expiresAt);
     if (guide && now >= guide.expiresAt) this.storyDiscoveryGuide = null;
     const showLabel = options.showLabel !== false;
     const markerLabel = guided ? `点按收录 · ${item.name}` : `发现 · ${item.name}`;
-    const labelW = Math.min(142, Math.max(70, markerLabel.length * 11 + 18)) * scale;
+    const labelW = Math.min(156, Math.max(76, markerLabel.length * labelSize * .84 + 20)) * copyScale;
     const markerW = Math.max(66 * scale, labelW);
     const markerH = (showLabel ? 86 : 66) * scale;
     const overlaps = (a, b) => Math.abs(a.x - b.x) < (a.w + b.w) / 2
@@ -18007,7 +20776,7 @@ class Game {
     this.drawCollectionItemIcon(ctx, item, x, y, 46 * scale);
     if (showLabel) {
       this.roundRect(ctx, x - labelW / 2, y + 31 * scale, labelW, 24 * scale, 12 * scale, "rgba(18,61,52,.92)", "rgba(255,248,223,.78)");
-      this.text(ctx, markerLabel, x, y + 47 * scale, 10 * scale, "#fff8df", "700", "center");
+      this.text(ctx, markerLabel, x, y + 31 * scale + labelSize + 6, labelSize, "#fff8df", "700", "center");
     }
     const viewport = this.mapViewport;
     const visible = !viewport || (
@@ -18048,10 +20817,10 @@ class Game {
 
   collectMapStoryDiscovery(itemId) {
     this.recordSandboxInteraction("discovery");
-    const beforeState = JSON.parse(JSON.stringify(this.state));
+    const beforeState = this.cloneStateForGoalProgress();
     const result = collectStoryDiscovery(this.state, itemId);
     if (!result.ok) { this.toast(result.error); this.render(); return; }
-    this.state.world.reserve.progression = reserveProgressionFor(this.state.world.reserve);
+    this.state.world.reserve.progression = this.commitReserveProgression(this.state.world.reserve);
     recordSevenDayProgress(this.state.world.reserve, "collectionInvestigation");
     const goalProgress = this.syncSandboxGoalState(beforeState, "collectionInvestigate");
     this.storyDiscoveryGuide = null;
@@ -18088,6 +20857,8 @@ class Game {
 
   drawMapResourceFlow(ctx, marker = {}, x, y, scale = 1) {
     const s = Math.max(.78, Math.min(1.18, scale));
+    const textScale = this.mapDescriptionScaleForScale(scale, .9);
+    const textSize = this.mapDescriptionFont(10, scale, .9);
     const delta = Number(marker.delta) || 0;
     const beneficial = typeof marker.beneficial === "boolean" ? marker.beneficial : delta > 0;
     const positive = beneficial;
@@ -18095,8 +20866,8 @@ class Game {
     const label = marker.metricLabel || marker.label || "资源";
     const valueText = delta ? this.signed(delta) : `${Math.round(Number(marker.value) || 0)}`;
     const text = `${label} ${valueText}`;
-    const chipW = Math.max(66, Math.min(104, text.length * 10 + 34));
-    const chipH = 30;
+    const chipW = Math.max(72, Math.min(126, text.length * textSize * .76 + 42));
+    const chipH = Math.max(32, Math.round(30 * textScale));
     const icon = marker.metric === "water" ? "water"
       : marker.metric === "grass" ? "leaf"
         : marker.metric === "fund" ? "fund"
@@ -18113,7 +20884,7 @@ class Game {
     this.roundRect(ctx, bx, by, chipW, chipH, 14, fill, stroke);
     this.drawUiIcon(ctx, icon, bx + 16, by + chipH / 2, 18, false, .96)
       || this.drawSmallGlyph(ctx, icon, bx + 16, by + chipH / 2, color, .62);
-    this.text(ctx, text, bx + 30, by + 20, 10, color, "700");
+    this.text(ctx, this.truncateTextToWidth(ctx, text, chipW - 38, textSize, "700"), bx + 30, by + chipH / 2 + textSize * .36, textSize, color, "700");
     this.renderedMapResourceFlows = this.renderedMapResourceFlows || [];
     this.renderedMapResourceFlows.push({
       id: marker.id,
@@ -18133,7 +20904,7 @@ class Game {
 
   collectAnimalEcologyDrop(dropId, origin = null) {
     this.recordSandboxInteraction("ecology-drop");
-    const beforeState = JSON.parse(JSON.stringify(this.state));
+    const beforeState = this.cloneStateForGoalProgress();
     const reserve = (this.state.world || {}).reserve || {};
     const before = this.reserveSnapshot(reserve);
     const collected = collectEcologyDrop(reserve, dropId);
@@ -18315,7 +21086,6 @@ class Game {
     if (!modal) return null;
     const now = Date.now();
     const impact = this.settlementImpactSummary(modal);
-    const major = impact.major;
     const breakthroughKind = String((((modal || {}).breakthrough || {}).kind) || "");
     const crisis = /^emergency_(?:started|failed|resolved)$/.test(breakthroughKind);
     modal.returnScreen = returnScreen;
@@ -18341,9 +21111,7 @@ class Game {
       modal.valueRevealAt = modal.revealAt;
       modal.animalRevealAt = modal.revealAt + 450;
       modal.crisisBurst = burst;
-    } else if (major || this.isPatrolTaskAction(modal.actionType)) {
-      // Every patrol needs an explicit result, even when its numeric changes
-      // are small. Keep the map replay, then wait for player acknowledgement.
+    } else if (this.settlementShouldPresent(modal)) {
       modal.silent = false;
       delete modal.autoFinishAt;
       modal.revealAt = now + (storyReplay ? 5000 : 900);
@@ -18351,12 +21119,54 @@ class Game {
       modal.animalRevealAt = modal.revealAt + 600;
     } else {
       modal.silent = true;
-      modal.autoFinishAt = now + (storyReplay ? 5000 : 2600);
+      modal.autoFinishAt = 0;
       modal.revealAt = 0;
       modal.animalRevealAt = 0;
+      this.releaseUnpresentedSettlement(modal, returnScreen);
     }
     modal.impactSummary = impact;
     return modal;
+  }
+
+  settlementGradeShouldPresent(grade) {
+    const value = String(grade || "").toUpperCase();
+    // Exploration settlements are deliberately quiet for ordinary results.
+    // Only the two high-signal grades deserve an interrupting result card;
+    // B/C/D are already committed to the reserve in the background.
+    return value === "S" || value === "A";
+  }
+
+  settlementGradeIsMid(grade) {
+    const value = String(grade || "").toUpperCase();
+    return value === "B" || value === "C";
+  }
+
+  materialExplorationSettlementGrade(exploration = {}, fallbackGrade = "C") {
+    const roll = Math.max(0, Number(exploration.roll) || 0);
+    const qualityScore = Math.max(0, Number(exploration.qualityScore) || 0);
+    const found = !!(exploration.reward || exploration.survivalFind);
+    if (!found) return "D";
+    if (roll >= 5 || qualityScore >= 9 || exploration.quality === "罕见") return "A";
+    const fallback = String(fallbackGrade || "C").toUpperCase();
+    return this.settlementGradeShouldPresent(fallback) ? fallback : "C";
+  }
+
+  settlementShouldPresent(modal = {}) {
+    // Material exploration is the one flow whose result card is grade-gated.
+    // Check it before generic goal/breakthrough branches so a B/C/D result
+    // cannot reopen the modal just because it also completed a goal.
+    if (modal.materialExploration) {
+      return this.settlementGradeShouldPresent(modal.grade);
+    }
+    if (modal.onboardingFirstAction || this.pendingOnboardingFirstAction) return true;
+    if (modal.chapterTransition || modal.finalChapterEnding) return true;
+    if (modal.goalDone || modal.dailyFullClear) return true;
+    const breakthroughKind = String(((modal.breakthrough || {}).kind) || "");
+    if (/^emergency_(?:started|failed|resolved)$/.test(breakthroughKind)) return true;
+    if (this.settlementGradeIsMid(modal.grade)) return false;
+    if (modal.breakthrough && !/^ecology_/.test(breakthroughKind)) return true;
+    if (modal.commerce || modal.mysteryRecovery || modal.recoveredGoodsGain) return true;
+    return this.settlementGradeShouldPresent(modal.grade);
   }
 
   settlementImpactSummary(modal = {}) {
@@ -18432,9 +21242,8 @@ class Game {
       urgency: active && active.daysRemaining ? `剩余 ${active.daysRemaining} 次处置机会` : failed ? "后果已经写入生态" : "立即选择处置行动"
     };
     // Keep the sandbox on the incident after the burst fades, so the flames
-    // and their clickable marker remain in the same viewport.
-    this.mapZoom = Math.max(1.35, Math.min(2, Number(this.mapZoom) || 0));
-    this.mapCamera = this.clampMapCamera(targetX, targetY, this.currentMapScale(), this.mapCameraFrame);
+    // and their clickable marker remain in the same viewport. Do not persist a
+    // closer map scale: tasks stay tappable at the default overview camera.
     if (active && active.id) this.mapEmergencyFocusId = active.id;
     return this.mapCrisisBurst;
   }
@@ -18667,12 +21476,15 @@ class Game {
     const second = changed[1] || fallbackChanged.find((item) => !primary || item.key !== primary.key) || null;
     const metricText = (item) => item ? `${labels[item.key] || item.key} ${item.before}→${item.after}（${this.signed(item.delta)}）` : "";
     const startedAt = Date.now() + Math.max(0, context.delayMs || 0);
+    const screen = Array.isArray(context.screenPoint) ? context.screenPoint : [];
     this.mapConsequencePulse = {
       startedAt,
       expiresAt: startedAt + (context.rescueSpeciesId ? 2200 : 3800),
       rescueSpeciesId: context.rescueSpeciesId || "",
       x: point[0],
       y: point[1],
+      screenX: Number.isFinite(Number(screen[0])) ? Number(screen[0]) : null,
+      screenY: Number.isFinite(Number(screen[1])) ? Number(screen[1]) : null,
       title: context.title || "保护区发生变化",
       valueText: context.customValueText || metricText(primary) || relationText || "永久规则已写入沙盘",
       secondaryValueText: context.animalEconomy
@@ -18767,6 +21579,42 @@ class Game {
     ctx.restore();
   }
 
+  drawRescueReleaseFallback(ctx, camera, pulse = {}) {
+    // Keep the sandbox usable if an old rescue record contains a portrait or
+    // canvas value that the current renderer cannot draw. This is intentionally
+    // a small, data-only fallback; it does not change rescue state or rewards.
+    const safeCamera = camera || { x: 0, y: 0, w: this.width || 375, h: this.height || 667, worldX: 0, worldY: 0, worldW: this.width || 375, worldH: this.height || 667, scale: 1 };
+    const rawX = Number(pulse.x);
+    const rawY = Number(pulse.y);
+    const world = this.clampSandboxWorldPoint(Number.isFinite(rawX) ? rawX : .5, Number.isFinite(rawY) ? rawY : .5);
+    const point = this.mapPoint(world.x, world.y, safeCamera);
+    const cardW = Math.max(180, Math.min(284, Number(safeCamera.w) || 284));
+    const cardH = 48;
+    const left = Number(safeCamera.x) || 0;
+    const top = Number(safeCamera.y) || 0;
+    const bx = Math.max(left + 8, Math.min(left + (Number(safeCamera.w) || cardW) - cardW - 8, point.x - cardW / 2));
+    const by = Math.max(top + 128, Math.min(top + (Number(safeCamera.h) || 180) - cardH - 8, point.y + 44));
+    ctx.save();
+    try {
+      this.roundRect(ctx, bx, by, cardW, cardH, 14, "rgba(28,88,65,.96)", "#e1c66e");
+      ctx.fillStyle = "#e1c66e";
+      ctx.beginPath(); ctx.arc(bx + 16, by + 24, 5, 0, Math.PI * 2); ctx.fill();
+      const name = String(pulse.title || "动物解救完成");
+      this.text(ctx, this.truncateTextToWidth(ctx, name, cardW - 34, 12, "700"), bx + 29, by + 29, 12, "#fff6db", "700");
+    } finally {
+      ctx.restore();
+    }
+    pulse.renderedRelease = Object.assign({}, pulse.renderedRelease || {}, {
+      phase: "fallback",
+      progress: 1,
+      duration: 2200,
+      fallback: true,
+      labelX: bx,
+      labelY: by,
+      labelW: cardW
+    });
+  }
+
   drawRescueReleasePulse(ctx, camera, pulse, now = Date.now()) {
     // Visual-only release sequence. State is committed before this effect starts.
     const elapsed = Math.max(0, now - pulse.startedAt);
@@ -18777,7 +21625,8 @@ class Game {
     const easeOut = (v) => 1 - Math.pow(1 - Math.max(0, Math.min(1, v)), 3);
     const easedCut = easeOut(cut);
     const easedWalk = easeOut(walk);
-    const point = this.mapPoint(pulse.x, pulse.y, camera);
+    const world = this.clampSandboxWorldPoint(pulse.x, pulse.y);
+    const point = this.mapPoint(world.x, world.y, camera);
     const direction = point.x > camera.x + camera.w / 2 ? -1 : 1;
     const animalX = point.x + direction * 44 * easedWalk;
     const animalY = point.y - 8 - 7 * easedWalk - Math.sin(easedWalk * Math.PI * 4) * 2;
@@ -18790,6 +21639,7 @@ class Game {
     const labelY = Math.max(bounds.y + 8, Math.min(bounds.y + bounds.h - 34, point.y + 48));
 
     ctx.save();
+    try {
     ctx.globalAlpha = fade;
     // Soft focus halo makes the operation readable over busy map artwork.
     const glow = ctx.createRadialGradient(point.x, point.y, 4, point.x, point.y, 64);
@@ -18849,8 +21699,10 @@ class Game {
     this.roundRect(ctx, labelX, labelY, labelW, 28, 14, "rgba(28,88,65,.95)", "#e1c66e");
     ctx.fillStyle = "#e1c66e"; ctx.beginPath(); ctx.arc(labelX + 15, labelY + 14, 5, 0, Math.PI * 2); ctx.fill();
     this.text(ctx, label, labelX + labelW / 2 + 7, labelY + 19, 12, "#fff6db", "700", "center");
-    ctx.restore();
     pulse.renderedRelease = { phase: elapsed < 550 ? "cutting" : elapsed < 1250 ? "rope-fading" : "released", progress, ropeAlpha: 1 - cut, animalX, animalY, duration: 2200, labelX, labelY, labelW, scissorsVisible, sparkAlpha, ropeStyle: "braided-release-v2" };
+    } finally {
+      ctx.restore();
+    }
   }
 
   mapConsequenceStage(pulse = this.mapConsequencePulse, now = Date.now()) {
@@ -18862,87 +21714,150 @@ class Game {
   }
 
   drawChapterRescueMarkers(ctx, camera, fast = false) {
-    const state = this.chapterRescueState();
-    const targetPending = (state.targets || []).filter((record) => record.status !== "rescued");
-    // `captive` is legacy chapter metadata, not an additional task list.
-    // Only normalized chapter targets and active poacher records get map icons.
-    const legacyPending = [];
-    const poacherPending = (((this.state.world || {}).reserve || {}).poacherRescue || {}).active || [];
-    const pendingCandidates = targetPending.concat(legacyPending, poacherPending.filter((record) => record && record.status !== "rescued" && record.taskVisible !== false));
-    // A species is a single map subject. Older saves can contain both a
-    // chapter rescue alias and a recurring poacher record for the same
-    // species; keep one marker, preferring the active poacher event.
-    const pendingBySpecies = new Map();
-    pendingCandidates.forEach((record) => {
-      if (!record) return;
-      const species = record.speciesId && getSpeciesById(record.speciesId);
-      const key = String((species && species.id) || record.speciesId || record.speciesName || record.targetId || "").trim().toLowerCase();
-      if (!key) return;
-      const existing = pendingBySpecies.get(key);
-      if (!existing || (record.recurring && !existing.recurring)) pendingBySpecies.set(key, record);
-    });
-    const pending = Array.from(pendingBySpecies.values());
-    const positions = [[.40, .46], [.66, .65], [.28, .72], [.76, .36], [.20, .58], [.56, .78]];
     this.renderedRescueMapMarkers = [];
-    const occupied = [];
-    pending.forEach((record, index) => {
-      // 优先使用目标存档中的稳定坐标，让每只待解救动物落在沙盘不同位置；
-      // 老存档或异常坐标则使用按序回退点，避免所有标记堆叠。
-      const stored = record.map || record.position || {};
-      const sx = Number(stored.x), sy = Number(stored.y);
-      const poacherSlots = [[.72, .58], [.78, .34], [.62, .76], [.84, .70]];
-      let position = record.recurring
-        ? poacherSlots[index % poacherSlots.length]
-        : Number.isFinite(sx) && Number.isFinite(sy)
-        ? [Math.max(.12, Math.min(.88, sx)), Math.max(.24, Math.min(.82, sy))]
-        : positions[index % positions.length];
-      // Captive markers use the same visual treatment for every species, but
-      // each active rescue must occupy its own map location.  Pick the next
-      // fallback slot when an old save contains duplicate coordinates.
-      const overlaps = (candidate) => occupied.some((other) => Math.hypot(candidate[0] - other[0], candidate[1] - other[1]) < .12);
-      if (overlaps(position)) {
-        const alternative = positions.find((candidate) => !overlaps(candidate));
-        if (alternative) position = alternative;
-      }
-      occupied.push(position);
-      const point = this.mapPoint(position[0], position[1], camera);
+    try {
+      const state = this.chapterRescueState();
+      const targetPending = (state.targets || []).filter((record) => record.status !== "rescued");
+      // `captive` is legacy chapter metadata, not an additional task list.
+      // Only normalized chapter targets and active poacher records get map icons.
+      const legacyPending = [];
+      const poacherPending = (((this.state.world || {}).reserve || {}).poacherRescue || {}).active || [];
+      const pendingCandidates = targetPending.concat(legacyPending, poacherPending.filter((record) => record && record.status !== "rescued" && record.taskVisible !== false));
+      // A species is a single map subject. Older saves can contain both a
+      // chapter rescue alias and a recurring poacher record for the same
+      // species; keep one marker, preferring the active poacher event.
+      const pendingBySpecies = new Map();
+      pendingCandidates.forEach((record) => {
+        if (!record) return;
+        const species = (record.speciesId && getSpeciesById(record.speciesId)) || SPECIES_BY_NAME[record.speciesName];
+        const key = String((species && species.id) || record.speciesId || record.speciesName || record.targetId || "").trim().toLowerCase();
+        if (!key) return;
+        const existing = pendingBySpecies.get(key);
+        if (!existing || (record.recurring && !existing.recurring)) pendingBySpecies.set(key, record);
+      });
+      const pending = Array.from(pendingBySpecies.values());
+      const occupied = [];
+      pending.forEach((record, index) => {
+      const world = this.rescueMarkerWorldPoint(record, index, occupied);
+      occupied.push([world.x, world.y]);
+      // Plant the captive on the sandbox tile where it appeared.  Using the
+      // live map camera — not a screen slot — keeps it on that ground when
+      // the player pans or zooms.  Do not clamp to the viewport edge: that
+      // is what made the animal slide across the terrain.
+      const point = this.mapPoint(world.x, world.y, camera);
       const w = 110, h = 88;
-      const x = point.x - w / 2, y = point.y - 36;
-      if (x < camera.x + 6 || x + w > camera.x + camera.w - 6 || y < camera.y + 150 || y + h > camera.y + camera.h - 50) return;
+      const x = point.x - w / 2;
+      const y = point.y - 36;
+      const cx = x + w / 2;
+      const species = (record.speciesId && getSpeciesById(record.speciesId)) || SPECIES_BY_NAME[record.speciesName];
+      const speciesId = (species && species.id) || record.speciesId || record.speciesName || "animal";
+      const speciesName = record.speciesName || (species && species.name) || String(speciesId);
       this.roundRect(ctx, x + 25, y, 60, 60, 12, "rgba(255,244,204,.96)", "#a77a2b");
-      this.drawSpeciesAvatar(ctx, record.speciesId, point.x, y + 29, 48);
+      this.drawSpeciesAvatar(ctx, speciesId, cx, y + 29, 48);
       // Every captive marker uses the animal sprite itself plus a visible
       // rope/cage overlay, so the map never falls back to a generic leaf icon.
       // The overlay is intentionally shared by chapter and poacher rescues.
-      ctx.save(); ctx.strokeStyle = "rgba(102,85,53,.72)"; ctx.lineWidth = 2;
-      for (let i = 0; i < 4; i += 1) {
-        ctx.beginPath(); ctx.moveTo(x + 32 + i * 15, y + 6); ctx.lineTo(x + 32 + i * 15, y + 53); ctx.stroke();
+      ctx.save();
+      try {
+        ctx.strokeStyle = "rgba(102,85,53,.72)"; ctx.lineWidth = 2;
+        for (let i = 0; i < 4; i += 1) {
+          ctx.beginPath(); ctx.moveTo(x + 32 + i * 15, y + 6); ctx.lineTo(x + 32 + i * 15, y + 53); ctx.stroke();
+        }
+        ctx.strokeStyle = "#d34f43"; ctx.lineWidth = 2.5; ctx.beginPath();
+        ctx.ellipse(cx, y + 30, 25, 19, 0, 0, Math.PI * 2); ctx.stroke();
+      } finally {
+        ctx.restore();
       }
-      ctx.strokeStyle = "#d34f43"; ctx.lineWidth = 2.5; ctx.beginPath();
-      ctx.ellipse(point.x, y + 30, 25, 19, 0, 0, Math.PI * 2); ctx.stroke();
-      ctx.restore();
       this.roundRect(ctx, x + 69, y + 4, 18, 18, 9, "#c54838", "#fff1c8");
       this.text(ctx, "锁", x + 78, y + 17, 10, "#fff8df", "700", "center");
       this.roundRect(ctx, x, y + 62, w, 26, 12, "#245b48", "#d5b456");
-      this.text(ctx, `${record.speciesName} · 待解救 ›`, point.x, y + 80, 10, "#fff5d8", "700", "center");
-      this.renderedRescueMapMarkers.push({ targetId: record.targetId, speciesId: record.speciesId, x, y, w, h });
+      this.text(ctx, `${speciesName} · 待解救 ›`, cx, y + 80, 10, "#fff5d8", "700", "center");
+      this.renderedRescueMapMarkers.push({
+        targetId: record.targetId,
+        speciesId,
+        x,
+        y,
+        w,
+        h,
+        worldX: world.x,
+        worldY: world.y
+      });
       if (!fast) this.addMapRectHit(x, y, w, h, () => {
         return this.openChapterRescueTask(record.targetId || record.speciesId, { autoRun: true });
       });
-    });
+      });
+    } catch (error) {
+      // A malformed legacy rescue record must never prevent the background
+      // map, buildings, and free animals from rendering.
+      this.lastRescueMapRenderError = String((error && error.message) || error || "unknown");
+      this.renderedRescueMapMarkers = [];
+    }
+  }
+
+  rescueMarkerWorldSlots() {
+    return [
+      [0.40, 0.46], [0.62, 0.60], [0.32, 0.62], [0.66, 0.40], [0.30, 0.52], [0.54, 0.66]
+    ];
+  }
+
+  rescueMarkerWorldPoint(record = {}, index = 0, occupied = []) {
+    const stored = record.map || record.position || {};
+    const storedX = Number(stored.x);
+    const storedY = Number(stored.y);
+    // Once a captive has a sandbox tile, keep it there. Re-slotting on
+    // overlap or camera changes is what made the animal slide off its
+    // first appearance.
+    if (Number.isFinite(storedX) && Number.isFinite(storedY)) {
+      const world = this.clampSandboxWorldPoint(storedX, storedY);
+      record.map = { x: world.x, y: world.y };
+      return world;
+    }
+    const slots = record.recurring
+      ? [[0.66, 0.54], [0.68, 0.42], [0.58, 0.64], [0.70, 0.58]]
+      : this.rescueMarkerWorldSlots();
+    let position = slots[index % slots.length];
+    const overlaps = (candidate) => occupied.some((other) => Math.hypot(candidate[0] - other[0], candidate[1] - other[1]) < .12);
+    if (overlaps(position)) {
+      const alternative = this.rescueMarkerWorldSlots().find((candidate) => !overlaps(candidate));
+      if (alternative) position = alternative;
+    }
+    const world = this.clampSandboxWorldPoint(position[0], position[1]);
+    record.map = { x: world.x, y: world.y };
+    return world;
+  }
+
+  visibleRescueMarkerBounds(camera) {
+    const visible = this.visibleMapContentBounds(camera);
+    const top = Math.max(visible.y + 132, (camera && camera.y) || visible.y);
+    const bottom = Math.min(
+      visible.y + Math.max(visible.h, 160) - 8,
+      ((camera && camera.y) || visible.y) + ((camera && camera.h) || visible.h)
+    );
+    return {
+      x: visible.x,
+      y: top,
+      w: visible.w,
+      h: Math.max(160, bottom - top)
+    };
+  }
+
+  rescueMarkerScreenPoint(index = 0, count = 1, camera, record = null) {
+    if (!camera) return { x: 0, y: 0 };
+    const world = this.rescueMarkerWorldPoint(record || {}, index, []);
+    return this.mapPoint(world.x, world.y, camera);
   }
 
   drawGuardianPromiseMarkers(ctx, camera, fast = false) {
     const chosen = chosenPromiseChoices((this.state.world || {}).reserve || {});
     if (!chosen.length) return;
-    const positions = [[0.36, 0.68], [0.76, 0.45], [0.22, 0.34], [0.56, 0.57], [0.70, 0.72]];
+    const positions = [[0.36, 0.64], [0.68, 0.46], [0.28, 0.38], [0.54, 0.56], [0.66, 0.66]];
     const latestChapter = Math.max(...chosen.map((entry) => entry.promise.chapter));
     chosen.forEach(({ promise, choice }) => {
       // “无投喂核心区” is a rule shown in the relevant task/details panel;
       // it is not a map object and should not add a decorative flag or hit area.
       if (String(choice.mapTag || choice.label || "").includes("无投喂")) return;
-      const coord = positions[promise.chapter - 1] || positions[0];
-      const point = this.mapPoint(coord[0], coord[1], camera);
+      const coord = this.clampSandboxWorldPoint((positions[promise.chapter - 1] || positions[0])[0], (positions[promise.chapter - 1] || positions[0])[1]);
+      const point = this.mapPoint(coord.x, coord.y, camera);
       // The no-feeding core is a map guidance marker, not a building.  Keep
       // its label clear of visitor facilities so taps cannot land on the
       // neighbouring building by mistake.
@@ -18951,7 +21866,7 @@ class Game {
         const facilities = facilityStates(this.state).filter((facility) => !facility.concealed);
         let nearest = null;
         facilities.forEach((facility) => {
-          const fp = this.mapPoint(facility.x, facility.y, camera);
+          const fp = this.facilityMapPoint(facility, camera);
           const distance = Math.hypot(fp.x - point.x, fp.y - point.y);
           if (!nearest || distance < nearest.distance) nearest = { point: fp, distance };
         });
@@ -18966,10 +21881,11 @@ class Game {
         }
       }
       const scale = camera.scale || 1;
+      const labelSize = this.mapDescriptionFont(9, scale);
       // 旗帜说明与设施状态牌都属于地图前景层，不能互相压住。
       // 若发生碰撞，优先把说明牌沿垂直方向移开，并限制在可视区域内。
       const labelText = choice.mapTag || choice.label;
-      const labelWidth = Math.max(66, Math.min(118, labelText.length * 10 + 18));
+      const labelWidth = Math.max(72, Math.min(136, labelText.length * labelSize * .78 + 24));
       const overlapsFacility = (point) => (this.renderedMapFacilityLabels || []).some((label) => {
         const lx = Number(label.x) || 0, ly = Number(label.y) || 0;
         return point.x - labelWidth / 2 < lx + (label.w || 0) / 2
@@ -19003,8 +21919,9 @@ class Game {
       ctx.restore();
       if (!fast && (camera.scale > 1.4 || promise.chapter === latestChapter)) {
         const width = labelWidth;
-        this.roundRect(ctx, labelPoint.x - width / 2, labelPoint.y + 12, width, 22, 8, "rgba(20,67,53,.90)", "rgba(240,211,118,.72)");
-        this.text(ctx, this.truncateTextToWidth(ctx, labelText, width - 12, 9, "700"), labelPoint.x, labelPoint.y + 27, 9, "#fff8df", "700", "center");
+        const labelH = Math.max(22, labelSize + 10);
+        this.roundRect(ctx, labelPoint.x - width / 2, labelPoint.y + 12, width, labelH, 8, "rgba(20,67,53,.90)", "rgba(240,211,118,.72)");
+        this.text(ctx, this.truncateTextToWidth(ctx, labelText, width - 12, labelSize, "700"), labelPoint.x, labelPoint.y + 12 + labelH / 2 + labelSize * .36, labelSize, "#fff8df", "700", "center");
       }
     });
   }
@@ -19023,8 +21940,8 @@ class Game {
     const targetIndex = candidates[Math.min(candidates.length - 1, Math.floor(sample * candidates.length))];
     const target = MAP_VISITOR_WAYPOINTS[targetIndex] || waypoint;
     state.targetNodeIndex = targetIndex;
-    state.targetX = target.x;
-    state.targetY = target.y;
+    state.targetX = this.clampSandboxWorldX(target.x);
+    state.targetY = this.clampSandboxWorldY(target.y);
     state.step += 1;
     const dx = target.x - state.x;
     if (Math.abs(dx) > .00001) state.facingX = dx > 0 ? 1 : -1;
@@ -19061,10 +21978,10 @@ class Game {
         nodeIndex,
         previousNodeIndex: -1,
         targetNodeIndex: nodeIndex,
-        x: start.x,
-        y: start.y,
-        targetX: start.x,
-        targetY: start.y,
+        x: this.clampSandboxWorldX(start.x),
+        y: this.clampSandboxWorldY(start.y),
+        targetX: this.clampSandboxWorldX(start.x),
+        targetY: this.clampSandboxWorldY(start.y),
         facingX: index % 2 ? -1 : 1,
         dirX: 0,
         dirY: 0,
@@ -19081,7 +21998,7 @@ class Game {
     const paused = !!(
       options.fast
       || this.screen !== "home"
-      || this.settlementModal
+      || this.settlementOccupiesFlow()
       || this.patrolTaskModal
       || this.infoDetailModal
       || (this.gesture && (this.gesture.mapPan || this.gesture.pinch))
@@ -19118,6 +22035,8 @@ class Game {
       }
     }
     const moving = Math.abs(state.dirX || 0) + Math.abs(state.dirY || 0) > .00002;
+    state.x = this.clampSandboxWorldX(state.x);
+    state.y = this.clampSandboxWorldY(state.y);
     return {
       key,
       x: state.x,
@@ -19136,7 +22055,8 @@ class Game {
   }
 
   mapVisitorPlacements(view = {}, options = {}) {
-    const visibleCount = Math.max(0, Math.min(3, Math.ceil((Number(view.visitors) || 0) / 3)));
+    const crowd = Math.max(0, Number(view.visitors) || 0);
+    const visibleCount = crowd > 0 ? Math.min(6, Math.max(2, Math.ceil(crowd / 4))) : 0;
     if (!visibleCount) {
       this.visitorMotionStates = {};
       return [];
@@ -19213,7 +22133,14 @@ class Game {
     const reserve = (this.state.world || {}).reserve || {};
     const view = options.view || riverShallowsView(reserve, ((reserve.guardianCycle || {}).day) || (this.state.world || {}).day || 1);
     const config = view.config || reserveDevelopmentNodeById((view.node || {}).id) || RIVER_SHALLOWS_NODE;
-    const point = this.mapPoint(config.x, config.y, camera);
+    // Buildings are world entities.  They must use the same camera transform
+    // as the map backdrop and animals, otherwise a map resize or drag makes
+    // them appear to slide independently of the terrain.
+    const point = this.mapPoint(
+      this.clampSandboxWorldX(config.x),
+      this.clampSandboxWorldY(config.y),
+      camera
+    );
     const scale = Math.max(.72, Math.min(1.18, camera.scale || 1));
     const choiceId = (view.choice && view.choice.id) || "";
     const choiceVisual = (view.choice && view.choice.visual) || "";
@@ -19407,7 +22334,7 @@ class Game {
         102 * scale,
         () => this.openReserveDevelopmentNode(config.id)
       );
-      visitorPlacements.forEach((placement) => this.addMapHit(placement.sx, placement.sy - 10 * scale, Math.max(38, 46 * scale), () => this.openVisitorTable(), "cue:visitor"));
+      visitorPlacements.forEach((placement) => this.addMapHit(placement.sx, placement.sy - 10 * scale, Math.max(38, 46 * scale), () => this.openVisitorReception(), "cue:visitor"));
     }
   }
 
@@ -19456,9 +22383,9 @@ class Game {
     ctx.save();
 
     if (state.operationalFacilities.length) {
-      const trailRoot = this.mapPoint(.48, .82, camera);
+      const trailRoot = this.mapPoint(.48, .72, camera);
       state.operationalFacilities.forEach((facility, index) => {
-        const target = this.mapPoint(facility.x, facility.y, camera);
+        const target = this.facilityMapPoint(facility, camera);
         ctx.strokeStyle = "rgba(222,199,139,.30)";
         ctx.lineWidth = Math.max(2, 3.2 * scale);
         ctx.lineCap = "round";
@@ -19682,7 +22609,7 @@ class Game {
     const scale = camera.scale || 1;
     const rain = /暴雨|大雨|强降雨/.test(weather) || activeKind === "flash-flood" || pulseKind === "storm-rain" || pulseKind === "flash-flood";
     const wet = rain || /雨/.test(weather) || season === "雨季";
-    const drought = season === "旱季" || /晴|高温|干热|热浪/.test(weather) || Number(ecology.water) <= 38 || pulseKind === "drought";
+    const drought = season === "旱季" || /晴|高温|干热|热浪/.test(weather) || Number(ecology.water) <= 38 || pulseKind === "drought" || activeKind === "heat-haze" || pulseKind === "heat-haze";
     const disease = activeKind === "disease-zone" || pulseKind === "disease-zone" || Number(ecology.disease) >= 38;
     const river = this.mapPoint(.68, .54, camera);
     const meadow = this.mapPoint(.58, .70, camera);
@@ -19760,6 +22687,20 @@ class Game {
       ctx.beginPath();
       ctx.ellipse(center.x, center.y, 98 * scale, 56 * scale, -.14, 0, Math.PI * 2);
       ctx.fill();
+    } else if (pulseKind === "heat-haze") {
+      const glow = ctx.createRadialGradient(meadow.x, meadow.y, 2, meadow.x, meadow.y, 110 * scale);
+      glow.addColorStop(0, "rgba(255,186,92,.14)");
+      glow.addColorStop(1, "rgba(214,118,48,0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.ellipse(meadow.x, meadow.y, 102 * scale, 64 * scale, -.06, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (pulseKind === "dust-storm") {
+      ctx.fillStyle = "rgba(176,132,74,.10)";
+      ctx.fillRect(x, y, w, h);
+    } else if (pulseKind === "cold-fog") {
+      ctx.fillStyle = "rgba(220,228,236,.10)";
+      ctx.fillRect(x, y, w, h);
     } else if (pulseKind === "flash-flood") {
       ctx.fillStyle = "rgba(79,116,148,.10)";
       ctx.fillRect(x, y, w, h);
@@ -19843,8 +22784,12 @@ class Game {
 
   drawActiveWorldEventOverlay(ctx, camera, fast = false) {
     const reserve = ((this.state.world || {}).reserve) || {};
-    const active = ((reserve.emergency || {}).active) || null;
+    const liveActive = ((reserve.emergency || {}).active) || null;
+    const harshLead = this.harshNatureOverlayEvent(this.harshNatureSandboxMarkers()[0] || null);
+    const active = liveActive || harshLead;
     this.renderedWorldEventOverlay = null;
+    this.mapEventGraphicHits = [];
+    this.mapEventBalloonHit = null;
     if (!active || fast) return;
     const region = this.findRegion(active.regionId || "center") || { x: .5, y: .55 };
     const point = this.mapPoint(region.x, region.y, camera);
@@ -20016,6 +22961,47 @@ class Game {
         ctx.stroke();
       }
       features.push({ type: "flood-channel", x: point.x, y: point.y });
+    } else if (kind === "heat-haze") {
+      const glow = ctx.createRadialGradient(point.x, point.y, 4, point.x, point.y, 88 * scale);
+      glow.addColorStop(0, "rgba(255,186,92,.22)");
+      glow.addColorStop(.55, "rgba(214,118,48,.10)");
+      glow.addColorStop(1, "rgba(214,118,48,0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y, 86 * scale, 48 * scale, -.08, 0, Math.PI * 2);
+      ctx.fill();
+      for (let index = 0; index < 6; index += 1) {
+        const phase = (this.animT() * .0011 + index * .18) % 1;
+        ctx.strokeStyle = `rgba(255,224,170,${.28 * (1 - phase)})`;
+        ctx.lineWidth = Math.max(.8, 1.2 * scale);
+        ctx.beginPath();
+        ctx.ellipse(point.x, point.y - 8 * scale - phase * 18 * scale, (28 + index * 6) * scale, (10 + index * 2) * scale, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      features.push({ type: "heat-shimmer", x: point.x, y: point.y });
+    } else if (kind === "dust-storm") {
+      ctx.fillStyle = "rgba(176,132,74,.16)";
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y, 96 * scale, 42 * scale, .12, 0, Math.PI * 2);
+      ctx.fill();
+      for (let index = 0; index < 10; index += 1) {
+        const phase = (this.animT() * .0014 + index * .13) % 1;
+        ctx.fillStyle = `rgba(168,124,70,${.42 * (1 - phase)})`;
+        ctx.beginPath();
+        ctx.arc(point.x + (index - 5) * 14 * scale + phase * 22 * scale, point.y - 6 * scale + Math.sin(phase * 6) * 8 * scale, (2 + index % 3) * scale, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      features.push({ type: "dust-sheet", x: point.x, y: point.y });
+    } else if (kind === "cold-fog") {
+      const fog = ctx.createRadialGradient(point.x, point.y, 2, point.x, point.y, 90 * scale);
+      fog.addColorStop(0, "rgba(220,228,236,.28)");
+      fog.addColorStop(.62, "rgba(168,184,196,.12)");
+      fog.addColorStop(1, "rgba(168,184,196,0)");
+      ctx.fillStyle = fog;
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y, 92 * scale, 50 * scale, -.1, 0, Math.PI * 2);
+      ctx.fill();
+      features.push({ type: "cold-fog", x: point.x, y: point.y });
     } else if (kind === "contaminated-water") {
       const slick = ctx.createRadialGradient(point.x - 9 * scale, point.y - 4 * scale, 1, point.x, point.y, 52 * scale);
       slick.addColorStop(0, "rgba(198,186,76,.58)");
@@ -20157,37 +23143,113 @@ class Game {
       features.push({ type: "risk-zone", x: point.x, y: point.y });
     }
     ctx.restore();
+    const visitorGraphic = isVisitorArcheryEvent(active.type) || kind === "visitor-conflict";
+    const harshGraphic = !visitorGraphic && isHarshNatureEvent(active);
+    if (visitorGraphic || harshGraphic) {
+      const zoneW = 122 * scale;
+      const zoneH = 76 * scale;
+      const hitPadding = 12 * scale;
+      const hitX = point.x - zoneW - hitPadding;
+      const hitY = point.y - zoneH - hitPadding - (this.scrollY || 0);
+      const hitW = zoneW * 2 + hitPadding * 2;
+      const hitH = zoneH * 2 + hitPadding * 2;
+      const viewport = this.mapViewport;
+      if (!viewport || (
+        hitX + hitW > viewport.x && hitX < viewport.x + viewport.w
+        && hitY + hitH > viewport.y && hitY < viewport.y + viewport.h
+      )) {
+        this.pushMapEventGraphicHit({
+          x: hitX, y: hitY, w: hitW, h: hitH,
+          onTap: visitorGraphic
+            ? () => this.openVisitorIncidentDice({
+              type: "visitorIncident",
+              kind: "visitorIncident",
+              eventType: active.type,
+              title: active.title || "游客现场需要调节",
+              recommendAction: "visitorAdjust",
+              visualKind: kind,
+              regionId: active.regionId
+            })
+            : () => this.openHarshNatureArchery(this.harshNatureOverlayEvent(active)),
+          sound: "tap",
+          map: true
+        });
+      }
+      this.renderedWorldEventOverlay = {
+        id: active.id,
+        type: active.type,
+        visualKind: kind,
+        regionId: active.regionId || "center",
+        progress: active.progress || 0,
+        target: active.target || 0,
+        daysRemaining: active.daysRemaining || 0,
+        markerStyle: "graphic",
+        features
+      };
+      if (harshGraphic) this.paintExtraHarshNatureOverlays(ctx, camera, kind);
+      return;
+    }
     const category = eventCategory(active);
     const isNeighborEvent = category.id === "neighbor";
     const isVisitorEvent = category.id === "visitor" || category.id === "social";
-    const label = isNeighborEvent ? "相邻保护区 · 查看方案" : `${category.label || "自然事件"} · 查看方案`;
-    const labelW = Math.min(176, this.width - 44);
-    const labelY = point.y - 54 * scale;
-    const accent = isNeighborEvent ? "#5c8f9b" : isVisitorEvent ? "#c9783b" : "#a5683e";
-    const icon = isNeighborEvent ? "↔" : isVisitorEvent ? "!" : "♨";
-    // 事件采用“图标徽章 + 短标签”组合，图形与交互入口保持一个视觉焦点。
-    this.roundRect(ctx, point.x - labelW / 2, labelY, labelW, 27, 13, "rgba(255,248,222,.96)", `${accent}cc`);
-    this.roundRect(ctx, point.x - labelW / 2 + 4, labelY + 4, 22, 19, 9, accent);
-    this.text(ctx, icon, point.x - labelW / 2 + 15, labelY + 18, 13, "#fff8df", "700", "center");
-    this.text(ctx, label, point.x + 10, labelY + 18, 10, "#594a20", "700", "center");
-      this.addMapRectHit(point.x - Math.max(70 * scale, labelW / 2), point.y - 56 * scale,
-      Math.max(118 * scale, labelW), 96 * scale, () => {
-        const marker = (this.reserveViewForDisplay().mapMarkers || []).find((item) => item.eventType === active.type)
-          || Object.assign({
-            id: `active_${active.id || active.type}`,
-            type: "crisis",
-            kind: "exclamation",
-            title: active.title || "现场事件",
-            label: active.title || "现场事件",
-            regionId: active.regionId || "center",
-            impact: active.impact || active.startBody || "现场出现需要处理的变化。",
-            recommendAction: active.recommendedAction || "houndScout",
-            responseOptions: (active.responses || []).map((item) => Object.assign({}, item)),
-            eventType: active.type,
-            visualKind: active.visualKind || active.type
-          }, active);
-        this.openMapMarkerDetail(marker);
+    const accent = isNeighborEvent ? "#4f8990" : isVisitorEvent ? "#c56f38" : "#8d6533";
+    const light = isNeighborEvent ? "#d8eeea" : isVisitorEvent ? "#f6ddbd" : "#f3e6b8";
+    const icon = isNeighborEvent ? "↔" : isVisitorEvent ? "!" : "✦";
+    const badge = isNeighborEvent ? "邻区" : isVisitorEvent ? "游客" : "紧急！！";
+    const balloonR = Math.max(17, 19 * scale);
+    const requestedFloatY = point.y - 62 * scale - Math.sin(this.animT() * .003) * 3 * scale;
+    const balloonPoint = this.placeMapTaskPrompt(point.x, requestedFloatY, balloonR * 2 + 28 * scale, balloonR * 2 + 42 * scale);
+    const balloonX = balloonPoint.x;
+    const floatY = balloonPoint.y;
+    ctx.save();
+    ctx.shadowColor = "rgba(28,49,34,.30)";
+    ctx.shadowBlur = 10 * scale;
+    ctx.shadowOffsetY = 5 * scale;
+    ctx.fillStyle = "rgba(255,250,229,.98)";
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = Math.max(2, 2.4 * scale);
+    ctx.beginPath();
+    ctx.arc(balloonX, floatY, balloonR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.shadowColor = "transparent";
+    ctx.fillStyle = light;
+    ctx.beginPath();
+    ctx.arc(balloonX, floatY, balloonR - 6 * scale, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,.52)";
+    ctx.beginPath();
+    ctx.arc(balloonX - 7 * scale, floatY - 9 * scale, 5 * scale, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = accent;
+    ctx.beginPath();
+    ctx.moveTo(balloonX - 7 * scale, floatY + balloonR - 2 * scale);
+    ctx.lineTo(balloonX + 7 * scale, floatY + balloonR - 2 * scale);
+    ctx.lineTo(balloonX, floatY + balloonR + 11 * scale);
+    ctx.closePath();
+    ctx.fill();
+    this.text(ctx, icon, balloonX, floatY + 4 * scale, 16, accent, "700", "center");
+    const badgeW = (badge.length > 2 ? 43 : 30) * scale;
+    this.roundRect(ctx, balloonX - badgeW / 2, floatY + balloonR - 6 * scale, badgeW, 15 * scale, 7 * scale, accent, "rgba(255,248,222,.88)");
+    this.text(ctx, badge, balloonX, floatY + balloonR + 4 * scale, 8, "#fff8df", "700", "center");
+    ctx.restore();
+    features.push({ type: "event-balloon", x: balloonX, y: floatY, radius: balloonR, badge });
+    const openBalloon = () => this.openActiveWorldEventFromMap(active);
+    const hitPadding = 10 * scale;
+    const hitX = balloonX - balloonR - hitPadding;
+    const hitY = floatY - balloonR - hitPadding - (this.scrollY || 0);
+    const hitW = balloonR * 2 + hitPadding * 2;
+    const hitH = balloonR * 2 + 34 * scale;
+    const viewport = this.mapViewport;
+    if (!viewport || (
+      hitX + hitW > viewport.x && hitX < viewport.x + viewport.w
+      && hitY + hitH > viewport.y && hitY < viewport.y + viewport.h
+    )) {
+      this.pushMapEventGraphicHit({
+        x: hitX, y: hitY, w: hitW, h: hitH,
+        onTap: openBalloon, sound: "tap", map: true
       });
+    }
     this.renderedWorldEventOverlay = {
       id: active.id,
       type: active.type,
@@ -20196,6 +23258,7 @@ class Game {
       progress: active.progress || 0,
       target: active.target || 0,
       daysRemaining: active.daysRemaining || 0,
+      markerStyle: "balloon",
       features
     };
   }
@@ -20315,6 +23378,7 @@ class Game {
 
   drawReserveFacility(ctx, x, y, facility, scale = 1, fast = false) {
     const s = Math.max(0.72, Math.min(1.28, scale));
+    const labelSize = this.mapDescriptionFont(10, scale);
     const repaired = facility.status === "repaired";
     const operational = repaired && (facility.buildStage || 0) >= 2;
     const specialized = operational && (facility.buildStage || 0) >= 3 && facility.specialization;
@@ -20463,13 +23527,14 @@ class Game {
       }
       if (!fast && facility.mapLabelVisible !== false) {
         const label = facility.short;
-        const labelW = Math.max(46, Math.min(84, label.length * 10 + 16));
+        const labelW = Math.max(50, Math.min(94, label.length * labelSize * .78 + 20));
         const labelX = x - labelW / 2;
         const labelY = groundY + 2;
-        this.roundRect(ctx, labelX, labelY + 2, labelW, 20, 9, "rgba(28,35,24,.12)");
-        this.roundRect(ctx, labelX, labelY, labelW, 20, 9, "rgba(255,250,225,.82)", specialized ? (facility.specialization.color || "rgba(143,111,42,.52)") : "rgba(83,91,67,.34)");
-        this.text(ctx, label, x, labelY + 14, 10, "#2d4636", "700", "center");
-        this.renderedMapFacilityLabels.push({ id: facility.id, label, x: labelX, y: labelY, w: labelW, h: 20, size: 10, status: specialized ? "specialized" : operational ? "operational" : repaired ? "building" : locked ? "locked" : "repairable", style: "grounded", spriteSize });
+        const labelH = Math.max(20, labelSize + 10);
+        this.roundRect(ctx, labelX, labelY + 2, labelW, labelH, 9, "rgba(28,35,24,.12)");
+        this.roundRect(ctx, labelX, labelY, labelW, labelH, 9, "rgba(255,250,225,.82)", specialized ? (facility.specialization.color || "rgba(143,111,42,.52)") : "rgba(83,91,67,.34)");
+        this.text(ctx, label, x, labelY + labelH / 2 + labelSize * .36, labelSize, "#2d4636", "700", "center");
+        this.renderedMapFacilityLabels.push({ id: facility.id, label, x: labelX, y: labelY, w: labelW, h: labelH, size: labelSize, status: specialized ? "specialized" : operational ? "operational" : repaired ? "building" : locked ? "locked" : "repairable", style: "grounded", spriteSize });
       }
       ctx.restore();
       return;
@@ -20527,13 +23592,14 @@ class Game {
     }
     if (!fast && facility.mapLabelVisible !== false) {
       const label = repaired ? `${facility.short}✓` : facility.short;
-      const labelW = Math.max(46, Math.min(86, label.length * 10 + 16));
+      const labelW = Math.max(50, Math.min(96, label.length * labelSize * .78 + 20));
       const labelX = x - labelW / 2;
       const labelY = y + 12 * s;
-      this.roundRect(ctx, labelX, labelY + 2, labelW, 20, 8, "rgba(28,35,24,.12)");
-      this.roundRect(ctx, labelX, labelY, labelW, 20, 8, "rgba(255,250,225,.82)", repaired ? "rgba(80,126,83,.42)" : "rgba(83,91,67,.34)");
-      this.text(ctx, label, x, labelY + 14, 10, "#2d4636", "700", "center");
-      this.renderedMapFacilityLabels.push({ id: facility.id, label, x: labelX, y: labelY, w: labelW, h: 20, size: 10, status: repaired ? "repaired" : "locked", style: "grounded", spriteSize: bodyW });
+      const labelH = Math.max(20, labelSize + 10);
+      this.roundRect(ctx, labelX, labelY + 2, labelW, labelH, 8, "rgba(28,35,24,.12)");
+      this.roundRect(ctx, labelX, labelY, labelW, labelH, 8, "rgba(255,250,225,.82)", repaired ? "rgba(80,126,83,.42)" : "rgba(83,91,67,.34)");
+      this.text(ctx, label, x, labelY + labelH / 2 + labelSize * .36, labelSize, "#2d4636", "700", "center");
+      this.renderedMapFacilityLabels.push({ id: facility.id, label, x: labelX, y: labelY, w: labelW, h: labelH, size: labelSize, status: repaired ? "repaired" : "locked", style: "grounded", spriteSize: bodyW });
     }
     ctx.restore();
   }
@@ -20610,7 +23676,7 @@ class Game {
   }
 
   investFacilityConstruction(facilityId) {
-    const beforeState = JSON.parse(JSON.stringify(this.state));
+    const beforeState = this.cloneStateForGoalProgress();
     const result = applyFacilityBuildStep(this.state, facilityId);
     if (!result.ok) return this.toast(result.error);
     const goalProgress = applyGoalProgress(beforeState, this.state, { action: "facilityBuild", now: Date.now() });
@@ -20633,7 +23699,7 @@ class Game {
   }
 
   confirmFacilitySpecialization(facilityId, routeId) {
-    const beforeState = JSON.parse(JSON.stringify(this.state));
+    const beforeState = this.cloneStateForGoalProgress();
     const result = applyFacilitySpecialization(this.state, facilityId, routeId);
     if (!result.ok) return this.toast(result.error);
     const goalProgress = applyGoalProgress(beforeState, this.state, { action: "facilityBuild", now: Date.now() });
@@ -20661,7 +23727,7 @@ class Game {
     return true;
   }
 
-  focusReserveDevelopmentNode(nodeId = RIVER_SHALLOWS_NODE.id, openTask = false, taskType = "build") {
+  focusReserveDevelopmentNode(nodeId = RIVER_SHALLOWS_NODE.id, openTask = false, taskType = "build", preferredChoiceId = "") {
     const config = reserveDevelopmentNodeById(nodeId) || RIVER_SHALLOWS_NODE;
     this.infoDetailModal = null;
     this.suppressNextHomeMission = true;
@@ -20674,7 +23740,7 @@ class Game {
     if (openTask) {
       if (taskType === "upgrade") this.openDevelopmentBuildingUpgrade(config.id);
       else if (taskType === "operation") this.openDevelopmentBuildingStory(config.id);
-      else this.openReserveDevelopmentNode(config.id);
+      else this.openReserveDevelopmentNode(config.id, preferredChoiceId);
     } else {
       this.toast(`已定位${config.short || config.name} · 点击地图任务标记继续`);
       this.render();
@@ -20686,8 +23752,31 @@ class Game {
     return !!(this.gesture && (this.gesture.mapPan || this.gesture.pinch));
   }
 
+  isQuietSandboxPaint() {
+    return this.screen === "home"
+      && !this.gesture
+      && !(this.mapCrisisBurst && Date.now() < (this.mapCrisisBurst.expiresAt || 0))
+      && !(this.mapConsequencePulse && Date.now() < (this.mapConsequencePulse.expiresAt || 0));
+  }
+
   isSandCloseView() {
     return this.mapZoom > 0;
+  }
+
+  sandboxSpeciesKey(animal) {
+    if (!animal) return "";
+    const named = SPECIES_BY_NAME[animal.species] || getSpeciesById(animal.speciesId || animal.species);
+    return String((named && named.id) || animal.speciesId || animal.species || "").trim().toLowerCase();
+  }
+
+  uniqueSandboxSpecies(animals = []) {
+    const seen = new Set();
+    return (animals || []).filter((animal) => {
+      const key = this.sandboxSpeciesKey(animal);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }
 
   visibleSandAnimals(world, priorityContext = null) {
@@ -20700,39 +23789,68 @@ class Game {
       score: this.mapAnimalPriority(animal, world, selected, context)
     }));
     scored.sort((a, b) => b.score - a.score || String(a.animal.id).localeCompare(String(b.animal.id)));
-    return scored.map((entry) => entry.animal);
+    const unique = this.uniqueSandboxSpecies(scored.map((entry) => entry.animal));
+    const pinned = [];
+    const pin = (animal) => {
+      if (!animal) return;
+      const key = this.sandboxSpeciesKey(animal);
+      if (!key || pinned.some((item) => this.sandboxSpeciesKey(item) === key)) return;
+      const match = unique.find((item) => this.sandboxSpeciesKey(item) === key);
+      if (match) pinned.push(match);
+    };
+    pin(selected);
+    pin(this.selectedTarget);
+    const goal = ((((world.goals || {}).active) || {}).primary) || {};
+    if (goal.animalId || goal.targetId || goal.targetAnimalId) {
+      pin(pool.find((animal) => animal && (animal.id === goal.animalId || animal.id === goal.targetId || animal.id === goal.targetAnimalId)));
+    }
+    (context.events || []).forEach((event) => {
+      if (!event) return;
+      pin(pool.find((animal) => animal && (animal.id === event.animalId || animal.id === event.animalInteractionId)));
+    });
+    const remainder = unique.filter((animal) => !pinned.some((item) => item.id === animal.id));
+    const chapter = this.sandboxChapterNumber(world);
+    const herdCap = Math.min(14, Math.max(8, 6 + chapter));
+    return pinned.concat(remainder).slice(0, herdCap);
   }
 
-  mapAnimalVisualGroupCounts(animals = [], reserve = {}, priorityContext = null) {
+  mapAnimalVisualGroupCounts(animals = [], reserve = {}) {
     const counts = {};
-    const maxActors = Math.max(18, Math.min(28, 18 + Math.floor(animals.length / 2)));
-    let extrasLeft = Math.max(0, maxActors - animals.length);
-    const context = priorityContext || this.mapAnimalPriorityContext(this.state.world || {});
-    const entries = animals.map((animal, index) => {
-      const speciesEntry = SPECIES_BY_NAME[animal.species];
+    this.uniqueSandboxSpecies(animals).forEach((animal) => {
+      if (!animal || !animal.id) return;
+      const speciesEntry = SPECIES_BY_NAME[animal.species] || getSpeciesById(animal.speciesId || animal.species);
       const population = speciesEntry ? speciesPopulation(reserve, speciesEntry.id) : 1;
-      const desired = population >= 40 ? 3 : population >= 8 ? 2 : 1;
-      const priority = this.mapAnimalPriority(animal, this.state.world || {}, null, context) + Math.min(200, population) - index;
-      counts[animal.id] = 1;
-      return { animal, population, desired, priority };
-    }).sort((a, b) => b.priority - a.priority);
-    [2, 3].forEach((targetCount) => {
-      entries.forEach((entry) => {
-        if (extrasLeft <= 0 || entry.desired < targetCount || counts[entry.animal.id] >= targetCount) return;
-        counts[entry.animal.id] += 1;
-        extrasLeft -= 1;
-      });
+      counts[animal.id] = population >= 8 ? 2 : 1;
     });
     return counts;
+  }
+
+  sandboxChapterNumber(world = {}) {
+    const progression = ((world.reserve || {}).progression) || {};
+    return Math.max(1, Math.round(Number(progression.displayChapter || progression.stage || 1) || 1));
+  }
+
+  lateAnimalMapSpritesReady() {
+    if (this.remoteAssetCompleted instanceof Set && this.remoteAssetCompleted.has("animalMapSprites")) return true;
+    const image = this.art && this.art.animalMapSprites;
+    return !!(image && image.loaded && !image.failed);
+  }
+
+  sandboxMapSpriteReady(speciesName) {
+    return this.animalMapSpriteIndex(speciesName) >= 0;
   }
 
   sandboxAnimalRoster(world = {}) {
     const reserve = world.reserve || {};
     const level = Math.max(1, Math.min(7, Math.round(((reserve.progression || {}).level) || 1)));
+    const chapter = this.sandboxChapterNumber(world);
+    const lateReady = this.lateAnimalMapSpritesReady();
     const knownCharacters = Array.isArray(world.knownCharacters) ? world.knownCharacters : [];
     const cached = this.sandboxAnimalRosterCache;
     const cacheMatches = cached
       && cached.level === level
+      && cached.chapter === chapter
+      && cached.lateReady === lateReady
       && cached.source === knownCharacters
       && cached.characters.length === knownCharacters.length
       && knownCharacters.every((animal, index) => animal === cached.characters[index] && ((animal && animal.species) || "") === cached.species[index]);
@@ -20741,7 +23859,9 @@ class Game {
       if (animal && animal.species) lookup[animal.species] = animal;
       return lookup;
     }, {});
-    const roster = getUnlockedSpecies(level).map((species) => {
+    const roster = this.uniqueSandboxSpecies(getChapterSandboxSpecies(chapter).filter((species) => {
+      return this.sandboxMapSpriteReady(species.name);
+    }).map((species) => {
       const existing = currentBySpecies[species.name];
       if (existing) return existing;
       const representative = species.representative || {};
@@ -20761,9 +23881,11 @@ class Game {
         intent: { type: "move", label: representative.quote || "观察保护区", targetRegionId: "center", certainty: "confirmed", stance: "open" },
         relation: { trust: 40, threat: Math.min(90, (species.tier || 1) * 14) }
       };
-    });
+    }));
     this.sandboxAnimalRosterCache = {
       level,
+      chapter,
+      lateReady,
       source: knownCharacters,
       characters: knownCharacters.slice(),
       species: knownCharacters.map((animal) => (animal && animal.species) || ""),
@@ -20773,11 +23895,17 @@ class Game {
   }
 
   isAnimalEventHighlight(animal, world, priorityContext = null) {
-    const regionId = this.mapAnimalRegionId(animal, world);
     const events = priorityContext && Array.isArray(priorityContext.events)
       ? priorityContext.events
       : this.activeSandboxMapEvents(world);
-    return events.slice(-3).some((event) => event && event.regionId === regionId);
+    const animalId = String((animal && animal.id) || "");
+    const names = [animal && animal.name, animal && animal.shortName].filter(Boolean);
+    return events.slice(-3).some((event) => {
+      if (!event) return false;
+      if (animalId && (event.animalId === animalId || event.animalInteractionId === animalId)) return true;
+      const text = `${event.title || ""} ${event.label || ""} ${event.animalName || ""}`;
+      return names.some((name) => name && text.indexOf(name) >= 0);
+    });
   }
 
   activeSandboxMapEvents(world = this.state.world || {}) {
@@ -20897,7 +24025,7 @@ class Game {
     const reserve = world.reserve || {};
     const season = ((reserve.seasonDynamics || {}).season) || world.season || "雨季";
     if (season === "旱季") {
-      const waterPoints = [[0.18, 0.60], [0.65, 0.52]];
+      const waterPoints = [[0.26, 0.58], [0.62, 0.52]];
       const target = waterPoints[Math.abs(this.hashString(`${animal.id || animal.species}|water`)) % waterPoints.length];
       const waterSpecies = MAP_WATER_SPECIES.has(animal.species);
       const weight = waterSpecies ? 0.72 : this.isGrazerSpecies(animal.species) ? 0.58 : this.isPredatorSpecies(animal.species) ? 0.40 : 0.22;
@@ -20915,7 +24043,7 @@ class Game {
       ? (layoutContext.groups[regionId] || [])
       : (animals || []).filter((item) => this.mapAnimalRegionId(item, world) === regionId).slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
     const rank = Math.max(0, group.findIndex((item) => item.id === animal.id));
-    if (group.length <= 1 || rank < 0) return base;
+    if (group.length <= 1 || rank < 0) return this.clampSandboxWorldPoint(base.x, base.y);
     const ring = Math.floor(rank / 6);
     const slot = rank % 6;
     const angle = -Math.PI / 2 + (slot / 6) * Math.PI * 2 + (ring % 2) * 0.24;
@@ -20923,10 +24051,10 @@ class Game {
     const radiusX = 0.026 + ring * 0.014;
     const radiusY = 0.020 + ring * 0.010;
     const lift = kind === "air" ? -0.024 : kind === "water" ? 0.008 : 0;
-    return {
-      x: Math.max(0.055, Math.min(0.945, base.x + Math.cos(angle) * radiusX)),
-      y: Math.max(0.075, Math.min(0.915, base.y + Math.sin(angle) * radiusY + lift))
-    };
+    return this.clampSandboxWorldPoint(
+      base.x + Math.cos(angle) * radiusX,
+      base.y + Math.sin(angle) * radiusY + lift
+    );
   }
 
   animalMapPosition(animal, index) {
@@ -20984,10 +24112,7 @@ class Game {
       const intentWeight = animal.isMapSighting ? 0.08 : 0.18;
       const x = anchor[0] * (1 - intentWeight) + target[0] * intentWeight + driftX;
       const y = anchor[1] * (1 - intentWeight) + target[1] * intentWeight + driftY;
-      return {
-        x: Math.max(0.06, Math.min(0.94, x)),
-        y: Math.max(0.08, Math.min(0.90, y))
-      };
+      return this.clampSandboxWorldPoint(x, y);
     }
     const speciesRegion = {
       鹿: byId("meadow"),
@@ -21040,10 +24165,7 @@ class Game {
     };
     const offset = habits[animal.species] || [((index % 3) - 1) * 0.028, (Math.floor(index / 3) - 0.5) * 0.028];
     const drift = Math.sin((this.state.world.day || 1) * 0.7 + index) * 0.012;
-    return {
-      x: Math.max(0.05, Math.min(0.95, region.x + offset[0] + drift)),
-      y: Math.max(0.05, Math.min(0.95, region.y + offset[1] - drift * 0.6))
-    };
+    return this.clampSandboxWorldPoint(region.x + offset[0] + drift, region.y + offset[1] - drift * 0.6);
   }
 
   movingAnimalPosition(animal, index, basePosition, options = {}) {
@@ -21071,6 +24193,7 @@ class Game {
         wait: 0,
         step: 0,
         phase: Math.abs(seed % 628) / 100,
+        gaitPhase: Math.abs(seed % 97) / 97,
         lastT: now
       };
       this.animalMotionStates[key] = state;
@@ -21090,6 +24213,11 @@ class Game {
       }
     }
 
+    const movingNow = Math.abs(state.dirX || 0) + Math.abs(state.dirY || 0) > 0.00005;
+    if (!paused && dt > 0 && movingNow) {
+      const cadence = this.animalWalkCadence(animal.species);
+      state.gaitPhase = ((Number(state.gaitPhase) || 0) + dt * cadence) % 1;
+    }
     const bob = paused ? 0 : this.animalMotionBob(profile, state, now);
     return {
       key,
@@ -21099,19 +24227,22 @@ class Game {
       dirX: state.dirX || 0,
       dirY: state.dirY || 0,
       facingX: state.facingX || (this.animalSpriteFacesRight(animal.species) ? 1 : -1),
+      gaitPhase: Number(state.gaitPhase) || 0,
       bob
     };
   }
 
   animalMotionKey(animal, index) {
-    return `${(animal && (animal.id || animal.sourceId || animal.species)) || "animal"}_${index}`;
+    const id = animal && (animal.id || animal.sourceId);
+    if (id) return String(id);
+    return `${(animal && animal.species) || "animal"}_${index || 0}`;
   }
 
   isAnimalMapMotionPaused(options = {}) {
     return !!(
       options.fast ||
       this.screen !== "home" ||
-      this.settlementModal ||
+      this.settlementOccupiesFlow() ||
       this.patrolTaskModal ||
       this.infoDetailModal ||
       (this.gesture && this.gesture.mapPan)
@@ -21138,7 +24269,8 @@ class Game {
       斑马: { kind: "ground", rx: 0.060, ry: 0.035, speed: 0.010, bob: 0.8 },
       羚羊: { kind: "ground", rx: 0.066, ry: 0.038, speed: 0.014, bob: 1.0 }
     };
-    return profiles[species] || { kind: "ground", rx: 0.046, ry: 0.030, speed: 0.009, bob: 0.7 };
+    const atlasSpecies = ANIMAL_SPRITE_FALLBACKS[species] || species;
+    return profiles[species] || profiles[atlasSpecies] || { kind: "ground", rx: 0.046, ry: 0.030, speed: 0.009, bob: 0.7 };
   }
 
   updateAirAnimalMotion(animal, index, base, profile, state, dt) {
@@ -21214,7 +24346,7 @@ class Game {
     const closeView = this.isSandCloseView();
     const renderScale = cameraScale * (closeView ? 0.56 : 0.48);
     const bodySize = this.animalVisualSize((animal && animal.species) || "") * renderScale * 1.28;
-    const groupWidthScale = groupCount >= 2 ? 1.96 : 0.68;
+    const groupWidthScale = groupCount >= 2 ? 1.42 : 0.68;
     return {
       w: Math.max(28 * cameraScale, bodySize * groupWidthScale + 7 * cameraScale),
       h: Math.max(24 * cameraScale, bodySize * 0.56 + 6 * cameraScale)
@@ -21226,7 +24358,8 @@ class Game {
     const worldW = Math.max(1, (camera.worldW || camera.worldSize || camera.w || 1) * (camera.scale || 1));
     const worldH = Math.max(1, (camera.worldH || camera.worldSize || camera.h || 1) * (camera.scale || 1));
     const sizes = placements.map((placement) => this.animalMotionCollisionSize(placement.animal, camera, placement.groupCount || 1));
-    const epsilon = 0.8;
+    const epsilon = 0.35;
+    const now = this.animT();
 
     for (let pass = 0; pass < 24; pass += 1) {
       let changed = false;
@@ -21246,35 +24379,23 @@ class Game {
 
           const separateX = overlapX / minX <= overlapY / minY;
           const tie = ((this.hashString(`${a.motion.key}|${b.motion.key}`) & 1) ? 1 : -1);
+          const stateA = this.animalMotionStates[a.motion.key];
+          const stateB = this.animalMotionStates[b.motion.key];
           if (separateX) {
             const direction = Math.abs(dx) > 0.01 ? Math.sign(dx) : tie;
             const delta = (overlapX / 2 + epsilon) / worldW;
             a.motion.x = this.clampAnimalWorldX(a.motion.x - direction * delta);
             b.motion.x = this.clampAnimalWorldX(b.motion.x + direction * delta);
-            const stateA = this.animalMotionStates[a.motion.key];
-            const stateB = this.animalMotionStates[b.motion.key];
-            if (stateA && a.motion.kind !== "air") {
-              stateA.targetX = this.clampAnimalWorldX(a.motion.x - direction * Math.max(0.008, delta));
-              stateA.facingX = -direction;
-              a.motion.facingX = stateA.facingX;
-            }
-            if (stateB && b.motion.kind !== "air") {
-              stateB.targetX = this.clampAnimalWorldX(b.motion.x + direction * Math.max(0.008, delta));
-              stateB.facingX = direction;
-              b.motion.facingX = stateB.facingX;
-            }
+            this.steerAnimalMotionAside(stateA, a.motion, now, -direction, 0, delta);
+            this.steerAnimalMotionAside(stateB, b.motion, now, direction, 0, delta);
           } else {
             const direction = Math.abs(dy) > 0.01 ? Math.sign(dy) : tie;
             const delta = (overlapY / 2 + epsilon) / worldH;
             a.motion.y = this.clampAnimalWorldY(a.motion.y - direction * delta);
             b.motion.y = this.clampAnimalWorldY(b.motion.y + direction * delta);
-            const stateA = this.animalMotionStates[a.motion.key];
-            const stateB = this.animalMotionStates[b.motion.key];
-            if (stateA && a.motion.kind !== "air") stateA.targetY = this.clampAnimalWorldY(a.motion.y - direction * Math.max(0.008, delta));
-            if (stateB && b.motion.kind !== "air") stateB.targetY = this.clampAnimalWorldY(b.motion.y + direction * Math.max(0.008, delta));
+            this.steerAnimalMotionAside(stateA, a.motion, now, 0, -direction, delta);
+            this.steerAnimalMotionAside(stateB, b.motion, now, 0, direction, delta);
           }
-          const stateA = this.animalMotionStates[a.motion.key];
-          const stateB = this.animalMotionStates[b.motion.key];
           if (stateA) { stateA.x = a.motion.x; stateA.y = a.motion.y; }
           if (stateB) { stateB.x = b.motion.x; stateB.y = b.motion.y; }
           a.motion.separated = true;
@@ -21285,6 +24406,18 @@ class Game {
       if (!changed) break;
     }
     return placements;
+  }
+
+  steerAnimalMotionAside(state, motion, now, dirX, dirY, delta) {
+    if (!state || !motion || motion.kind === "air") return;
+    if (state.avoidUntil && now < state.avoidUntil) return;
+    if (dirX) state.targetX = this.clampAnimalWorldX(motion.x + dirX * Math.max(0.018, Math.abs(delta) * 2));
+    if (dirY) state.targetY = this.clampAnimalWorldY(motion.y + dirY * Math.max(0.014, Math.abs(delta) * 2));
+    state.avoidUntil = now + 780;
+    if (dirX && Math.abs(dirX) >= 0.00001) {
+      state.facingX = dirX > 0 ? 1 : -1;
+      motion.facingX = state.facingX;
+    }
   }
 
   animalPlacementOverlapCount(placements = [], camera = {}) {
@@ -21335,24 +24468,19 @@ class Game {
 
         const state = this.animalMotionStates[placement.motion.key];
         const tie = (this.hashString(`${placement.motion.key}|${facility.id || "facility"}`) & 1) ? 1 : -1;
+        const now = this.animT();
         if (overlapX / minX <= overlapY / minY) {
           const direction = Math.abs(dx) > 0.01 ? Math.sign(dx) : tie;
           const delta = (overlapX + epsilon) / worldW;
           placement.motion.x = this.clampAnimalWorldX(placement.motion.x + direction * delta);
-          if (placement.motion.kind !== "air") placement.motion.facingX = direction;
-          if (state) {
-            state.x = placement.motion.x;
-            state.targetX = this.clampAnimalWorldX(placement.motion.x + direction * Math.max(0.012, delta * .35));
-            if (placement.motion.kind !== "air") state.facingX = direction;
-          }
+          if (state) state.x = placement.motion.x;
+          this.steerAnimalMotionAside(state, placement.motion, now, direction, 0, delta);
         } else {
           const direction = Math.abs(dy) > 0.01 ? Math.sign(dy) : tie;
           const delta = (overlapY + epsilon) / worldH;
           placement.motion.y = this.clampAnimalWorldY(placement.motion.y + direction * delta);
-          if (state) {
-            state.y = placement.motion.y;
-            state.targetY = this.clampAnimalWorldY(placement.motion.y + direction * Math.max(0.012, delta * .35));
-          }
+          if (state) state.y = placement.motion.y;
+          this.steerAnimalMotionAside(state, placement.motion, now, 0, direction, delta);
         }
         placement.motion.avoidedFacility = facility.id || true;
       });
@@ -21408,7 +24536,9 @@ class Game {
     if (profile.kind === "air") return Math.sin(state.phase * 2.2) * profile.bob;
     const moving = Math.abs(state.dirX || 0) + Math.abs(state.dirY || 0) > 0.00008;
     if (!moving) return 0;
-    return Math.sin(now * 0.018 + state.seed) * profile.bob;
+    const phase = Number(state.gaitPhase);
+    const wave = Number.isFinite(phase) ? Math.sin(phase * Math.PI * 2) : Math.sin((now * 0.0012) + (state.seed || 0));
+    return wave * Math.min(0.55, (profile.bob || 0.7) * 0.42);
   }
 
   motionNoise(seed) {
@@ -21417,11 +24547,86 @@ class Game {
   }
 
   clampAnimalWorldX(x) {
-    return Math.max(0.045, Math.min(0.955, x));
+    return this.clampSandboxWorldX(x);
   }
 
   clampAnimalWorldY(y) {
-    return Math.max(0.065, Math.min(0.915, y));
+    return this.clampSandboxWorldY(y);
+  }
+
+  sandboxPlayableWorld() {
+    return { minX: 0.18, maxX: 0.82, minY: 0.22, maxY: 0.76 };
+  }
+
+  clampSandboxWorldX(x) {
+    const bounds = this.sandboxPlayableWorld();
+    const value = Number(x);
+    return Math.max(bounds.minX, Math.min(bounds.maxX, Number.isFinite(value) ? value : 0.5));
+  }
+
+  clampSandboxWorldY(y) {
+    const bounds = this.sandboxPlayableWorld();
+    const value = Number(y);
+    return Math.max(bounds.minY, Math.min(bounds.maxY, Number.isFinite(value) ? value : 0.5));
+  }
+
+  clampSandboxWorldPoint(x, y) {
+    return { x: this.clampSandboxWorldX(x), y: this.clampSandboxWorldY(y) };
+  }
+
+  sandboxScreenInset(mapX, mapY, mapW, mapH) {
+    return {
+      left: mapX + Math.max(52, mapW * 0.11),
+      right: mapX + mapW - Math.max(52, mapW * 0.11),
+      top: mapY + Math.max(78, mapH * 0.16),
+      bottom: mapY + mapH - Math.max(62, mapH * 0.13)
+    };
+  }
+
+  clampSandboxScreen(sx, sy, mapX, mapY, mapW, mapH) {
+    const box = this.sandboxScreenInset(mapX, mapY, mapW, mapH);
+    return {
+      x: Math.max(box.left, Math.min(box.right, Number(sx) || box.left)),
+      y: Math.max(box.top, Math.min(box.bottom, Number(sy) || box.top))
+    };
+  }
+
+  sandboxAnchoredCamera(camera) {
+    if (!camera) return camera;
+    const worldW = camera.worldW || camera.worldSize;
+    const worldH = camera.worldH || camera.worldSize;
+    const scale = camera.scale || 1;
+    const home = this.clampMapCamera(0.52, 0.48, scale, camera);
+    return Object.assign({}, camera, {
+      cx: home.cx,
+      cy: home.cy,
+      worldX: camera.x + camera.w / 2 - home.cx * worldW * scale,
+      worldY: camera.y + camera.h / 2 - home.cy * worldH * scale
+    });
+  }
+
+  sandboxAnchoredPoint(nx, ny, camera) {
+    const world = this.clampSandboxWorldPoint(nx, ny);
+    // Keep this helper off the rescue path. Captives are planted on a
+    // sandbox tile and must use the live map camera, same as buildings.
+    const anchoredCamera = camera
+      ? this.sandboxAnchoredCamera(Object.assign({}, camera, { scale: 1 }))
+      : camera;
+    const raw = this.mapPoint(world.x, world.y, anchoredCamera || camera);
+    if (!camera) return raw;
+    return this.clampSandboxScreen(raw.x, raw.y, camera.x, camera.y, camera.w, camera.h);
+  }
+
+  facilityMapPoint(facility, camera) {
+    // Facility sprites and hit areas share the regular map world transform.
+    // Do not use sandboxAnchoredCamera here: that transform intentionally
+    // centers the home view and causes facilities to drift when the player
+    // pans or zooms the sandbox.
+    return this.mapPoint(
+      this.clampSandboxWorldX(facility && facility.x),
+      this.clampSandboxWorldY(facility && facility.y),
+      camera
+    );
   }
 
   isGrazerSpecies(species) {
@@ -21447,10 +24652,11 @@ class Game {
     if (!fast) this.drawAnimalGroundCue(ctx, x, metrics.groundY, motion, animal, selected, cameraScale);
     if (!fast && focusKind) this.drawAnimalFocusMarker(ctx, x, metrics, focusKind, cameraScale, animal, showBubble, showFocusLabel);
     if (!fast && groupCount > 1) {
+      const visualCount = Math.min(2, groupCount);
       const companionScale = animalScale * .72;
       const bodySize = this.animalVisualSize(animal.species) * animalScale * 1.28;
       const companionGap = Math.max(34 * cameraScale, bodySize * 1.12);
-      const offsets = this.animalGroupRenderOffsets(x, groupCount, companionGap, bodySize, cameraScale, camera);
+      const offsets = this.animalGroupRenderOffsets(x, visualCount, companionGap, bodySize, cameraScale, camera);
       offsets.forEach((offset) => {
         ctx.save();
         ctx.globalAlpha = offset.alpha;
@@ -21514,12 +24720,13 @@ class Game {
     ctx.stroke();
 
     const markerScale = Math.max(.88, Math.min(1.16, scale));
-    const chipH = 20 * markerScale;
+    const labelSize = this.mapDescriptionFont(10, scale);
+    const chipH = Math.max(20 * markerScale, labelSize + 10);
     const chipText = `${style.label}${style.affordance ? ` ${style.affordance}` : ""}`;
     let chipY = metrics.bubbleY;
     if (showLabel) {
-      ctx.font = `700 ${10 * markerScale}px sans-serif`;
-      const chipW = Math.max(42 * markerScale, Math.min(76 * markerScale, ctx.measureText(chipText).width + 20 * markerScale));
+      ctx.font = `700 ${labelSize}px sans-serif`;
+      const chipW = Math.max(46 * markerScale, Math.min(92 * markerScale, ctx.measureText(chipText).width + 20 * markerScale));
       const sideShift = showBubble ? bodyRadius * .78 : 0;
       const desiredX = x + sideShift - chipW / 2;
       const desiredY = (showBubble ? metrics.bodyY - 7 * scale : metrics.bubbleY - 10 * scale) - chipH;
@@ -21535,7 +24742,7 @@ class Game {
       this.roundRect(ctx, chipX, chipY + 2, chipW, chipH, chipH / 2, "rgba(19,35,27,.30)");
       this.roundRect(ctx, chipX, chipY, chipW, chipH, chipH / 2, style.color, "rgba(255,255,238,.94)");
       ctx.shadowBlur = 0;
-      this.text(ctx, chipText, chipX + chipW / 2, chipY + chipH * .69, 10 * markerScale, style.dark, "700", "center");
+      this.text(ctx, chipText, chipX + chipW / 2, chipY + chipH / 2 + labelSize * .36, labelSize, style.dark, "700", "center");
       ctx.fillStyle = style.color;
       ctx.beginPath();
       ctx.moveTo(chipX + chipW / 2 - 4 * markerScale, chipY + chipH - 1);
@@ -21677,9 +24884,9 @@ class Game {
 
   drawAnimalMiniBubble(ctx, cx, y, text, selected, scale = 1) {
     const label = String(text || "...");
-    const size = Math.max(8, Math.min(10, 9 * scale));
-    const bubbleW = Math.max(42, Math.min(selected ? 88 : 72, label.length * size + 16));
-    const bubbleH = selected ? 24 : 20;
+    const size = this.mapDescriptionFont(9, scale, 1, 9);
+    const bubbleW = Math.max(56, Math.min(selected ? 112 : 96, label.length * size * .78 + 20));
+    const bubbleH = Math.max(selected ? 24 : 20, size + 12);
     const viewport = this.mapViewport;
     const viewX = viewport ? viewport.x : -Infinity;
     const viewY = viewport ? viewport.y + (this.scrollY || 0) : -Infinity;
@@ -21691,7 +24898,7 @@ class Game {
     ctx.save();
     this.roundRect(ctx, x, safeY + 2, bubbleW, bubbleH, 8, "rgba(20,32,27,.16)");
     this.roundRect(ctx, x, safeY, bubbleW, bubbleH, 8, "rgba(255,255,255,.94)", selected ? "rgba(47,125,98,.56)" : UI_THEME.separator);
-    this.text(ctx, this.truncateTextToWidth(ctx, label, bubbleW - 12, size, "700"), safeCx, safeY + (selected ? 16 : 14), size, "#26352b", "700", "center");
+    this.text(ctx, this.truncateTextToWidth(ctx, label, bubbleW - 14, size, "700"), safeCx, safeY + bubbleH / 2 + size * .36, size, "#26352b", "700", "center");
     ctx.fillStyle = "rgba(255,255,255,.94)";
     ctx.beginPath();
     ctx.moveTo(safeCx - 4, safeY + bubbleH - 1);
@@ -21843,6 +25050,39 @@ class Game {
       if (poachers > 50) return dialogue ? this.dialoguePick(dialogue, "hyena-b-danger", ["夜路别封死", "残味不对", "我晚点清场"]) : "夜路别封死";
       return dialogue ? this.dialoguePick(dialogue, "hyena-b-normal", ["骨声在远处", "夜班还没散", "我负责收尾"]) : "骨声在远处";
     }
+    if (animal.species === "水獭") {
+      if (water < 45) return dialogue ? this.dialoguePick(dialogue, "otter-b-water", ["鱼群误点", "河湾太窄", "幼崽等洄游"]) : "鱼群误点";
+      if (poachers > 50) return dialogue ? this.dialoguePick(dialogue, "otter-b-danger", ["岸边太吵", "只露河湾", "先不滑水"]) : "岸边太吵";
+      return dialogue ? this.dialoguePick(dialogue, "otter-b-normal", ["滑过静水", "鱼影还连", "河湾归我"]) : "滑过静水";
+    }
+    if (animal.species === "鹈鹕") {
+      if (water < 45) return dialogue ? this.dialoguePick(dialogue, "pelican-b-water", ["编队落不稳", "水面被切窄", "幼鸟跟不上"]) : "编队落不稳";
+      return dialogue ? this.dialoguePick(dialogue, "pelican-b-normal", ["白帆排开", "湖心可落", "喙囊先装满"]) : "白帆排开";
+    }
+    if (animal.species === "猩猩") {
+      if (poachers > 50) return dialogue ? this.dialoguePick(dialogue, "ape-b-danger", ["树冠被盯着", "廊道别靠近", "幼仔先藏"]) : "树冠被盯着";
+      return dialogue ? this.dialoguePick(dialogue, "ape-b-normal", ["旧枝还连", "长臂探路", "林冠先安静"]) : "旧枝还连";
+    }
+    if (animal.species === "巨嘴鸟") {
+      if (poachers > 50) return dialogue ? this.dialoguePick(dialogue, "toucan-b-danger", ["果期别惊", "改走密冠", "先别传讯"]) : "果期别惊";
+      return dialogue ? this.dialoguePick(dialogue, "toucan-b-normal", ["彩喙传讯", "北侧有果", "树冠很亮"]) : "彩喙传讯";
+    }
+    if (animal.species === "貘") {
+      if (poachers > 50) return dialogue ? this.dialoguePick(dialogue, "tapir-b-danger", ["灯带切断夜路", "鼻端先避光", "改走旧河"]) : "灯带切断夜路";
+      return dialogue ? this.dialoguePick(dialogue, "tapir-b-normal", ["夜路还湿", "我去播种", "低光处能走"]) : "夜路还湿";
+    }
+    if (animal.species === "夜莺") {
+      if (poachers > 50) return dialogue ? this.dialoguePick(dialogue, "nightingale-b-danger", ["停鸣点被照", "今夜改道", "先别出声"]) : "停鸣点被照";
+      return dialogue ? this.dialoguePick(dialogue, "nightingale-b-normal", ["夜路有微光", "停鸣点还在", "我先试一声"]) : "夜路有微光";
+    }
+    if (animal.species === "野牛") {
+      if (poachers > 50) return dialogue ? this.dialoguePick(dialogue, "bison-b-danger", ["通道别封死", "幼崽在队尾", "宽路先让开"]) : "通道别封死";
+      return dialogue ? this.dialoguePick(dialogue, "bison-b-normal", ["宽肩压草", "队形还连", "迁徙线清楚"]) : "宽肩压草";
+    }
+    if (animal.species === "鹤") {
+      if (water < 45) return dialogue ? this.dialoguePick(dialogue, "crane-b-water", ["驿站水位掉了", "浅滩等不到同伴", "改飞备用湿地"]) : "驿站水位掉了";
+      return dialogue ? this.dialoguePick(dialogue, "crane-b-normal", ["长鸣先报到", "浅滩可停", "翼尖量水位"]) : "长鸣先报到";
+    }
     return poachers > 45 ? "先躲一躲" : "我在读空气";
   }
 
@@ -21853,9 +25093,9 @@ class Game {
     const weather = world.weather || "阴";
     const season = world.season || ((reserve.seasonState || {}).name) || "雨季";
     const species = (animal && animal.species) || "动物";
-    const waterSpecies = ["水貂", "鳄鱼", "河马", "火烈鸟"].includes(species);
-    const herdSpecies = ["鹿", "斑马", "羚羊", "大象", "长颈鹿"].includes(species);
-    const watcherSpecies = ["乌鸦", "鹰", "猫头鹰"].includes(species);
+    const waterSpecies = ["水貂", "鳄鱼", "河马", "火烈鸟", "水獭", "鹈鹕", "鹤"].includes(species);
+    const herdSpecies = ["鹿", "斑马", "羚羊", "大象", "长颈鹿", "野牛", "貘"].includes(species);
+    const watcherSpecies = ["乌鸦", "鹰", "猫头鹰", "巨嘴鸟", "夜莺"].includes(species);
     if (season === "旱季") {
       if (waterSpecies) return this.dialoguePick(dialogue, `weather-dry-water-${species}`, ["水线又窄了", "深水边集合", "泥岸在发热"]);
       if (herdSpecies) return this.dialoguePick(dialogue, `weather-dry-herd-${species}`, ["跟着旧水路", "别挤同一口井", "盐地有脚印"]);
@@ -21925,7 +25165,7 @@ class Game {
 
   openAnimalThought(animal) {
     this.recordSandboxInteraction("animal");
-    const beforeState = JSON.parse(JSON.stringify(this.state));
+    const beforeState = this.cloneStateForGoalProgress();
     this.speakingAnimalId = animal.id;
     const cycle = this.mapFeedbackCycle([], [], this.animT());
     this.mapSpeakerFocus = { kind: "animal", id: animal.id, expiresAfterSlot: cycle.dialogueSlot + 2, usedSlot: null };
@@ -21950,6 +25190,10 @@ class Game {
     if (clueUpdate.lead) {
       this.infoDetailModal.kicker = "剧情发现 · 有迹可循";
       this.infoDetailModal.footer = `${animal.shortName || animal.name || animal.species}发现了异常；下一步：${(clueUpdate.discovery || {}).actionLabel || "完成对应守护行动"}。`;
+    } else if (clueUpdate.discovery) {
+      const d = this.infoDetailModal.collectionDiscovery = clueUpdate.discovery;
+      this.infoDetailModal.kicker = d.status === "located" ? "剧情发现 · 等待收录" : "剧情发现 · 正在追踪";
+      this.infoDetailModal.footer = d.status === "located" ? `已有「${d.title || "现场物件"}」在沙盘等待收录。` : `当前线索仍在推进；下一步：${d.actionLabel || "完成对应守护行动"}。`;
     }
     saveState(this.state);
     this.render();
@@ -21957,6 +25201,7 @@ class Game {
 
   clearAnimalSelection() {
     this.speakingAnimalId = null;
+    this.selectedTarget = null;
     this.mapSpeakerFocus = null;
     this.collectionAnimalGuide = null;
     this.renderedAnimalFocusMarkers = [];
@@ -22017,7 +25262,7 @@ class Game {
     const trustTier = this.animalTrustTier(animal);
     const careAction = this.recommendedAnimalAction(animal, dialogue);
     const patrolAction = this.recommendedAnimalPatrolAction(animal, dialogue);
-    const careStatus = this.animalActionStatus(careAction.id);
+    const careStatus = this.animalActionStatus(careAction.id, animal);
     const exploration = previewMaterialExploration(
       (this.state.world || {}).reserve || {},
       (this.state.world || {}).knownCharacters || [],
@@ -22028,7 +25273,7 @@ class Game {
       id: `care:${careAction.id}`,
       icon: careAction.id === "rescueCare" ? "medical" : careAction.id === "guideMigration" ? "migration" : "eye",
       label: careStatus.canRun ? careAction.label : `${careAction.label} · 今日已完成`,
-      value: careAction.id === "rescueCare" ? "疾病 -1 · 信任 +5" : careAction.id === "guideMigration" ? "迁移 +1 · 信任 +4" : "信任 +2",
+      value: careAction.id === "rescueCare" ? "疾病 -1 · 信任 +5" : careAction.id === "guideMigration" ? "迁移 +1 · 信任 +4" : "信任 +2 · 动物总数 +1—3",
       cost: careStatus.canRun ? careStatus.costs.slice(1).join(" · ") : "明天可以再次互动",
       tone: careStatus.canRun ? "primary" : "blocked",
       recommended: careStatus.canRun,
@@ -22042,7 +25287,10 @@ class Game {
       cost: "直接探索 · 获得物资或新线索",
       tone: careStatus.canRun ? "explore" : "primary",
       recommended: !careStatus.canRun,
-      action: () => this.openMaterialExploration()
+      action: () => {
+        this.clearAnimalSelection();
+        this.openMaterialExploration();
+      }
     };
     const orderedMapActions = careStatus.canRun ? [careMapAction, exploreMapAction] : [exploreMapAction, careMapAction];
     const modal = {
@@ -22079,6 +25327,7 @@ class Game {
         : "今日互动已完成。请点“探索踪迹”，生成点数后会立即获得物资或新线索。",
       actionLabel: `执行${patrolAction.shortLabel || patrolAction.label}`,
       action: () => {
+        this.clearAnimalSelection();
         this.infoDetailModal = null;
         this.openReserveViewAction(patrolAction.id, "animal");
       },
@@ -22218,18 +25467,19 @@ class Game {
       kicker: "温柔互动",
       title: `安抚${name}`,
       icon: "eye",
-      steps: ["蹲下来，保持舒服的距离，轻声告诉它：这里很安全。", "它的耳朵放松了，也没有转身离开。"],
+        steps: ["蹲下来，保持舒服的距离，轻声告诉它：这里很安全。", "附近还会有 1 到 3 只动物靠近，动物总数会增加。"],
       buttons: ["轻声安抚", "回到沙盘"]
     };
   }
 
   openAnimalCareProcess(animal, actionId) {
-    const status = this.animalActionStatus(actionId);
+    const status = this.animalActionStatus(actionId, animal);
     if (!status.canRun) {
       this.toast(`缺${status.missing.join("、")}`);
       return false;
     }
     const config = this.animalCareProcessConfig(animal, actionId);
+    this.clearAnimalSelection();
     this.infoDetailModal = {
       kind: "animalComfort",
       phase: "approach",
@@ -22383,7 +25633,8 @@ class Game {
     const changeY = bubbleY + bubbleH + 10;
     const changes = result ? (modal.resultChanges || []) : [
       { label: "动作", value: stage === 0 ? "保持距离" : "建立信任", tone: "good" },
-      { label: "消耗", value: (modal.costs || ["每日一次"])[0] || "每日一次", tone: "warn" }
+      { label: "消耗", value: (modal.costs || ["每日每章一次"])[0] || "每日每章一次", tone: "warn" },
+      { label: "动物总数", value: "+1—3", tone: "good" }
     ];
     const changeGap = 7;
     const changeW = (innerW - changeGap * Math.max(0, changes.length - 1)) / Math.max(1, changes.length);
@@ -22454,40 +25705,110 @@ class Game {
     return { id: "calmObserve", label: "安抚观察" };
   }
 
-  animalActionStatus(actionId) {
+  currentReserveChapter(reserve = ((this.state.world || {}).reserve) || {}) {
+    const progression = (reserve && reserve.progression) || {};
+    return Math.max(1, Math.round(Number(progression.stage || progression.displayChapter || 1) || 1));
+  }
+
+  animalCareDateKey(entry) {
+    if (!entry) return "";
+    if (typeof entry === "string") return entry;
+    if (typeof entry === "object") return String(entry.dateKey || "");
+    return "";
+  }
+
+  syncAnimalCareChapterGrant(reserve = ((this.state.world || {}).reserve) || {}) {
+    const chapter = this.currentReserveChapter(reserve);
+    const today = localDateKey(Date.now());
+    const grant = Object.assign({ chapter: 0, dateKey: "", remaining: 1 }, reserve.animalCareGrant || {});
+    const chapterChanged = Number(grant.chapter || 0) !== chapter;
+    const dayChanged = String(grant.dateKey || "") !== today;
+    if (chapterChanged || dayChanged) {
+      if (chapterChanged) {
+        const log = Object.assign({}, reserve.animalCareLog || {});
+        Object.keys(log).forEach((id) => {
+          if (this.animalCareDateKey(log[id]) === today) delete log[id];
+        });
+        reserve.animalCareLog = log;
+      }
+      reserve.animalCareGrant = { chapter, dateKey: today, remaining: 1 };
+    } else if (!reserve.animalCareGrant) {
+      reserve.animalCareGrant = grant;
+    }
+    return reserve.animalCareGrant;
+  }
+
+  animalCareBlockedToday(animal, reserve = ((this.state.world || {}).reserve) || {}) {
+    this.syncAnimalCareChapterGrant(reserve);
+    const targetId = (animal && animal.id) || this.speakingAnimalId || (this.selectedTarget && this.selectedTarget.id);
+    if (!targetId) return false;
+    const entry = (reserve.animalCareLog || {})[targetId];
+    if (entry == null) return false;
+    if (typeof entry === "number") return false;
+    const today = localDateKey(Date.now());
+    if (this.animalCareDateKey(entry) !== today) return false;
+    const entryChapter = typeof entry === "object" ? Number(entry.chapter || 0) : 0;
+    const chapter = this.currentReserveChapter(reserve);
+    if (entryChapter && entryChapter !== chapter) return false;
+    const grant = reserve.animalCareGrant || {};
+    if (Number(grant.remaining || 0) > 0) return false;
+    return true;
+  }
+
+  comfortAnimalPopulationGain() {
+    return 1 + Math.floor(Math.random() * 3);
+  }
+
+  applyComfortAnimalIncrease(reserve, animal, amount) {
+    const requested = Math.max(1, Math.round(Number(amount) || 1));
+    let added = 0;
+    trackPopulationChange(reserve, "comforted", () => {
+      added = applyHabitatPopulationDelta(reserve, requested);
+      if (added >= 1) return;
+      const species = getSpeciesById(animal && (animal.speciesId || animal.id))
+        || Object.keys(SPECIES_DB || {}).map((id) => SPECIES_DB[id]).find((item) => item && (item.name === (animal && animal.species) || item.id === (animal && animal.species)));
+      const group = species && speciesPopulationGroup(species.id);
+      const bucket = group && reserve.ecology && reserve.ecology[group];
+      if (!species || !bucket) return;
+      bucket[species.id] = Math.max(0, Number(bucket[species.id] || 0) + requested);
+      added = requested;
+    });
+    return Math.max(0, added);
+  }
+
+  animalActionStatus(actionId, animal = null) {
     const world = this.state.world || {};
     const reserve = (this.state.world && this.state.world.reserve) || {};
     const supplies = reserve.supplies || {};
-    const careLog = reserve.animalCareLog || {};
     const missing = [];
-    const costs = ["每日轻互动"];
-    const targetId = this.speakingAnimalId || (this.selectedTarget && this.selectedTarget.id);
-    const guardianDay = guardianContext(reserve).day;
-    if (targetId && careLog[targetId] === guardianDay) missing.push("今日已互动");
+    const costs = ["每日每章一次"];
+    this.syncAnimalCareChapterGrant(reserve);
+    if (this.animalCareBlockedToday(animal, reserve)) missing.push("今日已互动");
     if (actionId === "rescueCare") {
       costs.push("医疗包 1");
       if ((supplies.medicalKit || 0) < 1) missing.push("医疗包");
     } else if (actionId === "guideMigration") {
       costs.push("动物关系");
     } else {
-      costs.push("轻互动");
+      costs.push("动物总数 +1—3");
     }
     return { canRun: missing.length === 0, missing, costs };
   }
 
   performAnimalAction(animal, actionId, options = {}) {
-    const status = this.animalActionStatus(actionId);
+    const status = this.animalActionStatus(actionId, animal);
     if (!status.canRun) {
       this.toast(`缺${status.missing.join("、")}`);
       return;
     }
-    const beforeState = JSON.parse(JSON.stringify(this.state));
+    const beforeState = this.cloneStateForGoalProgress();
     const world = this.state.world || {};
     const beforeAnimal = (world.knownCharacters || []).find((target) => animal && target.id === animal.id) || animal || {};
     const beforeRelation = Object.assign({}, beforeAnimal.relation || {});
     const beforeReserve = this.reserveSnapshot(world.reserve || {});
     const reserve = Object.assign({}, world.reserve || {});
     reserve.animalCareLog = Object.assign({}, reserve.animalCareLog || {});
+    reserve.animalCareGrant = Object.assign({}, reserve.animalCareGrant || {});
     reserve.supplies = Object.assign({}, reserve.supplies || {});
     reserve.ecology = Object.assign({}, reserve.ecology || {}, {
       predators: Object.assign({}, reserve.ecology && reserve.ecology.predators || {}),
@@ -22497,7 +25818,15 @@ class Game {
     reserve.migration = Object.assign({ trend: "stable", delta: 0, reason: "" }, reserve.migration || {});
     const relationshipTrack = masteryView(reserve).find((entry) => entry.id === "relationship") || { branches: {} };
     const relationshipBranches = relationshipTrack.branches || {};
-    reserve.animalCareLog[animal.id] = guardianContext(reserve).day;
+    const today = localDateKey(Date.now());
+    const chapter = this.currentReserveChapter(reserve);
+    this.syncAnimalCareChapterGrant(reserve);
+    reserve.animalCareLog[animal.id] = today;
+    if ((reserve.animalCareGrant.remaining || 0) > 0) {
+      reserve.animalCareGrant = Object.assign({}, reserve.animalCareGrant, { remaining: 0 });
+    }
+    const comfortGain = this.comfortAnimalPopulationGain();
+    const comfortAdded = this.applyComfortAnimalIncrease(reserve, animal, comfortGain);
     const lifeMemory = normalizeLifeMemory(world);
     const namedFriend = lifeMemory.individuals.filter((item) => item.species === animal.species && item.status === "active").sort((a, b) => relationshipAxes(a).security - relationshipAxes(b).security)[0] || null;
     let relationshipChange = null;
@@ -22575,7 +25904,7 @@ class Game {
     reserve.strategy = Object.assign({}, reserve.strategy || {}, {
       totalMeaningfulActions: Math.max(0, Number((reserve.strategy || {}).totalMeaningfulActions) || 0) + 1
     });
-    reserve.progression = reserveProgressionFor(reserve);
+    reserve.progression = this.commitReserveProgression(reserve);
     this.state = Object.assign({}, this.state, {
       world: Object.assign({}, world, { reserve, knownCharacters, lifeMemory })
     });
@@ -22634,11 +25963,7 @@ class Game {
       const resultChanges = [
         { label: "信任", value: `${Number.isFinite(beforeRelation.trust) ? beforeRelation.trust : 40}→${Number.isFinite(afterRelation.trust) ? afterRelation.trust : 40} ${this.signed((Number.isFinite(afterRelation.trust) ? afterRelation.trust : 40) - (Number.isFinite(beforeRelation.trust) ? beforeRelation.trust : 40))}`, tone: "good" },
         { label: "警惕", value: `${Number.isFinite(beforeRelation.threat) ? beforeRelation.threat : 40}→${Number.isFinite(afterRelation.threat) ? afterRelation.threat : 40} ${this.signed((Number.isFinite(afterRelation.threat) ? afterRelation.threat : 40) - (Number.isFinite(beforeRelation.threat) ? beforeRelation.threat : 40))}`, tone: "good" },
-        actionId === "rescueCare"
-          ? { label: "疾病", value: `${(beforeReserve.ecology || {}).disease || 0}→${(afterReserve.ecology || {}).disease || 0}`, tone: "good" }
-          : actionId === "guideMigration"
-            ? { label: "迁徙", value: `${(beforeReserve.migration || {}).delta || 0}→${(afterReserve.migration || {}).delta || 0}`, tone: "good" }
-            : { label: "关系", value: `信任 +${Math.max(0, (afterRelation.trust || 0) - (beforeRelation.trust || 0))}`, tone: "good" }
+        { label: "动物总数", value: `+${Math.max(1, comfortAdded || comfortGain)}`, tone: "good" }
       ];
       this.infoDetailModal = {
         kind: "animalComfort",
@@ -22656,6 +25981,7 @@ class Game {
         config: masteryEffect ? Object.assign({}, config, { steps: [config.steps[0], masteryEffect] }) : config,
         feedbackStartedAt: Date.now(),
         resultChanges,
+        goalResult: goalProgress,
         goalRewards: goalProgress.rewards || [],
         masteryGain: relationshipMastery,
         masteryEffect,
@@ -22796,6 +26122,14 @@ class Game {
     if (species === "穿山甲") return { opening: `鳞片贴着夜土，蚁道的温度比灯光可靠` };
     if (species === "猎豹") return { opening: `风压过肩线，草高刚好够我藏住第一步` };
     if (species === "斑鬣狗") return { opening: `夜路还留着缝，远处残味会自己把我叫过去` };
+    if (species === "水獭") return { opening: water < 52 ? "胡须扫过窄河湾，鱼影比昨天短一截" : "胡须贴着静水，洄游线还连着河湾" };
+    if (species === "鹈鹕") return { opening: water < 48 ? "喙囊空着，编队在窄水面上找不着落点" : "白帆排开，湖心刚好容得下整队" };
+    if (species === "猩猩") return { opening: poachers > 45 ? "长臂探到空枝，观景的气味把旧通道切断了" : "长臂扣住旧树线，林冠还肯把路借给我" };
+    if (species === "巨嘴鸟") return { opening: `彩喙先把果期喊出去，${weather}让树冠亮了一层` };
+    if (species === "貘") return { opening: poachers > 45 ? "鼻端避开灯带，夜路被切成一条细缝" : "鼻端拱开湿泥，夜路还肯让我把种子带过去" };
+    if (species === "夜莺") return { opening: `${phase}的停鸣点还在，最轻的手电也会让我改道` };
+    if (species === "野牛") return { opening: poachers > 45 ? "宽肩顶到围栏气味，队尾幼崽过不去" : "宽肩压过草线，迁徙通道还连着队尾" };
+    if (species === "鹤") return { opening: water < 52 ? "翼尖量到浅滩退了，中途驿站空了一夜" : "翼尖点过浅滩，水位刚好能把同伴接住" };
     return {
       opening: `${phase}风里有新味道，我先停下来听听`
     };
@@ -22928,6 +26262,39 @@ class Game {
       if (poachers > 50) return "夜路被吵醒了，清理残余前我得确认还有退路";
       return "残味还在远处，我不急，夜班本来就轮到我收尾";
     }
+    if (animal.species === "水獭") {
+      if (water < 45) return "洄游线断了，幼崽还在最安静的河湾里等鱼";
+      if (poachers > 50) return "岸边喧闹太密，我只把鼻子露出水面";
+      return "静水还连着鱼影，我沿着河湾把路滑顺";
+    }
+    if (animal.species === "鹈鹕") {
+      if (water < 45) return "水面被切成窄条，编队没法同时落稳";
+      return "湖心够宽，白帆可以把幼鸟夹在队形中间";
+    }
+    if (animal.species === "猩猩") {
+      if (poachers > 50) return "仰头围观切断了林冠，我把幼仔送回旧枝背面";
+      return "旧树线还连着，长臂可以先替族群探路";
+    }
+    if (animal.species === "巨嘴鸟") {
+      if (poachers > 50) return "果期被惊扰后，我把传讯改到更密的树冠背面";
+      return "北侧还有果，我用叫声把安全路线送出去";
+    }
+    if (animal.species === "貘") {
+      if (poachers > 50) return "灯带把夜路切断了，鼻端先去找没有反光的泥地";
+      return "低光缝隙还在，我把种子带到湿土能发芽的地方";
+    }
+    if (animal.species === "夜莺") {
+      if (poachers > 50) return "手电一亮，停鸣点就作废，我改走没有光的夜路";
+      return "夜路有一层微光，我先试一声确认巢位还安静";
+    }
+    if (animal.species === "野牛") {
+      if (poachers > 50) return "通道被当成墙，队尾幼崽过不去，我把宽路顶开一点";
+      return "迁徙线还清楚，宽肩可以把队形重新压整齐";
+    }
+    if (animal.species === "鹤") {
+      if (water < 45) return "驿站水位骤降，天亮也等不到同伴降落";
+      return "浅滩水位稳着，长鸣可以把备用湿地和这里连起来";
+    }
     return "身体比脑子先觉得不对";
   }
 
@@ -22962,6 +26329,14 @@ class Game {
       if (animal.species === "穿山甲") return "我卷紧鳞片，顺着旧蚁道退回夜土";
       if (animal.species === "猎豹") return "我放低肩线，先把冲刺留到没有车声的时候";
       if (animal.species === "斑鬣狗") return "我退到夜路缝里，等人味散了再清场";
+      if (animal.species === "水獭") return "我只露出河湾，等岸边喧闹先散";
+      if (animal.species === "鹈鹕") return "我把编队带去更深湖心，不和网具抢落点";
+      if (animal.species === "猩猩") return "我带着幼仔退回旧枝，不把树冠借给围观";
+      if (animal.species === "巨嘴鸟") return "我改走密冠背面，果期先不传讯";
+      if (animal.species === "貘") return "我避开灯带，改走没有反光的旧河道";
+      if (animal.species === "夜莺") return "我关掉停鸣点，等那束手电先离开";
+      if (animal.species === "野牛") return "我把幼崽护在队尾内侧，先顶开被封的通道";
+      if (animal.species === "鹤") return "我改飞备用湿地，不把驿站交给观鸟台";
       return "我先贴边走，别把自己写进坏消息里";
     }
     if (water < 45) return "下一步靠近稳一点的水线，动作要轻";
@@ -22990,6 +26365,14 @@ class Game {
     if (animal.species === "穿山甲") return "我沿蚁道贴地移动，只把鳞片借给夜色";
     if (animal.species === "猎豹") return "我借风调整伏击线，第一步不能浪费";
     if (animal.species === "斑鬣狗") return "我绕到残味下风口，等夜色给出收尾信号";
+    if (animal.species === "水獭") return "我沿静水滑过河湾，把鱼影重新连上";
+    if (animal.species === "鹈鹕") return "我把白帆排开，让幼鸟落在队形中间";
+    if (animal.species === "猩猩") return "我用长臂扣住旧树线，确认林冠还通";
+    if (animal.species === "巨嘴鸟") return "我把果期路线喊给北侧，南侧只观察";
+    if (animal.species === "貘") return "我沿湿泥播种，夜路要留给能发芽的土";
+    if (animal.species === "夜莺") return "我守着停鸣点，只把一声试给安静的夜";
+    if (animal.species === "野牛") return "我压着宽路走，让队尾始终看得见队首";
+    if (animal.species === "鹤") return "我先长鸣报到，再把浅滩水位量一遍";
     return "我先绕开最吵的地方";
   }
 
@@ -23622,11 +27005,12 @@ class Game {
     const rescue = chapterRescueSummary(reserve || {}, chapter);
     const incomplete = objectives.filter((item) => !item.complete);
     const score = Math.round(Number(progression.score) || 0);
-    const nextChapter = chapter < 20 ? chapter + 1 : chapter;
-    const promotionReasons = chapter >= 20
-      ? ["已进入无限守护"]
+    const endless = isEndlessGuardReady(Object.assign({}, reserve || {}, { progression }));
+    const nextChapter = endless || chapter >= CHAPTERS.length ? chapter : chapter + 1;
+    const promotionReasons = endless
+      ? ["主线20章已完成", "已进入无限守护"]
       : ["完成当前章节的生态数值条件", "完成当前章节剧情", `解救本章全部动物（${rescue.rescued}/${rescue.total}）`];
-    const unlockSteps = chapter >= 20 ? ["继续经营并维持生态与游客运营"] : [
+    const unlockSteps = endless ? ["继续经营：每日任务、观景接待、安抚、解救和沙盘事件都还在"] : [
       incomplete.slice(0, 2).map((item) => `${item.label} ${item.current}/${item.target}${item.unit || ""}`).join("；") || "生态数值条件已满足",
       `解救本章全部动物（还剩${rescue.remaining}只）`,
       "完成剧情后返回章节进度确认晋级"
@@ -23657,7 +27041,7 @@ class Game {
     const speciesCount = getUnlockedSpecies(progression.level || 1).length;
     const base = reserve.base || {};
     const protectedAnimals = this.totalOf(base.protectedAnimals || {});
-    const ecologyAnimalTotal = this.totalOf(ecology.predators || {}) + this.totalOf(ecology.herbivores || {}) + this.totalOf(ecology.birds || {});
+    const ecologyAnimalTotal = livingAnimalTotal(reserve);
     const animalTotal = ecologyAnimalTotal || protectedAnimals || Math.max(0, Math.round(Number(base.animals) || 0));
     const business = typeof reserve.business === "number"
       ? reserve.business
@@ -23726,7 +27110,8 @@ class Game {
       social.pressure || 0, ((reserve.guardianCycle || {}).day) || 0,
       ((reserve.base || {}).shield) || 0, ((reserve.eventChain || {}).step) || 0,
       (((reserve.poacherRescue || {}).active || []).filter((item) => item && item.status !== "rescued").length) || 0,
-      this.focusedReserveMetric ? this.focusedReserveMetric.expiresAt : 0
+      ((reserve.friendAid || {}).used) ? "used" : (((reserve.friendAid || {}).incoming || {}).status || ((reserve.friendAid || {}).request || {}).status || ""),
+      ((reserve.friendAid || {}).used) ? "used" : (((reserve.friendAid || {}).incoming || {}).status || ((reserve.friendAid || {}).request || {}).status || "")
     ].join("|");
     if (this.reserveViewRenderCache && this.reserveViewRenderCacheReserve === reserve
       && this.reserveViewRenderCacheSource === world.reserveView
@@ -23758,18 +27143,130 @@ class Game {
     const dateKey = new Date(now).toISOString().slice(0, 10);
     const day = Number((((reserve.guardianCycle || {}).day) || (this.state.world || {}).day || 1));
     const current = reserve.dailyReturnEvent || {};
-    if (current.dateKey === dateKey && ["pending", "opened", "completed"].includes(current.status)) return current;
-    const ecology = reserve.ecology || {};
-    const highRisk = Number(reserve.poacherPressure || 0) >= 55;
-    const lowWater = Number(ecology.water || 0) < 55;
-    const event = highRisk
-      ? { type: "poacher-trace", title: "昨夜边界留下新脚印", label: "边界新线索", regionId: "forest", actionId: "antiPoacher", playMode: "dice" }
-      : lowWater
-      ? { type: "waterline-check", title: "浅滩水线发生变化", label: "浅滩新变化", regionId: "river", actionId: "habitat", playMode: "archery" }
-      : { type: "animal-trace", title: "动物在水边留下新脚印", label: "动物新线索", regionId: "meadow", actionId: "houndScout", playMode: "dice" };
+    const risk = criticalPatrolRisk(reserve);
+    if (!risk) { reserve.dailyReturnEvent = null; return null; }
+    if (current.dateKey === dateKey && current.riskId === risk.id && ["pending", "opened", "completed"].includes(current.status)) return current;
+    const event = {
+      type: "critical-risk", riskId: risk.id, title: risk.title, label: risk.title,
+      regionId: risk.id === "water" ? "river" : risk.id === "poacher" ? "forest" : "meadow",
+      actionId: risk.action, playMode: risk.action === "habitat" ? "archery" : "dice"
+    };
     reserve.dailyReturnEvent = Object.assign(event, { id: `daily_return_${day}_${dateKey}`, dateKey, day, status: "pending", createdAt: now });
-    saveState(this.state);
+    // Boot bookkeeping is saved by the normal action/app-hide checkpoint.
     return reserve.dailyReturnEvent;
+  }
+
+  isVisitorSandboxReminder(item = {}) {
+    if (!item) return false;
+    return isVisitorArcheryEvent(item.type)
+      || isVisitorArcheryEvent(item.eventType)
+      || item.type === "visitorIncident"
+      || item.kind === "visitorIncident"
+      || item.recommendAction === "visitorAdjust"
+      || item.visualKind === "visitor-conflict"
+      || /游客现场|游客冲突/.test(`${item.title || ""}${item.label || ""}${item.id || ""}`);
+  }
+
+  isHarshNatureSandboxReminder(item = {}) {
+    return isHarshNatureEvent(item);
+  }
+
+  harshNatureSandboxMarkers() {
+    return ((this.reserveViewForDisplay() || {}).mapMarkers || []).filter((marker) => this.isHarshNatureSandboxReminder(marker));
+  }
+
+  harshNatureOverlayEvent(marker = null) {
+    if (!marker) return null;
+    const kind = harshNatureKind(marker) || "wildfire";
+    const visualKind = marker.visualKind
+      || (kind === "flood" ? "flash-flood" : kind === "disease" ? "disease-zone" : "wildfire");
+    const eventType = marker.eventType || (kind === "flood" ? "sandbox_flood" : kind === "disease" ? "sandbox_disease" : "sandbox_wildfire");
+    return {
+      id: marker.id || `sandbox_${kind}`,
+      type: eventType,
+      eventType,
+      visualKind,
+      regionId: marker.regionId || (kind === "flood" ? "river" : "meadow"),
+      title: marker.title || marker.label || harshNatureProfile(kind).title,
+      label: marker.label || harshNatureProfile(kind).title,
+      recommendAction: "harshNature",
+      recommendedAction: "harshNature",
+      impact: marker.impact || harshNatureProfile(kind).body
+    };
+  }
+
+  paintExtraHarshNatureOverlays(ctx, camera, paintedVisualKind = "") {
+    const painted = String(paintedVisualKind || "");
+    this.harshNatureSandboxMarkers().forEach((marker) => {
+      const event = this.harshNatureOverlayEvent(marker);
+      if (!event || event.visualKind === painted) return;
+      this.drawHarshNatureGraphicEvent(ctx, camera, event);
+    });
+  }
+
+  drawHarshNatureGraphicEvent(ctx, camera, event = {}) {
+    const region = this.findRegion(event.regionId || "center") || { x: .5, y: .55 };
+    const point = this.mapPoint(region.x, region.y, camera);
+    const scale = camera.scale || 1;
+    const pulse = .92 + Math.sin(this.animT() * 2.4) * .08;
+    const kind = event.visualKind || "wildfire";
+    const features = [];
+    ctx.save();
+    if (kind === "wildfire") {
+      const glow = ctx.createRadialGradient(point.x, point.y, 2, point.x, point.y, 92 * scale);
+      glow.addColorStop(0, "rgba(255,132,47,.28)");
+      glow.addColorStop(.55, "rgba(224,83,35,.12)");
+      glow.addColorStop(1, "rgba(177,72,32,0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y + 2 * scale, 92 * scale, 58 * scale, -.08, 0, Math.PI * 2);
+      ctx.fill();
+      [[-28, 6, .8], [-5, -5, 1], [19, 8, .72]].forEach((flame) => {
+        const x = point.x + flame[0] * scale;
+        const y = point.y + flame[1] * scale;
+        const size = 13 * flame[2] * scale * pulse;
+        ctx.fillStyle = "rgba(226,92,42,.82)";
+        ctx.beginPath();
+        ctx.moveTo(x, y - size);
+        ctx.quadraticCurveTo(x + size, y, x, y + size * .65);
+        ctx.quadraticCurveTo(x - size, y, x, y - size);
+        ctx.fill();
+        features.push({ type: "flame", x, y });
+      });
+    } else if (kind === "disease-zone") {
+      const fog = ctx.createRadialGradient(point.x, point.y, 4, point.x, point.y, 90 * scale);
+      fog.addColorStop(0, "rgba(109,164,91,.32)");
+      fog.addColorStop(.48, "rgba(117,116,132,.23)");
+      fog.addColorStop(1, "rgba(78,66,118,0)");
+      ctx.fillStyle = fog;
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y, 92 * scale, 52 * scale, -.12, 0, Math.PI * 2);
+      ctx.fill();
+      features.push({ type: "disease-fog", x: point.x, y: point.y });
+    } else if (kind === "flash-flood") {
+      ctx.strokeStyle = "rgba(120,202,210,.68)";
+      ctx.lineWidth = 20 * scale;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(point.x - 58 * scale, point.y - 24 * scale);
+      ctx.bezierCurveTo(point.x - 20 * scale, point.y + 6 * scale, point.x + 15 * scale, point.y - 8 * scale, point.x + 62 * scale, point.y + 28 * scale);
+      ctx.stroke();
+      features.push({ type: "flood-channel", x: point.x, y: point.y });
+    }
+    ctx.restore();
+    const zoneW = 110 * scale;
+    const zoneH = 72 * scale;
+    const hitPadding = 12 * scale;
+    this.pushMapEventGraphicHit({
+      x: point.x - zoneW - hitPadding,
+      y: point.y - zoneH - hitPadding - (this.scrollY || 0),
+      w: zoneW * 2 + hitPadding * 2,
+      h: zoneH * 2 + hitPadding * 2,
+      onTap: () => this.openHarshNatureArchery(event),
+      sound: "tap",
+      map: true
+    });
+    return features;
   }
 
   mapTaskStoryMarkersForDisplay(world = this.state.world || {}, storyDiscovery = null) {
@@ -23785,6 +27282,13 @@ class Game {
       // do not also render the generic task marker from reserveView.
       .filter((marker) => marker.type !== "poacherRescue" && marker.kind !== "rescue" && !marker.rescueTargetId)
       .filter((marker) => !activeEmergencyType || marker.eventType !== activeEmergencyType)
+      .filter((marker) => !(this.isVisitorSandboxReminder(activeEmergency) && this.isVisitorSandboxReminder(marker)))
+      .filter((marker) => {
+        if (!this.isHarshNatureSandboxReminder(marker)) return true;
+        if (this.isVisitorSandboxReminder(activeEmergency)) return true;
+        if (activeEmergency && !this.isHarshNatureSandboxReminder(activeEmergency)) return true;
+        return false;
+      })
       .filter((marker) => {
         if (activeEmergency && marker.regionId === activeEmergency.regionId
           && String(marker.recommendAction || "") === String(activeEmergency.recommendedAction || "")
@@ -23837,8 +27341,12 @@ class Game {
     const markerPriority = (marker = {}) => {
       const type = String(marker.type || "");
       const eventType = String(marker.eventType || "");
+      const kind = String(marker.kind || "");
       return (eventType ? 40 : 0)
         + (type === "crisis" || type === "visitorIncident" ? 30 : 0)
+        + (type === "poacherRescue" || kind === "rescue" ? 50 : 0)
+        + (type === "dailyReturnEvent" ? 45 : 0)
+        + (kind === "friendAid" ? -12 : 0)
         + (marker.focused ? 20 : 0)
         + (marker.presentation === "resource-flow" ? -10 : 0)
         + (Number(marker.intensity) || 0);
@@ -23928,45 +27436,32 @@ class Game {
       }));
       mergedMarkers = rescueMarkers.concat(mergedMarkers.filter((marker) => !rescueMarkers.some((item) => item.id === marker.id)));
     }
-    const focus = this.focusedReserveMetric;
-    if (focus && Date.now() < Number(focus.expiresAt || 0) && ["water", "grass"].includes(focus.type)) {
-      const actionLabel = focus.type === "water" ? "修复饮水点" : "恢复草场产能";
-      const guideMarker = {
-        id: `metric_focus_${focus.type}`,
-        type: "event",
-        kind: "exclamation",
-        regionId: focus.type === "water" ? "river" : "meadow",
-        title: actionLabel,
-        label: actionLabel,
-        dialogue: "",
-        impact: focus.type === "water"
-          ? "水源低于健康线；点击这里查看修复任务。"
-          : "草场低于健康线；点击这里查看修复任务。",
-        recommendAction: "habitat",
-        recommendLabel: "修复栖息地",
-        unhandled: focus.type === "water" ? "不处理：动物会集中到少数饮水点。" : "不处理：食草动物会继续扩大觅食范围。",
-        intensity: 3,
-        focused: true,
-        metric: focus.type
-      };
-      mergedMarkers = [guideMarker].concat(mergedMarkers.filter((marker) => marker.id !== guideMarker.id));
-    }
     const dailyReturnEvent = reserve.dailyReturnEvent;
-    if (dailyReturnEvent && ["pending", "opened"].includes(dailyReturnEvent.status)) {
+    const returnRisk = criticalPatrolRisk(reserve);
+    mergedMarkers = mergedMarkers.filter(marker => marker.type !== "dailyReturnEvent");
+    if (dailyReturnEvent && returnRisk && dailyReturnEvent.riskId === returnRisk.id && ["pending", "opened"].includes(dailyReturnEvent.status)) {
       const returnMarker = Object.assign({}, dailyReturnEvent, {
         id: dailyReturnEvent.id,
         type: "dailyReturnEvent",
         kind: "dailyReturnEvent",
         title: dailyReturnEvent.title,
         label: dailyReturnEvent.label,
-        impact: "这是今天唯一的回归事件，完成后会推进剧情、任务或收藏线索。",
+        impact: returnRisk.body,
         recommendAction: dailyReturnEvent.actionId,
         intensity: 5,
         focused: true
       });
       mergedMarkers = [returnMarker].concat(mergedMarkers.filter((marker) => marker.type !== "dailyReturnEvent"));
     }
-    return Object.assign({}, view, { mapMarkers: mergedMarkers.slice(0, 3) });
+    const aidMarkers = friendAidMarkers(reserve);
+    if (aidMarkers.length) {
+      mergedMarkers = aidMarkers.concat(mergedMarkers.filter((marker) => marker.kind !== "friendAid" && marker.type !== "friendAidRequest" && marker.type !== "friendAidParcel"));
+    }
+    const reserveForCadence = ((this.state || {}).world || {}).reserve || reserve;
+    const prioritized = mergedMarkers.map((marker) => Object.assign({}, marker, { priority: markerPriority(marker) }));
+    return Object.assign({}, view, {
+      mapMarkers: applySandboxTaskCadence(reserveForCadence, prioritized, Date.now())
+    });
   }
 
   reserveStateColor(tone) {
@@ -24172,8 +27667,9 @@ class Game {
 
   sandboxPrimaryGuidance(options = {}) {
     if (!this.state || !this.state.character) return null;
+    if (!options.prologue && this.painting && this.frameMemoStore && this.frameMemoStore.primaryGuidance) return this.frameMemoStore.primaryGuidance;
     const goalView = this.currentGoalView();
-    const goal = goalView.primary || (((this.state.world || {}).goals || {}).daily) || {};
+    const goal = goalView.primary || {};
     const activeDiscovery = (((((this.state || {}).world || {}).collection || {}).discovery || {}).active) || null;
     const locatedDiscovery = !options.prologue
       && goal.recommendedAction === "collectionInvestigate"
@@ -24192,15 +27688,25 @@ class Game {
           : "先探索获取样本，再移交换取基金"
       : beatActionId === "buySupplies" ? "移交已完成 · 补齐巡护物资" : "";
     const onboarding = this.onboardingHomeGuide();
-    return {
-      id: onboarding ? `onboarding:${onboarding.step}` : guardianBeat ? `guardian:${guardian.day}:${beatActionId}` : goal.id || "primary",
-      title: onboarding ? onboarding.title : guardianBeat ? turnoverTitle || guardianBeat.prompt : (goal.title || "完成一次有效巡护").replace("今日目标：", ""),
+    const fallback = !onboarding && !guardianBeat && !goal.id && this.chapterCoreFallbackGoal
+      ? this.chapterCoreFallbackGoal()
+      : null;
+    if (!onboarding && !guardianBeat && !locatedDiscovery && !goal.id && !fallback) return null;
+    const guidance = {
+      id: onboarding ? `onboarding:${onboarding.step}` : guardianBeat ? `guardian:${guardian.day}:${beatActionId}` : goal.id || (fallback && fallback.id) || "primary",
+      title: onboarding ? onboarding.title : guardianBeat ? turnoverTitle || guardianBeat.prompt : String((goal.title || (fallback && fallback.title) || "")).replace("今日目标：", ""),
       onboarding,
       guardianBeat,
       beatActionId,
       locatedDiscovery,
-      activeDiscovery
+      activeDiscovery,
+      chapterCore: fallback
     };
+    if (!options.prologue) {
+      this.frameMemoStore = this.frameMemoStore || {};
+      this.frameMemoStore.primaryGuidance = guidance;
+    }
+    return guidance;
   }
 
   activateSandboxPrimaryGuidance(guidance = this.sandboxPrimaryGuidance()) {
@@ -24217,41 +27723,59 @@ class Game {
       this.focusStoryDiscovery(guidance.activeDiscovery);
       return true;
     }
-    this.openGoalCenter();
-    return true;
+    if (guidance.chapterCore) {
+      this.activeTaskLock = null;
+      return !!this.openCoreMetricDetail(guidance.chapterCore.coreMetricId || "animals");
+    }
+    return !!this.openGoalCenter();
   }
 
   drawCompactReserveStateTile(ctx, state, x, y, w, h) {
-    const color = this.reserveStateColor(state.tone);
+    const completion = state.showProgress ? metricProgress(state.value, state.target) : null;
+    const color = completion ? completion.color : this.reserveStateColor(state.tone);
     const risk = this.reserveStateRisk(state);
     const fill = state.tone === "bad" ? "rgba(255,226,216,.92)"
       : state.tone === "warn" ? "rgba(255,241,198,.92)"
         : "rgba(239,249,232,.92)";
+    const animationKey = { fund: "fund", water: "water", grass: "grass", visitors: "visitors", speciesCount: "speciesCount", animalTotal: "animalTotal" }[state.id] || "";
+    const displayValue = animationKey ? this.displayReserveNumber(animationKey, state.value) : state.value;
+    const delta = animationKey ? this.reserveDisplayDelta(animationKey, state.value) : 0;
+    const pulse = animationKey ? this.numberAnimationPulse(animationKey) : 0;
+    const animating = !!(animationKey && this.numberAnimations && this.numberAnimations[animationKey]);
+    const liveDelta = animating ? delta : 0;
+    const showChange = !!liveDelta;
+    const taskChange = showChange && this.numberAnimations[animationKey].cause === "task";
+    const animalChange = state.id === "animalTotal" && taskChange;
     this.drawPremiumParchmentPanel(ctx, x, y, w, h, 11, { muted: state.tone === "bad" });
     this.roundRect(ctx, x + 3, y + 3, w - 6, h - 6, 8, fill.replace(".92", ".58"), `${color}55`);
-    const animationKey = { fund: "fund", water: "water", grass: "grass" }[state.id] || "";
-    const displayValue = animationKey ? this.displayReserveNumber(animationKey, state.value) : state.value;
+    if (animalChange && pulse > 0.02) {
+      this.roundRect(ctx, x + 2, y + 2, w - 4, h - 4, 9, `rgba(72,201,135,${(0.10 + pulse * 0.22).toFixed(3)})`, "rgba(31,122,82,.42)");
+    }
     const icon = { fund: "fund", water: "water", grass: "grass", visitors: "people", speciesCount: "paw", animalTotal: "paw" }[state.id] || "leaf";
     this.drawSmallGlyph(ctx, icon, x + 13, y + h / 2, color, .52);
-    const labelSize = this.fitTextSize(ctx, state.label, 45, 9, 8, "700");
+    const percentText = state.showProgress && !showChange ? `${Math.max(0, Math.min(100, Number(completion.percentage) || 0))}%` : "";
+    const rightReserve = showChange ? 38 : (percentText ? 30 : 8);
+    const labelSize = this.fitTextSize(ctx, state.label, 42, 9, 8, "700");
     const labelX = x + 23;
     const baseline = y + h / 2 + 3.5;
     this.text(ctx, state.label, labelX, baseline, labelSize, "#66715f", "700");
-    const valueX = labelX + Math.min(45, ctx.measureText(state.label).width) + 3;
+    const valueX = labelX + Math.min(42, ctx.measureText(state.label).width) + 3;
     const valueText = `${displayValue}`;
-    const percentText = state.showProgress ? `${Math.max(0, Math.min(100, Number(state.percentage) || 0))}%` : "";
-    const valueSize = this.fitTextSize(ctx, valueText, Math.max(18, w - (valueX - x) - (percentText ? 30 : 8)), 13, 10, "700");
-    this.text(ctx, valueText, valueX, baseline, valueSize, color, "700");
-    // Task/story changes announce direction first; automatic system drift only
-    // uses the regular count-up and never adds an arrow.
-    if (animationKey && this.numberAnimationArrowPhase(animationKey)) {
-      const delta = this.reserveDisplayDelta(animationKey, state.value);
-      this.text(ctx, delta >= 0 ? "↑" : "↓", valueX + ctx.measureText(valueText).width + 9, baseline + 1, 14, "#d84b42", "700", "center");
+    const valueSize = this.fitTextSize(ctx, valueText, Math.max(16, w - (valueX - x) - rightReserve), 13, 10, "700");
+    this.text(ctx, valueText, valueX, baseline, valueSize, animalChange ? (delta > 0 ? "#1f7a52" : "#c45b42") : color, "700");
+    if (showChange) {
+      const tag = `${delta > 0 ? "↑" : "↓"}${this.signed(delta)}`;
+      ctx.font = `700 10px ${UI_FONT_STACK}`;
+      const tagW = Math.max(30, Math.round(ctx.measureText(tag).width + 8));
+      const tagX = x + w - tagW - 4;
+      this.roundRect(ctx, tagX, y + 6, tagW, 18, 8, delta > 0 ? "rgba(31,122,82,.20)" : "rgba(196,91,66,.18)", delta > 0 ? "rgba(31,122,82,.40)" : "rgba(196,91,66,.36)");
+      this.text(ctx, tag, tagX + tagW / 2, y + 19, 10, delta > 0 ? "#176b58" : "#a43f39", "700", "center");
+    } else if (percentText) {
+      this.text(ctx, percentText, x + w - 7, baseline, 8, color, "700", "right");
     }
-    if (percentText) this.text(ctx, percentText, x + w - 7, baseline, 8, color, "700", "right");
     const clickable = true;
     this.addHit(x, y - this.scrollY, w, h, () => ["visitors", "speciesCount", "animalTotal"].includes(state.id)
-      ? this.openChapterProgressDetail(true)
+      ? this.openCoreMetricDetail(state.id === "speciesCount" ? "species" : state.id === "animalTotal" ? "animals" : "visitors")
       : this.openReserveMetricDetail(state.id), "tap");
     return {
       id: state.id,
@@ -24263,7 +27787,9 @@ class Game {
       w,
       h,
       target: state.target || null,
-      percentage: state.showProgress ? Number(state.percentage) || 0 : null,
+      percentage: completion ? completion.percentage : null,
+      complete: !!(completion && completion.complete),
+      valueColor: color,
       progressText: state.showProgress ? `${state.value}/${state.target}` : null,
       inline: true,
       risk: risk.label,
@@ -24271,6 +27797,11 @@ class Game {
       readOnly: true,
       clickable,
       detailOnly: true,
+      animating: !!delta,
+      delta,
+      percentVisible: !showChange && !!percentText,
+      changeVisible: showChange,
+      valueSize,
       affordance: risk.tone === "bad" || risk.tone === "warn" ? "改善 ›" : "查看 ›"
     };
   }
@@ -24290,7 +27821,7 @@ class Game {
       }
       const done = guardian.cycle.sevenDay.progress[3] || [];
       actionId = guardian.sevenDayBeat.actions.find((id) => !done.includes(id));
-      if (actionId === "buySupplies" && !supplyReplenishmentPlan(reserve).items.length) {
+      if (actionId === "buySupplies" && supplySafetyLineMet(reserve)) {
         // 物资可能已由单项采购或应急补给补齐，不要求为任务再次购买。
         recordSevenDayProgress(reserve, "buySupplies");
         this.infoDetailModal = null;
@@ -24382,6 +27913,54 @@ class Game {
     saveState(this.state);
     this.infoDetailModal = this.buildChapterProgressDetail();
     this.render();
+    return true;
+  }
+
+  openCoreMetricDetail(metricId) {
+    const details = this.buildChapterProgressDetail().metricDetails || {};
+    const detail = details[metricId];
+    if (!detail) return false;
+    const kind = metricId === "species" ? "populationMetricDetail" : metricId === "animals" ? "animalMetricDetail" : "visitorMetricDetail";
+    this.infoDetailModal = Object.assign({}, detail, { kind });
+    this.render();
+    return true;
+  }
+
+  claimAnimalTotalAd() {
+    const reserve = ((this.state.world || {}).reserve) || {};
+    const status = animalTotalAdStatus(reserve);
+    if (!status.eligible) {
+      this.toast("今日幸运迁入已用完，明天再来");
+      this.openCoreMetricDetail("animals");
+      return false;
+    }
+    const animalAd = this.rewardedAnimalAds || (this.rewardedAnimalAds = new RewardedSupplyAdController(this.runtime, { config: REWARDED_ANIMAL_AD_CONFIG }));
+    if (!animalAd || (typeof animalAd.available === "function" && !animalAd.available())) {
+      this.toast("暂时无法开启幸运迁入，请稍后再试");
+      return false;
+    }
+    this.toast("正在开启幸运迁入…");
+    animalAd.show().then((adResult) => {
+      if (!adResult.completed) {
+        this.toast(adResult.reason === "closed_early" ? "这次没有获得迁入动物" : "幸运迁入暂时不可用，请稍后再试");
+        return;
+      }
+      const reward = applyAnimalTotalAdReward(reserve);
+      if (!reward.ok) {
+        this.toast(reward.reason === "daily_cap" ? "今日幸运迁入已用完，明天再来" : "当前没有可迁入的动物");
+        this.openCoreMetricDetail("animals");
+        return;
+      }
+      this.commitReserveProgression(reserve);
+      saveState(this.state);
+      this.playSfx("success");
+      this.reserveDisplayTargetCache = null;
+      this.reserveDisplayTargetRefreshLeft = 0;
+      this.numberAnimationBurstUntil = Date.now() + 2200;
+      this.numberAnimationBurstCause = "task";
+      this.toast(`幸运获得迁入动物 +${reward.amount}`);
+      this.openCoreMetricDetail("animals");
+    });
     return true;
   }
 
@@ -24507,10 +28086,12 @@ class Game {
     const coreItems = [
       { id: "species", label: "种群数量", value: core.species, target: core.target.species, percentage: core.percentages.species, unit: "种" },
       { id: "animals", label: "动物总数", value: core.animals, target: core.target.animals, percentage: core.percentages.animals, unit: "只" },
-      { id: "visitors", label: "游客累计数", value: core.visitors, target: core.target.visitors, percentage: core.percentages.visitors, unit: "人" }
+      { id: "visitors", label: "本章游客", value: core.visitors, target: core.target.visitors, percentage: core.percentages.visitors, unit: "人" }
     ];
     const unfinishedCore = coreItems.filter((item) => item.value < item.target);
-    const nextChapter = chapter < 20 ? chapter + 1 : chapter;
+    const endless = isEndlessGuardReady(Object.assign({}, reserve, { progression }));
+    const endlessView = endless ? endlessGuardView(reserve) : null;
+    const nextChapter = endless || chapter >= CHAPTERS.length ? chapter : chapter + 1;
     const nextGoals = chapterTargets(nextChapter);
     const nextReserve = Object.assign({}, reserve, {
       progression: Object.assign({}, reserve.progression || {}, {
@@ -24529,34 +28110,176 @@ class Game {
       .map((species) => species.name);
     const nextInfo = getCurrentChapter(nextReserve) || {};
     const fallbackSpecies = String(nextInfo.newSpeciesLabel || info.newSpeciesLabel || "").split(/[、,，]/).map((name) => name.trim()).filter(Boolean);
-    const speciesNeeded = chapter >= 20
+    const speciesNeeded = endless || chapter >= CHAPTERS.length
       ? []
       : Array.from(new Set(rescueSpecies.concat(newlyUnlockedSpecies, fallbackSpecies))).slice(0, 6);
     const metricDetails = {};
+    const animalSources = animalSourceSummary(reserve);
+    const visitorMixData = chapterVisitorBreakdown(reserve);
+    const visitorMixParts = [];
+    const hostedMix = Math.min(visitorMixData.task, chapterReceptionGained(reserve));
+    const taskOther = Math.max(0, visitorMixData.task - hostedMix);
+    if (visitorMixData.inherited > 0) visitorMixParts.push(`继承 ${visitorMixData.inherited} 人`);
+    visitorMixParts.push(`招募 ${visitorMixData.recruited} 人`);
+    visitorMixParts.push(`迁入 ${visitorMixData.migrated} 人`);
+    visitorMixParts.push(`到访 ${visitorMixData.facility} 人`);
+    if (hostedMix > 0) visitorMixParts.push(`接待 ${hostedMix} 人`);
+    if (taskOther > 0) visitorMixParts.push(`任务 ${taskOther} 人`);
+    if (visitorMixData.share > 0) visitorMixParts.push(`分享 ${visitorMixData.share} 人`);
+    if (visitorMixData.lost > 0) visitorMixParts.push(`流失 ${visitorMixData.lost} 人`);
+    if (visitorMixData.untracked > 0) visitorMixParts.push(`待分类 ${visitorMixData.untracked} 人`);
+    const visitorMix = visitorMixParts.join(" · ");
     coreItems.forEach((item) => {
-      const nextTarget = nextGoals[item.id] || item.target;
       const current = Number(item.value) || 0;
-      const remaining = Math.max(0, nextTarget - current);
+      const target = Number(item.target) || 0;
+      const guidance = item.id === "species"
+        ? [
+          ["1", "完成动物解救", speciesNeeded.length ? `优先解救：${speciesNeeded.join("、")}` : "解救被困动物，解锁新种群。"],
+          ["2", "完成动物探索", "发现频道跟踪迹，完成探索可发现新物种。"],
+          ["3", "维持生态条件", "稳住水草和安全，避免种群因环境变差。"]
+        ]
+        : item.id === "animals"
+          ? [
+          ["1", `解救 +${animalSources.rescued}`, "开地图解救，备物资完成，按释放前后真实差计入。"],
+            ["2", `迁入 +${animalSources.immigrated}`, "补水草、压风险，栖息地和自然事件会吸引已有种群靠近。"],
+            ["3", `繁殖剩余 +${animalSources.breeding}`, "水草达标、控病、留空间；命名出生与种群出生共用当天名额。"]
+          ]
+          : [
+            ["1", "当前游客构成", `${visitorMix}。本章从0起算，上一章只把结束时游客总数的${Math.round(chapterVisitorCarryoverRatio() * 100)}%带入；招募、事件、剧情、建筑到访和任务都按本章重新计算。`],
+            ["2", "完成地图事件", "处理游客事件、天气、剧情和游客建筑，会计入本章迁入或到访，也可能流失。"],
+            ["3", "改善保护区并招募", "主动招募显示几人，本章游客就增加几人；奖励广告补充招募次数。"]
+          ];
+      const animalAd = item.id === "animals" ? animalTotalAdStatus(reserve) : null;
+      const items = guidance.map(([tag, title, body]) => ({ tag, title, body, noCompact: true, largeText: true, stackTag: true, inlineTitle: true }));
+      if (item.id === "animals") {
+        items.splice(3, 0, {
+          tag: "流水",
+          title: `期初 ${animalSources.opening} · 留存 ${animalSources.retained} · 期末 ${animalSources.ending}`,
+          body: `留存=期初+迁入+解救−迁出${animalSources.emigrated}−死亡${animalSources.died}，只读不另加进总数。安抚 +${animalSources.comforted} · 幸运 +${animalSources.advertised} · 分享 +${animalSources.shared} · 任务 +${animalSources.tasked}。`,
+          noCompact: true,
+          largeText: true,
+          stackTag: true,
+          inlineTitle: true
+        });
+      }
+      if (item.id === "animals" || item.id === "visitors") {
+        const isAnimals = item.id === "animals";
+        const shareReward = shareRewardPreview(this.state, { rewardType: isAnimals ? "animals" : "visitors", sourceKind: isAnimals ? "animal" : "visitor" });
+        items.push({
+          tag: "分享任务",
+          title: shareReward.eligible
+            ? `分享${isAnimals ? "动物" : "保护区"}来信 · ${shareReward.label} +${shareReward.amount}${shareReward.unit}`
+            : `${shareReward.label}本章分享已用完`,
+          body: shareReward.eligible
+            ? `按当前${isAnimals ? "动物总数" : "本章游客"} ${shareReward.base}${shareReward.unit} 的 ${shareReward.percent}% 计算。完成微信分享后发放；${shareReward.label}本章还可 ${shareReward.remaining}/${shareReward.limit} 次，游客和动物各 2 次共 4 次。`
+            : `${shareReward.label}本章已用 ${shareReward.used}/${shareReward.limit} 次；游客和动物各 2 次，下一章恢复。`,
+          noCompact: true,
+          largeText: true,
+          stackTag: true,
+          inlineTitle: true,
+          action: shareReward.eligible ? () => (isAnimals ? this.openAnimalLetterInbox() : this.openVisitorShareFlow()) : null
+        });
+      }
+      if (item.id === "animals") {
+        this.syncAnimalCareChapterGrant(reserve);
+        const careGrant = reserve.animalCareGrant || {};
+        const careReady = Number(careGrant.remaining || 0) > 0;
+        items.push({
+          tag: "安抚",
+          title: careReady ? "安抚观察 · 动物总数 +1—3" : "今日本章安抚已用完",
+          body: careReady
+            ? "每天每章至少1次。轻声安抚后附近个体会靠近，动物总数增加1至3只。进入下一章会自动恢复这次机会。"
+            : "明天或进入下一章后会恢复1次安抚观察机会。",
+          noCompact: true,
+          largeText: true,
+          stackTag: true,
+          inlineTitle: true,
+          action: () => this.executeGoalAction({ id: "comfort:observe", recommendedAction: "animalCare", kind: "daily" })
+        });
+      }
+      if (item.id === "visitors") {
+        this.syncVisitorReceptionGrant(reserve);
+        const receptionGrant = reserve.visitorReceptionGrant || {};
+        const receptionReady = Number(receptionGrant.remaining || 0) > 0;
+        const receptionPreview = visitorReceptionPreview();
+        items.push({
+          tag: "接待",
+          title: receptionReady ? `观景接待 · 本章游客 +${receptionPreview.min}—${receptionPreview.max}` : "今日本章接待已用完",
+          body: receptionReady
+            ? "每天每章1次。点开沙盘游客，带他们走观景线。人数写入本章游客，不消耗招募次数，也不算每日招揽。"
+            : "明天或进入下一章后会恢复1次观景接待。上一章接待不带入本章。",
+          noCompact: true,
+          largeText: true,
+          stackTag: true,
+          inlineTitle: true,
+          action: () => { this.infoDetailModal = null; this.openVisitorReception(); }
+        });
+      }
+      if (item.id === "animals" && current < target) {
+        const rescueTask = nextPoacherRescue(reserve) || nextRescueTask(reserve, chapter);
+        const ecology = reserve.ecology || {};
+        const repairMetric = Number(ecology.water || 0) <= Number(ecology.grass || 0) ? "water" : "grass";
+        const focusedRepair = repairMetric === "grass" ? "grass" : "water";
+        const repairLabel = focusedRepair === "water" ? "修复饮水点" : "恢复草场";
+        const repairValue = Math.round(Number(ecology[focusedRepair]) || 0);
+        items.push(rescueTask ? {
+          tag: "具体任务",
+          title: `解救${rescueTask.speciesName || "被困动物"}`,
+          body: `还差 ${Math.max(0, target - current)} 只。先完成这只动物的物资收集与沙盘解救，放归数量会直接计入动物总数。`,
+          noCompact: true,
+          largeText: true,
+          stackTag: true,
+          inlineTitle: true,
+          action: () => this.openChapterRescueTask(rescueTask.targetId || rescueTask.speciesId)
+        } : {
+          tag: "具体任务",
+          title: `${repairLabel} 1 次`,
+          body: `还差 ${Math.max(0, target - current)} 只；当前${focusedRepair === "water" ? "水源" : "草场"} ${repairValue}。完成这次栖息地修复，稳住迁入与繁衍条件。`,
+          noCompact: true,
+          largeText: true,
+          stackTag: true,
+          inlineTitle: true,
+          action: () => this.openMetricImprovementTask(focusedRepair)
+        });
+      }
+      if (animalAd) {
+        items.push({
+          tag: "幸运",
+          title: animalAd.eligible ? "幸运获得 · 迁入动物" : "今日幸运迁入已用完",
+          body: animalAd.eligible
+            ? `每天最多2次，今日还剩 ${animalAd.remaining} 次。`
+            : "明天再来。也可解救、回流、繁衍。",
+          noCompact: true,
+          largeText: true,
+          stackTag: true,
+          inlineTitle: true,
+          action: animalAd.eligible ? () => this.claimAnimalTotalAd() : null
+        });
+      }
       metricDetails[item.id] = {
-        kicker: `第${chapter}章 · 下一章晋级要求`,
-        title: item.id === "species" ? "种群解锁" : item.id === "animals" ? "动物总数" : "游客累计",
+        kicker: item.id === "animals" ? `第${chapter}章 · 还需 ${Math.max(0, target - current)} 只` : `第${chapter}章 · 下一章晋级要求`,
+        title: item.id === "species" ? `种群 ${current}/${target} 种 · 如何解锁` : item.id === "animals" ? `动物 ${current}/${target} 只 · 如何增加` : `游客 ${current}/${target} 人 · 如何增加`,
         icon: item.id === "species" ? "leaf" : item.id === "animals" ? "paw" : "community",
-        items: [{
-          tag: "下一章门槛",
-          title: `${current}/${nextTarget} · ${Math.min(100, Math.round(current / Math.max(1, nextTarget) * 100))}%`,
-          body: item.id === "species"
-            ? (speciesNeeded.length ? `还需解锁：${speciesNeeded.join("、")}` : "本章物种已满足，继续维持种群稳定即可。")
-            : remaining ? `还需 ${remaining}${item.unit}，完成地图事件、任务和玩法后会自动累计。` : "已达到下一章所需数量。"
-        }],
-        footer: "这是下一章的晋级门槛，当前章节的运营动作都会汇入这里。",
-        actionLabel: "知道了",
-        action: () => { this.infoDetailModal = null; this.render(); }
+        coreMetric: { id: item.id, current, target },
+        items,
+        footer: item.id === "animals"
+          ? `总数跨章累计。留存 ${animalSources.retained} 只只读展示，不另加进总数。`
+          : "",
+        actionLabel: item.id === "visitors"
+          ? "去招募"
+          : item.id === "animals" && animalAd && animalAd.eligible ? "幸运获得 · 迁入动物" : "知道了",
+        action: item.id === "visitors"
+          ? () => { this.infoDetailModal = null; this.openVisitorRecruitment(); }
+          : item.id === "animals" && animalAd && animalAd.eligible
+            ? () => this.claimAnimalTotalAd()
+            : () => { this.infoDetailModal = null; this.render(); },
+        adPlacement: item.id === "animals" && animalAd && animalAd.eligible ? "animal_total_detail_footer" : ""
       };
     });
     return {
       kind: "chapterProgress",
-      kicker: "我的保护区",
-      title: `第${chapter}章 · 章节进度`,
+      kicker: endless ? "无限守护" : "我的保护区",
+      title: endless ? `第20章完成 · 第${endlessView.cycle}轮` : `第${chapter}章 · 章节进度`,
       icon: "reserve_level",
       chapter,
       chapterTitle: info.title,
@@ -24569,25 +28292,27 @@ class Game {
       pathPercent: Math.min(core.percentages.species, core.percentages.animals, core.percentages.visitors),
       coreItems,
       items: [
-        ...coreItems.map((item) => ({
-          tag: item.value >= item.target ? "已完成" : "核心目标",
+        ...coreItems.map((item) => {
+          const liveMet = item.value >= item.target;
+          return {
+          tag: liveMet ? "已完成" : "核心目标",
           title: `${item.label} ${item.value}/${item.target} · ${item.percentage}%`,
-          body: item.value >= item.target
+          body: liveMet
             ? `已达到本章目标（${item.value}/${item.target}${item.unit}）。`
-            : `还需要 ${Math.max(0, item.target - item.value)}${item.unit}。所有运营、任务和剧情都会汇入这项指标。`,
+            : `还需要 ${Math.max(0, item.target - item.value)}${item.unit}。当前数量回落后需要重新达标，章节时间不会替代这项任务。`,
           action: () => {
             this.infoDetailModal = {
               kicker: `第${chapter}章 · 核心晋级目标`,
               title: item.label,
               icon: "reserve_level",
-              items: [{ tag: "当前进度", title: `${item.value}/${item.target} · ${item.percentage}%`, body: item.value >= item.target ? "本章目标已达成。" : `还差 ${Math.max(0, item.target - item.value)}${item.unit}，继续完成地图事件、任务或玩法即可累计。` }],
-              footer: "数值达到目标后会与其他条件一起检查晋级。",
+              items: [{ tag: "当前进度", title: `${item.value}/${item.target} · ${item.percentage}%`, body: liveMet ? "本章目标已达成。" : `还差 ${Math.max(0, item.target - item.value)}${item.unit}，继续完成地图事件、任务或玩法即可累计。` }],
+              footer: "三项核心目标和本章任务都完成后才能晋级，不以章节时间为准。实时数量回落会重新挡住晋级。",
               actionLabel: "知道了",
               action: () => { this.infoDetailModal = null; this.render(); }
             };
             this.render();
           }
-        })),
+        };}),
         ...objectives.slice(0, 3).map((item) => ({
           tag: item.complete ? "已完成 · 点击查看" : "需要完成 · 点击查看",
           title: `${item.label} ${format(item)}`,
@@ -24621,28 +28346,37 @@ class Game {
             const target = (rescue.animals || []).find((animal) => animal.status !== "rescued");
             if (!target) return;
             this.infoDetailModal = null;
-            this.focusedRescueTarget = target.speciesId;
+            this.focusRescueTargetOnMap(target.speciesId);
             this.preserveMapZoomOnHome = true;
             this.setScreen("home");
             this.toast(`已定位${target.speciesName} · 点击沙盘上的待解救标记`);
           }
         },
         {
-          tag: unfinished.length || unfinishedCore.length || !rescue.complete ? "未完成" : "可晋级",
-          title: unfinished.length || unfinishedCore.length || !rescue.complete ? "完成以上条件后解锁下一章" : "本章晋级条件已满足",
-          body: unfinishedCore.length
+          tag: endless ? "无限守护" : (unfinished.length || unfinishedCore.length || !rescue.complete ? "未完成" : "可晋级"),
+          title: endless
+            ? `第${endlessView.cycle}轮 · ${endlessView.pkLabel}`
+            : unfinished.length || unfinishedCore.length || !rescue.complete ? "完成以上条件后解锁下一章" : "本章晋级条件已满足",
+          body: endless
+            ? `${endlessView.lastChange}。主线已经结束，继续经营、接待、安抚和解救都会计入本轮守护。`
+            : unfinishedCore.length
             ? `核心目标还差：${unfinishedCore.map((item) => `${item.label} ${item.value}/${item.target}`).join("；")}`
             : unfinished.length ? `还差：${unfinished.map((item) => `${item.label} ${format(item)}`).join("；")}` : (rescue.complete ? "可进入下一章剧情。" : "先完成动物解救。"),
           action: () => {
             this.infoDetailModal = {
-              kicker: `第${chapter}章 · 晋级说明`,
-              title: unfinished.length || unfinishedCore.length || !rescue.complete ? "还不能进入下一章" : "可以进入下一章",
+              kicker: endless ? "无限守护" : `第${chapter}章 · 晋级说明`,
+              title: endless ? "主线完成后继续经营" : unfinished.length || unfinishedCore.length || !rescue.complete ? "还不能进入下一章" : "可以进入下一章",
               icon: "reserve_level",
-              items: [
+              items: endless
+                ? [
+                  { tag: "循环", title: `第${endlessView.cycle}轮 · 进度 ${endlessView.cycleProgress}/20`, body: "每完成一轮经营结算，守护轮次会向前走。没有第21章。" },
+                  { tag: "怎么玩", title: "每日任务、观景接待、安抚、解救都还在", body: "游客、动物和沙盘事件继续变化；旅游圣地与保护区等级会和世界保护区比较。" }
+                ]
+                : [
                 { tag: "当前限制", title: unfinishedCore.length ? "核心目标未完成" : unfinished.length ? "仍有条件未完成" : (rescue.complete ? "条件已全部满足" : "动物解救未完成"), body: unfinishedCore.length ? `还差：${unfinishedCore.map((item) => `${item.label} ${item.value}/${item.target}`).join("；")}` : unfinished.length ? `还差：${unfinished.map((item) => `${item.label} ${format(item)}`).join("；")}` : (rescue.complete ? "下一章剧情入口已经解锁。" : `还需解救 ${rescue.remaining} 只动物。`) },
                 { tag: "如何解锁", title: "完成所有条件", body: "逐项点击上方条件查看具体完成方式；动物解救条件可点击后直接定位沙盘标记。" }
               ],
-              footer: "所有条件同时满足后，下一章入口会自动开放。",
+              footer: endless ? "通关玩家不会停在第20章门口。继续点沙盘就能玩。" : "所有条件同时满足后，下一章入口会自动开放。",
               actionLabel: "知道了",
               action: () => { this.infoDetailModal = null; this.render(); }
             };
@@ -24650,9 +28384,11 @@ class Game {
           }
         }
       ],
-      footer: "章节只前进不倒退；生态和游客数值会持续变化，但不会制造第二套保护区等级。",
+      footer: endless
+        ? "第20章主线已完成。无限守护不会重置动物账和游客账，也不再要求晋级。"
+        : "章节只前进不倒退；生态和游客数值会持续变化，但不会制造第二套保护区等级。",
       actionLabel: "查看游客等级",
-      action: () => { this.infoDetailModal = null; this.openTourismDestinationDetail(); }
+      action: () => { this.infoDetailModal = null; this.openTourismDestinationDetail() }
     };
   }
 
@@ -24685,6 +28421,7 @@ class Game {
     }
     if (this.patrolTaskModal || this.settlementBlocksCurrentScreen()) return false;
     const requestedAction = actionId || "exploreMaterials";
+    if (source === "animal") this.clearAnimalSelection();
     this.infoDetailModal = null;
     if (requestedAction === "buySupplies") {
       this.setScreen("role");
@@ -24699,11 +28436,128 @@ class Game {
       this.openMaterialExploration();
       return true;
     }
+    if (requestedAction === "harshNature") {
+      const marker = (this.reserveViewForDisplay().mapMarkers || []).find((item) => isHarshNatureEvent(item))
+        || { recommendAction: "harshNature", eventType: "sandbox_wildfire", title: "火灾预警" };
+      return this.openHarshNatureArchery(marker);
+    }
     return this.openPatrolOperationScreen(requestedAction);
+  }
+
+  openActiveWorldEventFromMap(active = ((((this.state || {}).world || {}).reserve || {}).emergency || {}).active) {
+    const event = active || ((((this.state || {}).world || {}).reserve || {}).emergency || {}).active;
+    if (!event) {
+      this.toast("现场事件已经结束");
+      return false;
+    }
+    if (this.isVisitorSandboxReminder(event)) {
+      return this.openVisitorIncidentDice({
+        type: "visitorIncident",
+        kind: "visitorIncident",
+        eventType: event.type,
+        title: event.title || "游客现场需要调节",
+        recommendAction: "visitorAdjust",
+        visualKind: event.visualKind || "visitor-conflict",
+        regionId: event.regionId
+      });
+    }
+    const view = this.currentGoalView ? this.currentGoalView(true) : {};
+    const primary = (view && view.primary) || {};
+    if (primary.kind === "crisis" || primary.recommendedAction === "realEvent") {
+      return !!this.executeGoalAction(primary);
+    }
+    const definition = worldEventDefinition(event.type);
+    if (isRealNatureEventType(event.type) || event.category === "realNature" || event.recommendedAction === "realEvent" || definition) {
+      return this.openWorldEventDetail({
+        type: "crisis",
+        kind: "exclamation",
+        eventType: event.type,
+        title: event.title || (definition && definition.title) || "现场事件"
+      }, definition);
+    }
+    const marker = (this.reserveViewForDisplay().mapMarkers || []).find((item) => item.eventType === event.type)
+      || Object.assign({
+        id: `active_${event.id || event.type}`,
+        type: "crisis",
+        kind: "exclamation",
+        title: event.title || "现场事件",
+        label: event.title || "现场事件",
+        regionId: event.regionId || "center",
+        impact: event.impact || event.startBody || "现场出现需要处理的变化。",
+        recommendAction: isVisitorArcheryEvent(event.type) ? "visitorAdjust" : isNeighborExchangeEvent(event.type) ? "neighborExchange" : (event.recommendedAction || "houndScout"),
+        responseOptions: (isVisitorArcheryEvent(event.type) || isNeighborExchangeEvent(event.type)) ? [] : (event.responses || []).map((item) => Object.assign({}, item)),
+        eventType: event.type,
+        visualKind: event.visualKind || event.type
+      }, event);
+    return this.openMapMarkerDetail(marker);
+  }
+
+  openWorldEventDetail(marker = {}, definition = null) {
+    const reserve = ((this.state.world || {}).reserve) || {};
+    const active = ((reserve.emergency || {}).active) || {};
+    const event = Object.assign({}, definition || {}, active.type === marker.eventType ? active : {}, marker);
+    const category = eventCategory(event);
+    const realEvent = category.id === "realNature" || event.source === "realNature";
+    const visitorEvent = isVisitorArcheryEvent(event.type || marker.eventType)
+      || marker.type === "visitorIncident"
+      || marker.kind === "visitorIncident"
+      || marker.recommendAction === "visitorAdjust"
+      || /游客现场|游客冲突/.test(`${event.title || ""}${marker.label || ""}${event.impact || ""}`);
+    this.infoDetailModal = {
+      kind: "worldEventDetail",
+      kicker: `${category.label || "现场事件"} · 任务详情`,
+      title: event.title || marker.title || "现场任务",
+      icon: realEvent ? "trail" : category.id === "neighbor" ? "community" : "eye",
+      marker,
+      definition: definition || event,
+      items: [
+        {
+          tag: "事件详情",
+          title: event.date ? `事件经过 · ${event.date}` : "事件经过",
+          body: [event.place, event.summary || event.startBody || marker.impact || "现场出现需要处理的变化。"].filter(Boolean).join("\n")
+        },
+        realEvent ? {
+          tag: "结算影响",
+          title: realNatureImpactPair(event).map((item) => item.label).join(" · "),
+          body: `本任务按事件内容改写这两项。射箭 ≥${REAL_NATURE_ARCHERY_THRESHOLD} 正向上升，1–2 点负向下降。具体数字见结算页。`
+        } : {
+          tag: "可能影响",
+          title: "可能对生态与动物造成的影响",
+          body: event.impact || "若未及时处理，现场风险可能继续影响动物、生境与保护区运行。"
+        }
+      ].filter(Boolean).map((item) => Object.assign({ noCompact: true, largeText: true, stackTag: true }, item)),
+      expandLastItem: true,
+      footer: "",
+      actionLabel: "处理任务",
+      action: () => {
+        if (visitorEvent) {
+          const opened = this.openVisitorIncidentDice(marker);
+          if (!opened && this.infoDetailModal && this.infoDetailModal.kind === "worldEventDetail") {
+            this.infoDetailModal = null;
+            this.render();
+          }
+          return opened;
+        }
+        return this.openNeighborEventDice(marker);
+      }
+    };
+    this.render();
+    return true;
   }
 
   openMapMarkerDetail(marker = {}) {
     this.recordSandboxInteraction("event");
+    this.markUserTaskTrigger();
+    this.markPopupQuiet(1);
+    const liveReserve = (((this.state || {}).world || {}).reserve) || {};
+    touchSandboxTask(liveReserve, marker, Date.now());
+    if (marker.type === "friendAidRequest" || marker.type === "friendAidParcel" || marker.kind === "friendAid") {
+      if (marker.type !== "friendAidParcel") {
+        this.pendingExchangeSource = "sandbox";
+        this.pendingExchangeChannel = "friends";
+      }
+      return marker.type === "friendAidParcel" ? this.openFriendAidParcelModal() : this.openFriendAidRequestModal();
+    }
     if (marker.type === "poacherRescue" || marker.kind === "rescue" || marker.rescueTargetId) {
       return this.openChapterRescueTask(marker.rescueTargetId || marker.targetId || "", { autoRun: true });
     }
@@ -24719,22 +28573,34 @@ class Game {
     }
     const neighborDefinition = marker.eventType && worldEventDefinition(marker.eventType);
     const neighborCategory = neighborDefinition && eventCategory({ type: marker.eventType, source: neighborDefinition.source });
+    const liveEmergency = ((((this.state || {}).world || {}).reserve || {}).emergency || {}).active || null;
+    const realNatureMarker = isRealNatureEventType(marker.eventType)
+      || marker.category === "realNature"
+      || marker.recommendAction === "realEvent";
     const visitorMarker = marker.type === "visitorIncident"
       || marker.kind === "visitorIncident"
       || marker.recommendAction === "visitorAdjust"
+      || isVisitorArcheryEvent(marker.eventType)
       || (!marker.eventType && marker.visualKind === "visitor-conflict")
-      || /游客现场/.test(`${marker.title || ""}${marker.label || ""}${marker.impact || ""}`);
+      || /游客现场|游客冲突/.test(`${marker.title || ""}${marker.label || ""}${marker.impact || ""}`);
+    if (realNatureMarker) {
+      return this.openWorldEventDetail(marker, neighborDefinition || worldEventDefinition(liveEmergency && liveEmergency.type));
+    }
     if (visitorMarker) {
-      this.openVisitorIncidentDice(marker);
-      return;
+      return this.openVisitorIncidentDice(marker);
+    }
+    if (isHarshNatureEvent(marker)) {
+      return this.openHarshNatureArchery(marker);
     }
     if (neighborDefinition && neighborCategory) {
-      // 所有正式剧情事件都在当前界面完成一次掷骰处理，避免误跳入猎犬侦查任务。
-      return this.openNeighborEventDice(marker);
+      return this.openWorldEventDetail(marker, neighborDefinition || worldEventDefinition(liveEmergency && liveEmergency.type));
     }
     const crisisMarker = !this.isPassivePatrolMarker(marker) && (marker.type === "crisis"
       || marker.visualKind === "wildfire");
-    if (crisisMarker && marker.recommendAction && !(marker.responseOptions || []).length) {
+    if (crisisMarker && isHarshNatureEvent(marker)) {
+      return this.openHarshNatureArchery(marker);
+    }
+    if (crisisMarker && marker.recommendAction && marker.recommendAction !== "harshNature" && !(marker.responseOptions || []).length) {
       this.suppressNextHomeMission = true;
       this.toast(`${marker.title || "紧急事件"}：进入处理方案`);
       this.openReserveViewAction(marker.recommendAction, "sandbox-task");
@@ -24751,14 +28617,19 @@ class Game {
     const definition = worldEventDefinition(marker.eventType || (active && active.type));
     if (!definition) return false;
     const event = active && active.type === (marker.eventType || active.type) ? active : Object.assign({}, marker, definition);
+    const exchange = isNeighborExchangeEvent(definition.type || marker.eventType || (active && active.type));
+    const realNature = isRealNatureEventType(definition.type || marker.eventType || (active && active.type));
     this.infoDetailModal = {
       kind: "neighborEventDice",
-      kicker: `${eventCategory(definition).label} · 现场事件`,
+      kicker: `${eventCategory(definition).label} · ${exchange ? "物品交换" : realNature ? "真实事件" : "现场事件"}`,
       title: definition.title || marker.title || "邻区协作请求",
-      icon: "community", marker, event, definition, phase: "ready", archeryAimStartedAt: Date.now(), threshold: 4,
-      actionLabel: "生成点数处理",
+      icon: realNature ? "trail" : "community", marker, event, definition, phase: "ready", archeryAimStartedAt: Date.now(),
+      threshold: exchange ? NEIGHBOR_EXCHANGE_SELF_MIN : realNature ? REAL_NATURE_ARCHERY_THRESHOLD : 4,
+      scoreGuide: exchange ? "5–6 我方得利 · 3–4 互惠 · 1–2 邻区得利" : realNature ? `≥${REAL_NATURE_ARCHERY_THRESHOLD} 正向 · 1–2 负向` : "",
+      actionLabel: exchange ? "射箭判定交换" : "生成点数处理",
       action: () => this.resolveNeighborEventDice(),
-      footer: ""
+      footer: exchange ? "射箭判定 · 点数决定谁更得利" : realNature ? `射箭判定 · ≥${REAL_NATURE_ARCHERY_THRESHOLD} 这两项上升` : "",
+      impactPair: realNature ? realNatureImpactPair(event) : null
     };
     this.render();
     return true;
@@ -24787,37 +28658,58 @@ class Game {
     // animation area, especially on narrow screens.
     const formulaY = stageY + stageH + 30;
     this.roundRect(ctx, innerX, formulaY - 14, innerW, 26, 10, "rgba(255,248,224,.94)", "rgba(176,146,76,.32)");
-    const scoreText = modal.phase === "ready" ? `结果 ? / 6 · 成功线 ${config.threshold || modal.threshold || 4} 点` : `本次 ${roll} / 6 点 · 成功线 ${config.threshold || modal.threshold || 4} 点`;
+    const scoreGuide = config.scoreGuide || modal.scoreGuide || "";
+    const scoreText = scoreGuide
+      ? (modal.phase === "ready" ? `结果 ? / 6 · ${scoreGuide}` : `本次 ${roll} / 6 点 · ${scoreGuide}`)
+      : (modal.phase === "ready" ? `结果 ? / 6 · 成功线 ${config.threshold || modal.threshold || 4} 点` : `本次 ${roll} / 6 点 · 成功线 ${config.threshold || modal.threshold || 4} 点`);
     this.text(ctx, scoreText, x + w / 2, formulaY + 4, this.fitTextSize(ctx, scoreText, innerW - 16, 12, 10, "700"), "#1c3325", "700", "center");
 
     const result = modal.result;
     let resultLayout = null;
-    if (result && modal.phase !== "rolling" && result.businessChange) {
-      const change = result.businessChange;
-      const rowH = 66;
-      const rowY = formulaY + 20;
-      const gap = 8;
-      const rowW = (innerW - gap) / 2;
-      const drawChange = (label, before, after, delta, rowX, unit) => {
-        const color = delta !== 0 ? "#c54838" : "#1c3325";
-        this.roundRect(ctx, rowX, rowY, rowW, rowH, 10, "#fff9e8", "rgba(176,146,76,.30)");
-        this.text(ctx, label, rowX + 12, rowY + 21, 11, "#31533b", "700");
-        const previous = `原来 ${before}${unit}`;
-        this.text(ctx, previous, rowX + 10, rowY + 35, this.fitTextSize(ctx, previous, rowW - 20, 10, 8, "400"), "#66715f", "400");
-        const value = `${after}${unit}`;
-        const valueSize = this.fitTextSize(ctx, value, rowW - 42, 17, 11, "700");
-        this.text(ctx, value, rowX + 12, rowY + 58, valueSize, color, "700");
-        const trend = delta > 0 ? "↑" : delta < 0 ? "↓" : "→";
-        const trendColor = delta > 0 ? "#14845f" : delta < 0 ? "#c54838" : "#8b795c";
-        this.text(ctx, trend, rowX + rowW - 18, rowY + 56, 20, trendColor, "700", "center");
-        return { x: rowX, y: rowY, w: rowW, h: rowH, valueSize, before, after, value, trend };
-      };
-      const visitorLayout = drawChange("游客数量", change.visitorsBefore, change.visitorsAfter, change.visitorsDelta || 0, innerX, "人");
-      const fundLayout = drawChange("保护基金", change.fundBefore, change.fundAfter, change.fundDelta || 0, innerX + rowW + gap, "星币");
+    const impactCards = ((result && result.impactChanges) || modal.impactPair || config.impactPair || []).filter((item) => item && (item.label || item.metric)).slice(0, 2);
+    const rowH = 82;
+    const rowY = formulaY + 20;
+    const gap = 8;
+    const rowW = (innerW - gap) / 2;
+    if (result && modal.phase !== "rolling" && (result.businessChange || impactCards.length)) {
+      const change = result.businessChange || {};
+      const cards = (result.impactChanges || []).length
+        ? result.impactChanges.slice(0, 2).map((item) => ({
+          label: item.label || CORE_METRIC_LABELS[item.metric] || item.metric,
+          before: item.before,
+          after: item.after,
+          delta: item.delta || 0,
+          unit: item.unit || ""
+        }))
+        : [
+          { label: "游客数量", before: change.visitorsBefore, after: change.visitorsAfter, delta: change.visitorsDelta || 0, unit: "人" },
+          { label: "保护基金", before: change.fundBefore, after: change.fundAfter, delta: change.fundDelta || 0, unit: "星币" }
+        ];
+      const layouts = this.drawCoreImpactChangeCards(ctx, cards, innerX, rowY, innerW, rowH);
       const statusY = rowY + rowH + 14;
-      const status = result.success ? (config.successText || "处理完成，变化已写入经营数据") : "处理失败，游客与基金已按结果结算";
-      this.text(ctx, status, x + w / 2, statusY, this.fitTextSize(ctx, status, innerW, 10, 9, "700"), result.success ? "#14845f" : "#c54838", "700", "center");
-      resultLayout = { y: rowY, h: rowH, cards: [visitorLayout, fundLayout], statusY };
+      const pairText = cards.map((item) => `${item.label}${item.delta > 0 ? "↑" : item.delta < 0 ? "↓" : "→"}`).join("  ");
+      const status = config.hideResultStatus
+        ? ""
+        : result.exchangeLabel
+          ? `${result.exchangeLabel}，变化已写入经营数据`
+          : result.success
+            ? (config.successText || `≥3 正向 · ${pairText}`)
+            : `1–2 负向 · ${pairText}`;
+      if (status) {
+        const statusColor = result.exchangeShare === "neighbor" ? "#c54838" : result.success || result.exchangeShare ? "#14845f" : "#c54838";
+        this.text(ctx, status, x + w / 2, statusY, this.fitTextSize(ctx, status, innerW, 11, 9, "700"), statusColor, "700", "center");
+      }
+      resultLayout = { y: rowY, h: rowH, cards: layouts, statusY };
+    } else if (impactCards.length && modal.phase !== "rolling") {
+      impactCards.forEach((item, index) => {
+        const rowX = innerX + index * (rowW + gap);
+        const label = item.label || CORE_METRIC_LABELS[item.metric] || item.metric;
+        this.roundRect(ctx, rowX, rowY, rowW, rowH, 10, "#fff9e8", "rgba(176,146,76,.30)");
+        this.text(ctx, label, rowX + 12, rowY + 24, 13, "#31533b", "700");
+        this.text(ctx, "结算项", rowX + 12, rowY + 44, 10, "#66715f", "400");
+        this.text(ctx, modal.scoreGuide || config.scoreGuide || "≥3 ↑ · 1–2 ↓", rowX + 12, rowY + 64, 11, "#755f45", "700");
+      });
+      resultLayout = { y: rowY, h: rowH, preview: true, cards: impactCards };
     } else {
     const compactNote = modal.phase === "rolling" ? "箭矢飞行中…" : "观察指针位置，点击下方按钮发射";
     this.roundRect(ctx, innerX + 4, formulaY + 20, innerW - 8, 22, 8, "rgba(255,250,236,.76)", "rgba(176,146,76,.16)");
@@ -24834,19 +28726,53 @@ class Game {
   }
 
   drawNeighborEventDiceModalContent(ctx, modal, x, bodyY, w, bodyH) {
+    const exchange = isNeighborExchangeEvent((modal.definition && modal.definition.type) || (modal.event && modal.event.type) || (modal.marker && modal.marker.eventType));
+    const realNature = isRealNatureEventType((modal.definition && modal.definition.type) || (modal.event && modal.event.type) || (modal.marker && modal.marker.eventType));
     modal.renderedNeighborEventLayout = this.drawDiceEventModalBody(ctx, modal, x, bodyY, w, bodyH, {
-      destination: "现场结算",
-      threshold: modal.threshold || 4,
-      readyText: "点击点数处理；结果直接影响游客与保护基金"
+      destination: exchange ? "物品交换" : realNature ? "真实事件结算" : "现场结算",
+      threshold: exchange ? NEIGHBOR_EXCHANGE_SELF_MIN : (modal.threshold || (realNature ? REAL_NATURE_ARCHERY_THRESHOLD : 4)),
+      scoreGuide: exchange ? (modal.scoreGuide || "5–6 我方得利 · 3–4 互惠 · 1–2 邻区得利") : (modal.scoreGuide || (realNature ? `≥${REAL_NATURE_ARCHERY_THRESHOLD} 正向 · 1–2 负向` : "")),
+      successText: exchange ? ((modal.result && modal.result.exchangeLabel) || "交换完成，种源已按点数分配") : realNature ? "" : "处理完成，变化已写入经营数据",
+      hideResultStatus: !!realNature,
+      readyText: exchange ? "瞄准后射箭：5–6 我方得利，3–4 互惠，1–2 邻区得利" : realNature ? `瞄准后射箭：≥${REAL_NATURE_ARCHERY_THRESHOLD} 这两项上升，1–2 点下降` : "点击点数处理；结果直接影响游客与保护基金",
+      impactPair: modal.impactPair || (realNature ? realNatureImpactPair(modal.event || modal.definition || {}) : null)
     });
   }
 
   drawVisitorIncidentDiceModalContent(ctx, modal, x, bodyY, w, bodyH) {
     modal.renderedVisitorIncidentLayout = this.drawDiceEventModalBody(ctx, modal, x, bodyY, w, bodyH, {
       destination: "恢复游线",
-      threshold: 3,
+      threshold: VISITOR_ARCHERY_THRESHOLD,
       successText: modal.scenario ? modal.scenario.successText : "处理完成，游线已恢复",
-      readyText: "点击点数调节现场；结果影响游客与保护基金"
+      readyText: `瞄准后射箭：≥${VISITOR_ARCHERY_THRESHOLD} 正向，1–2 点负向投诉`
+    });
+  }
+
+  drawHarshNatureArcheryModalContent(ctx, modal, x, bodyY, w, bodyH) {
+    const profile = modal.profile || harshNatureProfile(modal.harshKind);
+    modal.renderedHarshNatureLayout = this.drawDiceEventModalBody(ctx, modal, x, bodyY, w, bodyH, {
+      destination: profile.title || "灾害判定",
+      threshold: HARSH_NATURE_ARCHERY_THRESHOLD,
+      scoreGuide: modal.scoreGuide || "≥3 伤害递减 · 1–2 伤害递增 · 必有负向",
+      successText: (modal.result && modal.result.body) || "伤害已写入现场",
+      readyText: "瞄准后射箭：点数越高伤害越小，但一定留下负向结果",
+      impactPair: modal.impactPair || (profile.metrics || []).map((metric) => ({
+        metric,
+        label: metric === "grass" ? "草场" : metric === "disease" ? "病虫害" : CORE_METRIC_LABELS[metric] || metric
+      }))
+    });
+  }
+
+  drawChapterSpecialTaskModalContent(ctx, modal, x, bodyY, w, bodyH) {
+    const def = modal.def || {};
+    const archery = def.mode !== "dice";
+    const threshold = archery ? ARCHERY_SUCCESS : DICE_SUCCESS;
+    modal.renderedVisitorIncidentLayout = this.drawDiceEventModalBody(ctx, modal, x, bodyY, w, bodyH, {
+      destination: def.taskTitle || "特别任务",
+      threshold,
+      successText: changeSummary(((modal.result || {}).changes) || []) || "两项关键数据已结算",
+      readyText: archery ? `瞄准后射箭：≥${threshold} 正向` : `掷骰：${threshold}+ 成功`,
+      scoreGuide: archery ? "射箭判定" : "骰子判定"
     });
   }
 
@@ -24944,15 +28870,26 @@ class Game {
   animateInlineDiceRoll(modal, finalRoll, tokenKey, onDone) {
     const token = `${Date.now()}_${finalRoll}_${Math.random()}`;
     this[tokenKey] = token;
-    modal.diceMotion = { startedAt: Date.now(), duration: 612 };
+    this.beginArcheryFlight(modal, 720);
+    // Regression scripts use a minimal wx shim without a render loop. Finish
+    // immediately there; the real mini-game always has requestAnimationFrame
+    // and keeps the full arrow/dice animation.
+    const headless = typeof wx !== "undefined" && typeof wx.requestAnimationFrame !== "function";
+    if (headless) {
+      modal.displayRoll = finalRoll;
+      modal.diceMotion = null;
+      this[tokenKey] = null;
+      onDone();
+      return;
+    }
     let frame = 0;
     const animate = () => {
       if (this[tokenKey] !== token || this.infoDetailModal !== modal) return;
       frame += 1;
-      modal.displayRoll = frame >= 10 ? finalRoll : ((finalRoll + frame * 5) % 6) + 1;
+      modal.displayRoll = frame >= 12 ? finalRoll : ((finalRoll + frame * 5) % 6) + 1;
       this.render();
-      if (frame < 10) {
-        setTimeout(animate, 68);
+      if (frame < 12) {
+        setTimeout(animate, 72);
         return;
       }
       this[tokenKey] = null;
@@ -24969,24 +28906,55 @@ class Game {
     const active = reserve.emergency && reserve.emergency.active;
     if (!active) { this.toast("邻区事件已处理"); this.dismissInfoDetailModal(); return false; }
     modal.archeryAimValue = this.archeryAimValueFor(modal);
-    const roll = this.archeryScoreFor(modal); const success = roll >= (modal.threshold || 4);
-    const action = active.recommendedAction || "habitat";
+    this.lockArcheryAim(modal);
+    const roll = this.archeryScoreFor(modal);
+    const exchange = isNeighborExchangeEvent(active.type);
+    const realNature = isRealNatureEventType(active.type);
+    const advantage = exchange ? neighborExchangeAdvantage(roll) : null;
+    const success = exchange ? true : realNature ? roll >= REAL_NATURE_ARCHERY_THRESHOLD : roll >= (modal.threshold || 4);
+    const action = exchange ? "neighborExchange" : (active.recommendedAction || "habitat");
+    const beforeState = this.cloneStateForGoalProgress();
     let outcome = null;
     // 一次掷骰即完成当前事件，只结算一次压力与经营变化。
     if (success) active.progress = Math.max(active.progress || 0, active.target || 1);
     else active.daysRemaining = 1;
+    if (exchange || realNature) reserve.emergency.pendingArcheryRoll = roll;
     outcome = updateReserveEmergency(reserve, action, {}, success) || outcome;
     this.clearResolvedEventPrompt(active.type, active.id);
     const change = outcome && outcome.businessChange;
+    const impactChanges = realNature ? ((change && change.impactChanges) || []) : null;
+    if (exchange) {
+      const progress = applyGoalProgress(beforeState, this.state, { action: "neighborExchange", now: Date.now() });
+      this.state = progress.state;
+      modal.goalResult = progress;
+    }
+    // 事件已从 emergency.active 清除，必须同步丢弃旧 crisis 卡和任务锁；
+    // 否则顶部“当前目标”会继续持有已结算事件并允许重复进入。
+    this.clearResolvedEventPrompt(active.type, active.id);
+    this.activeTaskLock = null;
+    this.currentGoalView(true);
     modal.phase = "rolling"; modal.displayRoll = 1;
     modal.actionLabel = "点数生成中"; modal.action = () => {};
-    modal.footer = "点数生成中 · 稍候查看游客与基金变化";
-    modal.result = { roll, success, businessChange: change || null };
+    modal.footer = realNature && impactChanges && impactChanges.length
+      ? `点数生成中 · 稍候查看${impactChanges.map((item) => item.label).join("、")}`
+      : "点数生成中 · 稍候查看游客与基金变化";
+    modal.result = {
+      roll, success, advantage,
+      exchangeShare: change && change.exchangeShare || advantage,
+      exchangeLabel: change && change.exchangeLabel || "",
+      businessChange: change || null,
+      impactChanges
+    };
     this.playSfx("dice"); saveState(this.state); this.render();
     this.animateInlineDiceRoll(modal, roll, "neighborRollToken", () => {
+      const shareLabel = modal.result && modal.result.exchangeLabel;
       modal.phase = "result"; modal.actionLabel = "关闭结果"; modal.action = () => this.dismissInfoDetailModal();
-      modal.footer = `结果 ${roll} · ${success ? "协作成功" : "协作失败"} · 结果已写入经营数据`;
-      this.playSfx(success ? "success" : "warning"); this.render();
+      modal.footer = exchange
+        ? `结果 ${roll} · ${shareLabel || "交换完成"} · 结果已写入经营数据`
+        : realNature
+          ? `结果 ${roll} · ${success ? "正向" : "负向"} · ${(impactChanges || []).map((item) => `${item.label} ${item.delta > 0 ? "+" : ""}${item.delta}${item.unit || ""}`).join(" · ")}`
+          : `结果 ${roll} · ${success ? "协作成功" : "协作失败"} · 结果已写入经营数据`;
+      this.playArcheryImpact(roll); this.render();
     });
     return modal.result;
   }
@@ -24996,11 +28964,14 @@ class Game {
     const active = reserve.emergency && reserve.emergency.active;
     const today = ((((reserve.development || {}).operations || {}).today) || {});
     const legacyVisitorTrouble = !!(today.trouble && today.trouble !== "尚无明显麻烦" && !/已回到观察线|现场恢复|已处理/.test(today.trouble));
+    const activeVisitorEvent = !!(active && this.isVisitorSandboxReminder(active));
     const daily = marker.dailyTask ? this.dailyEventChecklist() : null;
     const dailyVisitor = daily && daily.objectives.find((item) => item.kind === "visitor" && !item.complete);
-    const dailyRoutine = !!(dailyVisitor && (!active || active.type !== "visitor_conflict") && !legacyVisitorTrouble);
-    if ((!active || active.type !== "visitor_conflict") && !legacyVisitorTrouble && !dailyRoutine) {
+    const dailyRoutine = !!(dailyVisitor && !activeVisitorEvent && !legacyVisitorTrouble);
+    if (!activeVisitorEvent && !legacyVisitorTrouble && !dailyRoutine) {
       this.toast("游客现场已经恢复，无需重复处理");
+      if (this.infoDetailModal && this.infoDetailModal.kind === "worldEventDetail") this.infoDetailModal = null;
+      this.render();
       return false;
     }
     const scenarios = [
@@ -25010,7 +28981,15 @@ class Game {
       { id: "child_separation", title: "游客与儿童走散", body: "亲子团在林缘观景点短暂走散，广播和巡护员正在寻找。人群停留让动物路线变窄，需要先稳住现场。", successText: "家庭已汇合，观察线重新开放" }
     ];
     const scenarioId = marker.scenarioId || (active && active.scenarioId) || scenarios[(Math.max(1, Number((this.state.world || {}).day) || 1) - 1) % scenarios.length].id;
-    const scenario = scenarios.find((item) => item.id === scenarioId) || scenarios[0];
+    const eventDefinition = activeVisitorEvent ? worldEventDefinition(active.type) : null;
+    const scenario = eventDefinition && active.type !== "visitor_conflict"
+      ? {
+        id: active.type,
+        title: eventDefinition.title,
+        body: eventDefinition.startBody,
+        successText: eventDefinition.resolvedBody
+      }
+      : scenarios.find((item) => item.id === scenarioId) || scenarios[0];
     this.infoDetailModal = {
       kind: dailyRoutine ? "visitorRoutine" : "visitorIncidentDice",
       kicker: "游客现场 · 调节",
@@ -25022,19 +29001,420 @@ class Game {
       dailyRoutine,
       phase: "ready",
       archeryAimStartedAt: Date.now(),
+      threshold: VISITOR_ARCHERY_THRESHOLD,
       items: dailyRoutine ? [
         { tag: "任务", title: "检查游线与游客秩序", body: "现场暂无冲突，完成一次日常引导和游线维护即可记录今日任务。" },
         { tag: "奖励", title: dailyVisitor.reward, body: "完成后自动发放，今日仅领取一次。" }
       ] : [
         { tag: "发生", title: scenario.title, body: scenario.body },
-        { tag: "游客与基金", title: "成功恢复客流，失败离场退款", body: "成功约6%新客回流；失败约15%游客离场，退还对应贡献。实际人数和星币见结算。" },
-        { tag: "行动", title: "调节现场", body: "点数 ≥3 成功；确认后处理。" }
+        { tag: "游客与基金", title: "成功恢复客流，失败离场退款", body: `射箭 ≥3 正向约6%新客回流；1–2 点负向约15%游客离场并退款。瞄准后发射，得分 ≥${VISITOR_ARCHERY_THRESHOLD} 正向稳定游线。` }
       ],
-      footer: dailyRoutine ? "确认后完成维护并记录每日进度" : "点数判定 · 3点及以上有效",
-      actionLabel: dailyRoutine ? "完成维护" : "生成点数调节",
+      footer: dailyRoutine ? "确认后完成维护并记录每日进度" : `射箭判定 · ${VISITOR_ARCHERY_THRESHOLD}点及以上正向`,
+      actionLabel: dailyRoutine ? "完成维护" : "射箭判定",
       action: () => this.resolveVisitorIncidentDice()
     };
     this.render();
+    return true;
+  }
+
+  openHarshNatureArchery(marker = {}) {
+    const kind = harshNatureKind(marker) || "wildfire";
+    const profile = harshNatureProfile(kind);
+    this.infoDetailModal = {
+      kind: "harshNatureDice",
+      kicker: `${profile.title} · 伤害判定`,
+      title: marker.title || marker.label || profile.title,
+      icon: profile.icon,
+      marker,
+      harshKind: kind,
+      profile,
+      phase: "ready",
+      archeryAimStartedAt: Date.now(),
+      threshold: HARSH_NATURE_ARCHERY_THRESHOLD,
+      scoreGuide: "≥3 伤害递减 · 1–2 伤害递增 · 必有负向",
+      impactPair: (profile.metrics || []).map((metric) => ({
+        metric,
+        label: metric === "grass" ? "草场" : metric === "disease" ? "病虫害" : CORE_METRIC_LABELS[metric] || metric
+      })),
+      actionLabel: "射箭判定伤害",
+      action: () => this.resolveHarshNatureArchery(),
+      footer: "射箭判定 · 点数越高伤害越小，一定留下负向结果"
+    };
+    this.render();
+    return true;
+  }
+
+  resolveHarshNatureArchery() {
+    const modal = this.infoDetailModal;
+    if (!modal || modal.kind !== "harshNatureDice" || modal.phase !== "ready") return false;
+    modal.phase = "resolving";
+    const reserve = ((this.state.world || {}).reserve) || {};
+    const beforeState = this.cloneStateForGoalProgress();
+    this.lockArcheryAim(modal);
+    const roll = this.archeryScoreFor(modal);
+    const outcome = applyHarshNatureOutcome(reserve, modal.harshKind || harshNatureKind(modal.marker), roll);
+    this.clearResolvedEventPrompt((modal.marker && modal.marker.eventType) || `sandbox_${outcome.kind}`, (modal.marker && modal.marker.id) || "");
+    const progress = applyGoalProgress(beforeState, this.state, { action: "harshNature", now: Date.now() });
+    this.state = progress.state;
+    this.clearResolvedEventPrompt((modal.marker && modal.marker.eventType) || `sandbox_${outcome.kind}`, (modal.marker && modal.marker.id) || "");
+    modal.goalResult = progress;
+    modal.result = Object.assign({}, outcome, {
+      success: outcome.success,
+      impactChanges: outcome.changes,
+      businessChange: { impactChanges: outcome.changes }
+    });
+    this.activeTaskLock = null;
+    this.currentGoalView(true);
+    modal.phase = "rolling";
+    modal.displayRoll = 1;
+    modal.actionLabel = "点数生成中";
+    modal.action = () => {};
+    modal.footer = "点数生成中 · 稍候查看伤害结果";
+    this.playSfx("dice");
+    saveState(this.state);
+    this.render();
+    this.animateInlineDiceRoll(modal, roll, "harshNatureRollToken", () => {
+      modal.phase = "result";
+      modal.actionLabel = "关闭结果";
+      modal.action = () => {
+        this.activeTaskLock = null;
+        this.dismissInfoDetailModal();
+      };
+      modal.footer = outcome.body;
+      this.playArcheryImpact(roll);
+      this.render();
+    });
+    return outcome;
+  }
+
+  friendAidAllies() {
+    return (this.cloudService && this.cloudService.friendRows)
+      || (this.wechatFriends && this.wechatFriends.friendRows)
+      || [];
+  }
+
+  openAutoExchangeModal(source = "sandbox", channel = "friends") {
+    this.pendingExchangeSource = source === "league" ? "league" : "sandbox";
+    this.pendingExchangeChannel = channel === "world" ? "world" : "friends";
+    return this.openFriendAidRequestModal();
+  }
+
+  isNamedFriendExchange() {
+    return this.screen === "league"
+      && this.pendingExchangeChannel !== "world"
+      && (this.leagueScope === "friends" || this.pendingExchangeSource === "league");
+  }
+
+  openFriendAidRequestModal() {
+    const reserve = ((this.state.world || {}).reserve) || {};
+    const status = friendAidStatus(reserve);
+    if (status.canOpen) return this.openFriendAidParcelModal();
+    const namedFriend = this.isNamedFriendExchange();
+    const choices = namedFriend ? proposeFriendExchangeChoices(reserve) : null;
+    const proposal = namedFriend ? null : status.proposal;
+    if (!(namedFriend ? choices : proposal)) {
+      const stock = Object.values((((reserve.wildernessKnowledge || {}).tradeStock) || {})).reduce((sum, amount) => sum + Math.max(0, Number(amount) || 0), 0);
+      this.toast(stock > 0 ? "现有物资还要用来建设，多出来的才能交换" : "先探索一份可交换素材，系统才能按缺乏和拥有发出求援");
+      return false;
+    }
+    if (!status.canRequest) {
+      this.toast(status.usage && status.usage.remaining <= 0 ? "今日交换次数已用完" : "交换结果还没查看");
+      return false;
+    }
+    const source = this.pendingExchangeSource === "league" ? "league" : "sandbox";
+    const selected = source === "league" ? this.selectedRival() : null;
+    const partner = matchExchangePartner(this.friendAidAllies(), Date.now(), selected);
+    if (this.pendingExchangeChannel) partner.channel = this.pendingExchangeChannel;
+    const partnerName = String(partner.name || partner.owner || partner.nickName || partner.nickname || "盟友").trim().slice(0, 16) || "盟友";
+    const partnerRole = partner.simulated === true ? "巡护员" : "";
+    const previous = this.infoDetailModal && this.infoDetailModal.kind === "friendAidRequest" ? this.infoDetailModal : null;
+    const selectedWantId = namedFriend
+      ? ((previous && (choices.wants || []).some((item) => item.id === previous.selectedWantId) && previous.selectedWantId) || choices.defaultWantId)
+      : "";
+    const selectedWant = namedFriend ? (choices.wants || []).find((item) => item.id === selectedWantId) || choices.wants[0] : null;
+    const wantItems = namedFriend
+      ? (choices.wants || []).map((want) => Object.assign(
+        this.ecologyArchiveItem(want.id === selectedWantId ? "已选缺口" : "缺口", `${want.label} ×${want.stock}`, {
+          body: this.compactDescriptionText(want.purpose || "按缺口匹配", 12),
+          detailBody: want.purpose || "点选后向对方求援"
+        }),
+        {
+          wantId: want.id,
+          selected: want.id === selectedWantId,
+          action: () => this.selectFriendExchangeWant(want.id)
+        }
+      ))
+      : [this.ecologyArchiveItem("我缺乏", `${proposal.want.label} ×${proposal.wantStock}`, {
+        body: this.compactDescriptionText(proposal.purpose || "按缺口匹配", 12),
+        detailBody: proposal.purpose || "按缺口自动写出需求"
+      })];
+    this.infoDetailModal = {
+      kind: "friendAidRequest",
+      namedFriendExchange: namedFriend,
+      selectedWantId,
+      wantOptions: namedFriend ? choices.wants : [],
+      partnerName,
+      kicker: namedFriend ? "好友榜 · 点名求援" : source === "league" ? "排行榜 · 发出交换需求" : "沙盘 · 发出交换需求",
+      title: namedFriend
+        ? `向${partnerName}求援：换${selectedWant.label}`
+        : `求援：用${proposal.offer.label}换${proposal.want.label}`,
+      icon: "community",
+      expandableItems: !namedFriend,
+      items: [
+        this.ecologyArchiveItem("我拥有", `${(namedFriend ? choices.offer : proposal.offer).label} ×${namedFriend ? choices.offerStock : proposal.offerStock}`, {
+          body: "自动拿出1份溢出库存",
+          detailBody: `${(namedFriend ? choices.offer : proposal.offer).label} ×${namedFriend ? choices.offerStock : proposal.offerStock}`
+        }),
+        ...wantItems,
+        Object.assign({
+          tag: namedFriend ? "求援对象" : "自动匹配",
+          title: partnerName,
+          body: "",
+          largeText: true,
+          stackTag: true
+        }, partnerRole ? { partnerRole } : {})
+      ],
+      footer: namedFriend ? "点选一个缺口后发出，不改游客和动物总数" : "确认后写入发件箱",
+      choices: [
+        { label: "先不发出", action: () => this.dismissInfoDetailModal() },
+        { label: namedFriend ? "向对方求援" : "发出求援", action: () => this.confirmFriendAidRequest() }
+      ]
+    };
+    this.render();
+    return true;
+  }
+
+  selectFriendExchangeWant(wantId = "") {
+    const modal = this.infoDetailModal;
+    if (!modal || modal.kind !== "friendAidRequest" || !modal.namedFriendExchange) return false;
+    if (!(modal.wantOptions || []).some((item) => item.id === wantId)) return false;
+    modal.selectedWantId = wantId;
+    return this.openFriendAidRequestModal();
+  }
+
+  confirmFriendAidRequest() {
+    const reserve = ((this.state.world || {}).reserve) || {};
+    const source = this.pendingExchangeSource === "league" ? "league" : "sandbox";
+    const channel = this.pendingExchangeChannel === "world" ? "world" : "friends";
+    const selected = source === "league" ? this.selectedRival() : null;
+    const namedFriend = this.isNamedFriendExchange();
+    const selectedWantId = namedFriend && this.infoDetailModal && this.infoDetailModal.kind === "friendAidRequest"
+      ? this.infoDetailModal.selectedWantId
+      : "";
+    const result = sendFriendAidRequest(reserve, this.friendAidAllies(), Date.now(), {
+      source,
+      channel,
+      partner: selected,
+      wantId: selectedWantId || undefined,
+      day: Math.max(1, Number((this.state.world || {}).day) || Number((reserve.guardianCycle || {}).day) || 1)
+    });
+    if (!result.ok) {
+      if (result.reason === "no_stock") this.toast("先探索一份可交换素材，或等建设用剩后再交换");
+      else if (result.reason === "reserved") this.toast("建设还需要这份物资，多出来的才能交换");
+      else if (result.reason === "limit") this.toast("今日交换次数已用完");
+      else if (result.reason === "no_want") this.toast("请先点选一个缺口");
+      else if (result.reason === "incoming") return this.openFriendAidParcelModal();
+      else this.toast("这次求援还不能发出");
+      return false;
+    }
+    saveState(this.state);
+    this.reserveViewRenderCache = null;
+    const collectionGift = grantNextCollectionFromExchange(this.state, { partnerName: result.partner && result.partner.label });
+    if (collectionGift.ok) this.toast(`求援已匹配 · ${result.summary} · 收藏 ${collectionGift.item.name}`);
+    else this.toast(`求援已匹配 · ${result.summary}`);
+    return this.openFriendAidParcelModal();
+  }
+
+  openFriendAidParcelModal() {
+    const reserve = ((this.state.world || {}).reserve) || {};
+    const status = friendAidStatus(reserve);
+    const parcel = status.incoming;
+    if (!parcel) {
+      this.toast("还没有交换结果");
+      return false;
+    }
+    const letter = parcelLetter(parcel);
+    if (parcel.status === "sealed") {
+      this.infoDetailModal = {
+        kind: "friendAidLetter",
+        kicker: "收到 · 交换结果",
+        title: letter.title,
+        icon: "signal",
+        parcel,
+        prose: letter.body,
+        meta: `拿出 ${parcel.offerLabel || "素材"} · 换回 ${parcel.itemLabel} · ${parcel.friendName}`,
+        choices: [
+          { label: "稍后查看", action: () => this.dismissInfoDetailModal() },
+          { label: "确认收到", action: () => this.confirmOpenFriendAidParcel() }
+        ]
+      };
+      this.render();
+      return true;
+    }
+    this.infoDetailModal = {
+      kind: "friendAidLetter",
+      kicker: letter.kicker,
+      title: letter.title,
+      icon: "signal",
+      parcel,
+      prose: letter.body,
+      meta: `${parcel.friendName} · 拿出 ${parcel.offerLabel || "素材"} · 换回 ${parcel.itemLabel}`,
+      footer: "可在生存频道收件箱和发件箱再次查看这次往来。"
+    };
+    this.render();
+    return true;
+  }
+
+  confirmOpenFriendAidParcel() {
+    const reserve = ((this.state.world || {}).reserve) || {};
+    const result = openFriendAidParcel(reserve);
+    if (!result.ok) {
+      this.toast("这包已经拆过了");
+      return false;
+    }
+    saveState(this.state);
+    this.reserveViewRenderCache = null;
+    this.playSfx("success");
+    const letter = result.letter || parcelLetter(result.parcel);
+    this.infoDetailModal = {
+      kind: "friendAidLetter",
+      kicker: "交换结果 · 已确认",
+      title: letter.title,
+      icon: "signal",
+      parcel: result.parcel,
+      prose: letter.body,
+      meta: `${result.parcel.friendName} · 拿出 ${result.parcel.offerLabel || "素材"} · 换回 ${result.parcel.itemLabel}`,
+      footer: "可在生存频道收件箱和发件箱再次查看这次往来。"
+    };
+    this.render();
+    return true;
+  }
+
+  useFriendAidOnSpecialTask() {
+    const modal = this.infoDetailModal;
+    if (!modal || modal.kind !== "chapterSpecialTask" || modal.phase !== "ready") return false;
+    const reserve = ((this.state.world || {}).reserve) || {};
+    const beforeState = this.cloneStateForGoalProgress();
+    const result = applyFriendAidOnSpecial(reserve);
+    if (!result.ok) {
+      this.toast(result.reason === "sealed" ? "先到沙盘拆开好友包裹" : "本章已经用过好友物");
+      return false;
+    }
+    const progress = applyGoalProgress(beforeState, this.state, { action: "friendAid", now: Date.now() });
+    this.state = progress.state;
+    saveState(this.state);
+    this.reserveDisplayTargetCache = null;
+    this.reserveViewRenderCache = null;
+    this.numberAnimationBurstUntil = Date.now() + 2200;
+    this.numberAnimationBurstCause = "task";
+    this.playSfx("success");
+    modal.aidCanUse = false;
+    modal.aidResult = result;
+    const aidItem = {
+      tag: "好友物",
+      title: result.summary,
+      body: `${result.parcel.friendName}的${result.parcel.itemLabel}已结算一次，特别任务仍要射箭或掷点完成。`
+    };
+    modal.items = (modal.items || []).filter((item) => item.tag !== "好友物").concat(aidItem);
+    this.toast(`用了${result.parcel.friendName}的${result.parcel.itemLabel} · ${result.summary}`);
+    this.render();
+    return true;
+  }
+
+  openChapterSpecialTask() {
+    const reserve = ((this.state.world || {}).reserve) || {};
+    const status = chapterSpecialStatus(reserve);
+    if (!status.available) {
+      this.toast(status.state.completed ? "本章特别任务已经完成" : "特别任务还在酝酿，稍后再看");
+      return false;
+    }
+    const def = status.def;
+    const pair = def.metrics.map((metric) => ({
+      animals: "动物数量", visitors: "游客", water: "水源", grass: "草地", fund: "保护基金"
+    }[metric] || metric)).join("、");
+    const archery = def.mode === "archery";
+    const threshold = archery ? ARCHERY_SUCCESS : DICE_SUCCESS;
+    const aid = friendAidStatus(reserve);
+    const items = [
+      { tag: "任务", title: def.taskTitle, body: def.taskBody || def.storyBody },
+      { tag: "影响", title: `只改 ${pair}`, body: archery ? `射箭 ≥${threshold} 正向，1–2 点负向。` : `骰子 ${threshold}+ 成功。结算只改这两项数据。` }
+    ];
+    if (aid.canUse) {
+      items[1].body += ` 已拆开${aid.incoming.friendName}的${aid.incoming.itemLabel}，可在此结算一次。`;
+    }
+    this.infoDetailModal = {
+      kind: "chapterSpecialTask",
+      kicker: `${def.storyTitle} · 特别任务`,
+      title: def.taskTitle,
+      icon: "paw",
+      def,
+      explorationMode: archery ? "archery" : "animalDice",
+      phase: "ready",
+      archeryAimStartedAt: Date.now(),
+      threshold,
+      aidCanUse: !!aid.canUse,
+      items,
+      footer: archery ? `射箭判定 · ${threshold}点及以上正向` : `骰子判定 · ${threshold}点及以上成功`,
+      actionLabel: archery ? "射箭判定" : "掷出点数",
+      action: () => this.resolveChapterSpecialTask()
+    };
+    this.render();
+    return true;
+  }
+
+  resolveChapterSpecialTask() {
+    const modal = this.infoDetailModal;
+    if (!modal || modal.kind !== "chapterSpecialTask" || modal.phase !== "ready") return false;
+    const reserve = ((this.state.world || {}).reserve) || {};
+    const def = modal.def || chapterSpecialStatus(reserve).def;
+    const archery = def.mode === "archery";
+    if (archery) this.lockArcheryAim(modal);
+    const roll = archery ? this.archeryScoreFor(modal) : (1 + Math.floor(Math.random() * 6));
+    // 先进入射箭/掷点动画，结果和资源结算都必须等箭矢落靶后才生成。
+    // 之前这里在动画前直接 applyChapterSpecialReward，导致玩家先看到结算
+    // 数值，再看到射箭过程，特别任务的因果顺序被倒置。
+    modal.phase = "rolling";
+    modal.displayRoll = 1;
+    modal.result = null;
+    modal.goalResult = null;
+    modal.actionLabel = archery ? "射箭中…" : "点数生成中…";
+    modal.action = () => {};
+    this.playSfx("dice");
+    this.render();
+    this.animateInlineDiceRoll(modal, roll, "chapterSpecialRollToken", () => {
+      if (this.infoDetailModal !== modal) return;
+      const currentReserve = ((this.state.world || {}).reserve) || {};
+      const beforeState = this.cloneStateForGoalProgress();
+      const result = applyChapterSpecialReward(currentReserve, roll);
+      if (!result.ok) {
+        modal.phase = "ready";
+        modal.displayRoll = 0;
+        this.activeTaskLock = null;
+        this.toast(result.reason === "completed" ? "本章特别任务已经完成" : "特别任务还不能结算");
+        this.dismissInfoDetailModal();
+        return;
+      }
+      const progress = applyGoalProgress(beforeState, this.state, { action: "chapterSpecial", now: Date.now() });
+      this.state = progress.state;
+      saveState(this.state);
+      this.reserveDisplayTargetCache = null;
+      this.reserveDisplayTargetRefreshLeft = 0;
+      this.numberAnimationBurstUntil = Date.now() + 2200;
+      this.numberAnimationBurstCause = "task";
+      this.playArcheryImpact(roll);
+      this.playSfx("success");
+      modal.phase = "result";
+      modal.result = result;
+      modal.goalResult = progress;
+      modal.actionLabel = "知道了";
+      modal.action = () => this.dismissInfoDetailModal();
+      modal.items = [
+        { tag: "结果", title: `${roll} / 6 · ${result.success ? (archery ? "射箭正向" : "骰子成功") : (archery ? "射箭负向" : "骰子未过")}`, body: `${def.storyTitle}：${def.taskTitle}` },
+        { tag: "数据", title: changeSummary(result.changes), body: result.changes.map((item) => `${item.metric === "fund" ? "保护基金" : item.metric === "visitors" ? "游客" : item.metric === "animals" ? "动物数量" : item.metric === "water" ? "水源" : "草地"} ${item.before} → ${item.after}`).join("。") }
+      ];
+      this.toast(changeSummary(result.changes));
+      this.render();
+    });
     return true;
   }
 
@@ -25047,7 +29427,7 @@ class Game {
     const active = reserve.emergency && reserve.emergency.active;
     const operations = ((reserve.development || {}).operations) || {};
     const today = operations.today || (operations.today = {});
-    const activeVisitorIncident = !!(active && active.type === "visitor_conflict");
+    const activeVisitorIncident = !!(active && this.isVisitorSandboxReminder(active));
     if (!activeVisitorIncident && !modal.legacyVisitorTrouble && !modal.dailyRoutine) {
       modal.phase = "ready";
       this.activeTaskLock = null;
@@ -25055,11 +29435,11 @@ class Game {
       this.dismissInfoDetailModal();
       return false;
     }
-    const beforeState = JSON.parse(JSON.stringify(this.state));
-    if (!modal.dailyRoutine) modal.archeryAimValue = this.archeryAimValueFor(modal);
+    const beforeState = this.cloneStateForGoalProgress();
+    if (!modal.dailyRoutine) this.lockArcheryAim(modal);
     const roll = modal.dailyRoutine ? 6 : this.archeryScoreFor(modal);
-    const beforeVisitors = Math.max(0, Number(today.visitors) || 0) + Math.max(0, Number(today.recruitedVisitors) || 0);
-    const success = roll >= 3;
+    const beforeVisitors = chapterVisitorTotal(reserve);
+    const success = modal.dailyRoutine ? true : visitorArcherySuccess(roll);
     let left = 0;
     if (success) {
       reserve.reputation = Math.min(100, (reserve.reputation || 0) + 2);
@@ -25068,6 +29448,24 @@ class Game {
       reserve.reputation = Math.max(0, (reserve.reputation || 0) - 3);
     }
     const businessChange = applyEventBusinessOutcome(reserve, activeVisitorIncident ? active : { id: `visitor_legacy_${Date.now()}`, type: "visitor_conflict", title: "游客现场调节" }, success);
+    let animalChange = null;
+    if (success) {
+      const ecology = reserve.ecology || (reserve.ecology = {});
+      const unavailableSpecies = chapterCaptiveSpeciesSet(reserve);
+      const candidates = ["herbivores", "birds", "predators"].flatMap((group) => (
+        Object.entries(ecology[group] || {}).map(([speciesId, population]) => ({
+          group, speciesId, population: Math.max(0, Number(population) || 0)
+        }))
+      )).filter((item) => !unavailableSpecies.has(item.speciesId));
+      candidates.sort((a, b) => a.population - b.population || a.speciesId.localeCompare(b.speciesId));
+      const recipient = candidates[0];
+      if (recipient) {
+        const added = roll >= 6 ? 3 : roll >= 5 ? 2 : 1;
+        ecology[recipient.group][recipient.speciesId] = recipient.population + added;
+        require("./animalSourceLedger").recordIncrease(reserve, "immigrated", added);
+        animalChange = { speciesId: recipient.speciesId, before: recipient.population, after: recipient.population + added, added };
+      }
+    }
     left = Math.max(0, -businessChange.visitorsDelta);
     today.lastTroubleOutcome = success ? "游客已回到观察线，游线恢复" : `调节失败，${left}名游客提前离场`;
     // 处置完成后必须清除可行动状态，否则旧存档会持续生成同一个地图标记。
@@ -25076,10 +29474,13 @@ class Game {
       id: `${(active && active.id) || "visitor_trouble"}_adjust_${Date.now()}`,
       kind: success ? "resolved" : "failed",
       success,
-      type: "visitor_conflict",
-      title: success ? "游客现场已稳定" : "游客提前离场",
+      type: activeVisitorIncident ? active.type : "visitor_conflict",
+      title: success
+        ? ((active && active.title) ? `${active.title}已妥善处理` : "游客现场已稳定")
+        : ((active && active.type === "visitor_conflict") ? "游客冲突引发投诉" : "游客事件处理失利"),
       businessChange,
-      body: `${modal.scenario ? modal.scenario.title : "游客现场调节"}：结果 ${roll} · ${success ? (modal.scenario ? modal.scenario.successText : "游线恢复") : `${left}名游客离场`}。${eventBusinessSummary(businessChange)}。`
+      animalChange,
+      body: `${modal.scenario ? modal.scenario.title : "游客现场调节"}：结果 ${roll} · ${success ? (modal.scenario ? modal.scenario.successText : "游线恢复") : `${left}名游客离场`}。${eventBusinessSummary(businessChange)}。${animalChange ? `友好环境吸引 ${animalChange.added} 只动物加入种群。` : ""}`
     };
     reserve.emergency = Object.assign({}, reserve.emergency, {
       active: activeVisitorIncident ? null : active,
@@ -25087,10 +29488,11 @@ class Game {
       lastOutcome: outcome,
       history: (reserve.emergency.history || []).concat(outcome).slice(-8)
     });
-    this.clearResolvedEventPrompt("visitor_conflict", activeVisitorIncident ? active.id : "");
+    this.clearResolvedEventPrompt(activeVisitorIncident ? active.type : "visitor_conflict", activeVisitorIncident ? active.id : "");
     modal.items = [
-      { tag: "结果", title: `${roll} / 6 · ${success ? "调节成功" : "调节失败"}`, body: outcome.body },
+      { tag: "结果", title: `${roll} / 6 · ${success ? "射箭正向" : "射箭负向"}`, body: outcome.body },
       { tag: "游客", title: `${beforeVisitors} → ${businessChange.visitorsAfter} 人`, body: success ? "游线恢复带来回流，后续招募客流回升。" : `${left} 人提前离场，贡献退款已计入账本。` },
+      ...(animalChange ? [{ tag: "动物增加", title: `${animalChange.speciesId} ${animalChange.before} → ${animalChange.after} 只`, body: "妥善处理游客事件后，安静而安全的环境吸引动物进入保护区。" }] : []),
       { tag: "保护基金", title: `${businessChange.fundBefore} → ${businessChange.fundAfter} 星币`, body: eventBusinessSummary(businessChange) },
       { tag: "结果", title: success ? "动物路线恢复" : "现场口碑下降", body: success ? "保护区声誉 +2，事件标记已清除。" : "保护区声誉 -3，事件标记已清除。" }
     ];
@@ -25098,8 +29500,10 @@ class Game {
     this.state = progress.state;
     // applyGoalProgress 返回基于 beforeState 的新对象，会覆盖之前清理过的
     // 视图缓存；在最终状态落地后再次清除，避免已处理游客事件重新出现在沙盘。
-    this.clearResolvedEventPrompt("visitor_conflict", activeVisitorIncident ? active.id : "");
+    this.clearResolvedEventPrompt(activeVisitorIncident ? active.type : "visitor_conflict", activeVisitorIncident ? active.id : "");
     modal.goalResult = progress;
+    this.activeTaskLock = null;
+    this.currentGoalView(true);
     if (progress.completions.some((item) => item.type === "daily_objective")) {
       modal.items.push({ tag: "每日任务完成", title: progress.completions.filter((item) => item.type === "daily_objective").map((item) => item.title).join("、") + " · 已完成", body: progress.rewards.filter((item) => item.source.startsWith("daily_")).map((item) => item.label).join("；") });
     }
@@ -25111,13 +29515,11 @@ class Game {
       modal.phase = "result";
       modal.title = dailyFull ? "每日任务全部完成" : "游客日常维护完成";
       modal.items = dailyFull ? [
-        { tag: "全清完成", title: "今日4项任务全部完成", body: "逐项奖励与全清额外奖励均已到账。" },
-        { tag: "全部奖励", title: dailyRewards.map((item) => item.label).join("；"), body: "研究样本待收、保护基金、补给与动物信任已写入经营数据。" },
-        { tag: "数值变化", title: `基金 ${beforeState.world.reserve.fund}→${reserveAfter.fund} · 游客 ${beforeVisitors}→${businessChange.visitorsAfter}`, body: `水源 ${ecologyAfter.water || 0} · 草场 ${ecologyAfter.grass || 0} · 安全 ${reserveAfter.safety || 0} · 动物 ${this.reserveSpeciesTotal(reserveAfter)}` }
+        { tag: "全清完成", title: "今日2项任务全部完成", body: "逐项奖励与全清额外奖励均已到账。" },
+        { tag: "全部奖励", title: dailyRewards.map((item) => item.label).join("；"), body: `基金 ${beforeState.world.reserve.fund}→${reserveAfter.fund} · 游客 ${beforeVisitors}→${businessChange.visitorsAfter}。水源 ${ecologyAfter.water || 0} · 草场 ${ecologyAfter.grass || 0} · 安全 ${reserveAfter.safety || 0}。` }
       ] : [
-        { tag: "完成", title: "游线与游客秩序已检查", body: "今日游客任务已记录，可回到沙盘继续探索。" },
-        { tag: "游客", title: `${beforeVisitors} → ${businessChange.visitorsAfter} 人`, body: "日常引导和维护已写入经营记录。" },
-        { tag: "奖励已到账", title: `保护基金 ${this.state.world.reserve.fund} 星币`, body: dailyRewards.map((item) => item.label).join("；") }
+        { tag: "完成", title: "游线与游客秩序已检查", body: dailyRewards.map((item) => item.label).join("；") || "今日游客任务已记录，可回到沙盘继续探索。" },
+        { tag: "游客与基金", title: `${beforeVisitors} → ${businessChange.visitorsAfter} 人 · 基金 ${this.state.world.reserve.fund} 星币`, body: "日常引导和维护已写入经营记录。" }
       ];
       modal.result = outcome;
       modal.actionLabel = "返回沙盘";
@@ -25125,7 +29527,7 @@ class Game {
         this.activeTaskLock = null;
         this.dismissInfoDetailModal();
       };
-      modal.footer = dailyFull ? "每日任务全部完成 · 奖励与保护区变化已到账" : "每日任务完成 · 奖励已到账";
+      modal.footer = dailyFull ? "每日任务全部完成 · 奖励与保护区变化已到账" : "今日事项已完成一项 · 奖励已到账";
       saveState(this.state);
       this.playSfx("taskComplete"); this.render();
       return outcome;
@@ -25147,10 +29549,12 @@ class Game {
         this.activeTaskLock = null;
         this.dismissInfoDetailModal();
       };
-      modal.footer = progress.completions.some((item) => item.type === "daily_objective")
-        ? "每日任务完成 · 基金 +8 · 研究样本待收 +1"
-        : `结果 ${roll} · ${success ? "调节成功" : "调节失败"} · 结果已写入经营数据`;
-      this.playSfx(success ? "success" : "warning");
+      modal.footer = progress.completions.some((item) => item.type === "daily_full")
+        ? "每日任务全部完成 · 基金 +8 · 研究样本待收 +1"
+        : progress.completions.some((item) => item.type === "daily_objective")
+        ? "今日事项已完成一项 · 基金 +8 · 研究样本待收 +1"
+        : `射箭 ${roll} 点 · ${success ? "正向，游线恢复" : "负向，游客冲突引发投诉"} · 结果已写入经营数据`;
+      this.playArcheryImpact(roll);
       this.render();
     });
     return outcome;
@@ -25163,6 +29567,7 @@ class Game {
     const matches = (marker) => {
       if (!marker) return false;
       const markerType = String(marker.eventType || marker.type || "");
+      if ((isVisitorArcheryEvent(eventType) || /visitor/i.test(String(eventType))) && this.isVisitorSandboxReminder(marker)) return true;
       return (eventId && String(marker.id || "") === String(eventId))
         || (eventType && (markerType === eventType || String(marker.visualKind || "").includes(eventType.replace(/_/g, "-"))));
     };
@@ -25203,7 +29608,7 @@ class Game {
     const readOnlyState = input.source === "state" || this.isPassivePatrolMarker(marker);
     const regionName = marker.regionId ? ((this.findRegion(marker.regionId) || {}).name || "保护区") : "保护区";
     const happening = this.watchClueHappening(input, state, row, marker, view);
-    const responseOptions = Array.isArray(marker.responseOptions) ? marker.responseOptions.slice(0, 2) : [];
+    const responseOptions = Array.isArray(marker.responseOptions) ? marker.responseOptions.slice(0, 1) : [];
     const title = input.source === "state"
       ? `${state.label || "状态"} · ${state.status || state.value || "关注"}`
       : input.source === "marker"
@@ -25211,7 +29616,7 @@ class Game {
         : (row.title || "今日播报");
     const items = [];
     const definition = worldEventDefinition(marker.eventType);
-    const category = definition && eventCategory({ type: marker.eventType, source: definition.source });
+    const category = definition && eventCategory(definition);
     if (definition) happening.body = definition.startBody;
     if (input.source === "state" && (state.subMetrics || []).length) {
       items.push({ tag: "总览", title: happening.title, body: happening.body });
@@ -25221,7 +29626,7 @@ class Game {
     } else {
       items.push(
         { tag: "发生", title: happening.title, body: happening.body },
-        { tag: "影响", title: marker.title || state.reason || "保护区正在变化", body: `${regionName}：${marker.impact || row.body || state.reason || "动物会按水、草、危险和记忆重新选择路线。"}` }
+        { tag: "影响", title: marker.title || state.reason || "保护区正在变化", body: `${regionName}：${marker.impact || row.body || state.reason || "动物会按水、草、危险和记忆重新选择路线。"}\n${this.watchClueRiskLine(marker, view)}` }
       );
     }
     if (input.source === "state" && ["water", "grass"].includes(state.id) && state.outcome) {
@@ -25231,22 +29636,17 @@ class Game {
         body: state.outcome.reason || "生态状态会转化为动物迁入、繁殖、警觉或退走。"
       });
     }
-    items.push({ tag: "风险", title: this.watchClueRiskLine(marker, view), body: responseOptions.length >= 2 ? "事件会持续改变地图和资源；选择下方路线后，进度与现场状态都会更新。" : "状态只负责呈现风险；请从沙盘信息、沙盘任务或具体物件发起操作。" });
     if (definition) {
       const profile = definition.business;
       items.splice(1, 0, { tag: "游客与基金", title: category.chain,
         body: `${profile.demand < 1 ? "处置期间新客流约降20%。" : "合作机会不扣现有收入。"}完成后回流约${Math.round(profile.recoveryRate * 100)}%；${profile.lossRate ? `失控约${Math.round(profile.lossRate * 100)}%游客离场，退还对应贡献。` : "错过则维持现状。"}实际金额见结算。` });
     }
-    if (!readOnlyState) {
-      if (responseOptions.length >= 2) {
-        responseOptions.forEach((option) => items.push({
-          tag: option.gain >= 2 ? "快速方案" : "稳妥方案",
-          title: option.label,
-          body: option.preview || `执行${reserveActionLabel(option.action)}，推进事件处置。`
-        }));
-      } else {
-        items.push({ tag: "行动", title: actionText, body: actionId === "salvage" || actionId === "buySupplies" ? "打开物资页处理基金和补给循环。" : "打开巡护任务，直接处理这条线索。" });
-      }
+    if (!readOnlyState && responseOptions.length) {
+      items.push({
+        tag: "方案",
+        title: responseOptions[0].label,
+        body: responseOptions[0].preview || `执行${reserveActionLabel(responseOptions[0].action)}，推进事件处置。`
+      });
     }
     items.forEach((item) => { item.largeText = true; });
     const detail = {
@@ -25254,7 +29654,7 @@ class Game {
       kicker: category ? category.label : input.source === "state" ? "守望状态" : input.source === "marker" ? this.mapMarkerKicker(marker) : this.broadcastKicker(row),
       title,
       icon: this.watchClueIcon(input, state, row, marker),
-      footer: readOnlyState ? "数据 · 变化 · 风险" : responseOptions.length >= 2 ? "选择处理路线 · 结果会反映到沙盘" : "发生 · 影响 · 风险 · 行动",
+      footer: readOnlyState ? "数据 · 变化" : responseOptions.length ? "处理任务 · 结果会反映到沙盘" : "发生 · 影响",
       items: items.filter((item) => item.tag !== "风险"),
       readOnly: readOnlyState,
       operationChannel: readOnlyState ? "" : "sandbox-info"
@@ -25263,21 +29663,14 @@ class Game {
       const active = ((((this.state || {}).world || {}).reserve || {}).emergency || {}).active || {};
       detail.expandableItems = true;
       detail.summaryItems = [
-        { tag: "现场", title: definition.startBody, body: `进度 ${active.progress || 0}/${active.target || definition.target} · 剩余${active.daysRemaining || definition.days}次`, detailBody: `${definition.startBody}\n${definition.impact}` },
-        { tag: "游客与基金", title: definition.business.demand < 1 ? "风险压低客流，失控会离场退款" : "合作改善看点，完成后吸引新客", body: definition.business.demand < 1 ? "新客约减20%；处理后恢复" : "暂缓合作不会额外扣基金", detailBody: items.find((item) => item.tag === "游客与基金").body },
-        { tag: "方案", title: responseOptions.map((option) => option.label).join(" / "), body: "先查看行动成本，再确认执行", detailBody: responseOptions.map((option) => `${option.label}：${option.preview}`).join("\n") }
+        { tag: "现场", title: definition.startBody, body: `进度 ${active.progress || 0}/${active.target || definition.target} · 剩余${active.daysRemaining || definition.days}次`, detailBody: `${definition.startBody}\n${definition.impact}${definition.category === "realNature" ? `\n${definition.date} · ${definition.place}\n${definition.dateKind}\n${definition.summary}\n来源：${definition.sourceName}\n${definition.sourceUrl}` : ""}` },
+        { tag: "游客与基金", title: definition.business.demand < 1 ? "风险压低客流，失控会离场退款" : "合作改善看点，完成后吸引新客", body: definition.business.demand < 1 ? "新客约减20%；处理后恢复" : "暂缓合作不会额外扣基金", detailBody: items.find((item) => item.tag === "游客与基金").body }
       ];
     }
     if (!readOnlyState) {
-      if (responseOptions.length >= 2) {
-        detail.choices = responseOptions.map((option) => ({
-          label: option.label,
-          action: () => this.openReserveViewAction(option.action, "sandbox-info")
-        }));
-      } else {
-        detail.actionLabel = actionText;
-        detail.action = () => this.openReserveViewAction(actionId, "sandbox-info");
-      }
+      const option = responseOptions[0];
+      detail.actionLabel = (option && option.label) || actionText;
+      detail.action = () => this.openReserveViewAction((option && option.action) || actionId, "sandbox-info");
     }
     return detail;
   }
@@ -25353,7 +29746,7 @@ class Game {
   }
 
   mapMarkerKicker(marker = {}) {
-    return marker.type === "visitorIncident" ? "游客现场" : marker.type === "recovery" ? "恢复点" : marker.type === "crisis" ? "危机事件" : marker.type === "event" ? "保护区事件" : "可疑暗线";
+    return marker.type === "visitorIncident" ? "游客现场" : marker.kind === "friendAid" || marker.type === "friendAidRequest" || marker.type === "friendAidParcel" ? (marker.type === "friendAidParcel" ? "交换结果" : "发出交换") : marker.type === "recovery" ? "恢复点" : marker.type === "crisis" ? "危机事件" : marker.type === "event" ? "保护区事件" : "可疑暗线";
   }
 
   openReserveProsperityDetail() {
@@ -25440,9 +29833,16 @@ class Game {
     if (runtime.onShareAppMessage) {
       try {
         runtime.onShareAppMessage(() => {
-          const postcard = this.buildForestPostcard();
-          recordShareSent(this.state, postcard);
-          saveState(this.state);
+          const pending = this.pendingSharePostcard;
+          const pendingIsFresh = pending && Date.now() - pending.createdAt <= 15000;
+          const postcard = pendingIsFresh ? pending.postcard : this.buildForestPostcard();
+          // 右上角菜单只有在刚点过分享、卡片还新鲜时才算完成分享动作并发奖。
+          // 过期菜单只带文案，避免游客入口之后下一次分享偷偷改成动物奖励。
+          if (pendingIsFresh) this.settlePendingShareReward("menu");
+          this.pendingSharePostcard = null;
+          if (!pendingIsFresh) {
+            saveState(this.state);
+          }
           return { title: postcard.shareTitle, imageUrl: postcard.imageUrl, query: postcard.query };
         });
       } catch (error) {
@@ -25551,18 +29951,27 @@ class Game {
     return true;
   }
 
-  buildForestPostcard(event = null) {
+  buildForestPostcard(event = null, rewardTypeOverride = null) {
     const world = this.state.world || {};
     const reserve = world.reserve || {};
     const ecology = reserve.ecology || {};
     const migration = reserve.migration || {};
-    const letter = this.dailyAnimalLetter();
+    const visitorSource = rewardTypeOverride === "visitors"
+      || (rewardTypeOverride !== "animals" && event && (
+        event.rewardType === "visitors"
+        || event.sourceKind === "visitor"
+        || event.kind === "visitor"
+        || event.category === "visitor"
+      ));
+    const letter = visitorSource ? null : this.dailyAnimalLetter();
     const migrationText = this.migrationLabel(migration);
     const reason = migration.reason || (migration.delta > 0 ? "保护区更像安全区" : migration.delta < 0 ? "动物正在试探离开" : "动物还在观望");
     const statusLine = `基金 ${reserve.fund || 0} / 水源 ${ecology.water || 0} / 草场 ${ecology.grass || 0} / ${migrationText}`;
-    const payload = sharePayload(world, event, letter);
+    const payload = sharePayload(world, visitorSource ? null : event, letter);
     return Object.assign({}, payload, {
       letter,
+      rewardType: visitorSource ? "visitors" : "animals",
+      sourceKind: visitorSource ? "visitor" : "animal",
       shareTitle: payload.title,
       text: `${payload.text}\n${statusLine}\n原因：${reason}`,
       statusLine,
@@ -25573,45 +29982,108 @@ class Game {
   buildForestPostcardDetail(event = null) {
     const postcard = this.buildForestPostcard(event);
     const letter = postcard.letter;
+    const shareReward = shareRewardPreview(this.state, {
+      rewardType: postcard.rewardType,
+      sourceKind: postcard.sourceKind || (postcard.rewardType === "visitors" ? "visitor" : "animal"),
+      kind: postcard.kind
+    });
     return {
       kicker: `${postcard.label} · 森林分享卡`,
       title: postcard.shareTitle,
       icon: postcard.kind === "rare" ? "reserve_prosperity" : postcard.kind === "rescue" ? "fieldKit" : "eye",
-      animal: letter.animal,
+      animal: letter && letter.animal,
       items: [
         { tag: postcard.label, title: postcard.callToAction, body: postcard.text },
         { tag: "实时状态", title: postcard.statusLine, body: postcard.reason },
         { tag: "分享图片", title: postcard.kind === "rare" ? "月夜白鹿卡" : postcard.kind === "rescue" ? "雨夜守护卡" : "晨光陪伴卡", body: "图片不写死名字；微信标题和好友入口会读取当前真实动物、事件与经营日。" },
-        { tag: "好友接力", title: "打开后可留下守护印记", body: "同一份邀请只结算一次：声誉 +1、对应物种信任 +1。" }
+        { tag: "好友接力", title: "打开后可留下守护印记", body: "同一份邀请只结算一次：声誉 +1、对应物种信任 +1。" },
+        { tag: "分享奖励", title: shareReward.eligible ? `本次可得 ${shareReward.label} +${shareReward.amount}${shareReward.unit}` : `${shareReward.label}本章分享已用完`, body: shareReward.eligible ? `按当前${shareReward.rewardType === "animals" ? "动物总数" : "本章游客"} ${shareReward.base}${shareReward.unit} 的 ${shareReward.percent}% 计算。完成微信分享后发放；${shareReward.label}本章还可 ${shareReward.remaining}/${shareReward.limit} 次，游客和动物各 2 次共 4 次。` : `${shareReward.label}本章已用 ${shareReward.used}/${shareReward.limit} 次；游客和动物各 2 次，下一章恢复。` }
       ],
-      footer: "不奖励发送次数；真正从分享进入的好友才能完成接力，防止分享变成刷资源按钮。",
-      actionLabel: "分享这一刻",
-      action: () => this.shareForestPostcard(event)
+      footer: "必须完成微信分享后才结算奖励；点按钮或复制文案不会发奖。同一份分享不会重复发奖。好友打开后仍可留下守护印记。",
+      actionLabel: shareReward.eligible ? "分享这一刻" : "知道了",
+      action: () => shareReward.eligible
+        ? this.shareForestPostcard(event, { rewardType: shareReward.rewardType })
+        : this.dismissInfoDetailModal()
     };
+  }
+
+  notePendingShareHidden(now = Date.now()) {
+    const pending = this.pendingSharePostcard;
+    if (!pending || !pending.awaitingReward) return pending || null;
+    pending.hiddenAt = Math.max(0, Number(pending.hiddenAt) || 0) || now;
+    return pending;
+  }
+
+  cancelPendingShareReward(reason = "cancel") {
+    const pending = this.pendingSharePostcard;
+    if (!pending || !pending.awaitingReward) return { applied: false, reason: "not_pending" };
+    pending.awaitingReward = false;
+    if (reason !== "skip") this.toast("未完成分享，奖励未发放");
+    return { applied: false, reason };
+  }
+
+  settlePendingShareReward(reason = "return", now = Date.now()) {
+    const pending = this.pendingSharePostcard;
+    if (!pending || !pending.awaitingReward || pending.skipReward) {
+      return { applied: false, reason: pending && pending.skipReward ? "skip" : "not_pending" };
+    }
+    if (now - (Number(pending.createdAt) || 0) > 60000) {
+      this.pendingSharePostcard = null;
+      return { applied: false, reason: "expired" };
+    }
+    if (reason === "return") {
+      const hiddenAt = Number(pending.hiddenAt) || 0;
+      if (!hiddenAt) return { applied: false, reason: "not_hidden" };
+      if (now - hiddenAt < 400) return { applied: false, reason: "too_fast" };
+    }
+    pending.awaitingReward = false;
+    const shareResult = recordShareSent(this.state, pending.postcard);
+    saveState(this.state);
+    if (shareResult && shareResult.reward) {
+      this.toast(`分享完成，${shareResult.reward.label}+${shareResult.reward.amount}${shareResult.reward.unit}`);
+    } else if (shareResult && shareResult.reason === "chapter_limit") {
+      this.toast("本章该入口分享奖励已用完");
+    }
+    return shareResult;
   }
 
   shareForestPostcard(event = null, overrides = null) {
     const runtime = this.runtime || {};
-    const postcard = Object.assign({}, this.buildForestPostcard(event), overrides || {});
+    const skipReward = !!(overrides && overrides.skipReward);
+    const rewardType = overrides && (overrides.rewardType === "animals" || overrides.rewardType === "visitors")
+      ? overrides.rewardType
+      : null;
+    const postcard = Object.assign({}, this.buildForestPostcard(event, rewardType), overrides || {});
+    delete postcard.skipReward;
+    this.pendingSharePostcard = {
+      postcard,
+      createdAt: Date.now(),
+      awaitingReward: !skipReward,
+      skipReward,
+      hiddenAt: 0
+    };
     if (runtime.shareAppMessage) {
       try {
-        recordShareSent(this.state, postcard);
-        saveState(this.state);
         runtime.shareAppMessage({
           title: postcard.shareTitle,
           imageUrl: postcard.imageUrl,
-          query: postcard.query
+          query: postcard.query,
+          success: () => this.settlePendingShareReward("success"),
+          fail: () => this.cancelPendingShareReward("fail")
         });
-        this.toast("已唤起分享");
+        this.toast(skipReward ? "已唤起分享" : "请发给好友，完成分享后发放奖励");
         return;
       } catch (e) {
+        this.pendingSharePostcard = null;
       }
     }
+    // Clipboard/modal fallbacks are not a WeChat share action, so they never grant.
+    this.pendingSharePostcard = null;
     if (runtime.setClipboardData) {
       try {
         runtime.setClipboardData({
           data: postcard.text,
-          success: () => this.toast("明信片文案已复制")
+          success: () => this.toast(skipReward ? "明信片文案已复制" : "未完成微信分享，奖励未发放")
         });
         return;
       } catch (e) {
@@ -25623,8 +30095,9 @@ class Game {
         content: postcard.text,
         confirmText: "知道了"
       });
+      if (!skipReward) this.toast("未完成微信分享，奖励未发放");
     } else {
-      this.toast("已生成明信片");
+      this.toast(skipReward ? "已生成明信片" : "当前无法完成微信分享");
     }
   }
 
@@ -25673,17 +30146,37 @@ class Game {
     this.render();
   }
 
-  focusReserveMetricTask(type) {
-    if (!["water", "grass"].includes(type)) return false;
+  // 水源和草场详情中的行动入口。它们仍共用“栖息地修复”的结算规则，
+  // 但把玩家的当前目标、说明和任务文案固定下来，避免只给出沙盘坐标却
+  // 不能在当前界面直接处理。
+  openMetricImprovementTask(type) {
+    if (!['water', 'grass'].includes(type)) return false;
+    const base = this.reserveActionOptions().find((item) => item.id === 'habitat');
+    if (!base) return false;
+    const isWater = type === 'water';
+    const label = isWater ? '修复饮水点' : '恢复草场';
+    const option = Object.assign({}, base, {
+      label,
+      shortLabel: label,
+      template: label,
+      metricFocus: type,
+      hint: isWater
+        ? '清理饮水点、疏通水线，让水源恢复。'
+        : '补播耐旱草、清理过度取食区，让草场恢复。',
+      placeholder: isWater
+        ? '去东部河岸湿地清理饮水点，疏通水线并补充水源'
+        : '去南部草甸补播耐旱草，恢复草场承载能力',
+      effect: isWater
+        ? '消耗野外工具包 / 水源增长 / 饮水路线恢复'
+        : '消耗野外工具包 / 草场增长 / 食草动物承载恢复',
+      rewardPreview: isWater
+        ? '水源+ · 动物饮水更稳'
+        : '草场+ · 动物承载更稳'
+    });
     this.infoDetailModal = null;
-    this.focusedReserveMetric = { type, expiresAt: Date.now() + 12000 };
-    // 风险详情只负责回到沙盘并高亮对应任务点，避免直接跳进二级操作界面。
-    this.patrolTaskModal = null;
-    this.patrolOperationPlan = null;
-    // 已在巡护任务页时保持当前页；从详情或其他频道进入则回沙盘展示定位标记。
-    this.setScreen(this.screen === "action" ? "action" : "home");
-    this.toast(type === "water" ? "已定位饮水点修复任务" : "已定位草场修复任务");
-    this.render();
+    // 详情入口每次都使用对应任务的指令，不能继承上一项巡护任务的草稿。
+    this.command = '';
+    this.openPatrolTaskModal(option);
     return true;
   }
 
@@ -25721,7 +30214,7 @@ class Game {
           ? "完整观看广告后领取；每天不限次数。"
           : "第2守护日开放基金应急支持；基金也可通过移交回收物获得。",
         items: [
-          { tag: "来源", title: "去物资 · 科研与执法样本", body: "先收取样本，再出售获得保护基金。", action: () => this.openFundSamples() },
+          { tag: "来源", title: "科研与执法样本", body: "打开物资页，先收取样本，再出售获得保护基金。", action: () => this.openFundSamples() },
           { tag: "用途", title: taskFundUse.title, body: taskFundUse.body },
           {
             tag: "明细",
@@ -25762,41 +30255,56 @@ class Game {
         ]
       },
       water: {
-        kicker: "核心数据 · 只读",
+        kicker: "核心数据 · 环境行动",
         title: `水源 ${water}`,
         icon: "water",
+        // 数值本身仍为只读；下方仅提供会产生结算结果的环境任务。
         readOnly: true,
-        footer: water <= 60 ? "先回沙盘找到饮水点任务，再决定是否修复。" : "水源会随降雨、动物饮水与高水位外流动态变化。",
+        footer: "点击“修复饮水点”即可发起任务；任务结算后，水源数值会播放变化动画。",
         items: [
           { tag: "状态", title: `${water}/100 · ${metricRisk(water, 60, 40)}`, body: water >= 75 ? "当前水位丰沛；雨水增益已衰减，入夜后河道会自然外流，不会长期堆到满值。" : "水位会直接改变沙盘水面和动物饮水路线。" },
           { tag: "健康", title: `疾病风险 ${disease}`, body: "水源紧张会让动物聚集，疾病更容易扩散。" },
-          water <= 60
-            ? { tag: "怎么改善", title: "沙盘 → 饮水点 → 修复栖息地", body: `${(supplies.fieldKit || 0) > 0 ? "已有野外工具包，可前往任务点。" : "缺野外工具包，先去物资页一键补齐。"} 一次成功修复通常恢复 2–5 点水源。` }
-            : { tag: "迁徙", title: this.migrationLabel(migration), body: migration.reason || "水源充足时动物更愿意迁入。" }
-        ]
+          {
+            tag: "可做任务",
+            title: "修复饮水点 · 水源 +2—5",
+            body: `${(supplies.fieldKit || 0) > 0 ? "野外工具包已备齐。" : "需要野外工具包×1；点击后会引导补齐。"} 清理饮水点并疏通水线，成功后水源增长，动物饮水路线更稳定。`,
+            noCompact: true,
+            largeText: true,
+            action: () => this.openMetricImprovementTask('water')
+          }
+        ],
+        actionLabel: "修复饮水点",
+        action: () => this.openMetricImprovementTask('water')
       },
       grass: {
-        kicker: "核心数据 · 只读",
+        kicker: "核心数据 · 环境行动",
         title: `草场 ${grass}`,
         icon: "leaf",
+        // 数值本身仍为只读；下方仅提供会产生结算结果的环境任务。
         readOnly: true,
-        footer: grass <= 55 ? "先回沙盘找到草场任务，再决定修复或控制过度取食。" : "巡护、修复、季节与种群承载共同改变草场产能。",
+        footer: "点击“恢复草场”即可发起任务；任务结算后，草场数值会播放变化动画。",
         items: [
           { tag: "状态", title: `${grass}/100 · ${metricRisk(grass, 55, 38)}`, body: "草场决定食草动物数量、健康与幼体存活。" },
           { tag: "承载", title: `${herbivores} 只 / 当前约 ${capacity.effectiveHerbivoreCapacity} 只`, body: herbivores > capacity.effectiveHerbivoreCapacity ? "已超过当前草场承载，食草动物会消耗草场并逐步迁出。" : "当前食草动物仍在草场承载范围内。" },
-          grass <= 55
-            ? { tag: "怎么改善", title: "沙盘 → 草场任务 → 修复栖息地", body: `${(supplies.fieldKit || 0) > 0 ? "已有野外工具包，可前往任务点。" : "缺野外工具包，先去物资页一键补齐。"} 若疾病偏高，再从动物或沙盘任务进入生态干预。` }
-            : { tag: "迁徙", title: this.migrationLabel(migration, reserve), body: migration.reason || "草场丰茂时动物更愿意留下。" }
-        ]
+          {
+            tag: "可做任务",
+            title: "恢复草场 · 草场 +2—6",
+            body: `${(supplies.fieldKit || 0) > 0 ? "野外工具包已备齐。" : "需要野外工具包×1；点击后会引导补齐。"} 补播耐旱草并恢复草场，成功后草场增长，食草动物承载更稳定。`,
+            noCompact: true,
+            largeText: true,
+            action: () => this.openMetricImprovementTask('grass')
+          }
+        ],
+        actionLabel: "恢复草场",
+        action: () => this.openMetricImprovementTask('grass')
       }
     };
     const config = configs[type] || configs.fund;
-    const needsMapGuidance = (type === "water" && water <= 60) || (type === "grass" && grass <= 55);
     return Object.assign({}, config, {
-      readOnly: type === "fund" ? config.readOnly : true,
-      actionLabel: needsMapGuidance ? "去沙盘找任务" : (config.actionLabel || ""),
-      action: needsMapGuidance ? () => this.focusReserveMetricTask(type) : (config.action || null),
-      navigationOnly: needsMapGuidance
+      readOnly: type === "fund" ? config.readOnly : !!config.readOnly,
+      actionLabel: config.actionLabel || "",
+      action: config.action || null,
+      navigationOnly: false
     });
   }
 
@@ -26010,9 +30518,24 @@ class Game {
       this.leaguePageByScope[targetScope] = 0;
     }
     this.leagueScope = targetScope;
+    if (targetScope === "world") {
+      this.worldLeagueListScrollY = 0;
+      this.scrollY = 0;
+    }
     if (targetScope === "world" && this.cloudService) {
       const reserve = ((this.state.world || {}).reserve) || {};
-      this.cloudService.syncReserve(reserve, true, this.reserveRankingValue(reserve));
+      if (typeof this.cloudService.syncReserve === "function") {
+        this.cloudService.syncReserve(reserve, true, this.reserveRankingValue(reserve));
+      }
+      if (this.cloudService.feature("socialTrade") && typeof this.cloudService.refreshRelationFriends === "function"
+        && this.cloudService.friendStatus !== "ready" && this.cloudService.friendStatus !== "loading") {
+        this.cloudService.refreshRelationFriends(true).then(() => {
+          if (this.screen === "league" && this.leagueScope === "world") {
+            this.ensureSelectedRivalForScope("world");
+            this.render();
+          }
+        });
+      }
     }
     this.ensureSelectedRivalForScope(this.leagueScope);
     this.setScreen("league");
@@ -26030,7 +30553,7 @@ class Game {
     const currentView = this.renderedWechatFriendRank && this.renderedWechatFriendRank.view;
     const refreshWidth = currentView && currentView.w ? currentView.w : this.width - 60;
     const refreshHeight = currentView && currentView.h ? currentView.h : this.friendRankViewportHeight(112, true);
-    controller.refresh(refreshWidth, refreshHeight);
+    controller.refresh(refreshWidth, refreshHeight, { reload: true });
     const cloud = this.cloudService;
     if (cloud && cloud.feature("socialTrade")) {
       this.toast("正在刷新好友榜并匹配交换好友…");
@@ -26078,6 +30601,7 @@ class Game {
     const reserve = (this.state.world || {}).reserve || {};
     const base = reserve.base || {};
     this.shareForestPostcard(null, {
+      skipReward: true,
       shareTitle: `来${this.reserveDisplayName(reserve)}，和我一起守护动物`,
       text: `我的好友榜还空着。来${this.reserveDisplayName(reserve)}留下第一枚守护印记，一起让动物安全回家。`
     });
@@ -26172,24 +30696,33 @@ class Game {
   }
 
   drawMapMarkerDialogueBubble(ctx, marker = {}, x, y, camera = {}, index = 0) {
-    const text = this.truncateTextToWidth(ctx, marker.dialogue || marker.title || marker.label || "查看线索", 104, 10, "700");
-    const w = Math.max(58, Math.min(122, text.length * 10 + 18));
-    const h = 24;
+    const visitor = marker.type === "visitor";
+    const textSize = this.mapDescriptionFont(visitor ? 11 : 10, camera.scale || 1);
     const visibleBounds = this.visibleMapContentBounds(camera);
     const frameX = visibleBounds.x;
     const frameY = visibleBounds.y;
     const frameW = visibleBounds.w || camera.w || this.width;
     const frameH = visibleBounds.h || camera.h || this.height;
+    const maxBubbleW = Math.min(visitor ? 272 : 236, Math.max(visitor ? 200 : 168, frameW - 20));
+    const padX = visitor ? 18 : 14;
+    const full = String(marker.dialogue || marker.title || marker.label || "查看线索");
+    const text = this.truncateTextToWidth(ctx, full, maxBubbleW - padX * 2, textSize, "700");
+    ctx.font = `700 ${textSize}px ${UI_FONT_STACK}`;
+    const textW = ctx.measureText(text).width;
+    const w = Math.max(visitor ? 108 : 72, Math.min(maxBubbleW, Math.ceil(textW + padX * 2)));
+    const h = Math.max(visitor ? 36 : 32, textSize + (visitor ? 22 : 18));
     const preferRight = x < frameX + frameW * 0.58;
-    const targetX = preferRight ? x + 17 : x - w - 17;
-    const targetY = y - 36 - (index % 2) * 6;
+    const targetX = preferRight ? x + 18 : x - w - 18;
+    const targetY = y - (visitor ? 44 : 38) - (index % 2) * 6;
     const bx = Math.max(frameX + 4, Math.min(frameX + frameW - w - 4, targetX));
     const by = Math.max(frameY + 4, Math.min(frameY + frameH - h - 4, targetY));
     const fill = "rgba(255,255,255,.94)";
     const stroke = marker.type === "recovery" ? "rgba(47,125,98,.42)" : marker.kind === "exclamation" ? "rgba(211,93,87,.36)" : UI_THEME.separator;
-    this.roundRect(ctx, bx, by + 2, w, h, 8, "rgba(20,32,27,.16)");
-    this.roundRect(ctx, bx, by, w, h, 8, fill, stroke);
-    this.text(ctx, text, bx + w / 2, by + 16, 10, "#26352b", "700", "center");
+    const radius = visitor ? 12 : 8;
+    this.roundRect(ctx, bx, by + 2, w, h, radius, "rgba(20,32,27,.16)");
+    this.roundRect(ctx, bx, by, w, h, radius, fill, stroke);
+    this.text(ctx, text, bx + w / 2, by + h / 2 + textSize * .34, textSize, "#26352b", "700", "center");
+    this.renderedMapDialogueBubble = { x: bx, y: by, w, h, text, textW, textSize, padX, type: marker.type || "" };
   }
 
   drawRangerMapCharacter(ctx, x, groundY, scale = 1) {
@@ -26267,7 +30800,36 @@ class Game {
 
   currentMapScale() {
     const zoom = Math.max(0, Math.min(2, Number(this.mapZoom) || 0));
+    // Keep the original overview scale.  The temporary 10% wider overview
+    // made map entities and their descriptive copy look disconnected and, in
+    // particular, let captive markers drift away from the terrain layer.
     return zoom <= 1 ? 0.97 + zoom * 0.43 : 1.40 + (zoom - 1) * 0.25;
+  }
+
+  restoreSandboxOverviewCamera() {
+    this.mapZoom = 0;
+    this.mapCamera = { cx: 0.52, cy: 0.48 };
+    this.mapEmergencyFocusId = null;
+    this.userAdjustedMapZoom = false;
+    return this.currentMapScale();
+  }
+
+  // Keep descriptive map copy at the legacy visual density even if a cached
+  // render path reports the temporary wider scale.  Titles keep their
+  // existing scale; this helper only compensates explanatory labels and
+  // clamps growth so text remains inside the narrow phone viewport.
+  mapDescriptionScaleForScale(renderedScale = 1, renderedFactor = 1) {
+    const zoom = Math.max(0, Math.min(2, Number(this.mapZoom) || 0));
+    const legacyScale = zoom <= 1 ? 0.97 + zoom * 0.43 : 1.40 + (zoom - 1) * 0.25;
+    const mapScale = Math.max(0.01, (Number(renderedScale) || 1) / Math.max(0.01, Number(renderedFactor) || 1));
+    return Math.max(1, Math.min(1.12, legacyScale / mapScale));
+  }
+
+  mapDescriptionFont(baseSize, renderedScale = 1, renderedFactor = 1, minSize = baseSize) {
+    const base = Number(baseSize) || 10;
+    const minimum = Number(minSize) || base;
+    const size = base * this.mapDescriptionScaleForScale(renderedScale, renderedFactor);
+    return Math.max(minimum, Math.round(size * 10) / 10);
   }
 
   setMapZoom(nextZoom, anchorX, anchorY, sound = true) {
@@ -26293,6 +30855,7 @@ class Game {
         frame
       );
     } else this.mapZoom = zoom;
+    this.userAdjustedMapZoom = true;
     if (sound) this.playAudioCue(zoom > oldZoom ? "zoomIn" : "zoomOut");
     return true;
   }
@@ -26311,7 +30874,7 @@ class Game {
     const drawButton = (y, label, enabled, onTap) => {
       this.roundRect(ctx, x, y, size, size, 11, enabled ? "rgba(13,36,27,.88)" : "rgba(13,36,27,.42)", enabled ? "rgba(255,242,126,.78)" : "rgba(255,255,255,.18)");
       this.text(ctx, label, x + size / 2, y + 23, 20, enabled ? "#fff27e" : "rgba(255,255,255,.35)", "700", "center");
-      if (enabled) this.addHit(x, y - this.scrollY, size, size, onTap, "none");
+      if (enabled) this.addHit(x, y - this.scrollY, size, size, onTap, "none", "hud");
     };
     drawButton(top, "+", zoom < 1.99, () => { this.setMapZoom(zoom + 0.35, x, top + size); this.requestRender(); });
     drawButton(bottom, "−", zoom > 0.01, () => { this.setMapZoom(zoom - 0.35, x, bottom); this.requestRender(); });
@@ -26349,6 +30912,32 @@ class Game {
       frame
     );
     this.mapCamera = next;
+    this.rescueFocusCameraSettled = true;
+  }
+
+  focusRescueTargetOnMap(speciesId = "") {
+    this.focusedRescueTarget = speciesId || null;
+    this.rescueFocusCameraSettled = !this.focusedRescueTarget;
+  }
+
+  applyFocusedRescueCamera(mapX, mapY, mapW, mapH) {
+    let camera = this.mapCrisisCameraInfo(this.mapCameraInfo(mapX, mapY, mapW, mapH));
+    if (!this.focusedRescueTarget || this.rescueFocusCameraSettled || (this.gesture && this.gesture.mapPan)) {
+      return camera;
+    }
+    const rescueState = this.chapterRescueState();
+    const poacherPending = ((((this.state || {}).world || {}).reserve || {}).poacherRescue || {}).active || [];
+    const focusRecord = (rescueState.targets || []).concat(poacherPending)
+      .find((entry) => entry && entry.status !== "rescued" && entry.speciesId === this.focusedRescueTarget);
+    const focusMap = focusRecord && (focusRecord.map || focusRecord.position);
+    if (focusMap && Number.isFinite(Number(focusMap.x)) && Number.isFinite(Number(focusMap.y))) {
+      this.mapCamera = this.clampMapCamera(Number(focusMap.x), Number(focusMap.y), this.currentMapScale(), this.mapCameraFrame || camera);
+      this.rescueFocusCameraSettled = true;
+      camera = this.mapCrisisCameraInfo(this.mapCameraInfo(mapX, mapY, mapW, mapH));
+    } else {
+      this.rescueFocusCameraSettled = true;
+    }
+    return camera;
   }
 
   mapPoint(nx, ny, camera) {
@@ -26366,6 +30955,14 @@ class Game {
     this.drawCartoonSavannaMap(ctx, camera, fast, true);
   }
 
+  drawPrologueMapHold(ctx, x, y, w, h) {
+    const ground = ctx.createLinearGradient(x, y, x, y + h);
+    ground.addColorStop(0, "#163524");
+    ground.addColorStop(0.58, "#2f6a38");
+    ground.addColorStop(1, "#8fbf4e");
+    this.roundRect(ctx, x, y, w, h, 10, ground);
+  }
+
   drawCartoonSavannaMap(ctx, camera, fast = false, quiet = false) {
     const x = camera.worldX;
     const y = camera.worldY;
@@ -26374,24 +30971,19 @@ class Game {
     ctx.save();
     const mapSource = this.mapImageSource();
     if (mapSource) {
+      this.holdPrologueMapUntilIllustrated = false;
       this.drawSavannaReferenceMap(ctx, mapSource.image, x, y, w, h, fast, mapSource.frame);
       ctx.restore();
       return;
     }
-    if (this.mapArtLoad && ["loading", "retrying"].includes(this.mapArtLoad.status)) {
-      const loadingGround = ctx.createLinearGradient(x, y, x, y + h);
-      loadingGround.addColorStop(0, "#b9d976");
-      loadingGround.addColorStop(1, "#83b968");
-      this.roundRect(ctx, x, y, w, h, 10, loadingGround);
-      if (!fast) this.text(ctx, "正在展开保护区地图…", x + w / 2, y + h / 2, 11, "rgba(31,67,47,.58)", "700", "center");
+    if (this.holdPrologueMapUntilIllustrated && (!this.mapArtLoad || this.mapArtLoad.status !== "failed")) {
+      this.drawPrologueMapHold(ctx, x, y, w, h);
       ctx.restore();
       return;
     }
-    const ground = ctx.createLinearGradient(x, y, x, y + h);
-    ground.addColorStop(0, "#f6c85b");
-    ground.addColorStop(0.48, "#e9b74e");
-    ground.addColorStop(1, "#d8953f");
-    this.roundRect(ctx, x, y, w, h, 10, ground);
+    // 插画还没到时一律用草地底，不再闪黄沙。鸿蒙 / 一加上那一帧会被
+    // 看成「地图打不开」。河岸等程序细节仍画在草地上，等插画替换。
+    this.drawPrologueMapHold(ctx, x, y, w, h);
 
     this.drawSavannaSkyRim(ctx, x, y, w, h);
     this.drawSavannaSandBand(ctx, x + w * 0.46, y + h * 0.62, w * 0.88, h * 0.42, -0.05, "#f1ce65", "#c98935");
@@ -26460,7 +31052,9 @@ class Game {
       sh = iw / targetRatio;
       sy = (ih - sh) * 0.48;
     }
-    ctx.drawImage(image, frame.x + sx, frame.y + sy, sw, sh, x, y, w, h);
+    if (!this.drawImageSafe(ctx, image, frame.x + sx, frame.y + sy, sw, sh, x, y, w, h)) {
+      this.drawPrologueMapHold(ctx, x, y, w, h);
+    }
     // Slightly lower the map image brightness so the status bars, markers and
     // animals keep clear contrast over the illustrated terrain.
     ctx.fillStyle = "rgba(13, 31, 20, 0.08)";
@@ -27084,11 +31678,11 @@ class Game {
   }
 
   animalWalkGaitProfile(species, kind = "ground") {
-    const airSpecies = new Set(["乌鸦", "鹰", "秃鹫", "猫头鹰"]);
-    const waterSpecies = new Set(["火烈鸟", "水貂", "河马", "鳄鱼"]);
-    const heavySpecies = new Set(["熊", "大象", "白犀牛"]);
+    const airSpecies = new Set(["乌鸦", "鹰", "秃鹫", "猫头鹰", "巨嘴鸟", "夜莺"]);
+    const waterSpecies = new Set(["火烈鸟", "水貂", "河马", "鳄鱼", "水獭", "鹈鹕", "鹤"]);
+    const heavySpecies = new Set(["熊", "大象", "白犀牛", "猩猩", "野牛"]);
     const predators = new Set(["狼", "狮子", "豹子", "猎豹", "斑鬣狗"]);
-    const herdSpecies = new Set(["鹿", "羚羊", "斑马", "野兔", "野猪", "狐狸", "野犬", "长颈鹿", "穿山甲"]);
+    const herdSpecies = new Set(["鹿", "羚羊", "斑马", "野兔", "野猪", "狐狸", "野犬", "长颈鹿", "穿山甲", "貘", "野牛"]);
     const profiles = {
       鹿: { bodyBob: 1.20, bodySway: 1.00, legShift: 2.80, legLift: 1.30, upperPortion: 0.58, lowerTop: 0.43, lowerPortion: 0.54, upperSwayFactor: 0.70, bodyShiftFactor: 0.26, legDrop: 1.00, stepLines: true },
       羚羊: { bodyBob: 1.15, bodySway: 1.05, legShift: 2.90, legLift: 1.25, upperPortion: 0.58, lowerTop: 0.42, lowerPortion: 0.54, upperSwayFactor: 0.72, bodyShiftFactor: 0.28, legDrop: 1.00, stepLines: true },
@@ -27116,7 +31710,7 @@ class Game {
       狐狸: { bodyBob: 0.96, bodySway: 0.74, legShift: 2.00, legLift: 0.94, upperPortion: 0.56, lowerTop: 0.42, lowerPortion: 0.50, upperSwayFactor: 0.58, bodyShiftFactor: 0.22, legDrop: 0.95, stepLines: true },
       穿山甲: { bodyBob: 0.58, bodySway: 0.34, legShift: 0.92, legLift: 0.34, upperPortion: 0.51, lowerTop: 0.46, lowerPortion: 0.47, upperSwayFactor: 0.14, bodyShiftFactor: 0.06, legDrop: 0.50, stepLines: true }
     };
-    const p = profiles[species] || {
+    const p = profiles[species] || profiles[ANIMAL_SPRITE_FALLBACKS[species]] || {
       bodyBob: waterSpecies.has(species) ? 0.74 : airSpecies.has(species) ? 0.50 : 0.92,
       bodySway: waterSpecies.has(species) ? 0.30 : airSpecies.has(species) ? 0.24 : 0.72,
       legShift: heavySpecies.has(species) ? 1.45 : predators.has(species) ? 2.00 : herdSpecies.has(species) ? 2.20 : 1.10,
@@ -27146,15 +31740,13 @@ class Game {
   }
 
   animalWalkPhase(animal, motion, options = {}, species = "") {
+    const stored = motion && Number(motion.gaitPhase);
+    if (Number.isFinite(stored)) return ((stored % 1) + 1) % 1;
     const key = (motion && motion.key) || (animal && (animal.id || animal.species)) || species || "animal";
     const now = this.animT();
-    const moving = !!(motion && (Math.abs(Number(motion.dirX) || 0) + Math.abs(Number(motion.dirY) || 0) > 0.00005));
     const speedSeed = (this.hashString(String(key)) % 97) / 97;
     const cadence = this.animalWalkCadence(species || (animal && animal.species) || "");
-    const base = (now * 0.0045 * cadence + speedSeed + (options && options.gaitSeed || 0)) % 1;
-    if (!moving) return base;
-    const strideBias = Math.min(0.24, Math.abs(Number(motion && motion.dirX) || 0) + Math.abs(Number(motion && motion.dirY) || 0)) * 1.9;
-    return (base + strideBias) % 1;
+    return (now * 0.00115 * cadence + speedSeed + (options && options.gaitSeed || 0)) % 1;
   }
 
   animalWalkCadence(species) {
@@ -27170,7 +31762,8 @@ class Game {
   }
 
   animalSpriteFacesRight(species) {
-    return ["狼", "斑马", "野猪", "野犬", "水貂"].indexOf(species) >= 0;
+    const resolved = ANIMAL_SPRITE_FALLBACKS[species] || species;
+    return ["狼", "斑马", "野猪", "野犬", "水貂"].indexOf(resolved) >= 0;
   }
 
   animalSpriteMirrorForMotion(species, facingX) {
@@ -27192,13 +31785,15 @@ class Game {
       长颈鹿鹿: "长颈鹿"
     };
     const raw = String(species || "").trim();
-    if (aliases[raw]) return aliases[raw];
-    if (this.animalMapSpriteIndexRaw(raw) >= 0) return raw;
+    const aliased = aliases[raw] || raw;
+    const resolved = ANIMAL_SPRITE_FALLBACKS[aliased] || aliased;
+    if (this.animalMapSpriteIndexRaw(resolved) >= 0) return resolved;
+    if (this.animalMapSpriteIndexRaw(aliased) >= 0) return aliased;
     const identity = `${animal.name || ""}${animal.shortName || ""}${animal.id || ""}`;
     if (/砾灰|猎犬|野犬|hound|dog/i.test(identity)) return "野犬";
     if (/野兔|短耳兔|兔/.test(identity)) return "野兔";
     if (/花豹|豹子|豹/.test(identity)) return "豹子";
-    return raw;
+    return resolved;
   }
 
   animalMapSpriteIndex(species) {
@@ -27207,13 +31802,8 @@ class Game {
   }
 
   animalMapSpriteIndexRaw(species) {
-    const order = [
-      "鹿", "羚羊", "野兔", "乌鸦", "狼", "斑马", "野猪",
-      "鹰", "火烈鸟", "熊", "秃鹫", "狮子", "豹子", "长颈鹿",
-      "猫头鹰", "大象", "河马", "鳄鱼", "野犬", "水貂", "狐狸",
-      "白犀牛", "穿山甲", "猎豹", "斑鬣狗"
-    ];
-    return order.indexOf(species || "");
+    const resolved = ANIMAL_SPRITE_FALLBACKS[species] || species;
+    return ANIMAL_SPRITE_ORDER.indexOf(resolved || "");
   }
 
   animalVisualSize(species) {
@@ -27242,13 +31832,26 @@ class Game {
       白犀牛: 66,
       穿山甲: 42,
       猎豹: 52,
-      斑鬣狗: 52
+      斑鬣狗: 52,
+      水獭: 40,
+      鹈鹕: 48,
+      猩猩: 62,
+      巨嘴鸟: 38,
+      貘: 52,
+      夜莺: 40,
+      野牛: 54,
+      鹤: 48
     };
-    return map[species] || 42;
+    return map[species] || map[ANIMAL_SPRITE_FALLBACKS[species]] || 42;
   }
 
   speciesGlyph(species) {
-    const map = { 狼: "狼", 鹿: "鹿", 狐狸: "狐", 熊: "熊", 兔子: "兔", 猫头鹰: "枭", 乌鸦: "鸦", 刺猬: "刺", 水貂: "貂", 貉: "貉", 狮子: "狮", 豹子: "豹", 鳄鱼: "鳄", 野犬: "犬", 斑马: "斑", 羚羊: "羚", 长颈鹿: "长", 大象: "象", 白犀牛: "犀", 穿山甲: "甲", 猎豹: "猎", 斑鬣狗: "鬣" };
+    const map = {
+      狼: "狼", 鹿: "鹿", 狐狸: "狐", 熊: "熊", 兔子: "兔", 猫头鹰: "枭", 乌鸦: "鸦", 刺猬: "刺", 水貂: "貂", 貉: "貉",
+      狮子: "狮", 豹子: "豹", 鳄鱼: "鳄", 野犬: "犬", 斑马: "斑", 羚羊: "羚", 长颈鹿: "长", 大象: "象", 白犀牛: "犀",
+      穿山甲: "甲", 猎豹: "猎", 斑鬣狗: "鬣", 水獭: "獭", 鹈鹕: "鹈", 猩猩: "猩", 巨嘴鸟: "喙", 貘: "貘", 夜莺: "莺",
+      野牛: "牛", 鹤: "鹤"
+    };
     return map[species] || String(species || "?").slice(0, 1);
   }
 
@@ -27295,10 +31898,55 @@ class Game {
     return reserveProgressionFor(reserve || {});
   }
 
+  placeMapTaskPrompt(x, y, width = 142, height = 92) {
+    const viewport = this.mapViewport;
+    if (!viewport) return { x, y };
+    if (!Array.isArray(this.mapTaskPromptRects)) this.mapTaskPromptRects = [];
+    const scrollOffset = this.scrollY || 0;
+    const halfW = width / 2;
+    const halfH = height / 2;
+    const minX = viewport.x + halfW + 6;
+    const maxX = viewport.x + viewport.w - halfW - 6;
+    const minY = viewport.y + scrollOffset + halfH + 6;
+    const maxY = viewport.y + viewport.h + scrollOffset - halfH - 6;
+    const offsets = [
+      [0, 0], [-82, 0], [82, 0], [0, -94], [0, 94],
+      [-82, -82], [82, -82], [-82, 82], [82, 82],
+      [-164, 0], [164, 0]
+    ];
+    const overlaps = (rect) => this.mapTaskPromptRects.some((other) => (
+      rect.x < other.x + other.w + 8 && rect.x + rect.w + 8 > other.x
+      && rect.y < other.y + other.h + 8 && rect.y + rect.h + 8 > other.y
+    ));
+    let chosen = null;
+    for (const [dx, dy] of offsets) {
+      const cx = Math.max(minX, Math.min(maxX, x + dx));
+      const cy = Math.max(minY, Math.min(maxY, y + dy));
+      const rect = { x: cx - halfW, y: cy - halfH, w: width, h: height };
+      if (!overlaps(rect)) {
+        chosen = { x: cx, y: cy, rect };
+        break;
+      }
+    }
+    if (!chosen) {
+      const lane = this.mapTaskPromptRects.length;
+      const cx = Math.max(minX, Math.min(maxX, minX + (lane % 3) * (width + 10)));
+      const cy = Math.max(minY, Math.min(maxY, minY + Math.floor(lane / 3) * (height + 10)));
+      chosen = { x: cx, y: cy, rect: { x: cx - halfW, y: cy - halfH, w: width, h: height } };
+    }
+    this.mapTaskPromptRects.push(chosen.rect);
+    return { x: chosen.x, y: chosen.y };
+  }
+
   drawGroundMapMarker(ctx, marker = {}, x, y, scale = 1, options = {}) {
     const kind = marker.kind || marker.type || "question";
     const intensity = Math.max(1, marker.intensity || 1);
     const s = Math.max(.72, Math.min(1.48, scale));
+    const promptPoint = this.placeMapTaskPrompt(x, y - 18 * s, 142 * s, 92 * s);
+    x = promptPoint.x;
+    y = promptPoint.y + 18 * s;
+    const textSize = this.mapDescriptionFont(10, scale, .9);
+    const textScale = this.mapDescriptionScaleForScale(scale, .9);
     const icon = this.mapMarkerVisualIcon(marker);
     if (!this.renderedMapGroundMarkers) this.renderedMapGroundMarkers = [];
     ctx.save();
@@ -27326,23 +31974,31 @@ class Game {
       this.drawSmallGlyph(ctx, icon, x, y - 18 * s, (kind === "exclamation" || kind === "visitorIncident") ? UI_THEME.goldDeep : UI_THEME.forest700, .82 * s);
     }
     const rawLabel = marker.label || marker.recommendLabel || marker.title || "查看任务";
-    const shortLabel = this.truncateTextToWidth(ctx, String(rawLabel).replace(/^[^：:]{1,8}[：:]/, ""), 82 * s, 10 * s, "700");
-    ctx.font = `700 ${10 * s}px sans-serif`;
-    const labelW = Math.max(50 * s, Math.min(100 * s, ctx.measureText(shortLabel).width + 28 * s));
+    const shortLabel = this.truncateTextToWidth(ctx, String(rawLabel).replace(/^[^：:]{1,8}[：:]/, ""), 112 * textScale, textSize, "700");
+    ctx.font = `700 ${textSize}px sans-serif`;
+    const labelW = Math.max(56 * textScale, Math.min(126 * textScale, ctx.measureText(shortLabel).width + 30 * textScale));
     const labelY = y + 10 * s;
+    const labelH = Math.max(22 * s, textSize + 12);
+    const viewport = this.mapViewport;
+    const labelCenterX = viewport
+      ? Math.max(viewport.x + labelW / 2 + 4, Math.min(viewport.x + viewport.w - labelW / 2 - 4, x))
+      : x;
+    const labelTop = viewport
+      ? Math.max(viewport.y + 4 + (this.scrollY || 0), Math.min(viewport.y + viewport.h - labelH - 4 + (this.scrollY || 0), labelY))
+      : labelY;
     const showLabel = options.showLabel !== false;
     if (showLabel) {
-      this.roundRect(ctx, x - labelW / 2, labelY, labelW, 22 * s, 10 * s, "rgba(255,253,242,.96)", (kind === "exclamation" || kind === "visitorIncident") ? "rgba(214,151,51,.70)" : "rgba(38,105,78,.42)");
-      this.text(ctx, shortLabel, x - labelW / 2 + 9 * s, labelY + 15 * s, 10 * s, "#23473c", "700");
-      this.text(ctx, "›", x + labelW / 2 - 9 * s, labelY + 16 * s, 14 * s, (kind === "exclamation" || kind === "visitorIncident") ? "#b7781d" : "#28795e", "700", "center");
+      this.roundRect(ctx, labelCenterX - labelW / 2, labelTop, labelW, labelH, 10 * s, "rgba(255,253,242,.96)", (kind === "exclamation" || kind === "visitorIncident") ? "rgba(214,151,51,.70)" : "rgba(38,105,78,.42)");
+      this.text(ctx, shortLabel, labelCenterX - labelW / 2 + 9 * textScale, labelTop + labelH / 2 + textSize * .36, textSize, "#23473c", "700");
+      this.text(ctx, "›", labelCenterX + labelW / 2 - 9 * textScale, labelTop + labelH / 2 + textSize * .40, Math.max(14, textSize * 1.35), (kind === "exclamation" || kind === "visitorIncident") ? "#b7781d" : "#28795e", "700", "center");
     }
     ctx.restore();
     const iconHitSize = Math.max(52, 64 * s);
     const hitRect = {
-      x: showLabel ? x - labelW / 2 - 4 * s : x - iconHitSize / 2,
-      y: y - 38 * s,
+      x: showLabel ? labelCenterX - labelW / 2 - 4 * s : x - iconHitSize / 2,
+      y: showLabel ? labelTop - 52 * s : y - 38 * s,
       w: showLabel ? labelW + 8 * s : iconHitSize,
-      h: showLabel ? 74 * s : iconHitSize
+      h: showLabel ? Math.max(74 * s, labelH + 52 * s) : iconHitSize
     };
     const renderedMarker = {
       id: marker.id,
@@ -27365,6 +32021,7 @@ class Game {
   }
 
   mapMarkerVisualIcon(marker = {}) {
+    if (marker.kind === "friendAid" || marker.type === "friendAidRequest" || marker.type === "friendAidParcel" || marker.visualKind === "friend-aid") return "community";
     if (marker.eventType === "animal_interaction" || marker.kind === "animalInteraction" || marker.type === "animalInteraction") return "claw";
     const identity = `${marker.id || ""} ${marker.title || ""} ${marker.label || ""}`;
     if (/火警|火灾|雷火|山火|wildfire|fire/i.test(identity) || marker.visualKind === "wildfire") return "wildfire";
@@ -27610,7 +32267,7 @@ class Game {
         if (locked && this.firstSessionFeatureLocked("图鉴与收藏")) return;
         if (item[0] === "collection" && active) this.openDiscoveryHome();
         else this.setScreen(item[0]);
-      });
+      }, "tap", "hud");
     });
     ctx.restore();
   }
@@ -27620,6 +32277,9 @@ class Game {
     const inventory = base.inventory || {};
     const leagueBase = base.base || {};
     const ecology = base.ecology || {};
+    const operations = ((base.development || {}).operations) || {};
+    const visitorLedger = operations.visitorLedger || {};
+    const todayOps = operations.today || {};
     return {
       fund: base.fund || 0,
       safety: base.safety || base.stability || 0,
@@ -27671,6 +32331,8 @@ class Game {
         herbivores: Object.assign({}, ecology.herbivores || {}),
         birds: Object.assign({}, ecology.birds || {})
       },
+      chapterRescue: base.chapterRescue ? JSON.parse(JSON.stringify(base.chapterRescue)) : null,
+      poacherRescue: base.poacherRescue ? JSON.parse(JSON.stringify(base.poacherRescue)) : null,
       supplies: {
         dogFood: supplies.dogFood || 0,
         tranquilizer: supplies.tranquilizer || 0,
@@ -27689,9 +32351,28 @@ class Game {
       ecologyEconomy: JSON.parse(JSON.stringify(normalizeEcologyEconomy(base.ecologyEconomy, base))),
       lastMaterialExploration: base.lastMaterialExploration ? JSON.parse(JSON.stringify(base.lastMaterialExploration)) : null,
       wildernessKnowledge: normalizeWildernessKnowledge(base.wildernessKnowledge || {}),
+      friendAid: JSON.parse(JSON.stringify(base.friendAid || { version: 1, chapter: 1, request: null, incoming: null, used: false })),
       mysteryEvidence: normalizeMysteryEvidence(base.mysteryEvidence),
       strategy: normalizeStrategyState(base.strategy),
-      market: Object.assign({}, base.market || {})
+      market: Object.assign({}, base.market || {}),
+      development: {
+        operations: {
+          totalVisitors: Math.max(0, Math.round(Number((operations && operations.totalVisitors) || 0))),
+          visitorLedger: {
+            totalVisitors: Math.max(0, Math.round(Number((visitorLedger && visitorLedger.totalVisitors) || (operations && operations.totalVisitors) || 0))),
+            migratedVisitors: Math.max(0, Math.round(Number((visitorLedger && visitorLedger.migratedVisitors) || 0))),
+            recruitedVisitors: Math.max(0, Math.round(Number((visitorLedger && visitorLedger.recruitedVisitors) || 0))),
+            facilityVisitors: Math.max(0, Math.round(Number((visitorLedger && visitorLedger.facilityVisitors) || 0))),
+            taskVisitors: Math.max(0, Math.round(Number((visitorLedger && visitorLedger.taskVisitors) || 0))),
+            lostVisitors: Math.max(0, Math.round(Number((visitorLedger && visitorLedger.lostVisitors) || 0)))
+          },
+          today: {
+            visitors: Math.max(0, Math.round(Number((todayOps && todayOps.visitors) || 0))),
+            recruitedVisitors: Math.max(0, Math.round(Number((todayOps && todayOps.recruitedVisitors) || 0)))
+          }
+        }
+      },
+      chapterVisitorTotal: chapterVisitorTotal(base)
     };
   }
 
@@ -27733,6 +32414,10 @@ class Game {
     const actorName = kind === "hound" ? (actor.name || "猎犬队") : this.animalDisplayName(actor);
     const poacherDelta = (afterReserve.poacherPressure || 0) - (beforeReserve.poacherPressure || 0);
     const waterDelta = (((afterReserve.ecology || {}).water) || 0) - (((beforeReserve.ecology || {}).water) || 0);
+    const grassDelta = (((afterReserve.ecology || {}).grass) || 0) - (((beforeReserve.ecology || {}).grass) || 0);
+    const metricFocus = visual.metricFocus === "grass" || visual.metricFocus === "water"
+      ? visual.metricFocus
+      : "";
     const migrationDelta = ((afterReserve.migration || {}).delta) || 0;
     const templates = {
       antiPoacher: {
@@ -27740,8 +32425,12 @@ class Game {
         quote: poacherDelta < 0 ? "“今晚我会让幼崽靠近水边一点。你的脚步，和坏脚印不一样。”" : "“边界还没安静，但至少这次不是我们独自躲。”"
       },
       habitat: {
-        title: waterDelta > 0 ? `${actorName}第一个听见水回来了` : `${actorName}看见你在修补栖息地`,
-        quote: "“水重新流过浅滩时，我第一个听见了。谢谢你没有催我们回来。”"
+        title: metricFocus === "grass"
+          ? (grassDelta > 0 ? `${actorName}第一个发现草场恢复了` : `${actorName}看见你在修复草场`)
+          : (waterDelta > 0 ? `${actorName}第一个听见水回来了` : `${actorName}看见你在修补栖息地`),
+        quote: metricFocus === "grass"
+          ? "“嫩草重新长出来时，我知道这里又能养活我们了。谢谢你留下了足够的空间。”"
+          : "“水重新流过浅滩时，我第一个听见了。谢谢你没有催我们回来。”"
       },
       houndScout: {
         title: `${actorName}开始认得你的巡护路线`,
@@ -27779,7 +32468,8 @@ class Game {
       impactParts.push(`安全感 ${relationshipChange.before.security}→${relationshipChange.after.security} · 野性 ${relationshipChange.before.wildness}→${relationshipChange.after.wildness}`);
     } else if (afterTrust !== beforeTrust) impactParts.push(`${kind === "hound" ? "默契" : "熟悉"} ${beforeTrust}→${afterTrust}`);
     if (poacherDelta) impactParts.push(`偷猎 ${this.signed(poacherDelta)}`);
-    if (waterDelta) impactParts.push(`水源 ${this.signed(waterDelta)}`);
+    if (metricFocus === "grass" && grassDelta) impactParts.push(`草场 ${this.signed(grassDelta)}`);
+    else if (waterDelta) impactParts.push(`水源 ${this.signed(waterDelta)}`);
     if (migrationDelta) impactParts.push(`迁移 ${this.signed(migrationDelta)}`);
     return {
       id: `echo_${day}_${actionId}_${actor.id || actor.species}`,
@@ -27803,9 +32493,9 @@ class Game {
     };
   }
 
-  buildPatrolSettlement(before, after, result, command) {
+  buildPatrolSettlement(before, after, result, command, metricFocus = "") {
     const privateReport = (result.reports || []).find((report) => report.type === "private") || {};
-    const visual = result.visual || privateReport.visual || {};
+    const visual = Object.assign({}, privateReport.visual || {}, result.visual || {}, metricFocus ? { metricFocus } : {});
     const guardianCycleResult = visual.guardianCycle || null;
     const guardianNight = guardianCycleResult && guardianCycleResult.night;
     const firstReturnClosing = guardianNight && Number(guardianNight.day) === 1
@@ -27941,7 +32631,7 @@ class Game {
       neighborFactor: salvageSale.neighborFactor || 1,
       marketIndex: salvageSale.marketIndex || 1
     } : null;
-    const settlementLines = this.settlementRewardLines(before, after, goalDone, migrationDelta, command, progression, beforeProgression, eventChain, variableReward, houndGrowth, visual.authorization, patrolOperation, goalResult);
+    const settlementLines = this.settlementRewardLines(before, after, goalDone, migrationDelta, command, progression, beforeProgression, eventChain, variableReward, houndGrowth, visual.authorization, patrolOperation, goalResult, metricFocus, visual.actionFundCost);
     const rewardLines = settlementLines;
     const settlementVisitorsBefore = (result.businessChange && Number(result.businessChange.visitorsBefore)) || this.reserveVisitorCount(before);
     const settlementVisitorsAfter = (result.businessChange && Number(result.businessChange.visitorsAfter)) || this.reserveVisitorCount(after);
@@ -27956,13 +32646,13 @@ class Game {
       day: (guardianCycleResult && guardianCycleResult.context && guardianCycleResult.context.day) || (result.world && result.world.day) || this.state.world.day,
       title: dailyFullClear ? "每日任务全部完成" : storyDiscoveryAdvanced && storyDiscoveryItem ? `现场发现 · ${storyDiscoveryItem.name}` : materialExploration ? (materialExploration.survivalFind ? `${materialExploration.survivalFind.isNew ? "生存新知" : "生存素材"} · ${materialExploration.survivalFind.label}` : materialExploration.reward ? `探索发现 · ${materialExploration.reward.label} ×${materialExploration.reward.amount}` : "探索结束 · 未发现物资") : breakthrough ? breakthrough.title : commerce ? `样本移交完成 · ${commerce.fundingLabel} +${commerce.value}` : recoveredGoodsGain ? `回收完成 · ${recoveredGoodsGain.items.map((item) => `${item.label} ×${item.amount}`).join("、")}` : guardianNight ? `第${guardianNight.day}日守护结束` : (patrolStory ? patrolStory.headline : card.title || privateReport.title || "巡护完成"),
       crisisAlert,
-      summary: dailyFullClear ? "今日4项任务全部完成，奖励与保护区数值变化已全部到账。" : firstReturnClosing || (storyDiscoveryAdvanced && storyDiscoveryItem ? `${storyDiscovery.locationText || "动物的迹象与这次守护行动吻合。"} 具体物件已经出现在沙盘，请回去亲手收录。` : materialExploration ? `${materialExploration.summary} 点数${materialExploration.roll} + 等级修正${materialExploration.levelContribution} + 关系修正${materialExploration.relationshipContribution} = 探索总点数${materialExploration.qualityScore}。` : breakthrough ? breakthrough.body : commerce ? `${commerce.description}已移交；拨款基准 ${commerce.baseValue}，获得${commerce.fundingLabel} ${commerce.value}。` : recoveredGoodsGain ? `${recoveredGoodsGain.items.map((item) => `${item.label} +${item.amount}`).join("、")}，已进入物资页的待收取区。` : guardianNight ? `${guardianNight.mapChange}。${guardianNight.animalResponse}` : ((causality && causality.statLine) || this.settlementImpactLine(before, after, card.body || privateReport.body || `你执行了：“${command}”。保护区已经完成一轮生态结算。`))),
+      summary: dailyFullClear ? "今日2项任务全部完成，奖励与保护区数值变化已全部到账。" : firstReturnClosing || (storyDiscoveryAdvanced && storyDiscoveryItem ? `${storyDiscovery.locationText || "动物的迹象与这次守护行动吻合。"} 具体物件已经出现在沙盘，请回去亲手收录。` : materialExploration ? `${materialExploration.summary} 点数${materialExploration.roll} + 等级修正${materialExploration.levelContribution} + 关系修正${materialExploration.relationshipContribution} = 探索总点数${materialExploration.qualityScore}。` : breakthrough ? breakthrough.body : commerce ? `${commerce.description}已移交；拨款基准 ${commerce.baseValue}，获得${commerce.fundingLabel} ${commerce.value}。` : recoveredGoodsGain ? `${recoveredGoodsGain.items.map((item) => `${item.label} +${item.amount}`).join("、")}，已进入物资页的待收取区。` : guardianNight ? `${guardianNight.mapChange}。${guardianNight.animalResponse}` : ((causality && causality.statLine) || this.settlementImpactLine(before, after, card.body || privateReport.body || `你执行了：“${command}”。保护区已经完成一轮生态结算。`))),
       location: visual.location || (this.state.character && this.state.character.location) || "保护区",
       weather: (result.world && result.world.weather) || this.state.world.weather || "未知",
       command,
       actionType: actionId,
       actionIcon: visual.icon || "trail",
-      grade: run.lastGrade || "C",
+      grade: materialExploration ? this.materialExplorationSettlementGrade(materialExploration, run.lastGrade) : (run.lastGrade || "C"),
       guardianScore: run.score || 0,
       scoreDelta,
       fundBefore: before.fund || 0,
@@ -27988,6 +32678,7 @@ class Game {
       recoveredGoodsGain,
       materialExploration,
       patrolOperation,
+      metricFocus: metricFocus || visual.metricFocus || "",
       facilityOperational,
       guardianPromiseEffect,
       mysteryRecovery,
@@ -28017,17 +32708,20 @@ class Game {
       } : null,
       finalChapterEnding: getCurrentChapter(after).chapter === CHAPTERS.length && progression.chapterComplete && !beforeProgression.chapterComplete,
       causality,
+      animalSourceDelta: animalSourceFlowDelta(before, after),
       storyBeats: patrolStory ? patrolStory.beats : [],
       storyHeadline: patrolStory ? patrolStory.headline : "",
       neighborComparison,
       quickFeedback: visual.quickFeedback || "",
+      actionFundCost: visual.actionFundCost || null,
       stats: [
         { key: "fund", label: "保护基金", before: before.fund || 0, after: after.fund || 0, delta: (after.fund || 0) - (before.fund || 0) },
         { key: "visitors", label: "游客数量", before: this.reserveVisitorCount(before), after: this.reserveVisitorCount(after), delta: this.reserveVisitorCount(after) - this.reserveVisitorCount(before) },
         { key: "water", label: "水源", before: waterBefore, after: waterAfter, delta: waterAfter - waterBefore },
         { key: "grass", label: "草场", before: ((before.ecology || {}).grass) || 0, after: ((after.ecology || {}).grass) || 0, delta: (((after.ecology || {}).grass) || 0) - (((before.ecology || {}).grass) || 0) },
         { key: "safety", label: "安全", before: before.safety || 0, after: after.safety || 0, delta: (after.safety || 0) - (before.safety || 0) },
-        { key: "animalTotal", label: "动物数量", before: this.reserveSpeciesTotal(before), after: this.reserveSpeciesTotal(after), delta: this.reserveSpeciesTotal(after) - this.reserveSpeciesTotal(before) }
+        { key: "animalTotal", label: "动物总数", before: this.reserveSpeciesTotal(before), after: this.reserveSpeciesTotal(after), delta: this.reserveSpeciesTotal(after) - this.reserveSpeciesTotal(before) },
+        { key: "carryingCapacity", label: "动物承载", before: habitatCapacitySnapshot(before).effectiveCapacity, after: habitatCapacitySnapshot(after).effectiveCapacity, delta: habitatCapacitySnapshot(after).effectiveCapacity - habitatCapacitySnapshot(before).effectiveCapacity }
       ],
       materials: this.materialSettlementLines(before, after),
       rewards: rewardLines,
@@ -28080,13 +32774,11 @@ class Game {
   }
 
   reserveSpeciesTotal(reserve) {
-    return Object.keys(SPECIES_DB).reduce((sum, speciesId) => sum + speciesPopulation(reserve || {}, speciesId), 0);
+    return livingAnimalTotal(reserve || {});
   }
 
   reserveVisitorCount(reserve = {}) {
-    const operations = ((reserve.development || {}).operations || {});
-    const today = operations.today || {};
-    return Math.max(0, Math.round((Number(today.visitors) || 0) + (Number(today.recruitedVisitors) || 0)));
+    return chapterVisitorTotal(reserve);
   }
 
   detectReserveBreakthrough(before, after) {
@@ -28237,12 +32929,21 @@ class Game {
     };
   }
 
-  settlementRewardLines(before, after, goalDone, migrationDelta, command = "", progression = null, beforeProgression = null, eventChain = null, variableReward = null, houndGrowth = null, authorization = null, patrolOperation = null, goalResult = null) {
+  settlementRewardLines(before, after, goalDone, migrationDelta, command = "", progression = null, beforeProgression = null, eventChain = null, variableReward = null, houndGrowth = null, authorization = null, patrolOperation = null, goalResult = null, metricFocus = "", actionFundCost = null) {
     const lines = [];
     const fundDelta = after.fund - before.fund;
+    const disclosedCost = Math.max(0, Math.round(Number((actionFundCost || {}).cost) || 0));
+    const taskFundGain = (goalResult && Array.isArray(goalResult.rewards) ? goalResult.rewards : [])
+      .filter((item) => item && item.type === "fund")
+      .reduce((sum, item) => sum + Math.max(0, Math.round(Number(item.amount) || 0)), 0);
     const gains = [];
     const costs = [];
     const ecologyLedger = ((after.ecologyEconomy || {}).lastLedger) || null;
+    const focusedEcologyKey = metricFocus === "grass" || metricFocus === "water" ? metricFocus : "";
+    const focusedEcologyDelta = focusedEcologyKey
+      ? Number(((after.ecology || {})[focusedEcologyKey] || 0) - ((before.ecology || {})[focusedEcologyKey] || 0))
+      : 0;
+    if (focusedEcologyDelta) gains.push(`${focusedEcologyKey === "grass" ? "草场" : "水源"} ${this.signed(focusedEcologyDelta)}`);
     if (patrolOperation && patrolOperation.summary) {
       const routeDeltas = (patrolOperation.changes || []).filter((item) => item.delta).slice(0, 2).map((item) => `${item.label}${this.signed(item.delta)}`).join(" / ");
       gains.unshift(`路线：${patrolOperation.strategyLabel ? `${patrolOperation.strategyLabel} · ` : ""}${patrolOperation.summary}${routeDeltas ? ` · ${routeDeltas}` : ""}`);
@@ -28266,9 +32967,11 @@ class Game {
       });
     }
     if (goalDone && !(goalResult && goalResult.completions && goalResult.completions.some((item) => item.type === "daily_objective"))) gains.push("目标奖励");
-    if (fundDelta > 0) gains.push(`基金 +${fundDelta}`);
+    if (taskFundGain > 0 && !gains.some((line) => /基金 \+\d/.test(line))) gains.unshift(`任务奖励 +${taskFundGain}`);
+    else if (disclosedCost <= 0 && fundDelta > 0) gains.push(`基金 +${fundDelta}`);
     if (progression && beforeProgression && progression.level > beforeProgression.level) gains.unshift(`保护区升到 等级${progression.level}`);
-    if (fundDelta < 0) costs.push(`基金 ${fundDelta}`);
+    if (disclosedCost > 0) costs.unshift(`行动成本 -${disclosedCost}`);
+    else if (fundDelta < 0) costs.push(`基金 ${fundDelta}`);
     const materialGain = this.materialSettlementLines(before, after).filter((line) => !/无变化|无新增/.test(line));
     const actionId = this.reserveActionIdFromCommand(command);
     if (/dogFood|狗粮/.test(materialGain.join(" ")) || actionId === "houndScout") costs.push("狗粮消耗");
@@ -28386,7 +33089,7 @@ class Game {
     ];
   }
 
-  submitCommand(prebuiltCommand = "") {
+  submitCommand(prebuiltCommand = "", metricFocus = "") {
     if (!this.state.character) {
       this.toast("先成为卫士");
       return;
@@ -28404,7 +33107,13 @@ class Game {
     }
     const originScreen = this.pendingTaskOriginScreen || this.screen || "action";
     const returnScreen = originScreen === "action" ? "home" : originScreen;
-    const command = String(prebuiltCommand || this.buildSubmittedCommand(option)).replace(/\[(?:路线|途中):[^\]]*\]/g, "").trim();
+    const optionFocus = metricFocus === "grass" || metricFocus === "water"
+      ? metricFocus
+      : (option && (option.metricFocus === "grass" || option.metricFocus === "water") ? option.metricFocus : "");
+    const focusedCommand = this.materialOperationIgnoresOffscreenSettlement(option)
+      ? ""
+      : this.habitatCommandForMetricFocus(optionFocus, option);
+    const command = String(focusedCommand || prebuiltCommand || this.buildSubmittedCommand(option)).replace(/\[(?:路线|途中):[^\]]*\]/g, "").trim();
     this.patrolIncidentChoice = "";
     this.patrolTaskModal = null;
     this.patrolOperationPlan = null;
@@ -28414,12 +33123,13 @@ class Game {
     const beforeWorldForEcho = this.state.world || {};
     const beforeReserve = this.reserveSnapshot((this.state.world || {}).reserve || {});
     const result = simulateDay(command, this.state);
+    closeSandboxTasksForAction((result.world || {}).reserve || {}, option.id, Date.now());
     const lifeUpdate = advanceLifeMemory(beforeWorldForEcho, result.world || {}, { command, actionId: option.id });
     result.world.lifeMemory = lifeUpdate.state;
-    const echoVisual = Object.assign({}, result.visual || {}, { relationshipChange: lifeUpdate.relationshipChange });
+    const echoVisual = Object.assign({}, result.visual || {}, { relationshipChange: lifeUpdate.relationshipChange, metricFocus: optionFocus || metricFocus });
     const guardianEcho = this.buildGuardianEcho(beforeWorldForEcho, result.world || {}, command, echoVisual);
     result.world.guardianEchoes = ((beforeWorldForEcho.guardianEchoes || []).concat(guardianEcho)).slice(-12);
-    result.visual = Object.assign({}, result.visual || {}, { guardianEcho, relationshipChange: lifeUpdate.relationshipChange, emotionEvent: lifeUpdate.primaryEvent, emotionEvents: lifeUpdate.events });
+    result.visual = Object.assign({}, result.visual || {}, { guardianEcho, relationshipChange: lifeUpdate.relationshipChange, emotionEvent: lifeUpdate.primaryEvent, emotionEvents: lifeUpdate.events, metricFocus: optionFocus || metricFocus });
     (result.reports || []).forEach((report) => {
       report.visual = Object.assign({}, report.visual || {}, { guardianEcho, relationshipChange: lifeUpdate.relationshipChange, emotionEvent: lifeUpdate.primaryEvent, emotionEvents: lifeUpdate.events });
     });
@@ -28455,12 +33165,14 @@ class Game {
       result.visual = Object.assign({}, result.visual || {}, { firstPatrolAutoCollect });
     }
     this.scheduleFirstReturnHookFromResult(result);
+    const fromStage = Math.max(1, Math.round(Number((beforeReserve.progression || {}).stage || (beforeReserve.progression || {}).displayChapter) || 1));
+    this.commitReserveProgression((result.world || {}).reserve || this.state.world.reserve, undefined, fromStage);
     saveState(this.state);
     const afterReserve = this.reserveSnapshot((result.world || {}).reserve || {});
     this.materialChangeNotice = returnScreen === "role" ? this.buildMaterialChangeNotice(beforeReserve, afterReserve) : null;
     const inlineMaterialAction = this.shouldResolveMaterialActionInline(option.id, returnScreen);
     if (inlineMaterialAction) {
-      const settlement = this.buildPatrolSettlement(beforeReserve, afterReserve, result, command);
+      const settlement = this.buildPatrolSettlement(beforeReserve, afterReserve, result, command, optionFocus || metricFocus);
       this.settlementModal = null;
       this.activeTaskLock = null;
       this.mapPatrolReplay = null;
@@ -28474,8 +33186,10 @@ class Game {
       this.numberAnimationBurstUntil = Date.now() + 1800;
       this.numberAnimationBurstCause = "task";
       this.playSfx("success");
-      this.maybeShowInterstitialForSettlement(settlement, returnScreen, { preserveCurrentScreen: true })
-        .then(() => this.toast(option.id === "salvage" ? "移交完成，结果已更新" : "采购完成，库存已更新"));
+      this.maybeShowInterstitialForSettlement(settlement, returnScreen, {
+        preserveCurrentScreen: true,
+        skipInterstitial: true
+      }).then(() => this.toast(option.id === "salvage" ? "移交完成，结果已更新" : "采购完成，库存已更新"));
       return;
     }
     const patrolReplay = this.setMapPatrolReplay(option.id, { label: option.shortLabel || option.label });
@@ -28490,7 +33204,7 @@ class Game {
       animalQuote: guardianEcho && `${guardianEcho.actorName}：${guardianEcho.quote}`,
       delayMs: patrolReplay ? 1200 : 0
     });
-    this.settlementModal = this.buildPatrolSettlement(beforeReserve, afterReserve, result, command);
+    this.settlementModal = this.buildPatrolSettlement(beforeReserve, afterReserve, result, command, metricFocus);
     this.settlementModal.pendingDisplayBefore = beforeReserve;
     this.settlementModal.storyReplay = !!patrolReplay;
     this.configureSettlementReveal(this.settlementModal, returnScreen);
@@ -28603,6 +33317,8 @@ class Game {
     this.state = loadState();
     this.chapterStoryModal = null;
     this.chapterStoryQueue = [];
+    this.pendingChapterAdvance = false;
+    this.pendingChapterPromotion = null;
     this.pendingEmotionEvent = null;
     this.pendingEmotionEvents = [];
     this.pendingGuardianLetter = null;
@@ -28628,8 +33344,8 @@ class Game {
     this.reserveDisplayTargetCache = null;
     this.reserveDisplayTargetRefreshLeft = 0;
     this.selectedRegionId = this.defaultRegionId();
-    this.selectedTarget = this.state.world.knownCharacters[0];
-    this.speakingAnimalId = (this.selectedTarget && this.selectedTarget.id) || null;
+    this.selectedTarget = null;
+    this.speakingAnimalId = null;
     this.scrollY = 0;
     this.setScreen("choose");
     this.toast("已重置");
@@ -28670,6 +33386,16 @@ class Game {
     return Math.max(48, Math.min(maximum, desired));
   }
 
+  infoListUsesInlineNumberTag(item) {
+    // Numeric chapter guidance tags are exposed separately for layout tests and
+    // analytics. All stackTag cards now share the inline layout below.
+    return !!(item && item.stackTag && /^\d+$/.test(String(item.tag || "").trim()));
+  }
+
+  infoListUsesInlineTag(item) {
+    return !!(item && (item.inlineTitle || (item.stackTag && /^\d+$/.test(String(item.tag || "").trim()))));
+  }
+
   infoListItemNaturalHeight(ctx, item, w) {
     if (item && item.compactLadder) return 44;
     const delta = this.infoListItemDelta(item);
@@ -28679,12 +33405,21 @@ class Game {
     }
     const title = item.title || "记录";
     const body = item.noCompact ? (item.body || "") : this.compactDescriptionText(item.body || "", 68);
-    const titleSize = String(title).length <= 18 ? 14 : 13;
-    const stackedTag = !!item.stackTag;
-    const titleW = stackedTag ? w - 28 : Math.max(44, w - this.infoListTagWidth(ctx, item, w) - 32);
+    const inlineTag = this.infoListUsesInlineTag(item);
+    const stackedTag = !!item.stackTag && !inlineTag;
+    const showAction = typeof item.action === "function" || !!item.expandable;
+    const titleSize = inlineTag
+      ? (item.largeText ? 14 : 13)
+      : String(title).length <= 18 ? 14 : 13;
+    const inlineTagW = inlineTag ? Math.max(48, Math.min(w - 28, this.infoListTagWidth(ctx, item, w))) : 0;
+    const titleW = inlineTag
+      ? Math.max(44, w - inlineTagW - 32 - (showAction ? 46 : 0))
+      : stackedTag ? Math.max(44, w - 28) : Math.max(44, w - this.infoListTagWidth(ctx, item, w) - 32);
     const titleLines = Math.max(1, Math.min(2, this.wrapTextLines(ctx, title, titleW, titleSize, "700").length));
-    const bodyLines = body ? Math.max(1, Math.min(3, this.wrapTextLines(ctx, body, w - 28, 11).length)) : 0;
-    if (stackedTag) return Math.max(82, 82 + (titleLines - 1) * 17 + Math.max(0, bodyLines - 1) * 15);
+    const bodyLines = body ? Math.max(1, Math.min(item.noCompact ? 5 : 3, this.wrapTextLines(ctx, body, w - 28, item.largeText ? 12 : 11).length)) : 0;
+    const bodyStart = inlineTag ? 50 + (titleLines - 1) * 17 : stackedTag ? 68 + (titleLines - 1) * 17 : 48 + (titleLines - 1) * 17;
+    if (inlineTag) return Math.max(70, bodyStart + Math.max(body ? bodyLines : 0, body ? 1 : 0) * 15 + 10);
+    if (stackedTag) return Math.max(78, bodyStart + Math.max(body ? bodyLines : 0, body ? 1 : 0) * 15 + 6);
     return Math.max(70, 71 + (titleLines - 1) * 17 + Math.max(0, bodyLines - 1) * 15);
   }
 
@@ -28697,12 +33432,21 @@ class Game {
     }
     const title = item.title || "记录";
     const body = item.noCompact ? (item.body || "") : this.compactDescriptionText(item.body || "", 68);
-    const titleSize = String(title).length <= 18 ? 14 : 13;
-    const stackedTag = !!item.stackTag;
-    const titleW = stackedTag ? w - 28 : Math.max(44, w - this.infoListTagWidth(ctx, item, w) - 32);
+    const inlineTag = this.infoListUsesInlineTag(item);
+    const stackedTag = !!item.stackTag && !inlineTag;
+    const showAction = typeof item.action === "function" || !!item.expandable;
+    const titleSize = inlineTag
+      ? (item.largeText ? 14 : 13)
+      : String(title).length <= 18 ? 14 : 13;
+    const inlineTagW = inlineTag ? Math.max(48, Math.min(w - 28, this.infoListTagWidth(ctx, item, w))) : 0;
+    const titleW = inlineTag
+      ? Math.max(44, w - inlineTagW - 32 - (showAction ? 46 : 0))
+      : stackedTag ? Math.max(44, w - 28) : Math.max(44, w - this.infoListTagWidth(ctx, item, w) - 32);
     const titleLines = Math.max(1, Math.min(2, this.wrapTextLines(ctx, title, titleW, titleSize, "700").length));
-    const bodyLines = body ? Math.max(1, Math.min(3, this.wrapTextLines(ctx, body, w - 28, 11).length)) : 0;
-    if (stackedTag) return Math.max(82, 82 + (titleLines - 1) * 17 + Math.max(0, bodyLines - 1) * 15);
+    const bodyLines = body ? Math.max(1, Math.min(item.noCompact ? 5 : 3, this.wrapTextLines(ctx, body, w - 28, item.largeText ? 12 : 11).length)) : 0;
+    const bodyStart = inlineTag ? 50 + (titleLines - 1) * 17 : stackedTag ? 68 + (titleLines - 1) * 17 : 48 + (titleLines - 1) * 17;
+    if (inlineTag) return Math.max(70, bodyStart + Math.max(body ? 1 : 0, Math.min(2, bodyLines)) * 15 + 8);
+    if (stackedTag) return Math.max(78, bodyStart + Math.max(body ? 1 : 0, Math.min(2, bodyLines)) * 15 + 6);
     return Math.max(58, 58 + (titleLines - 1) * 24 + Math.max(0, bodyLines - 1) * 15);
   }
 
@@ -28783,6 +33527,8 @@ class Game {
     const actionable = typeof item.action === "function";
     const showAction = expandable || actionable;
     const stackedTag = !!item.stackTag;
+    const inlineTag = this.infoListUsesInlineTag(item);
+    const inlineNumberTag = this.infoListUsesInlineNumberTag(item);
     // 数据层沿用英文键名，所有信息卡统一在渲染边界转成中文。
     const tagLabel = displayMetricLabel(item.tag, item.tag || "记录");
     const tagW = stackedTag
@@ -28794,30 +33540,44 @@ class Game {
     const title = item.title || "记录";
     const body = item.noCompact ? (item.body || "") : this.compactDescriptionText(item.body || "", 68);
     const compactLadder = !!item.compactLadder;
-    const titleSize = item.largeText ? (String(title).length <= 18 ? 16 : 15) : (compactLadder ? 12 : (String(title).length <= 18 ? 14 : 13));
-    const titleX = stackedTag ? x + 14 : tagBounds.x + tagBounds.w + 8;
-    const titleY = stackedTag ? y + 54 : y + (compactLadder ? 28 : 26);
-    const titleW = stackedTag ? w - 28 : Math.max(44, x + w - 14 - titleX - (showAction ? 46 : 0));
-    const twoLineThreshold = stackedTag ? 99 : 82;
+    const titleSize = inlineTag
+      ? (item.largeText ? 14 : 13)
+      : item.largeText ? (String(title).length <= 18 ? 16 : 15) : (compactLadder ? 12 : (String(title).length <= 18 ? 14 : 13));
+    const titleX = inlineTag
+      ? tagBounds.x + tagBounds.w + 8
+      : stackedTag
+        ? x + 14
+        : tagBounds.x + tagBounds.w + 8;
+    const titleY = inlineTag
+      ? y + 28
+      : stackedTag
+        ? y + 50
+        : y + (compactLadder ? 28 : 26);
+    const titleW = inlineTag || !stackedTag
+      ? Math.max(44, x + w - 14 - titleX - (showAction ? 46 : 0))
+      : w - 28;
+    const twoLineThreshold = inlineTag || !stackedTag ? 70 : 86;
     const titleLineCount = Math.max(1, Math.min(h >= twoLineThreshold ? 2 : 1, this.wrapTextLines(ctx, title, titleW, titleSize, "700").length));
-    const titleLayout = this.drawNumericHighlightTextBlock(ctx, title, titleX, titleY, titleW, titleLineCount * 17, {
+    const titleLineHeight = Math.max(17, titleSize + 5);
+    const titleLayout = this.drawNumericHighlightTextBlock(ctx, title, titleX, titleY, titleW, titleLineCount * titleLineHeight, {
       size: titleSize,
       minSize: 12,
-      lineHeight: 17,
+      lineHeight: titleLineHeight,
       color: "#1c3325",
       weight: "700",
       numberColor: "#d84b42",
       numberSize: titleSize + 1,
       numberWeight: "700"
     });
-    const bodyY = y + (stackedTag ? 75 : 48) + (titleLineCount - 1) * 17;
-    const bodyLayout = body ? this.drawNumericHighlightTextBlock(ctx, body, x + 14, bodyY, w - 28, Math.max(14, h - (bodyY - y) - 8), {
+    const bodyY = y + (inlineTag ? 50 : stackedTag ? 68 : 48) + (titleLineCount - 1) * titleLineHeight;
+    const bodyLineHeight = 15;
+    const bodyLayout = body ? this.drawNumericHighlightTextBlock(ctx, body, x + 14, bodyY, w - 28, Math.max(bodyLineHeight, h - (bodyY - y) - 8), {
       size: item.largeText ? 13 : 11,
       minSize: item.largeText ? 11 : 10,
       lineHeight: 15,
       color: "#4b594e",
       compact: !item.noCompact,
-      maxChars: 68,
+      maxChars: item.noCompact ? 240 : 68,
       numberColor: "#d84b42",
       numberSize: 12,
       numberWeight: "700"
@@ -28828,6 +33588,8 @@ class Game {
       expandable: showAction,
       actionable,
       stackedTag,
+      inlineTag,
+      inlineNumberTag,
       tagBounds,
       noTagTitleOverlap: tagBounds.x + tagBounds.w + 6 <= titleX,
       titleBounds: { x: titleX, y: titleY - titleLayout.size, w: titleW, h: titleLineCount * titleLayout.lineHeight },
@@ -28861,7 +33623,7 @@ class Game {
       this.roundRect(ctx, x, y, w, h, radius, style.fill, style.stroke);
     }
     const fitted = this.fitTextSize(ctx, label, w - 16, Math.max(IOS_TYPE.subhead, size), IOS_TYPE.caption, "700");
-    this.text(ctx, label, x + w / 2, y + h / 2 + fitted / 2 - 3, fitted, role === "primary" ? "#fff4cf" : style.color, "700", "center");
+    this.text(ctx, this.truncateTextToWidth(ctx, label, w - 16, fitted, "700"), x + w / 2, y + h / 2 + fitted / 2 - 3, fitted, role === "primary" ? "#fff4cf" : style.color, "700", "center");
     // iOS controls need a forgiving 44pt touch target even when the visual
     // button is intentionally compact inside a dense modal.
     if (typeof onTap === "function") {
@@ -29031,17 +33793,53 @@ class Game {
     const numberColor = options.numberColor || UI_THEME.danger || "#c54838";
     const weight = options.weight || "400";
     const numberWeight = options.numberWeight || "700";
-    const tokens = this.numericTextTokens(options.compact ? this.compactDescriptionText(text, options.maxChars || 72) : text);
+    const rawTokens = this.numericTextTokens(options.compact ? this.compactDescriptionText(text, options.maxChars || 72) : text);
+    const trailingPunct = /^[，。；：、）》】”’…]+$/;
+    const tokens = [];
+    rawTokens.forEach((token) => {
+      const prev = tokens[tokens.length - 1];
+      if (trailingPunct.test(String(token.text || "").trim()) && prev && prev.text !== "\n" && !prev.number) {
+        prev.text += token.text;
+        return;
+      }
+      tokens.push(Object.assign({}, token));
+    });
+    tokens.forEach((token, index) => {
+      if (!trailingPunct.test(String(token.text || "").trim()) || token.number) return;
+      const next = tokens[index + 1];
+      if (next && next.text !== "\n" && !next.number && !trailingPunct.test(String(next.text || "").trim())) {
+        next.text = token.text + next.text;
+        token.text = "";
+      }
+    });
+    const layoutTokens = tokens.filter((token) => token.text);
     const lines = [[]];
     let width = 0;
-    tokens.forEach((token) => {
+    layoutTokens.forEach((token) => {
       if (token.text === "\n") {
         lines.push([]);
         width = 0;
         return;
       }
+      const lastLine = lines[lines.length - 1];
+      const prev = lastLine[lastLine.length - 1];
+      if (prev && prev.number === token.number && token.text !== "\n") {
+        const joined = Object.assign({}, prev, { text: prev.text + token.text });
+        joined.width = this.measureNumericToken(ctx, joined, size, weight, numberSize, numberWeight);
+        if (width - prev.width + joined.width > maxWidth) {
+          lines.push([]);
+          width = 0;
+          const tokenWidth = this.measureNumericToken(ctx, token, size, weight, numberSize, numberWeight);
+          lines[lines.length - 1].push(Object.assign({}, token, { width: tokenWidth }));
+          width += tokenWidth;
+          return;
+        }
+        lastLine[lastLine.length - 1] = joined;
+        width = width - prev.width + joined.width;
+        return;
+      }
       const tokenWidth = this.measureNumericToken(ctx, token, size, weight, numberSize, numberWeight);
-      if (lines[lines.length - 1].length && width + tokenWidth > maxWidth) {
+      if (lastLine.length && width + tokenWidth > maxWidth) {
         lines.push([]);
         width = 0;
       }
@@ -29320,7 +34118,7 @@ class Game {
         this.text(ctx, this.truncateTextToWidth(ctx, letter.body || "", textW, 10, "400"), textX, cy + 43, 10, "#5c6961", "400");
         this.text(ctx, letter.sourceLabel || dateLabel, cardX + cardW - 12, cy + 23, 9, unreadLetter ? "#8b6f2a" : "#718077", "700", "right");
         this.text(ctx, dateLabel, cardX + cardW - 12, cy + 37, 9, unreadLetter ? "#8b6f2a" : "#718077", "400", "right");
-        this.text(ctx, "查看 ›", cardX + cardW - 12, cy + 48, 10, "#2f7d62", "700", "right");
+        this.text(ctx, isWorldTop10Letter(letter) ? "排行榜 ›" : "查看 ›", cardX + cardW - 12, cy + 48, 10, "#2f7d62", "700", "right");
         const hitTop = Math.max(cy, viewY);
         const hitBottom = Math.min(cy + rowH, viewY + viewH);
         if (hitBottom > hitTop) this.addHit(cardX, hitTop, cardW, hitBottom - hitTop, () => this.openVisitorLetterReader(letter, modal));
@@ -29800,9 +34598,6 @@ class Game {
   chapterRescueState() {
     const reserve = (this.state.world || {}).reserve || {};
     const chapter = getCurrentChapter(reserve) || {};
-    // Map/task projections can be read before a save round-trip. Normalize the
-    // poacher list here as well, so an old duplicate chapter animal cannot
-    // remain visible merely because it was already in memory.
     poacherRescueState(reserve);
     return normalizeChapterRescue(reserve, chapter.chapter || 1);
   }
@@ -29814,6 +34609,19 @@ class Game {
     return String(id).startsWith("poacher:")
       ? findPoacherRescue(reserve, id)
       : findRecord(reserve.chapterRescue || {}, id);
+  }
+
+  rescueRecordOwningItem(itemId = "", reserve = (this.state.world || {}).reserve || {}) {
+    if (!itemId) return null;
+    const owns = (record) => record && record.status !== "rescued" && (record.requiredItems || []).includes(itemId);
+    const active = this.activeRescueRecord(reserve);
+    if (owns(active)) return active;
+    const chapter = reserve.chapterRescue || {};
+    const chapterHit = (Array.isArray(chapter.targets) ? chapter.targets : [])
+      .concat(Object.values(chapter.animals || {}))
+      .find(owns);
+    if (chapterHit) return chapterHit;
+    return (poacherRescueState(reserve).active || []).find(owns) || null;
   }
 
   rescueRecordFor(id, reserve = (this.state.world || {}).reserve || {}) {
@@ -29835,7 +34643,7 @@ class Game {
       : nextPoacherRescue(reserve) || nextRescueTask(reserve, state.chapter);
     const lockedRecord = this.activeRescueRecord(reserve);
     if ((this.activeTaskLock && (!lockedRecord || !record || lockedRecord.targetId !== record.targetId))
-      || this.patrolTaskModal || this.settlementModal) {
+      || this.patrolTaskModal || this.settlementOccupiesFlow()) {
       this.toast("请先完成或关闭当前任务");
       return false;
     }
@@ -29851,7 +34659,18 @@ class Game {
       const item = rescueItemById(itemId) || { label: itemId, story: "收集解救物品" };
       const count = rescueItemCountFor(reserve, record, itemId);
       const pointTarget = rescuePointTarget(record, itemId);
-      const points = { current: Math.min(pointTarget, Math.max(0, Number((record.pointProgress || {})[itemId]) || 0)), required: pointTarget };
+      // The exploration resolver writes the latest shot to both the rescue
+      // record and the shared material progress map. Older saves (and the
+      // one-frame settlement transition) can update the latter first, so use
+      // the newest verified value from either source when building the task
+      // card. This prevents the card from lagging one arrow result behind.
+      const recordPoints = Math.max(0, Number((record.pointProgress || {})[itemId]) || 0);
+      const lastShot = reserve.lastRescueShot || {};
+      const lastPoints = lastShot.rescueTargetId === (record.targetId || record.speciesId)
+        && lastShot.itemId === itemId
+        ? Math.max(0, Number(lastShot.totalScore) || 0)
+        : 0;
+      const points = { current: Math.min(pointTarget, Math.max(recordPoints, lastPoints)), required: pointTarget };
       const pointCurrent = Math.max(0, Number(points.current) || 0);
       const pointText = `点数：已获得 ${pointCurrent} / 需要 ${points.required || pointTarget}（每件物品需累计 ${points.required || pointTarget} 点）`;
       return {
@@ -29867,9 +34686,6 @@ class Game {
     const ready = record.recurring
       ? record.requiredItems.every((itemId) => rescueItemCountFor(reserve, record, itemId) > 0)
       : canRescueAnimal(reserve, record.speciesId);
-    // A tap on the visible sandbox rescue marker is the actual rescue action.
-    // The task-card CTA only navigates to the map; marker taps settle the
-    // record and start the release animation immediately.
     if (autoRun && ready) return this.completeChapterRescue(record.targetId || record.speciesId);
     this.infoDetailModal = {
       kind: "chapterRescueTask",
@@ -29882,6 +34698,7 @@ class Game {
       footer: ready
         ? "物品已齐：确认后解开出口，动物故事将写入信件。"
         : `点击待收物品，前往生存频道收集；每种物品只需一件。${record.recurring ? "（每件物品需累计 10 点）" : ""}`,
+      rescueTargetId: record.targetId,
       rescueRecord: record,
       rescueReady: ready,
       actionLabel: ready ? `前往沙盘解救${record.speciesName}` : "继续收集",
@@ -29902,7 +34719,7 @@ class Game {
       this.toast("解救物品还没有收齐");
       return false;
     }
-    this.focusedRescueTarget = record.speciesId;
+    this.focusRescueTargetOnMap(record.speciesId);
     this.infoDetailModal = null;
     this.setScreen("home");
     this.toast(`已定位${record.speciesName} · 点击沙盘上的待解救标记`);
@@ -29948,19 +34765,26 @@ class Game {
     });
     result.record.letterIssued = true;
     this.state.world.lifeMemory = Object.assign({}, lifeMemory, { animalLetters: letters.slice(-24) });
+    const lastMarker = (this.renderedRescueMapMarkers || []).find((marker) => (
+      marker.targetId === result.record.targetId || marker.speciesId === result.record.speciesId
+    ));
+    const planted = lastMarker && Number.isFinite(lastMarker.worldX) && Number.isFinite(lastMarker.worldY)
+      ? [lastMarker.worldX, lastMarker.worldY]
+      : result.record.map && [result.record.map.x, result.record.map.y];
     this.setMapConsequencePulse(beforeReserve, this.reserveSnapshot(reserve), {
       tone: "rescue",
       rescueSpeciesId: result.record.speciesId,
       title: `${result.record.speciesName}已解救`,
       customValueText: `${result.record.speciesName}回到保护区`,
       animalQuote: "出口已经打开，动物正在回到沙盘。",
-      mapPoint: result.record.map && [result.record.map.x, result.record.map.y]
+      mapPoint: planted
     });
     saveState(this.state);
     // 解救确认即完成并回到沙盘；动画和提示在地图层展示，避免结果页
     // 把玩家挡在操作现场之外。
     this.infoDetailModal = null;
     this.focusedRescueTarget = null;
+    this.rescueFocusCameraSettled = true;
     this.preserveMapZoomOnHome = true;
     const previousDeferral = this.deferQueuedMissionPush;
     this.deferQueuedMissionPush = true;
@@ -29972,17 +34796,23 @@ class Game {
     const pulse = this.mapConsequencePulse;
     const finishPromotion = () => {
       if (!this.state || !this.state.world || this.state.world.reserve !== reserve) return;
-      reserve.progression = reserveProgressionFor(reserve);
-      const afterProgression = reserve.progression || {};
-      if (!record.recurring && Number(afterProgression.stage || 0) > Number(beforeProgression.stage || 0)) {
-        this.queueChapterStoriesForSettlement({
-          chapterTransition: {
-            from: Number(beforeProgression.stage || 1),
-            to: Number(afterProgression.stage),
-            summary: { population: this.reserveSpeciesTotal(beforeReserve), daysManaged: beforeProgression.daysManaged || 0 }
-          },
-          deferChapterStory: false
-        });
+      const fromStage = Number(beforeProgression.stage || 1);
+      reserve.progression = this.commitReserveProgression(reserve, undefined, fromStage);
+      const held = this.pendingChapterPromotion;
+      if (!record.recurring && held && Number(held.from) === fromStage) {
+        this.pendingChapterAdvance = true;
+        this.infoDetailModal = {
+          kind: "chapterRescueResult",
+          kicker: `第${fromStage}章 · 最后解救`,
+          title: `${result.record.speciesName}已回到保护区`,
+          icon: "paw",
+          animal: { species: result.record.speciesName },
+          prose: story.paragraphs.join("\n\n"),
+          pendingChapterAdvance: true,
+          actionLabel: "进入章节进阶",
+          action: () => this.dismissInfoDetailModal()
+        };
+        this.playSfx("taskComplete");
       }
       this.render();
     };
@@ -30006,6 +34836,9 @@ class Game {
     const narrative = this.speciesProfileNarrative(sp, reserve);
     const recentDialogues = this.speciesRecentDialogueLines(sp, reserve, narrative.feedback);
     const namedAnimal = ((this.state.world || {}).knownCharacters || []).find((animal) => animal.species === sp.name) || null;
+    const sources = animalSourceSummary(reserve);
+    const speciesLedger = (sources.species || {})[speciesId] || {};
+    const breeding = Math.max(0, Math.round(Number(speciesLedger.breeding) || 0));
     return {
       kind: "speciesProfile",
       kicker: `${ecoRole ? ecoRole.label : "保护区动物"} · ${sensitivity ? sensitivity.label : "生态成员"}`,
@@ -30016,6 +34849,7 @@ class Game {
         population: pop,
         status,
         importance,
+        breeding,
         feedback: narrative.feedback,
         friends: individualsForSpecies(this.state.world || {}, sp.id).slice(0, 2),
         dialogues: recentDialogues,
@@ -30029,7 +34863,7 @@ class Game {
       },
       dialoguesExpanded: false,
       depthPage: 0,
-      footer: "数量、健康和朋友的一生都会随你的巡护选择持续变化。"
+      footer: `本章繁殖剩余 ${breeding} 只。数量跨章累计，留存只读不另加。`
     };
   }
 
@@ -30054,8 +34888,15 @@ class Game {
   }
 
   drawSpeciesAvatar(ctx, speciesId, x, y, size) {
-    const species = getSpeciesById(speciesId);
-    if (!species) return;
+    const raw = String(speciesId || "").trim();
+    const species = getSpeciesById(speciesId) || SPECIES_BY_NAME[raw] || SPECIES_BY_NAME[raw.toLowerCase()];
+    // Old saves used the localized name as the stable rescue id. Resolve it
+    // before drawing so a rescued animal never causes an empty/aborted map
+    // frame just because its id predates the current species table.
+    if (!species) {
+      this.drawAnimalAvatar(ctx, { species: raw || "动物" }, x, y, size, false);
+      return;
+    }
     const animal = { species: species.name };
     if (this.drawAnimalMapPortraitAsset(ctx, animal, x, y, size, false)) return;
     this.drawAnimalAvatar(ctx, animal, x, y, size, false);
@@ -30066,14 +34907,18 @@ class Game {
     const cols = 2;
     const gap = DISCOVERY_ITEM_CARD_GAP;
     const cardW = Math.floor((w - gap * (cols - 1)) / cols);
-    const cardH = DISCOVERY_ITEM_CARD_HEIGHT;
+    // Keep portrait cards readable while shortening the three-row stack on
+    // narrow phones; the shared material catalogue remains 148px tall.
+    const cardH = Math.max(112, Math.min(DISCOVERY_ITEM_CARD_HEIGHT, Math.round(this.width * .30)));
     const concernedSpecies = unlocked.filter((sp) => ["↓", "⚠"].includes(speciesStatus(reserve, sp.id, reserve.migration || {}).trend));
     const concernCount = concernedSpecies.length;
     const summaryH = 54;
     this.roundRect(ctx, x, y + 2, w, summaryH, 16, "rgba(20,35,29,.09)");
     this.roundRect(ctx, x, y, w, summaryH, 16, UI_THEME.surface, UI_THEME.separator);
+    const chapterSources = animalSourceSummary(reserve);
+    const chapterBreeding = Math.max(0, Math.round(Number(chapterSources.breeding) || 0));
     this.text(ctx, "种群观察", x + 14, y + 17, 11, "#1c3325", "700");
-    this.text(ctx, "点卡片看档案", x + 75, y + 17, 9, "#718077", "400");
+    this.text(ctx, chapterBreeding ? `本章繁殖剩余 +${chapterBreeding}` : "点卡片看档案", x + 75, y + 17, 9, chapterBreeding ? "#1f8a55" : "#718077", chapterBreeding ? "700" : "400");
     this.text(ctx, "生态关系 ›", x + w - 12, y + 17, 10, "#8b6f2a", "700", "right");
     const summaryItems = [
       { label: "物种", value: unlocked.length, color: "#1f7a52" },
@@ -30114,6 +34959,7 @@ class Game {
       species: unlocked.length,
       animals: totalPop,
       concern: concernCount,
+      breeding: chapterBreeding,
       valueSize: 17,
       h: summaryH,
       concernAction: !!concernTarget,
@@ -30188,6 +35034,8 @@ class Game {
       this.text(ctx, trendText, trendX + trendW / 2, trendY + 17, trendSize, trendVisual.color, "700", "center");
       ctx.fillStyle = "rgba(36,64,46,.11)";
       ctx.fillRect(textX, cy + 82, Math.max(24, cardW - (textX - cx) - 9), 1);
+      const speciesBreeding = Math.max(0, Math.round(Number((chapterSources.species[id] || {}).breeding) || 0));
+      if (speciesBreeding) this.text(ctx, `繁+${speciesBreeding}`, textX, cy + 98, 9, "#1f8a55", "700");
       this.text(ctx, rescueCaptive ? "查看解救线索 ›" : "查看档案 ›", cx + cardW - 9, cy + 98, 9, active ? "#1f6f54" : "#52675b", "700", "right");
       this.renderedSpeciesCards.push({
         id,
@@ -30195,6 +35043,7 @@ class Game {
         population: displayPop,
         trend: trendText,
         status: st.status,
+        breeding: speciesBreeding,
         role: roleLabel,
         detailAction: true,
         rescueStatus: rescueCaptive ? "captive" : "rescued",
@@ -30236,9 +35085,14 @@ class Game {
       this.renderedSpeciesPagination = { page: 0, pageCount: 1, pageSize, visible: visibleIds.length, x, y, w, h: 0 };
     }
 
-    if (lockedIds.length) {
-      const nextLevel = Math.min(...lockedIds.map((id) => (SPECIES_DB[id] || {}).unlockLevel || 99));
-      const nextSpecies = lockedIds.map((id) => SPECIES_DB[id]).filter((sp) => sp && sp.unlockLevel === nextLevel);
+    // The current playable progression ends at level 6/7 with the same 25
+    // species.  Late catalog placeholders are kept in SPECIES_DB for future
+    // content but must not create a misleading "next level" card here.
+    if ((lockedIds.length && reserveLevel < 6) || reserveLevel === 6) {
+      const nextLevel = reserveLevel === 6 ? 7 : Math.min(...lockedIds.map((id) => (SPECIES_DB[id] || {}).unlockLevel || 99));
+      const nextSpecies = reserveLevel === 6
+        ? []
+        : lockedIds.map((id) => SPECIES_DB[id]).filter((sp) => sp && sp.unlockLevel === nextLevel);
       const rowH = 46;
       this.roundRect(ctx, x, y + 3, w, rowH, 13, "rgba(8,26,18,.08)");
       this.roundRect(ctx, x, y, w, rowH, 13, "rgba(232,236,226,.94)", "rgba(100,114,103,.22)");
@@ -30396,5 +35250,8 @@ drawSpeciesProfileCard(ctx, x, y, w, sp, pop, status, importance, ecoRole, sensi
 
 module.exports = {
   Game,
-  resolveRenderDpr
+  resolveRenderDpr,
+  usesFragileCanvas,
+  canvasPlatformId,
+  chapterCoreMetrics
 };

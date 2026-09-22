@@ -130,20 +130,23 @@ let drawnAnimals = 0;
 game.drawSpeciesAvatar = function (_ctx, speciesId) { assert.strictEqual(speciesId, 'boar'); drawnAnimals++; };
 try {
   for (const width of [320, 375, 430]) {
-    for (const x of [.18, .5, .88]) {
-      const camera = { x: 0, y: 0, w: width, h: 600, worldX: 0, worldY: 0, worldW: width, worldH: 600, scale: 1 };
-      game.mapViewport = { x: 0, y: 0, contentY: 0, w: width, h: 600 };
-      releasePulse.x = x;
-      for (const [elapsed, phase] of [[0, 'cutting'], [600, 'rope-fading'], [1300, 'released'], [2100, 'released']]) {
-        Date.now = () => releasePulse.startedAt + elapsed;
-        game.drawMapConsequencePulse(context(), camera);
-        const rendered = releasePulse.renderedRelease;
-        assert.strictEqual(rendered.phase, phase);
-        assert(rendered.labelX >= 0 && rendered.labelX + rendered.labelW <= width);
-        assert(rendered.labelY >= 0 && rendered.labelY + 26 <= 600);
-        if (elapsed >= 1300) assert.strictEqual(rendered.ropeAlpha, 0, 'cut rope must disappear');
-      }
+    const camera = { x: 0, y: 0, w: width, h: 600, worldX: 0, worldY: 0, worldW: width, worldH: 600, scale: 1 };
+    game.mapViewport = { x: 0, y: 0, contentY: 0, w: width, h: 600 };
+    let plantedX = 0;
+    for (const [elapsed, phase] of [[0, 'cutting'], [600, 'rope-fading'], [1300, 'released'], [2100, 'released']]) {
+      Date.now = () => releasePulse.startedAt + elapsed;
+      game.drawMapConsequencePulse(context(), camera);
+      const rendered = releasePulse.renderedRelease;
+      assert.strictEqual(rendered.phase, phase);
+      assert(rendered.labelX >= 0 && rendered.labelX + rendered.labelW <= width);
+      assert(rendered.labelY >= 0 && rendered.labelY + 26 <= 600);
+      if (elapsed >= 1300) assert.strictEqual(rendered.ropeAlpha, 0, 'cut rope must disappear');
+      if (!plantedX) plantedX = rendered.animalX;
     }
+    camera.worldX -= 80;
+    Date.now = () => releasePulse.startedAt + 200;
+    game.drawMapConsequencePulse(context(), camera);
+    assert(Math.abs(releasePulse.renderedRelease.animalX - (plantedX - 80)) < 1, 'release animation must stay on the planted sandbox tile');
   }
   Date.now = () => releasePulse.expiresAt;
   game.drawMapConsequencePulse(context(), { x: 0, y: 0, w: 375, h: 600 });
@@ -152,6 +155,6 @@ try {
   Date.now = realNow;
   game.drawSpeciesAvatar = originalAvatar;
 }
-assert.strictEqual(drawnAnimals, 36);
+assert.strictEqual(drawnAnimals, 15);
 assert.strictEqual(JSON.stringify(reserve), savedReserve, 'animation is visual-only');
 console.log('rescue release animation check ok: cutting -> rope fades -> animal leaves; 320/375/430, expiry cleanup, no repeated settlement');

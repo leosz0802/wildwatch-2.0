@@ -5,9 +5,17 @@ const {
   CHAPTERS,
   SPECIES_DB,
   getUnlockedSpecies,
+  reconcileSpeciesPopulations,
   speciesPopulation,
   speciesPopulationGroup
 } = require("../js/animalWorld");
+const {
+  normalizeChapterRescue,
+  addRescueItem,
+  rescueAnimal,
+  livingAnimalTotal
+} = require("../js/chapterRescueSystem");
+const { chapterTargets } = require("../js/chapterTargets");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -34,8 +42,10 @@ function nextState(state, command) {
 
 const speciesIds = Object.keys(SPECIES_DB);
 const chapterSpecies = CHAPTERS.flatMap((chapter) => chapter.newSpecies);
-assert(speciesIds.length === 25, `expected 25 species, got ${speciesIds.length}`);
+assert(speciesIds.length === 33, `expected 33 species, got ${speciesIds.length}`);
 assert(new Set(chapterSpecies).size === speciesIds.length, "chapter unlocks should cover every species exactly once");
+assert(getUnlockedSpecies(7).length === 25, "level 7 without chapter should still stop at the 25 atlas species");
+assert(getUnlockedSpecies(7, 20).length === 33, "chapter 20 should unlock the full 33-species roster");
 
 let state = makeState();
 let reserve = state.world.reserve;
@@ -45,9 +55,11 @@ assert(new Set(state.world.knownCharacters.map((animal) => animal.species)).size
 speciesIds.forEach((id) => {
   const sp = SPECIES_DB[id];
   const pop = speciesPopulation(reserve, id);
-  if (sp.unlockLevel === 1) assert(pop > 0, `${id} should have a starter population`);
-  else assert(pop === 0, `${id} should not exist before unlock`);
+  if (sp.unlockLevel > 1 || (sp.unlockChapter && sp.unlockChapter > 1)) {
+    assert(pop === 0, `${id} should not exist before unlock`);
+  }
 });
+assert(speciesPopulation(reserve, "deer") > 0, "deer should have a starter population");
 
 const oldRandom = Math.random;
 let randomIndex = 0;
@@ -71,7 +83,7 @@ try {
     ), `combined progress is incorrect on day ${day}`);
     assert(reserve.progression.level >= before.progression.level, `level regressed on day ${day}`);
     assert(reserve.progression.level <= before.progression.level + 1, `level skipped on day ${day}`);
-    const allowedSpecies = getUnlockedSpecies(reserve.progression.level).map((species) => species.name).sort();
+    const allowedSpecies = getUnlockedSpecies(reserve.progression.level, reserve.progression.stage).map((species) => species.name).sort();
     const sandboxSpecies = state.world.knownCharacters.map((animal) => animal.species).sort();
     assert(JSON.stringify(sandboxSpecies) === JSON.stringify(allowedSpecies), `sandbox species do not match level ${reserve.progression.level} unlocks on day ${day}`);
     speciesIds.forEach((id) => {
@@ -89,9 +101,10 @@ try {
 }
 
 const chapterMinutes = Object.values(CHAPTER_PROGRESSION_GATES).map((gate) => gate.expectedMinutes);
-assert(chapterMinutes.join(",") === "10,20,30,35,40,45,50,55,60,60,65,70,75,80", "operating stages should follow the agreed 14-step time staircase");
+assert(chapterMinutes.join(",") === "5,20,30,35,40,45,50,55,60,60,65,70,75,80,86,92,98,104,110,120", "operating stages should follow the agreed 20-step time staircase");
 Object.values(CHAPTER_PROGRESSION_GATES).forEach((gate) => {
   const fixture = makeState().world.reserve;
+  fixture.chapterRescue = Object.assign({}, fixture.chapterRescue || {}, { enforceCompletion: false });
   fixture.safety = 100;
   fixture.stability = 100;
   fixture.reputation = 100;
@@ -102,6 +115,24 @@ Object.values(CHAPTER_PROGRESSION_GATES).forEach((gate) => {
   fixture.ecology.herbivores.antelope = 150;
   fixture.ecology.herbivores.hare = 200;
   fixture.guardianRun.score = 100;
+  Object.assign(fixture.progression, { level: gate.storyLevel, stage: gate.stage, displayChapter: gate.stage });
+  normalizeChapterRescue(fixture, gate.stage, { fresh: true });
+  reconcileSpeciesPopulations(fixture, { removeLocked: true, initializeUnlocked: true });
+  (normalizeChapterRescue(fixture, gate.stage).targets || []).forEach((record) => {
+    (record.requiredItems || []).forEach((itemId) => addRescueItem(fixture, itemId));
+    rescueAnimal(fixture, record.targetId);
+  });
+  reconcileSpeciesPopulations(fixture, { removeLocked: true, initializeUnlocked: true });
+  const liveTarget = chapterTargets(gate.stage);
+  const animalGap = Math.max(0, liveTarget.animals - livingAnimalTotal(fixture));
+  if (animalGap) fixture.ecology.herbivores.deer = Math.max(0, Number(fixture.ecology.herbivores.deer) || 0) + animalGap;
+  fixture.development = fixture.development || {};
+  fixture.development.operations = Object.assign({}, fixture.development.operations || {}, {
+    totalVisitors: liveTarget.visitors
+  });
+  fixture.development.operations.visitorLedger = Object.assign({}, (fixture.development.operations.visitorLedger || {}), {
+    totalVisitors: liveTarget.visitors
+  });
   fixture.progression = Object.assign({}, fixture.progression, {
     level: gate.storyLevel,
     stage: gate.stage,
@@ -110,22 +141,29 @@ Object.values(CHAPTER_PROGRESSION_GATES).forEach((gate) => {
     totalMeaningfulActions: gate.actions,
     totalStrategicChoices: gate.strategicChoices,
     totalMajorStrategicChoices: gate.majorChoices,
-    activeSeconds: 0,
+    activeSeconds: Math.max(5, gate.expectedMinutes || 0) * 60,
     totalFundEarned: gate.fundEarned,
     totalMigratedIn: gate.migratedIn,
     totalRareRecovered: gate.rareRecovered,
-    stageStart: { stage: gate.stage, level: gate.storyLevel, daysManaged: 0, totalActions: 0, totalMeaningfulActions: 0, totalStrategicChoices: 0, totalMajorStrategicChoices: 0, activeSeconds: 0, totalFundEarned: 0, totalMigratedIn: 0, totalRareRecovered: 0 }
+    stageStart: { stage: gate.stage, level: gate.storyLevel, daysManaged: 0, totalActions: 0, totalMeaningfulActions: 0, totalStrategicChoices: 0, totalMajorStrategicChoices: 0, activeSeconds: 0, totalFundEarned: 0, totalMigratedIn: 0, totalRareRecovered: 0 },
+    chapterStart: {
+      stage: gate.stage,
+      totalVisitors: liveTarget.visitors,
+      inheritedVisitors: liveTarget.visitors,
+      visitorLedger: { totalVisitors: liveTarget.visitors, migratedVisitors: 0, recruitedVisitors: 0, facilityVisitors: 0 }
+    }
   });
   fixture.strategy.totalMeaningfulActions = gate.actions;
   fixture.strategy.totalChoices = gate.strategicChoices;
   fixture.strategy.totalMajorChoices = gate.majorChoices;
-  fixture.eventChain = { chapterLevel: gate.storyLevel, step: gate.storyBeats, length: 7, completed: gate.storyBeats >= 7 };
+  fixture.eventChain = { chapterLevel: gate.storyLevel, step: gate.storyBeats, length: 7, completed: gate.storyBeats >= 5 };
   const completed = reserveProgressionFor(fixture);
-  if (gate.stage < 14) {
-    assert(completed.stage === gate.stage + 1, `stage ${gate.stage} should advance after operations, strategy, story and milestones are met`);
-    assert(completed.level === Math.ceil((gate.stage + 1) / 2), `stage ${gate.stage} should map to the correct story level`);
+  const nextGate = CHAPTER_PROGRESSION_GATES[gate.stage + 1];
+  if (nextGate) {
+    assert(completed.stage === nextGate.stage, `stage ${gate.stage} should advance after operations, strategy, story and milestones are met`);
+    assert(completed.level === nextGate.storyLevel, `stage ${gate.stage} should map to the correct story level`);
   } else {
-    assert(completed.stage === 14 && completed.chapterComplete, "stage 14 should mark final completion after all gates are met");
+    assert(completed.stage === 20 && completed.chapterComplete, "stage 20 should mark final completion after all gates are met");
   }
   const expectedTime = (completed.objectives || []).find((item) => item.id === "expectedTime");
   assert(completed.stage !== gate.stage || completed.chapterComplete || (expectedTime && expectedTime.optional), `stage ${gate.stage} time forecast must never become a hard gate`);

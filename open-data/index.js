@@ -1,3 +1,4 @@
+const { friendMatchKey, matchWorldFriend } = require("./worldIdentity");
 const sharedCanvas = typeof wx !== "undefined" && wx.getSharedCanvas ? wx.getSharedCanvas() : null;
 const ctx = sharedCanvas && sharedCanvas.getContext("2d");
 const avatars = {};
@@ -9,13 +10,16 @@ const state = {
   scoreKey: "wild_guardian_score_v1",
   phase: "idle",
   rows: [],
+  friendSourceRows: [],
   error: "",
   scrollY: 0,
   selectedIndex: -1,
   view: "list",
   surface: "rank",
-  selfAvatar: null,
-  selfTarget: null,
+  worldRows: [],
+  worldLeaderboardRows: [],
+  requestId: 0,
+  friendLoading: false,
   touch: null
 };
 
@@ -102,6 +106,48 @@ function fitText(value, maxWidth, size, weight) {
   return `${raw.slice(0, low)}${ellipsis}`;
 }
 
+function runningInDevtools() {
+  try {
+    return typeof wx !== "undefined" && wx.getSystemInfoSync && wx.getSystemInfoSync().platform === "devtools";
+  } catch (error) {
+    return false;
+  }
+}
+
+function worldAsFriendRow(world, index) {
+  const title = String(world.title || world.name || "远方保护区").slice(0, 40);
+  const owner = String(world.owner || world.ownerName || "").slice(0, 20);
+  return {
+    nickname: owner || title.replace(/的.*$/, "") || `远方玩家${index + 1}`,
+    friendMatchKey: String(world.friendMatchKey || ""),
+    worldPlayerId: String(world.worldPlayerId || world.publicId || world.id || "").replace(/^cloud_/, "").slice(0, 32),
+    avatarUrl: "",
+    reserveName: String(world.reserveName || "保护区").slice(0, 24),
+    title,
+    valuation: Math.max(0, Math.round(Number(world.valuation || world.rating) || 0)),
+    rating: Math.max(0, Math.round(Number(world.valuation || world.rating) || 0)),
+    level: Math.max(1, Math.min(7, Math.round(Number(world.level) || 1))),
+    animals: Math.max(0, Math.round(Number(world.animals) || 0)),
+    updatedAt: 0,
+    fromWorld: true
+  };
+}
+
+function decorateFriendRows(sourceRows) {
+  const rows = (sourceRows || []).slice();
+  if (!runningInDevtools() || rows.length > 1 || !state.worldLeaderboardRows.length) return rows;
+  const seen = new Set(rows.map((row) => String(row.worldPlayerId || row.title || "")));
+  state.worldLeaderboardRows.forEach((world, index) => {
+    const extra = worldAsFriendRow(world, index);
+    const key = extra.worldPlayerId || extra.title;
+    if (!key || seen.has(key) || extra.valuation <= 0) return;
+    if (rows.some((row) => row.title === extra.title)) return;
+    seen.add(key);
+    rows.push(extra);
+  });
+  return rows;
+}
+
 function parseRow(user) {
   const item = (user.KVDataList || []).find((entry) => entry.key === state.key);
   const scoreItem = (user.KVDataList || []).find((entry) => entry.key === state.scoreKey);
@@ -121,6 +167,10 @@ function parseRow(user) {
   const valuation = standardScore || detailedScore;
   return {
     nickname,
+    friendMatchKey: /^[a-f0-9]{64}$/.test(String(record.friendMatchKey || ""))
+      ? String(record.friendMatchKey)
+      : friendMatchKey(user.openid || user.openId || user.OpenId),
+    worldPlayerId: String(record.worldPlayerId || ""),
     avatarUrl: user.avatarUrl || "",
     reserveName,
     title: friendTitle(nickname, reserveName),
@@ -130,20 +180,6 @@ function parseRow(user) {
     animals: Math.max(0, Math.round(Number(record.animals) || 0)),
     updatedAt: Math.max(0, Number(record.updatedAt) || 0)
   };
-}
-
-function findSelfAvatarRow(rows, target = {}) {
-  const list = Array.isArray(rows) ? rows : [];
-  const reserveName = normalizeReserveName(target.reserveName || target.name);
-  const valuation = Math.max(0, Math.round(Number(target.valuation || target.rating) || 0));
-  const level = Math.max(1, Math.round(Number(target.level) || 1));
-  const animals = Math.max(0, Math.round(Number(target.animals) || 0));
-  const sameReserve = list.filter((row) => normalizeReserveName(row.reserveName) === reserveName);
-  const exact = sameReserve.find((row) => row.valuation === valuation);
-  if (exact) return exact;
-  if (sameReserve.length === 1) return sameReserve[0];
-  const sameProfile = list.filter((row) => row.valuation === valuation && row.level === level && row.animals === animals);
-  return sameProfile.length === 1 ? sameProfile[0] : null;
 }
 
 function loadAvatar(url) {
@@ -224,6 +260,36 @@ function drawList() {
   }
 }
 
+function worldMatchFriends() {
+  if (state.friendSourceRows.length) return state.friendSourceRows;
+  return (state.rows || []).filter((row) => row && row.fromWorld !== true);
+}
+
+function drawWorldRows() {
+  const friends = worldMatchFriends();
+  if (state.worldTitleSize) {
+    const world = state.worldRows[0] || {};
+    const friend = matchWorldFriend(world, friends);
+    text(fitText(friend ? friend.title : world.title, state.width, state.worldTitleSize, 700), 0, state.worldTitleSize, state.worldTitleSize, "#fff9e9", "left", 700);
+    return;
+  }
+  const rowH = Math.max(36, Number(state.worldRowHeight) || 44);
+  roundRect(.5, .5, state.width - 1, state.height - 1, 14, "#fffefa", "rgba(60,60,67,.16)");
+  state.worldRows.forEach((world, index) => {
+    const row = matchWorldFriend(world, friends);
+    const y = index * rowH;
+    if (index) { ctx.fillStyle = "rgba(60,60,67,.10)"; ctx.fillRect(48, y, state.width - 62, 1); }
+    text(world.rank, 16, y + rowH * 0.62, world.rank <= 3 ? 13 : 11, world.rank <= 3 ? "#c08a27" : "#6b746f", "center", 700);
+    const avatarSize = Math.min(28, Math.max(24, rowH - 12));
+    drawAvatar(row || { nickname: world.title || "玩", avatarUrl: "" }, 34, y + (rowH - avatarSize) / 2, avatarSize);
+    text(fitText(row ? row.title : world.title, state.width - 140, 11, 700), 68, y + rowH * 0.38, 11, "#1f2d27", "left", 700);
+    const detail = world.profileComplete === false ? "动物数据待同步" : `等级${world.level || 1} · ${world.animals || 0}只动物`;
+    text(fitText(detail, state.width - 140, 9, 400), 68, y + rowH * 0.76, 9, "#6b746f", "left", 400);
+    text(world.valuation, state.width - 14, y + rowH * 0.40, 15, "#2f7d62", "right", 700);
+    text(row && !world.mine ? "微信好友 ›" : "市值 ›", state.width - 14, y + rowH * 0.76, 8, "#7a847e", "right", 600);
+  });
+}
+
 function drawDetail() {
   const row = state.rows[state.selectedIndex];
   if (!row) {
@@ -237,7 +303,9 @@ function drawDetail() {
   text(`#${state.selectedIndex + 1}`, state.width - 14, 25, 12, state.selectedIndex < 3 ? "#c08a27" : "#6b746f", "right", 700);
   drawAvatar(row, state.width / 2 - 29, 42, 58);
   text(fitText(row.title, state.width - 28, 14, 700), state.width / 2, 121, 14, "#1f2d27", "center", 700);
-  text("微信好友保护区详情", state.width / 2, 139, 9, "#6b746f", "center", 400);
+  const world = state.worldLeaderboardRows.find(entry => matchWorldFriend(entry, [row]));
+  const worldStatus = world ? `世界第${world.rank}名 · 市值${world.valuation}` : "世界排名待同步，或暂未进入前100名";
+  text(worldStatus, state.width / 2, 139, 9, "#6b746f", "center", 400);
   const gap = 7;
   const cardW = (state.width - 28 - gap * 2) / 3;
   [
@@ -253,52 +321,70 @@ function drawDetail() {
   text("资料仅在微信开放数据域内展示", state.width / 2, Math.min(state.height - 12, 220), 9, "#7a847e", "center", 400);
 }
 
-function drawSelfAvatarSurface() {
-  if (state.phase !== "ready" || !state.selfAvatar) return;
-  const size = Math.max(1, Math.min(state.width, state.height));
-  drawAvatar(state.selfAvatar, (state.width - size) / 2, (state.height - size) / 2, size);
+function applyCanvasTransform() {
+  const canvasWidth = Math.max(1, Number(sharedCanvas.width) || state.width || 1);
+  const canvasHeight = Math.max(1, Number(sharedCanvas.height) || state.height || 1);
+  const scaleX = canvasWidth / Math.max(1, state.width || 1);
+  const scaleY = canvasHeight / Math.max(1, state.height || 1);
+  if (ctx.setTransform) {
+    ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
+    return () => {};
+  }
+  if (ctx.resetTransform) {
+    ctx.resetTransform();
+    ctx.scale(scaleX, scaleY);
+    return () => {};
+  }
+  if (ctx.save && ctx.restore) {
+    ctx.save();
+    ctx.scale(scaleX, scaleY);
+    return () => ctx.restore();
+  }
+  ctx.scale(scaleX, scaleY);
+  return () => {};
+}
+
+function hideSurface() {
+  state.surface = "idle";
+  state.phase = "idle";
+  state.view = "list";
+  state.rows = [];
+  state.worldRows = [];
+  if (!ctx || !sharedCanvas) return;
+  try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch (error) {}
+  try { ctx.globalAlpha = 1; } catch (error) {}
+  try { ctx.clearRect(0, 0, Number(sharedCanvas.width) || state.width || 1, Number(sharedCanvas.height) || state.height || 1); } catch (error) {}
 }
 
 function render() {
   if (!ctx || !sharedCanvas) return;
-  const dpr = Math.max(1, state.pixelRatio || 1);
-  const pw = Math.max(1, Math.round(state.width * dpr));
-  const ph = Math.max(1, Math.round(state.height * dpr));
-  const resized = sharedCanvas.width !== pw || sharedCanvas.height !== ph;
-  if (sharedCanvas.width !== pw) sharedCanvas.width = pw;
-  if (sharedCanvas.height !== ph) sharedCanvas.height = ph;
-  if (ctx.setTransform) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  else if (ctx.resetTransform) {
-    ctx.resetTransform();
-    ctx.scale(dpr, dpr);
-  } else {
-    // Legacy open-data canvases may not expose setTransform/resetTransform.
-    // Reassigning the physical size resets an accumulated scale before redraw.
-    if (!resized) {
-      sharedCanvas.width = pw;
-      sharedCanvas.height = ph;
+  if (state.surface === "idle") {
+    hideSurface();
+    return;
+  }
+  const restore = applyCanvasTransform();
+  try {
+    ctx.clearRect(0, 0, state.width, state.height);
+    if (state.surface === "world") {
+      drawWorldRows();
+    } else {
+      roundRect(0.5, 0.5, state.width - 1, state.height - 1, 14, "#fffefa", "rgba(60,60,67,.16)");
+      if (state.phase === "loading") {
+        text("正在读取好友保护区…", state.width / 2, state.height / 2, 12, "#6b746f", "center", 600);
+      } else if (state.phase === "error") {
+        text("好友榜暂时无法读取", state.width / 2, state.height / 2 - 8, 13, "#1f2d27", "center", 700);
+        text("可返回主界面重新刷新", state.width / 2, state.height / 2 + 16, 10, "#6b746f", "center", 400);
+      } else if (!state.rows.length) {
+        drawEmpty();
+      } else if (state.view === "detail") {
+        drawDetail();
+      } else {
+        drawList();
+      }
     }
-    ctx.scale(dpr, dpr);
+  } finally {
+    restore();
   }
-  ctx.clearRect(0, 0, state.width, state.height);
-  if (state.surface === "self-avatar") {
-    drawSelfAvatarSurface();
-    return;
-  }
-  roundRect(0.5, 0.5, state.width - 1, state.height - 1, 14, "#fffefa", "rgba(60,60,67,.16)");
-
-  if (state.phase === "loading") {
-    text("正在读取好友保护区…", state.width / 2, state.height / 2, 12, "#6b746f", "center", 600);
-    return;
-  }
-  if (state.phase === "error") {
-    text("好友榜暂时无法读取", state.width / 2, state.height / 2 - 8, 13, "#1f2d27", "center", 700);
-    text("可返回主界面重新刷新", state.width / 2, state.height / 2 + 16, 10, "#6b746f", "center", 400);
-    return;
-  }
-  if (!state.rows.length) { drawEmpty(); return; }
-  if (state.view === "detail") drawDetail();
-  else drawList();
 }
 
 function handlePointer(message) {
@@ -347,58 +433,141 @@ function handlePointer(message) {
   }
 }
 
-function requestFriendRank() {
-  if (typeof wx.getFriendCloudStorage !== "function") {
-    state.phase = "error";
-    state.error = "unsupported";
-    render();
-    return;
-  }
-  state.phase = "loading";
-  state.surface = "rank";
-  state.selfAvatar = null;
-  render();
-  wx.getFriendCloudStorage({
-    keyList: [state.scoreKey, state.key],
-    success(result) {
-      state.rows = (result.data || []).map(parseRow).filter(Boolean).sort((a, b) => b.valuation - a.valuation);
-      state.phase = "ready";
+function applyFriendRows(data) {
+  const rows = (data || []).map((user) => {
+    try { return parseRow(user); } catch (error) { return null; }
+  }).filter(Boolean);
+  state.friendSourceRows = rows;
+  publishFriendRows(true);
+}
+
+function publishFriendRows(resetView = false) {
+  const rows = decorateFriendRows(state.friendSourceRows);
+  if (state.surface === "rank") {
+    rows.sort((a, b) => b.valuation - a.valuation);
+    state.phase = "ready";
+    if (resetView) {
       state.scrollY = 0;
       state.selectedIndex = -1;
       state.view = "list";
-      render();
-    },
-    fail(error) {
-      state.error = String((error && error.errMsg) || "load failed");
-      state.phase = "error";
-      render();
     }
-  });
+  }
+  state.rows = rows;
+  render();
 }
 
-function requestSelfAvatar() {
-  if (typeof wx.getFriendCloudStorage !== "function") {
-    state.phase = "error";
-    state.selfAvatar = null;
+function showFriendRankError(error) {
+  if (state.rows.length) {
+    if (state.surface === "rank") state.phase = "ready";
     render();
     return;
   }
-  state.phase = "loading";
-  state.selfAvatar = null;
+  if (state.surface !== "rank") return;
+  state.error = String((error && error.errMsg) || error || "load failed");
+  state.phase = "error";
   render();
+}
+
+function finishFriendRankFailure(requestId, error) {
+  if (requestId !== state.requestId) return;
+  if (state.surface === "world") {
+    render();
+    return;
+  }
+  if (state.worldLeaderboardRows.length) {
+    publishFriendRows(false);
+    return;
+  }
+  showFriendRankError(error);
+}
+
+function applySelfCloudStorage(requestId, profile, kvList) {
+  if (requestId !== state.requestId) return;
+  const user = Object.assign({
+    nickname: "我",
+    avatarUrl: "",
+    openid: ""
+  }, profile || {}, {
+    KVDataList: kvList || []
+  });
+  applyFriendRows([user]);
+}
+
+function requestSelfRankFallback(requestId, error) {
+  const failOut = () => finishFriendRankFailure(requestId, error);
+  const withProfile = (profile) => {
+    if (typeof wx.getUserCloudStorage !== "function") {
+      if (profile && (profile.nickname || profile.avatarUrl)) applySelfCloudStorage(requestId, profile, []);
+      else failOut();
+      return;
+    }
+    wx.getUserCloudStorage({
+      keyList: [state.scoreKey, state.key],
+      success(result) {
+        applySelfCloudStorage(requestId, profile, result.KVDataList || []);
+      },
+      fail: failOut
+    });
+  };
+  if (typeof wx.getUserInfo !== "function") {
+    withProfile(null);
+    return;
+  }
+  wx.getUserInfo({
+    openIdList: ["selfOpenId"],
+    success(result) {
+      const profile = Array.isArray(result.data) ? result.data[0] : null;
+      withProfile(profile);
+    },
+    fail: () => withProfile(null)
+  });
+}
+
+function requestFriendRank(options = {}) {
+  const force = options.force === true;
+  const attempt = Math.max(0, Math.round(Number(options.attempt) || 0));
+  if (typeof wx.getFriendCloudStorage !== "function") {
+    requestSelfRankFallback(++state.requestId, "unsupported");
+    return;
+  }
+  if (state.friendLoading) {
+    if (state.surface === "rank" && state.phase !== "ready" && !state.rows.length) state.phase = "loading";
+    render();
+    return;
+  }
+  const worldNeedsIdentity = state.surface === "world"
+    && !state.friendSourceRows.some((row) => row && (row.friendMatchKey || row.worldPlayerId));
+  if (state.rows.length && !force && !worldNeedsIdentity) {
+    state.requestId += 1;
+    if (state.surface === "rank") publishFriendRows();
+    else render();
+    return;
+  }
+  const requestId = ++state.requestId;
+  state.friendLoading = true;
+  if (state.surface === "rank" && !state.rows.length) {
+    state.phase = "loading";
+    render();
+  }
   wx.getFriendCloudStorage({
     keyList: [state.scoreKey, state.key],
     success(result) {
-      state.rows = (result.data || []).map(parseRow).filter(Boolean);
-      state.selfAvatar = findSelfAvatarRow(state.rows, state.selfTarget || {});
-      state.phase = "ready";
-      render();
+      if (requestId !== state.requestId) return;
+      state.friendLoading = false;
+      const incoming = result.data || [];
+      if (!incoming.length && state.rows.length && state.surface !== "rank") { render(); return; }
+      applyFriendRows(incoming);
     },
     fail(error) {
-      state.error = String((error && error.errMsg) || "load failed");
-      state.selfAvatar = null;
-      state.phase = "error";
-      render();
+      if (requestId !== state.requestId) return;
+      state.friendLoading = false;
+      if (attempt < 3) {
+        const retry = () => requestFriendRank({ force: true, attempt: attempt + 1 });
+        if (typeof setTimeout === "function") setTimeout(retry, 360 * (attempt + 1));
+        else retry();
+        return;
+      }
+      requestSelfRankFallback(requestId, error);
     }
   });
 }
@@ -406,39 +575,51 @@ function requestSelfAvatar() {
 if (typeof wx !== "undefined" && wx.onMessage) {
   wx.onMessage((message) => {
     if (!message) return;
+    if (message.type === "world_rank_show") {
+      const needsFriendIdentity = !state.friendSourceRows.length
+        || !state.friendSourceRows.some((row) => row && (row.friendMatchKey || row.worldPlayerId));
+      state.worldTitleSize = Number(message.titleSize) || 0;
+      state.worldRowHeight = Math.max(36, Number(message.rowHeight) || 44);
+      state.surface = "world";
+      state.width = Math.max(1, Number(message.width) || 320);
+      state.height = Math.max(1, Number(message.height) || 640);
+      state.pixelRatio = Math.max(1, Number(message.pixelRatio) || 1);
+      if (message.key) state.key = String(message.key);
+      if (message.scoreKey) state.scoreKey = String(message.scoreKey);
+      try { state.worldRows = JSON.parse(message.rowsJson || "[]").slice(0, 10); }
+      catch (error) { state.worldRows = []; }
+      render();
+      if (needsFriendIdentity) requestFriendRank();
+      else {
+        state.requestId += 1;
+        state.friendLoading = false;
+      }
+      return;
+    }
     if (message.type === "friend_rank_pointer") {
       handlePointer(message);
       return;
     }
-    if (message.type === "friend_self_avatar_show") {
-      state.surface = "self-avatar";
-      state.width = Math.max(1, Number(message.width) || 40);
-      state.height = Math.max(1, Number(message.height) || 40);
-      state.pixelRatio = Math.max(1, Number(message.pixelRatio) || 1);
-      state.key = String(message.key || state.key);
-      state.scoreKey = String(message.scoreKey || state.scoreKey);
-      state.selfTarget = {
-        reserveName: String(message.reserveName || "保护区"),
-        valuation: Math.max(0, Math.round(Number(message.valuation) || 0)),
-        level: Math.max(1, Math.round(Number(message.level) || 1)),
-        animals: Math.max(0, Math.round(Number(message.animals) || 0))
-      };
-      requestSelfAvatar();
+    if (message.type === "friend_rank_hide") {
+      hideSurface();
       return;
     }
     if (message.type !== "friend_rank_show") return;
+    try { state.worldLeaderboardRows = JSON.parse(message.worldRowsJson || "[]"); }
+    catch (error) { state.worldLeaderboardRows = []; }
     state.surface = "rank";
     state.width = Math.max(240, Number(message.width) || state.width);
     state.height = Math.max(180, Number(message.height) || state.height);
     state.pixelRatio = Math.max(1, Number(message.pixelRatio) || 1);
     state.key = String(message.key || state.key);
     state.scoreKey = String(message.scoreKey || state.scoreKey);
-    requestFriendRank();
+    if (state.friendSourceRows.length && message.reload !== true) publishFriendRows();
+    else requestFriendRank({ force: message.reload === true });
   });
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { normalizeReserveName, friendTitle, rankLayout, rowIndexAt, findSelfAvatarRow };
+  module.exports = { normalizeReserveName, friendTitle, rankLayout, rowIndexAt };
 }
 
 render();

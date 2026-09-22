@@ -29,19 +29,18 @@ game.state.world.reserve.ecology.water = 87;
 game.state.world.reserve.supplies.fieldKit = 0;
 const detail = game.buildReserveMetricDetail("grass");
 assert.strictEqual(detail.readOnly, true, "核心指标必须保持只读");
-assert.strictEqual(detail.navigationOnly, true, "风险按钮只能导航到沙盘任务，不能直接结算操作");
-assert.strictEqual(detail.actionLabel, "去沙盘找任务", "高风险详情必须提供清晰下一步");
-assert(detail.items.some((item) => item.tag === "怎么改善" && /物资页一键补齐/.test(item.body)), "缺工具包时必须说明先补给");
+assert.strictEqual(detail.navigationOnly, false, "环境任务应能从详情页直接发起");
+assert.strictEqual(detail.actionLabel, "恢复草场", "高风险详情必须提供清晰的草场恢复任务");
+assert(detail.items.some((item) => item.tag === "可做任务" && /野外工具包×1/.test(item.body)), "缺工具包时必须说明先补给");
 
 detail.action();
-assert.strictEqual(game.patrolTaskModal, null, "点击风险引导不得绕过沙盘任务直接打开操作");
-assert(game.focusedReserveMetric && game.focusedReserveMetric.type === "grass", "应记录需要高亮的草场任务");
-const focusedView = game.reserveViewForDisplay();
-assert.strictEqual((focusedView.mapMarkers[0] || {}).id, "metric_focus_grass", "沙盘首位必须出现可点击的草场修复点");
-assert.strictEqual((focusedView.mapMarkers[0] || {}).recommendAction, "habitat", "草场修复点必须正确指向栖息地修复");
+assert(game.patrolTaskModal && game.patrolTaskModal.id === "habitat", "点击草场任务必须打开实际修复操作");
+assert.strictEqual(game.patrolTaskModal.metricFocus, "grass", "草场任务必须保留对应环境目标");
+assert(/草场|耐旱草/.test(game.patrolTaskModal.placeholder), "草场任务必须使用明确的恢复文案");
 
 const waterDetail = game.buildReserveMetricDetail("water");
-assert(!waterDetail.action, "丰沛水源不应误导玩家继续修复");
+assert.strictEqual(waterDetail.actionLabel, "修复饮水点", "水源详情必须提供饮水点修复任务");
+assert(typeof waterDetail.action === "function", "水源详情必须能够直接发起修复");
 assert(/自然外流/.test(waterDetail.items[0].body), "高水位详情必须解释自然回落机制");
 
 const lowWaterGame = new Game();
@@ -54,7 +53,7 @@ lowWaterGame.state.world.reserve.fund = 1000;
 lowWaterGame.state.world.reserve.supplies.fieldKit = 4;
 assert(/水源 52/.test(lowWaterGame.patrolButtonValue("habitat", lowWaterGame.state.world.reserve)), "低水源时栖息地任务按钮必须显示水源而不是草场");
 assert(lowWaterGame.startPatrolOperation({ id: "habitat" }), "低水源旧入口必须直接完成修复");
-assert(!lowWaterGame.patrolOperationPlan && lowWaterGame.settlementModal, "修复不应停留在已删除的路线第二步");
+assert(!lowWaterGame.patrolOperationPlan, "修复不应停留在已删除的路线第二步");
 const lowWaterResult = withRandom(.1, () => simulateDay("去东部河岸湿地修复水源，观察鹿群迁移", lowWaterGame.state));
 assert(lowWaterResult.world.reserve.ecology.water > 52, "低水源修复任务完成后必须真实提高水源");
 const settlementDisplay = lowWaterGame.settlementDisplayChanges({
@@ -67,9 +66,51 @@ const settlementDisplay = lowWaterGame.settlementDisplayChanges({
   stats: [
     { key: "fund", label: "保护基金", before: 1000, after: 910, delta: -90 },
     { key: "water", label: "水源", before: 52, after: lowWaterResult.world.reserve.ecology.water, delta: lowWaterResult.world.reserve.ecology.water - 52 },
-    { key: "grass", label: "草场", before: 85, after: lowWaterResult.world.reserve.ecology.grass, delta: lowWaterResult.world.reserve.ecology.grass - 85 }
+    { key: "grass", label: "草场", before: 85, after: lowWaterResult.world.reserve.ecology.grass, delta: lowWaterResult.world.reserve.ecology.grass - 85 },
+    { key: "animalTotal", label: "动物数量", before: 20, after: 20, delta: 0 },
+    { key: "carryingCapacity", label: "动物承载", before: 24, after: 26, delta: 2 }
   ]
 });
 assert.strictEqual(settlementDisplay.primary.key, "water", "修复水源后的结算主结果必须突出水源变化，不能被基金支出盖住");
+assert(settlementDisplay.animalImpact && settlementDisplay.animalImpact.key === "animalTotal", "水源任务结算必须单独展示动物总数影响");
+assert.strictEqual(settlementDisplay.animalImpact.label, "动物总数", "动物总数标签必须写清楚，不能缩成动物数量");
+assert(!settlementDisplay.secondary.some((item) => item.key === "animalTotal"), "动物总数已作为独立影响行，不应再被挤进次要芯片");
+assert(settlementDisplay.secondary[0] && settlementDisplay.secondary[0].key !== "fund", "水源任务次要结果应先对照草场或动物承载，而不是基金支出");
+
+const grassSettlementDisplay = lowWaterGame.settlementDisplayChanges({
+  actionType: "habitat",
+  metricFocus: "grass",
+  command: "恢复草场",
+  fundBefore: 1000,
+  fundAfter: 910,
+  visitorsBefore: 12,
+  visitorsAfter: 14,
+  stats: [
+    { key: "fund", label: "保护基金", before: 1000, after: 910, delta: -90 },
+    { key: "visitors", label: "游客数量", before: 12, after: 14, delta: 2 },
+    { key: "water", label: "水源", before: 52, after: 54, delta: 2 },
+    { key: "grass", label: "草场", before: 30, after: 36, delta: 6 },
+    { key: "animalTotal", label: "动物数量", before: 18, after: 21, delta: 3 },
+    { key: "carryingCapacity", label: "动物承载", before: 22, after: 26, delta: 4 }
+  ]
+});
+assert.strictEqual(grassSettlementDisplay.primary.key, "grass", "草场任务结算主结果必须是草场");
+assert(!grassSettlementDisplay.secondary.some((item) => item.key === "water"), "草场任务不得用水源变化带动结算和动画");
+assert.strictEqual(grassSettlementDisplay.animalImpact.delta, 3, "草场任务必须把动物总数变化单独标出");
+assert.strictEqual(grassSettlementDisplay.animalImpact.capacityDelta, 4, "动物总数行要带上承载变化，避免只看到持平");
+const grassReward = lowWaterGame.settlementRewardDisplayLines({
+  metricFocus: "grass",
+  fundBefore: 1000,
+  fundAfter: 910,
+  visitorsBefore: 12,
+  visitorsAfter: 14,
+  stats: grassSettlementDisplay.animalImpact
+    ? [
+      { key: "animalTotal", label: "动物总数", before: 18, after: 21, delta: 3 },
+      { key: "carryingCapacity", label: "动物承载", before: 22, after: 26, delta: 4 }
+    ]
+    : []
+}, false);
+assert(/动物总数/.test(grassReward[0] || ""), "草场任务结算明细必须先写动物总数，而不是基金或游客");
 
 console.log("water grass guidance check ok");

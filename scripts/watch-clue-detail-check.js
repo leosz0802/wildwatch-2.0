@@ -50,14 +50,15 @@ function checkClue(modal, label, options = {}) {
     if (!modal.readOnly || modal.actionLabel || typeof modal.action === "function" || /行动/.test(tags)) {
       throw new Error(`${label} must remain a read-only data and risk view`);
     }
-  } else if (tags !== "发生/影响/风险/行动") {
-    throw new Error(`${label} should expose happen/impact/risk/action, got ${tags}`);
+  } else {
+    const visible = modal.summaryItems || modal.items || [];
+    if (visible.length !== 2) throw new Error(`${label} should keep two cards, got ${visible.map((item) => item.tag).join("/")}`);
   }
   if (!options.stateDetail && (!modal.actionLabel || typeof modal.action !== "function" || modal.operationChannel !== "sandbox-info")) {
     throw new Error(`${label} should have a sandbox-information operation channel`);
   }
-  const text = JSON.stringify(modal.items || []);
-  if (!/明日|不处理|恢复点/.test(text)) throw new Error(`${label} should explain tomorrow risk or recovery opportunity`);
+  const text = JSON.stringify(modal.items || []).concat(JSON.stringify(modal.summaryItems || []));
+  if (!options.stateDetail && !/明日|不处理|恢复点/.test(text)) throw new Error(`${label} should explain tomorrow risk or recovery opportunity`);
 }
 
 const game = new Game();

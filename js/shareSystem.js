@@ -1,4 +1,8 @@
 const { normalizeLifeMemory } = require("./emotionSystem");
+const { applyChapterVisitorDelta, chapterVisitorTotal } = require("./chapterTargets");
+const { SPECIES_DB, speciesPopulationGroup } = require("./animalWorld");
+const { livingAnimalTotal, chapterCaptiveSpeciesSet } = require("./chapterRescueSystem");
+const { recordIncrease } = require("./animalSourceLedger");
 
 // Keep share artwork in the uploaded game package. WeChat can render a
 // package-local image immediately, while a remote-only URL can leave the card
@@ -235,13 +239,174 @@ function applyShareAssistance(state, invite) {
   };
 }
 
-function recordShareSent(state, payload) {
-  if (!state || !payload) return state;
+const SHARE_REWARD_LIMIT_PER_TYPE = 2;
+const SHARE_REWARD_LIMIT_PER_CHAPTER = SHARE_REWARD_LIMIT_PER_TYPE * 2;
+const SHARE_REWARD_RATES = [2, 3];
+
+function wholeCount(value, fallback = 0) {
+  return Math.max(0, Math.round(Number(value) || fallback));
+}
+
+function normalizeChapterShareCounts(saved) {
+  if (saved && typeof saved === "object" && !Array.isArray(saved)) {
+    return {
+      visitors: Math.min(SHARE_REWARD_LIMIT_PER_TYPE, wholeCount(saved.visitors)),
+      animals: Math.min(SHARE_REWARD_LIMIT_PER_TYPE, wholeCount(saved.animals))
+    };
+  }
+  const legacy = Math.min(SHARE_REWARD_LIMIT_PER_CHAPTER, wholeCount(saved));
+  return {
+    visitors: Math.min(SHARE_REWARD_LIMIT_PER_TYPE, legacy),
+    animals: Math.min(SHARE_REWARD_LIMIT_PER_TYPE, legacy)
+  };
+}
+
+function rewardState(input, payload = {}) {
+  const state = input && input.world ? input : null;
+  const reserve = state ? ((state.world || {}).reserve || {}) : (input || {});
+  const chapter = Math.max(1, Math.round(Number((reserve.progression || {}).stage || (reserve.progression || {}).displayChapter || 1)));
+  const chapterCounts = state && state.ui && state.ui.shareRewardChapters || {};
+  const counts = normalizeChapterShareCounts(chapterCounts[chapter]);
+  const rewardType = isAnimalShare(payload) ? "animals" : "visitors";
+  const used = counts[rewardType];
+  return {
+    state,
+    reserve,
+    chapter,
+    rewardType,
+    counts,
+    used,
+    remaining: Math.max(0, SHARE_REWARD_LIMIT_PER_TYPE - used),
+    limit: SHARE_REWARD_LIMIT_PER_TYPE,
+    totalUsed: counts.visitors + counts.animals,
+    totalRemaining: Math.max(0, SHARE_REWARD_LIMIT_PER_CHAPTER - counts.visitors - counts.animals)
+  };
+}
+
+function animalTotal(reserve = {}) {
+  return Math.max(0, Math.round(Number(livingAnimalTotal(reserve)) || 0));
+}
+
+function isAnimalShare(payload = {}) {
+  // 奖励类型只跟发起入口走：游客入口永远加游客，动物入口永远加动物。
+  // 邮件主动分享先随机盖章 rewardType，再走这里；不能靠 species/kind 猜测。
+  if (payload.rewardType === "animals" || payload.sourceKind === "animal") return true;
+  if (payload.rewardType === "visitors" || payload.sourceKind === "visitor") return false;
+  return ["rare", "rescue", "return", "birth", "death", "injury", "departure", "memory"].includes(payload.kind);
+}
+
+function pickActiveShareRewardType(input, random = Math.random) {
+  const animal = shareRewardPreview(input, { rewardType: "animals", sourceKind: "animal" });
+  const visitor = shareRewardPreview(input, { rewardType: "visitors", sourceKind: "visitor" });
+  const options = [];
+  if (animal.eligible) options.push("animals");
+  if (visitor.eligible) options.push("visitors");
+  if (!options.length) return visitor.remaining >= animal.remaining ? "visitors" : "animals";
+  if (options.length === 1) return options[0];
+  if (animal.remaining !== visitor.remaining) {
+    return animal.remaining > visitor.remaining ? "animals" : "visitors";
+  }
+  return options[Number(random()) < 0.5 ? 0 : 1];
+}
+
+function shareRewardPreview(input, payload = {}) {
+  const context = rewardState(input, payload);
+  const rewardType = context.rewardType;
+  const base = rewardType === "animals" ? animalTotal(context.reserve) : chapterVisitorTotal(context.reserve);
+  const percent = SHARE_REWARD_RATES[Math.min(context.used, SHARE_REWARD_RATES.length - 1)];
+  const amount = Math.max(1, Math.round(base * percent / 100));
+  const unit = rewardType === "animals" ? "只" : "人";
+  const otherType = rewardType === "animals" ? "visitors" : "animals";
+  return {
+    rewardType,
+    base,
+    percent,
+    amount,
+    unit,
+    label: rewardType === "animals" ? "动物" : "游客",
+    otherLabel: otherType === "animals" ? "动物" : "游客",
+    chapter: context.chapter,
+    used: context.used,
+    remaining: context.remaining,
+    eligible: context.remaining > 0,
+    limit: SHARE_REWARD_LIMIT_PER_TYPE,
+    totalUsed: context.totalUsed,
+    totalRemaining: context.totalRemaining,
+    totalLimit: SHARE_REWARD_LIMIT_PER_CHAPTER,
+    otherRemaining: Math.max(0, SHARE_REWARD_LIMIT_PER_TYPE - context.counts[otherType])
+  };
+}
+
+function addAnimalShareReward(reserve, amount) {
+  const ecology = reserve.ecology || (reserve.ecology = {});
+  const captive = chapterCaptiveSpeciesSet(reserve);
+  ["predators", "herbivores", "birds"].forEach((group) => { ecology[group] = ecology[group] || {}; });
+  const candidates = Object.keys(SPECIES_DB).map((id) => {
+    const species = SPECIES_DB[id] || {};
+    const group = speciesPopulationGroup(id);
+    const current = Math.max(0, Math.round(Number(ecology[group][id]) || 0));
+    const max = Math.max(current, Math.round(Number(species.maxPop) || current + amount));
+    return { id, group, current, max, unlocked: !(species.unlockChapter && species.unlockChapter > Number((reserve.progression || {}).stage || 1)) };
+  }).filter((item) => item.unlocked && !captive.has(item.id) && item.current > 0 && item.current < item.max)
+    .sort((a, b) => (b.current - a.current) || a.id.localeCompare(b.id));
+  if (!candidates.length) return { added: 0, before: animalTotal(reserve), after: animalTotal(reserve) };
+  const target = candidates[0];
+  const before = animalTotal(reserve);
+  const added = Math.min(Math.max(0, Math.round(Number(amount) || 0)), target.max - target.current);
+  ecology[target.group][target.id] = target.current + added;
+  if (added > 0) recordIncrease(reserve, "shared", added);
+  return { added, before, after: animalTotal(reserve), speciesId: target.id };
+}
+
+function applyShareReward(state, payload = {}) {
+  if (!state || !state.world || !payload) return { applied: false, reason: "not_ready" };
   state.ui = Object.assign({}, state.ui || {});
-  state.ui.shareStats = Object.assign({}, state.ui.shareStats || {}, { sent: ((state.ui.shareStats || {}).sent || 0) + 1 });
-  const record = { direction: "sent", shareId: payload.shareId, day: (state.world && state.world.day) || 1, name: payload.name, species: payload.species, kind: payload.kind };
+  const now = Date.now();
+  const context = rewardState(state, payload);
+  const rewards = Array.isArray(state.ui.shareRewards) ? state.ui.shareRewards : [];
+  const duplicate = payload.shareId && rewards.find((item) => item.shareId === payload.shareId && now - (Number(item.recordedAt) || 0) < 10000);
+  if (duplicate) return { applied: false, reason: "duplicate", reward: duplicate };
+  if (context.used >= SHARE_REWARD_LIMIT_PER_TYPE) return { applied: false, reason: "chapter_limit", reward: null, preview: shareRewardPreview(state, payload) };
+  const preview = shareRewardPreview(state, payload);
+  const reserve = context.reserve;
+  const result = preview.rewardType === "visitors"
+    ? applyChapterVisitorDelta(reserve, preview.amount, "share")
+    : addAnimalShareReward(reserve, preview.amount);
+  const appliedAmount = preview.rewardType === "visitors" ? Math.max(0, Number(result.applied) || 0) : Math.max(0, Number(result.added) || 0);
+  if (appliedAmount <= 0) return { applied: false, reason: "capacity", reward: null, preview };
+  const nextCounts = Object.assign({}, context.counts, {
+    [preview.rewardType]: context.used + 1
+  });
+  state.ui.shareRewardChapters = Object.assign({}, state.ui.shareRewardChapters || {}, {
+    [context.chapter]: nextCounts
+  });
+  const reward = Object.assign({}, preview, {
+    amount: appliedAmount,
+    recordedAt: now,
+    shareId: payload.shareId,
+    before: result.before,
+    after: result.after
+  });
+  state.ui.shareRewards = rewards.concat(reward).slice(-50);
+  state.ui.shareStats = Object.assign({}, state.ui.shareStats || {}, {
+    rewardCount: Math.max(0, Math.round(Number((state.ui.shareStats || {}).rewardCount) || 0)) + 1,
+    lastReward: reward
+  });
+  return { applied: true, reward };
+}
+
+function recordShareSent(state, payload) {
+  if (!state || !payload) return { applied: false, reason: "not_ready" };
+  state.ui = Object.assign({}, state.ui || {});
+  const history = (state.world && state.world.shareHistory) || [];
+  const now = Date.now();
+  const duplicate = !!payload.shareId && history.some((item) => item.direction === "sent" && item.shareId === payload.shareId && now - (Number(item.recordedAt) || 0) < 10000);
+  const shareStats = state.ui.shareStats || {};
+  state.ui.shareStats = Object.assign({}, shareStats, { sent: Math.max(0, Math.round(Number(shareStats.sent) || 0)) + (duplicate ? 0 : 1) });
+  const rewardResult = applyShareReward(state, payload);
+  const record = { direction: "sent", shareId: payload.shareId, day: (state.world && state.world.day) || 1, name: payload.name, species: payload.species, kind: payload.kind, recordedAt: now, reward: rewardResult.reward || null };
   state.world.shareHistory = ((state.world.shareHistory || []).concat(record)).slice(-20);
-  return state;
+  return Object.assign({ applied: true }, rewardResult);
 }
 
 module.exports = {
@@ -253,5 +418,10 @@ module.exports = {
   parseShareInvite,
   hasAssistedShare,
   applyShareAssistance,
-  recordShareSent
+  recordShareSent,
+  shareRewardPreview,
+  pickActiveShareRewardType,
+  applyShareReward,
+  SHARE_REWARD_LIMIT_PER_TYPE,
+  SHARE_REWARD_LIMIT_PER_CHAPTER
 };

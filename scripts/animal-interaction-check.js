@@ -28,7 +28,7 @@ for (let day = 1; day < 30 && !spawned; day += 1) {
 }
 if (!spawned || !reserve.animalInteractions.active) throw new Error("eligible animal relationship should create one pending story");
 const active = reserve.animalInteractions.active;
-if (!active.choices || active.choices.length < 2) throw new Error("animal story should expose at least two adjustment choices");
+if (!active.choices || active.choices.length !== 1) throw new Error("animal story should expose a single adjustment choice");
 const playerReserve = reserveFixture();
 playerReserve.animalInteractions = JSON.parse(JSON.stringify(reserve.animalInteractions));
 const playerResult = resolveAnimalInteraction(playerReserve, active.storyId, active.choices[0].id, 8);

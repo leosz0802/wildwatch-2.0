@@ -28,8 +28,20 @@
       "version": "wilderness-materials-v1"
     },
     "animalPortraitAtlas": {
-      "url": "https://wild.hubao.tv/assets/animal-portraits-atlas-v4.jpg",
-      "version": "animal-portraits-v4"
+      "url": "",
+      "version": ""
+    },
+    "animalMapSprites": {
+      "url": "",
+      "version": ""
+    },
+    "facilities": {
+      "url": "https://wild.hubao.tv/assets/facility-sprites-atlas-v4.png",
+      "version": "facility-sprites-v4"
+    },
+    "collectionItems": {
+      "url": "https://wild.hubao.tv/assets/collection-items-atlas.png",
+      "version": "collection-items-v1"
     }
   },
   "messages": {

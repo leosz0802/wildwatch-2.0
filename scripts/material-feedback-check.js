@@ -98,8 +98,9 @@ assert(game.patrolTaskModal && game.patrolTaskModal.id === "buySupplies", "mater
 
 withRandom(0.99, () => game.submitCommand());
 const after = game.state.world.reserve;
-assert(game.screen === "home" && game.mapConsequencePulse, "material action should reveal its consequence on the sandbox first");
-assert(game.settlementModal && game.settlementModal.returnScreen === "role", "material settlement should remember the material page while the sandbox reacts");
+assert(game.screen === "role", "material purchase should stay on the material page so stock updates are visible");
+assert(!game.activeTaskLock, "inline material purchase must release the task lock immediately");
+assert(!game.settlementModal, "inline material purchase must not leave a waiting settlement");
 assert(after.fund === 648 - alarmPurchase.cost, `fund should drop to ${648 - alarmPurchase.cost}, got ${after.fund}`);
 assert(after.supplies.dogFood === 3, `dog food should stay 3, got ${after.supplies.dogFood}`);
 assert(after.supplies.tranquilizer === 4, `tranquilizer should stay 4, got ${after.supplies.tranquilizer}`);
@@ -107,15 +108,6 @@ assert(after.supplies.alarm === 1, `alarm should become 1, got ${after.supplies.
 assert(after.supplies.fieldKit === 3, `field kit should stay 3, got ${after.supplies.fieldKit}`);
 assert(game.materialChangeNotice && !game.materialChangeNotice.supplies.dogFood, "material page should not show unrelated dog food delta");
 assert(game.materialChangeNotice.supplies.alarm === 1, "material page should keep visible alarm delta");
-assert(game.settlementModal && game.settlementModal.materials.join(" ").indexOf("警报器 +1") >= 0, "settlement should show specific supply changes");
-if (game.settlementModal.silent) {
-  game.settlementModal.autoFinishAt = 0;
-  game.drawSettlementModal();
-} else {
-  assert(game.settlementModal.breakthrough && game.settlementModal.revealAt > Date.now(), "only a real breakthrough may keep a delayed full-screen material summary");
-  game.finishSettlement("role");
-}
-assert(game.screen === "role" && !game.settlementModal, "resolved sandbox feedback should return to the material page");
 
 game.hitAreas = [];
 game.drawSupplyDepot(game.ctx, 18, 180, game.width - 36, after);

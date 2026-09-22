@@ -116,7 +116,7 @@ assert(preparedPrimary.storyValidActions.includes(preparedPrimary.recommendedAct
 // 每个未完成节点都必须给出剧情接受且真实可执行的动作。
 for (let stage = 1; stage <= 20; stage += 1) {
   const gate = progressionGate(stage);
-  const startStep = gate.storyBeats === 7 ? 2 : 0;
+  const startStep = gate.storyBeats >= 5 && stage % 2 === 0 ? 2 : 0;
   for (let step = startStep; step < gate.storyBeats; step += 1) {
     const fixture = supply(createCharacter(null, `第${stage}章第${step + 1}段`));
     const reserve = fixture.world.reserve;

@@ -308,8 +308,8 @@ if (!prosperity.value || !prosperity.speciesCount || !prosperity.animalTotal) {
   throw new Error("home prosperity strip should expose reserve value, species and population");
 }
 const goalView = game.currentGoalView(true);
-if (!goalView.primary || (goalView.alternatives || []).length > 2) {
-  throw new Error("home should keep one primary goal and no more than two alternatives");
+if ((goalView.alternatives || []).length > 2) {
+  throw new Error("home should keep no more than two alternatives and may stay empty without a real trigger");
 }
 
 const dailyLetter = game.dailyAnimalLetter();
@@ -435,12 +435,15 @@ reserve.ecology.water = 42;
 reserve.ecology.grass = 41;
 reserve.migration = { delta: 6, reason: "安全等级较高，周边动物迁入保护区" };
 game.drawPatrolThreatBoard(game.ctx, 18, 176, game.width - 36, reserve);
-if (game.hitAreas.length !== 1 || !game.renderedPatrolThreatBoard.readOnly || game.renderedPatrolThreatBoard.metrics !== 1) {
-  throw new Error("patrol overview should expose only one close hit and keep status data read-only");
+if (game.hitAreas.length < 2 || game.renderedPatrolThreatBoard.readOnly || game.renderedPatrolThreatBoard.metrics !== 1) {
+  throw new Error("patrol overview should expose close and the current urgent task");
+}
+if (!game.renderedPatrolThreatTiles[0] || game.renderedPatrolThreatTiles[0].clickable !== true) {
+  throw new Error("high poacher pressure must be a real patrol entry, not a dead status card");
 }
 game.handleTap(50, 240);
-if (game.patrolTaskModal || game.infoDetailModal) {
-  throw new Error("read-only patrol overview must not open a duplicate operation or metric modal");
+if (!game.patrolTaskModal || game.patrolTaskModal.id !== "antiPoacher") {
+  throw new Error("tapping the urgent poacher card must open the drive-off patrol");
 }
 game.patrolTaskModal = null;
 
@@ -465,6 +468,8 @@ game.infoDetailModal = null;
 game.hitAreas = [];
 reserve.supplies.dogFood = 0;
 reserve.supplies.alarm = 0;
+reserve.fund = 5000;
+game.scrollY = 0;
 game.drawSupplyDepot(game.ctx, 18, 700, game.width - 36, reserve);
 game.handleTap(300, 720);
 if (!game.patrolTaskModal || game.patrolTaskModal.id !== "buySupplies" || game.patrolTaskModal.purchaseId !== "all") {
@@ -542,8 +547,9 @@ if (valueHits.length !== 2) {
   throw new Error(`reserve overview should expose exactly level/value cards, got ${valueHits.length}`);
 }
 game.handleTap(40, 440);
-if (!game.infoDetailModal || !/繁荣|等级/.test(game.infoDetailModal.title || "")) {
-  throw new Error("reserve overview level card should open reserve level detail");
+if (!game.infoDetailModal || game.infoDetailModal.kind !== "chapterProgress"
+  || !game.infoDetailModal.core || !game.infoDetailModal.core.target) {
+  throw new Error("reserve overview chapter card should open the current chapter targets");
 }
 game.infoDetailModal = null;
 game.hitAreas = [];

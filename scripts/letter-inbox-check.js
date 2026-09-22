@@ -67,11 +67,15 @@ assert(game.openVisitorLetterReader(letters[1]), "guardian letter should open fr
 assert((game.state.world.lifeMemory.guardianLetters[0] || {}).readAt > 0, "guardian letter should be marked read");
 assert(game.openVisitorLetterReader(letters[2]), "visitor letter should open from the unified inbox");
 assert((game.state.world.reserve.development.operations.letters[0] || {}).readAt > 0, "visitor letter should be marked read");
+assert(/游客\+/.test(game.infoDetailModal.actionLabel || ""), "visitor letter sharing must preview a visitor reward");
 
 let sharedPostcard = null;
 game.shareForestPostcard = (_event, postcard) => { sharedPostcard = postcard; };
 game.shareAnimalLetter(animalLetterInbox(game.state.world.lifeMemory).find((item) => item.id === "a1"));
 assert(sharedPostcard && sharedPostcard.imageUrl === SHARE_IMAGES.warm, "animal letter sharing should use the bundled stable letter cover");
+sharedPostcard = null;
+game.shareVisitorLetter(letters[2]);
+assert(sharedPostcard && sharedPostcard.rewardType === "visitors", "visitor letter sharing must carry a visitor reward type");
 
 // 地图入口只有一个点击区域；没有变化时隐藏，变化发生后短暂出现。
 const chipGame = Object.create(Game.prototype);

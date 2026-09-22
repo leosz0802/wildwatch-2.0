@@ -33,46 +33,46 @@ FACILITIES.forEach((facility) => Object.assign(facility, FACILITY_COSTS_V2[facil
 // 收入或生态推到满格。
 const FACILITY_OPERATING_PROFILES = Object.freeze({
   old_patrol_post: Object.freeze({ label: "巡护站联动", levels: Object.freeze({
-    1: Object.freeze({ retention: .02, safety: 1 }),
-    3: Object.freeze({ activity: .02, retention: .04, safety: 2, poacherPressure: -1 }),
-    5: Object.freeze({ activity: .03, retention: .06, safety: 3, poacherPressure: -2 })
+    1: Object.freeze({ retention: .02, animalRetention: .02, safety: 1 }),
+    3: Object.freeze({ activity: .02, retention: .04, animalRetention: .04, safety: 2, poacherPressure: -1 }),
+    5: Object.freeze({ activity: .03, retention: .06, animalRetention: .06, safety: 3, poacherPressure: -2 })
   }) }),
   hydrology_station: Object.freeze({ label: "水文站联动", levels: Object.freeze({
-    1: Object.freeze({ water: 1, disease: -1, retention: .02 }),
-    3: Object.freeze({ water: 2, grass: 1, disease: -1, retention: .04 }),
-    5: Object.freeze({ water: 3, grass: 1, disease: -2, activity: .02, retention: .06 })
+    1: Object.freeze({ water: 1, disease: -1, retention: .02, breedingCondition: .02 }),
+    3: Object.freeze({ water: 2, grass: 1, disease: -1, retention: .04, breedingCondition: .04 }),
+    5: Object.freeze({ water: 3, grass: 1, disease: -2, activity: .02, retention: .06, breedingCondition: .06 })
   }) }),
   evidence_room: Object.freeze({ label: "线索室联动", levels: Object.freeze({
-    1: Object.freeze({ activity: .02, retention: .02, poacherPressure: -1 }),
-    3: Object.freeze({ activity: .03, retention: .04, incomeRate: .04, poacherPressure: -1 }),
-    5: Object.freeze({ activity: .04, retention: .06, incomeRate: .08, poacherPressure: -2 })
+    1: Object.freeze({ activity: .02, retention: .02, animalRetention: .02, poacherPressure: -1 }),
+    3: Object.freeze({ activity: .03, retention: .04, animalRetention: .04, incomeRate: .04, poacherPressure: -1 }),
+    5: Object.freeze({ activity: .04, retention: .06, animalRetention: .06, incomeRate: .08, poacherPressure: -2 })
   }) }),
   migration_watch: Object.freeze({ label: "观测站联动", levels: Object.freeze({
-    1: Object.freeze({ grass: 1, retention: .02 }),
-    3: Object.freeze({ grass: 2, disease: -1, activity: .02, retention: .04 }),
-    5: Object.freeze({ grass: 3, disease: -1, activity: .04, retention: .06, stability: 1 })
+    1: Object.freeze({ grass: 1, retention: .02, immigrationBias: .02 }),
+    3: Object.freeze({ grass: 2, disease: -1, activity: .02, retention: .04, immigrationBias: .04 }),
+    5: Object.freeze({ grass: 3, disease: -1, activity: .04, retention: .06, immigrationBias: .06, stability: 1 })
   }) }),
   governance_hall: Object.freeze({ label: "治理厅联动", levels: Object.freeze({
-    1: Object.freeze({ retention: .03, incomeRate: .02 }),
-    3: Object.freeze({ activity: .02, retention: .05, incomeRate: .05 }),
-    5: Object.freeze({ activity: .04, retention: .08, incomeRate: .10, reputation: 1 })
+    1: Object.freeze({ retention: .03, animalRetention: .03, incomeRate: .02 }),
+    3: Object.freeze({ activity: .02, retention: .05, animalRetention: .05, incomeRate: .05 }),
+    5: Object.freeze({ activity: .04, retention: .08, animalRetention: .08, incomeRate: .10, reputation: 1 })
   }) }),
   guardian_memorial: Object.freeze({ label: "守护记忆联动", levels: Object.freeze({
-    1: Object.freeze({ retention: .02, reputation: 1 }),
-    3: Object.freeze({ activity: .02, retention: .04, incomeRate: .03, reputation: 1 }),
-    5: Object.freeze({ activity: .03, retention: .06, incomeRate: .06, reputation: 2 })
+    1: Object.freeze({ retention: .02, breedingCondition: .02, reputation: 1 }),
+    3: Object.freeze({ activity: .02, retention: .04, breedingCondition: .04, incomeRate: .03, reputation: 1 }),
+    5: Object.freeze({ activity: .03, retention: .06, breedingCondition: .06, incomeRate: .06, reputation: 2 })
   }) })
 });
 
 // Visual sites follow the broad clearings and river banks of the simplified
 // anime sandbox. IDs and stored construction state remain unchanged.
 const FACILITY_MAP_POSITIONS = Object.freeze({
-  old_patrol_post: { x: 0.30, y: 0.27 },
-  hydrology_station: { x: 0.64, y: 0.43 },
-  evidence_room: { x: 0.14, y: 0.48 },
-  migration_watch: { x: 0.79, y: 0.70 },
-  governance_hall: { x: 0.50, y: 0.60 },
-  guardian_memorial: { x: 0.47, y: 0.16 }
+  old_patrol_post: { x: 0.32, y: 0.32 },
+  hydrology_station: { x: 0.62, y: 0.42 },
+  evidence_room: { x: 0.26, y: 0.50 },
+  migration_watch: { x: 0.70, y: 0.62 },
+  governance_hall: { x: 0.50, y: 0.56 },
+  guardian_memorial: { x: 0.46, y: 0.28 }
 });
 
 function facilityById(id) {
@@ -183,6 +183,19 @@ function facilityVisitorImpact(reserve = {}) {
   total.byFacility = byFacility;
   total.activeFacilities = Object.keys(byFacility).length;
   return total;
+}
+
+const ANIMAL_FACILITY_CAP = 0.12;
+
+function facilityAnimalImpact(reserve = {}) {
+  const impact = facilityVisitorImpact(reserve);
+  const cap = (value) => Math.max(0, Math.min(ANIMAL_FACILITY_CAP, Number(value) || 0));
+  return {
+    animalRetention: cap(impact.animalRetention),
+    breedingCondition: cap(impact.breedingCondition),
+    immigrationBias: cap(impact.immigrationBias),
+    activeFacilities: impact.activeFacilities || 0
+  };
 }
 
 function applyFacilityDailyEffects(reserve, day = 0) {
@@ -478,6 +491,7 @@ module.exports = {
   facilityOperatingLevel,
   facilityImpactLabel,
   facilityVisitorImpact,
+  facilityAnimalImpact,
   applyFacilityDailyEffects,
   effectText,
   applyFacilityBuildStep,

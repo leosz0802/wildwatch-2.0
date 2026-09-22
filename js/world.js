@@ -377,12 +377,27 @@ const missingNpcSeeds = {
   hare: { name: "短耳兔", location: "南部林缘草甸", title: "草洞观察员", intentType: "move", targetRegionId: "meadow", stance: "cautious" },
   boar: { name: "九纹猪", location: "中央混交林", title: "林缘翻土者", intentType: "move", targetRegionId: "center", stance: "open" },
   owl: { name: "圆羽鸮", location: "北部针叶林", title: "夜间观察者", intentType: "observe", targetRegionId: "north", stance: "open" },
-  fox: { name: "赤尾狐", location: "中央混交林", title: "边缘侦察者", intentType: "observe", targetRegionId: "center", stance: "cautious" }
+  fox: { name: "赤尾狐", location: "中央混交林", title: "边缘侦察者", intentType: "observe", targetRegionId: "center", stance: "cautious" },
+  otter: { name: "浮须獭", location: "东部河岸湿地", title: "浅滩巡水者", intentType: "move", targetRegionId: "river", stance: "cautious" },
+  pelican: { name: "白帆鹈", location: "东部河岸湿地", title: "水面编队者", intentType: "move", targetRegionId: "river", stance: "open" },
+  orangutan: { name: "长臂猩", location: "北部针叶林", title: "林冠守护者", intentType: "observe", targetRegionId: "north", stance: "cautious" },
+  toucan: { name: "彩喙鸟", location: "北部针叶林", title: "树冠信使", intentType: "observe", targetRegionId: "north", stance: "open" },
+  tapir: { name: "灰鼻貘", location: "中央混交林", title: "夜路播种者", intentType: "move", targetRegionId: "center", stance: "cautious" },
+  fireflyBird: { name: "微光莺", location: "南部林缘草甸", title: "夜路示警者", intentType: "observe", targetRegionId: "meadow", stance: "open" },
+  bison: { name: "宽肩牛", location: "南部林缘草甸", title: "迁徙旗舰", intentType: "move", targetRegionId: "meadow", stance: "open" },
+  crane: { name: "长鸣鹤", location: "东部河岸湿地", title: "湿地驿使", intentType: "move", targetRegionId: "river", stance: "cautious" }
 };
 
-Object.keys(missingNpcSeeds).forEach((speciesId) => {
+Object.keys(SPECIES_DB).forEach((speciesId) => {
   const species = SPECIES_DB[speciesId];
-  const seed = missingNpcSeeds[speciesId];
+  const seed = missingNpcSeeds[speciesId] || {
+    name: (species && species.representative && species.representative.name) || (species && species.name) || speciesId,
+    location: "中央混交林",
+    title: `${(species && species.name) || speciesId}观察员`,
+    intentType: "observe",
+    targetRegionId: "center",
+    stance: "cautious"
+  };
   if (!species || knownCharacters.some((animal) => animal.species === species.name)) return;
   knownCharacters.push({
     id: `npc_${speciesId}`,
@@ -428,7 +443,15 @@ const NAMED_ANIMAL_DEPTH = Object.freeze({
   野兔: { trauma: "旧草洞曾被机械压塌，它从另一条透气口逃出，窝里的同伴没有。", humanStance: "不理解守护者身份，只记得哪些脚步会停在洞口、哪些会绕开。", sameSpeciesSplit: "新生个体会使用人工草垄，年长个体宁愿跑远也不进入带工具气味的洞隙。" },
   野猪: { trauma: "一次误食人类垃圾让幼崽病了很久，从此它会先嗅所有容易获得的食物。", humanStance: "欢迎恢复腐木和土壤的人类，但把投喂看作会让族群失去判断的危险。", sameSpeciesSplit: "成年母兽避开营地，年轻雄性仍会试探垃圾气味，族群内部因此反复改变路线。" },
   猫头鹰: { trauma: "连续砍伐让它一夜之间失去三个停靠点，幼鸟第一次练飞时无处落脚。", humanStance: "接受白天修复树冠的人类，却只在夜里验证他们是否真的保持安静。", sameSpeciesSplit: "旧巢个体依赖连续树冠，新迁入个体愿意使用人工巢箱，但对入口方向存在分歧。" },
-  狐狸: { trauma: "曾因靠近人类食物被同类排斥，后来那处食物又引来围捕。", humanStance: "会与人类交换线索和余地，却不愿把生存依赖变成长期驯化。", sameSpeciesSplit: "边界狐狸愿利用人类活动留下的空隙，林内个体认为这种做法终会把危险带回族群。" }
+  狐狸: { trauma: "曾因靠近人类食物被同类排斥，后来那处食物又引来围捕。", humanStance: "会与人类交换线索和余地，却不愿把生存依赖变成长期驯化。", sameSpeciesSplit: "边界狐狸愿利用人类活动留下的空隙，林内个体认为这种做法终会把危险带回族群。" },
+  水獭: { trauma: "一次岸边喧闹让幼崽错过洄游鱼群，它从此只在最安静的河湾露面。", humanStance: "欢迎把水路重新连通的人，却拒绝任何挤满河岸的观看。", sameSpeciesSplit: "上游个体接受缓坡护岸，下游个体认为任何河工都会改变鱼影。" },
+  鹈鹕: { trauma: "水面被网具切成窄条后，编队再也无法同时落稳，幼鸟掉队再也没回来。", humanStance: "只信任开阔、可预测的水面，不接受为拍摄而逼近编队。", sameSpeciesSplit: "成鸟主张改去更深湖心，年轻个体仍想守住原来的浅滩队形。" },
+  猩猩: { trauma: "观景廊道建成后，它一夜之间失去最常用的那条林冠通道。", humanStance: "接受远处、无声的守护，却把任何仰头围观当成对树冠的入侵。", sameSpeciesSplit: "年长个体坚持旧树线，年轻个体愿意试探修复后的新冠层。" },
+  巨嘴鸟: { trauma: "果期被持续惊扰后，它把整条传讯路线改到更密的树冠背面。", humanStance: "愿意用叫声交换安全，却不愿把所有取食点告诉任何守护者。", sameSpeciesSplit: "北侧鸟群继续示警，南侧小群只把人类当成可以观察的危险。" },
+  貘: { trauma: "夜路被灯带切断后，它踩进陌生泥地，鼻端留下未愈的擦伤。", humanStance: "只要灯暗下来就愿意回来播种，却把持续照明当成驱离。", sameSpeciesSplit: "有的个体改走更远的旧河道，有的个体仍试探营地外的低光缝隙。" },
+  夜莺: { trauma: "连续几个无声之夜后，它几乎放弃了原来的停鸣点。", humanStance: "把恢复的夜鸣当作守护有效的证据，却不容许为了聆听而靠近巢位。", sameSpeciesSplit: "部分个体适应固定巡护节奏，另一群会在第一束手电光出现时改道。" },
+  野牛: { trauma: "迁徙通道被围栏截成两半时，它看见幼崽停在无法穿过的那一侧。", humanStance: "记得谁重新留出了通道，也记得谁把边界当成墙。", sameSpeciesSplit: "队首愿意使用新开的宽路，队尾母兽坚持旧路更容易维持熟悉队形。" },
+  鹤: { trauma: "邻区水位骤降那年，它在中途停歇地等到天亮也没有同伴降落。", humanStance: "把稳定水位看作最大善意，却拒绝为了景观把停歇地改成观鸟台。", sameSpeciesSplit: "有的个体改走更远的备用湿地，有的个体仍守着原来的浅滩驿站。" }
 });
 
 knownCharacters.forEach((animal) => {
@@ -506,7 +529,7 @@ function createReserveState() {
     enforcement: 48,
     poacherPressure: 30,
     safety: 68,
-    migration: { trend: "stable", delta: 0, reason: "水源与草场暂时稳定" },
+    migration: { trend: "stable", delta: 0, reason: "泥岸初醒，动物只把这里当作临时路过点，暂时观望" },
     coreResources: { version: 1, energy: 3, energyMax: 3, fund: INITIAL_PROTECTION_FUND, capacity: 0, population: 0, capacityLoad: 0, community: 47, communityIncome: 0 },
     ecologyChain: { id: "water_food_predator", stage: 0, title: "生态链尚未启动", message: "修复水源后，变化会跨守护日逐步传导。", patrolPressure: 0, observationRequired: false, observationReady: false, history: [] },
     ecologyNarrative: { version: 1, lastDay: 0, serial: 0, lastEvent: null, pendingDecision: null, history: [], artifacts: {}, threads: {} },
@@ -532,6 +555,7 @@ function createReserveState() {
     recoveredProcessing: { version: 1, pending: [], history: [], lastSettlement: null },
     seasonDynamics: buildSeasonDynamics({ name: "雨季", day: 1, cycleDay: 1, changed: false }),
     weatherPulse: null,
+    sandboxTaskRhythm: { lastClosedAt: {}, lastShownAt: {}, visible: {} },
     emergency: { active: null, cooldown: 0, history: [], lastOutcome: null },
     guardianRun: {
       title: "7天守护挑战",
@@ -559,8 +583,9 @@ function createReserveState() {
       totalMigratedIn: 0,
       totalRareRecovered: 0,
       totalMysteryRecovered: 0,
-      chapterStart: { stage: 1, level: 1, daysManaged: 0, totalActions: 0, totalMeaningfulActions: 0, totalStrategicChoices: 0, totalMajorStrategicChoices: 0, activeSeconds: 0, totalFundEarned: 0, totalMigratedIn: 0, totalRareRecovered: 0, totalVisitors: 0 },
-      stageStart: { stage: 1, level: 1, daysManaged: 0, totalActions: 0, totalMeaningfulActions: 0, totalStrategicChoices: 0, totalMajorStrategicChoices: 0, activeSeconds: 0, totalFundEarned: 0, totalMigratedIn: 0, totalRareRecovered: 0, totalVisitors: 0 },
+      chapterStart: { stage: 1, level: 1, daysManaged: 0, totalActions: 0, totalMeaningfulActions: 0, totalStrategicChoices: 0, totalMajorStrategicChoices: 0, activeSeconds: 0, totalFundEarned: 0, totalMigratedIn: 0, totalRareRecovered: 0, totalVisitors: 0, inheritedVisitors: 0, visitorLedger: { totalVisitors: 0, migratedVisitors: 0, recruitedVisitors: 0, facilityVisitors: 0, taskVisitors: 0, lostVisitors: 0 } },
+      stageStart: { stage: 1, level: 1, daysManaged: 0, totalActions: 0, totalMeaningfulActions: 0, totalStrategicChoices: 0, totalMajorStrategicChoices: 0, activeSeconds: 0, totalFundEarned: 0, totalMigratedIn: 0, totalRareRecovered: 0, totalVisitors: 0, inheritedVisitors: 0, visitorLedger: { totalVisitors: 0, migratedVisitors: 0, recruitedVisitors: 0, facilityVisitors: 0, taskVisitors: 0, lostVisitors: 0 } },
+      coreBest: { stage: 1, species: 0, animals: 0, visitors: 0 },
       nextDays: 4,
       dayProgress: 0,
       scoreProgress: 0.79,
@@ -611,7 +636,7 @@ function createReserveState() {
     },
     ecology: {
       predators: { wolf: 4 },
-      herbivores: { deer: 35, antelope: 45, zebra: 40, boar: 15, hare: 50 },
+      herbivores: { deer: 24, antelope: 1, zebra: 8, boar: 6, hare: 30 },
       birds: { crow: 8 },
       water: 68,
       grass: 56,
@@ -678,6 +703,13 @@ function createReserveState() {
       incomingHistory: [],
       lastTrade: null
     },
+    friendAid: {
+      version: 1,
+      chapter: 1,
+      request: null,
+      incoming: null,
+      used: false
+    },
     mysteryEvidence: {
       evidence: {},
       discovered: {},
@@ -719,9 +751,10 @@ function createReserveState() {
         lastSettlementDay: 0,
         influence: 0,
         totalVisitors: 0,
+        visitorLedger: { totalVisitors: 0, migratedVisitors: 0, recruitedVisitors: 0, facilityVisitors: 0, taskVisitors: 0, lostVisitors: 0 },
         totalIncome: 0,
         totalTrouble: 0,
-        recruitment: { version: 1, day: 1, freeRemaining: 2, adCredits: 0, adWatchedToday: 0, totalRecruited: 0, lastResult: null },
+        recruitment: { version: 3, day: 1, freeRemaining: 2, adCredits: 0, adWatchedToday: 0, totalRecruited: 0, publishCount: 0, lastResult: null },
         today: { day: 0, visitors: 0, recruitedVisitors: 0, income: 0, survivalIncome: 0, ecologyScore: 0, safetyScore: 0, speciesCount: 0, animalTotal: 0, tourismScore: 0, tourismRawScore: 0, weather: "", trouble: "尚无明显麻烦" },
         history: [],
         letters: []

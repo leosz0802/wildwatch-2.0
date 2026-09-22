@@ -42,11 +42,15 @@ const duplicateView = {
   ]
 };
 const normalized = game.normalizeReserveViewPresentation(duplicateView).mapMarkers.map((marker) => marker.id);
-assert.strictEqual(normalized.filter((id) => /reserve_network|neighbor_migration/.test(id)).length, 1,
-  "相邻保护区同一事件只能保留一个地图入口");
-assert.strictEqual(normalized.filter((id) => /generic_poacher|visitor_conflict/.test(id)).length, 1,
-  "同区域同动作的旧任务与事件卡只能保留一个入口");
+const neighborIds = normalized.filter((id) => /reserve_network|neighbor_migration/.test(id));
+const meadowIds = normalized.filter((id) => /generic_poacher|visitor_conflict/.test(id));
+const systemIds = neighborIds.concat(meadowIds);
+assert.ok(neighborIds.length <= 1, "相邻保护区同一事件只能保留一个地图入口");
+assert.ok(meadowIds.length <= 1, "同区域同动作的旧任务与事件卡只能保留一个入口");
+assert.ok(systemIds.length <= 1, "同一时间最多一个系统任务");
 assert(normalized.includes("neighbor_migration_8"), "同一相邻事件应优先保留带事件类型的具体卡片");
+assert.ok(!normalized.includes("generic_poacher_8"), "泛化旧任务不得与具体事件并存");
+assert.ok(!normalized.includes("visitor_conflict_8"), "第二个系统任务应按当前节奏隐藏，而不是同时出现在沙盘上");
 
 game.reserveViewForDisplay = () => duplicateView;
 const locatedStory = { status: "located", regionId: "meadow", actionId: "antiPoacher" };

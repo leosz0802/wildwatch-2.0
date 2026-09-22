@@ -13,14 +13,20 @@ function makeGame() {
   game.setScreen = screen => { game.screen = screen; return true; };
   return game;
 }
-function startAnimalDaily(game) {
+function startEcologyDaily(game) {
+  game.state.world.reserve.progression.stage = 2;
+  game.state.world.goals = require('../js/goalSystem').normalizeGoalState(game.state.world.goals, game.state);
   const daily = game.state.world.goals.daily;
-  daily.objectives.slice(0, 2).forEach(item => { item.complete = true; item.progress = item.target; });
+  daily.objectives.filter(item => item.id !== 'daily_ecology').forEach(item => { item.complete = true; item.progress = item.target; });
   game.focusCollectionAnimal = animal => { game.focusedAnimal = animal; return true; };
+  game.executeGoalAction = goal => {
+    game.activeTaskLock = { id: goal.id || `daily:${daily.dateKey}:daily_ecology`, kind: 'daily', goal };
+    return true;
+  };
   assert(game.openDailyEvents());
-  assert(game.executeDailyEvent('daily_animal', daily.dateKey));
-  assert.equal(game.activeTaskLock.id, `daily:${daily.dateKey}:daily_animal`);
-  return game.state.world.goals.daily.objectives.find(item => item.id === 'daily_animal');
+  assert(game.executeDailyEvent('daily_ecology', daily.dateKey));
+  assert.equal(game.activeTaskLock.id, `daily:${daily.dateKey}:daily_ecology`);
+  return game.state.world.goals.daily.objectives.find(item => item.id === 'daily_ecology');
 }
 
 // Channel-only story tasks complete when the requested channel opens. They
@@ -45,25 +51,31 @@ for (const channel of ['viewSurvival', 'viewDiscovery']) {
   assert.equal(game.activeTaskLock, null, `${channel} should release its lock after entry`);
 }
 
-// The first daily task routes to 生存频道 and then starts animal exploration.
-// The daily lock must allow that exact exploration entry; otherwise the card
-// sends the player to the channel and every material tap is rejected.
+// Daily tasks must recruit visitors or repair water/grass; they must not
+// force the Survival channel.
 {
   const game = makeGame();
+  game.state.world.reserve.progression.stage = 2;
+  game.state.world.goals = require('../js/goalSystem').normalizeGoalState(game.state.world.goals, game.state);
   game.prepareLocalAssetsForScreen = () => {};
   const dateKey = game.state.world.goals.daily.dateKey;
-  assert(game.executeDailyEvent('daily_guard', dateKey));
-  assert.equal(game.screen, 'survival');
-  assert(game.activeTaskLock && game.activeTaskLock.goal.recommendedAction === 'exploreMaterials');
-  assert(game.openMaterialExploration('researchSample'), 'daily guard should open exploration from survival');
-  assert.equal(game.infoDetailModal.kind, 'materialExploration');
+  game.openVisitorRecruitment = () => { game.infoDetailModal = { kind: 'visitorRecruitment' }; return true; };
+  assert(game.executeDailyEvent('daily_visitor', dateKey));
+  assert.notEqual(game.screen, 'survival', 'visitor daily must not open Survival');
+  assert.equal(game.infoDetailModal.kind, 'visitorRecruitment');
+  game.state.world.goals.daily.objectives[0].complete = true;
+  game.state.world.goals.daily.objectives[0].progress = 1;
+  game.infoDetailModal = null;
+  game.activeTaskLock = null;
+  assert(game.executeDailyEvent('daily_ecology', dateKey));
+  assert.notEqual(game.screen, 'survival', 'water/grass daily must not open Survival');
 }
 
 // Real goal dispatch creates the lock. X must work both before settlement and
 // on the result page; the old test covered only the separate confirm button.
 for (const phase of ['approach', 'result']) {
   const game = makeGame();
-  const objective = startAnimalDaily(game);
+  const objective = startEcologyDaily(game);
   if (phase === 'result') { objective.complete = true; objective.progress = objective.target; }
   game.infoDetailModal = { kind: 'animalComfort', phase };
   const before = JSON.stringify(game.state.world.reserve);
@@ -72,29 +84,29 @@ for (const phase of ['approach', 'result']) {
   assert.equal(game.infoDetailModal, null);
   assert.equal(JSON.stringify(game.state.world.reserve), before, 'close must not settle or rescue again');
   assert(game.openDailyEvents());
-  assert.equal(game.infoDetailModal.activeDailyId, phase === 'result' ? null : 'daily_animal');
+  assert.equal(game.infoDetailModal.activeDailyId, phase === 'result' ? null : 'daily_ecology');
 }
 
-// A map-based task can have no modal while waiting for its animal click.
-// Re-enter its route instead of either deadlocking or starting a second task.
+// Unfinished water/grass daily: reopening the list must not auto-run, and
+// explicit continue must stay on habitat instead of Survival.
 {
   const game = makeGame();
-  const objective = startAnimalDaily(game);
+  const objective = startEcologyDaily(game);
   const firstLock = game.activeTaskLock;
   assert(game.openDailyEvents());
   assert.equal(game.activeTaskLock.id, firstLock.id);
   assert.equal(objective.complete, false);
-  assert(game.focusedAnimal);
   assert.equal(game.infoDetailModal.kind, 'dailyEvents', 'opening checklist must not auto-run the unfinished task');
-  assert(game.executeDailyEvent('daily_animal', game.infoDetailModal.checklist.dateKey));
-  assert(!game.infoDetailModal, 'explicit continue must preserve the animal map route');
+  assert.notEqual(game.screen, 'survival');
+  assert(game.executeDailyEvent('daily_ecology', game.infoDetailModal.checklist.dateKey));
+  assert.notEqual(game.screen, 'survival', 'explicit continue must keep water/grass on habitat, not Survival');
 }
 
 // Reproduce the video: the third daily is done but its lock survived, and the
 // player taps the actual current-goal card on the bare sandbox.
 {
   const game = makeGame();
-  const objective = startAnimalDaily(game);
+  const objective = startEcologyDaily(game);
   objective.complete = true; objective.progress = objective.target;
   game.sandboxGoalBarData = () => ({ chapter: 1, chapterTitle: '任务', title: '下一任务', progressText: '进行中', action: '继续', goal: { id: 'next', recommendedAction: 'visitorAdjust' } });
   game.sandboxLedMode = () => false;
@@ -157,4 +169,29 @@ for (const surface of ['infoDetailModal', 'patrolTaskModal', 'settlementModal', 
   assert.equal(game.infoDetailModal, parent);
   assert.equal(game.activeTaskLock, lock);
 }
-console.log('task lock recovery check ok (X close, unfinished resume, completed stale lock, real goal-card hit, single-task ownership, nested return)');
+
+// Building a facility cannot deadlock collection: shortage routes to Survival
+// and the construction lock must still allow material exploration.
+{
+  const game = makeGame();
+  game.prepareLocalAssetsForScreen = () => {};
+  game.activeTaskLock = {
+    id: 'development:river_shallows:build',
+    kind: 'long',
+    goal: { recommendedAction: 'facilityBuild', nodeId: 'river_shallows', developmentTask: 'build' },
+    startedAt: Date.now()
+  };
+  game.infoDetailModal = { kind: 'livingReserveChoiceConfirm', choice: { id: 'reed_refuge' } };
+  game.routeReserveDevelopmentResources({ missing: ['芦苇纤维束×1', '松果湿度标×1'] });
+  assert.equal(game.screen, 'survival', 'reed refuge shortage must send the player to Survival');
+  assert.equal(game.infoDetailModal, null);
+  assert.equal(game.survivalMaterialLevel, 1, 'shortage must open the missing material table, not the explore hero');
+  assert.equal(game.survivalFocusMaterialId, 'reed_cord');
+  assert.equal(Number(game.survivalExploreFocusUntil || 0), 0, 'shortage must not pulse the large Survival explore box');
+  assert(game.activeTaskLock.allowMaterialGathering, 'shortage routing must mark gathering as part of the same build task');
+  assert.equal(game.openMaterialExploration('reed_cord'), true, 'Survival exploration must not be blocked by the build lock');
+  assert.equal(game.infoDetailModal.kind, 'materialExploration');
+  assert.equal(game.activeTaskLock.goal.recommendedAction, 'facilityBuild', 'player must still be able to return to the facility after collecting');
+}
+
+console.log('task lock recovery check ok (X close, unfinished resume, completed stale lock, real goal-card hit, single-task ownership, nested return, facility material gathering)');

@@ -62,4 +62,63 @@ game.tweenDisplayReserveStats(300);
 assert(game.displayReserveNumber("safety", game.state.world.reserve.safety) === game.state.world.reserve.safety, "collection safety animation must land on the stored value at 600ms");
 assert(game.reserveDisplayDelta("poacherPressure", game.state.world.reserve.poacherPressure) === 2, "collection poacher delta badge should remain visible during hold");
 
+game.numberAnimations = {};
+game.displayReserveStats = game.initialDisplayReserveStats();
+game.reserveDisplayTargetRefreshLeft = 0;
+game.numberAnimationBurstUntil = Date.now() + 10000;
+game.numberAnimationBurstCause = "task";
+const taskFund = game.state.world.reserve.fund;
+game.state.world.reserve.fund += 100;
+game.tweenDisplayReserveStats(300);
+assert(game.numberAnimationArrowPhase("fund"), "task arrow must precede the number change");
+assert(game.displayReserveNumber("fund", taskFund) === taskFund, "number must wait for arrow");
+game.tweenDisplayReserveStats(360);
+assert(game.displayReserveNumber("fund", taskFund) > taskFund && game.displayReserveNumber("fund", taskFund) < taskFund + 100, "task number rolls after arrow");
+game.tweenDisplayReserveStats(300);
+assert(game.displayReserveNumber("fund", taskFund) === taskFund + 100, "task animation lands exactly after its arrow and roll");
+
+game.numberAnimations = {};
+game.numberAnimationActiveKey = null;
+game.displayReserveStats = game.initialDisplayReserveStats();
+game.reserveDisplayTargetRefreshLeft = 0;
+game.numberAnimationBurstUntil = Date.now() + 10000;
+game.numberAnimationBurstCause = "task";
+const animalsBefore = game.displayReserveNumber("animalTotal", game.reserveDynamicTargets().animalTotal);
+const herd = game.state.world.reserve.ecology.herbivores;
+const herdKey = Object.keys(herd).find((key) => Number(herd[key]) > 0) || "deer";
+herd[herdKey] = (Number(herd[herdKey]) || 0) + 8;
+game.state.world.reserve.fund += 80;
+game.tweenDisplayReserveStats(80);
+assert(game.numberAnimations.animalTotal, "animal total must animate with fund instead of snapping");
+assert(game.numberAnimationArrowPhase("animalTotal"), "header animal total must flash direction before the count rolls");
+assert(game.reserveDisplayDelta("animalTotal", game.reserveDynamicTargets().animalTotal) === 8, "header must keep the full animal delta while rolling");
+assert(game.displayReserveNumber("animalTotal", animalsBefore) === animalsBefore, "animal total waits for its arrow");
+game.tweenDisplayReserveStats(400);
+const rollingAnimals = game.displayReserveNumber("animalTotal", animalsBefore + 8);
+assert(rollingAnimals > animalsBefore && rollingAnimals < animalsBefore + 8, "header animal total must visibly roll");
+const animalTile = game.drawCompactReserveStateTile(game.ctx || fakeContext(), {
+  id: "animalTotal",
+  label: "动物总数",
+  value: animalsBefore + 8,
+  target: 120,
+  showProgress: true,
+  tone: "good"
+}, 20, 80, 118, 30);
+assert(animalTile.changeVisible, "animal change badge replaces the percent while rolling");
+assert(animalTile.percentVisible === false, "percent must not share the header slot with the arrow badge");
+
 console.log("numeric feedback check ok");
+
+function fakeContext() {
+  const gradient = { addColorStop() {} };
+  return new Proxy({}, {
+    get(target, prop) {
+      if (prop === "measureText") return (text) => ({ width: String(text || "").length * 7 });
+      if (prop === "createLinearGradient" || prop === "createRadialGradient") return () => gradient;
+      if (prop === "canvas") return { width: 375, height: 667 };
+      if (!target[prop]) target[prop] = () => {};
+      return target[prop];
+    },
+    set(target, prop, value) { target[prop] = value; return true; }
+  });
+}

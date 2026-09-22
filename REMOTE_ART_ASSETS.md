@@ -13,6 +13,17 @@
   - 约 1MB
 - `assets/art/ui-v3/icons/`
   - 当前运行版 UI 独立图标
+- `assets/art/prologue/prologue-fog-v1.jpg`
+  - 首次登录序章图
+- `assets/art/animal-map-sprites-atlas-v2.png`
+  - 沙盘动物图集，登录后立刻画在沙盘上
+
+进入游戏后再下载（不进 4MiB 主包）：
+
+- 设施图集 `facility-sprites-atlas-v4.png`
+- 收藏物图集 `collection-items-atlas.png`
+
+沙盘动物图集 `animal-map-sprites-atlas-v2.png` 留在主包，登录后立刻画在沙盘上。设施和收藏物部署在 `https://wild.hubao.tv/assets/`，登录页不请求；进入家园后走现有 `wx.downloadFile` 队列并缓存到用户目录。
 
 ## 稳定版不包含
 

@@ -4,14 +4,18 @@ const INTERSTITIAL_AD_CONFIG = Object.freeze({
   placement: "lucky",
   adUnitId: "adunit-00c6bce833409f4f",
   firstGuardianDay: 1,
-  // 插屏以有效行动结算为节奏，避免只依赖“守护夜”导致几乎没有曝光。
-  // 125 秒 + 3 次有效行动的双重频控：任务弹窗刚关闭后不会很快再次打断，
-  // 同时保留足够的正常曝光机会。
+  // 恢复原先曝光节奏：不以守护日限次，也不再把新玩家前三分钟整段关掉。
+  // 125 秒 + 3 次有效行动的双重频控，任务刚结束后不会马上再弹，
+  // 日常经营仍能稳定曝光；同一自然日最多 8 次。
   guardianDayCooldown: 0,
+  minActiveSeconds: 0,
   timeCooldownMs: 125 * 1000,
   minActionCount: 2,
   minActionGap: 3,
   dailyCap: 8,
+  // show() 成功后微信靠 onClose 放行；无填充或原生层丢回调时，
+  // 超过此时长仍占用 showing，会把整屏按钮全部锁死。
+  showTimeoutMs: 8000,
   storageKey: "wild_reserve_interstitial_ad_v1"
 });
 
@@ -51,6 +55,14 @@ const REWARDED_FUND_AD_CONFIG = Object.freeze({
 const REWARDED_VISITOR_AD_CONFIG = Object.freeze({
   placement: "visitor_recruitment",
   adUnitId: "adunit-87d5ca86e895053e"
+});
+
+const REWARDED_ANIMAL_AD_CONFIG = Object.freeze({
+  placement: "animal_total_boost",
+  adUnitId: "adunit-a74d65c9384d70b7",
+  dailyCap: 2,
+  minPercent: 5,
+  maxPercent: 10
 });
 
 function emergencySupplyAdStatus(reserve, config = REWARDED_SUPPLY_AD_CONFIG) {
@@ -108,6 +120,88 @@ function emergencyFundAdStatus(reserve, config = REWARDED_FUND_AD_CONFIG) {
     reward,
     eligible: day >= config.firstGuardianDay
   };
+}
+
+function animalAdDateKey(now = Date.now()) {
+  const value = new Date(now);
+  if (Number.isNaN(value.getTime())) return "";
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function animalTotalAdStatus(reserve, now = Date.now(), config = REWARDED_ANIMAL_AD_CONFIG) {
+  const dateKey = animalAdDateKey(now);
+  const state = (reserve && reserve.animalTotalAd) || {};
+  const claimedToday = String(state.dateKey || "") === dateKey ? safeNumber(state.claimCountToday) : 0;
+  const remaining = Math.max(0, safeNumber(config.dailyCap, 2) - claimedToday);
+  return {
+    dateKey,
+    claimedToday,
+    remaining,
+    dailyCap: Math.max(0, safeNumber(config.dailyCap, 2)),
+    minPercent: Math.max(1, safeNumber(config.minPercent, 5)),
+    maxPercent: Math.max(safeNumber(config.minPercent, 5), safeNumber(config.maxPercent, 10)),
+    eligible: remaining > 0
+  };
+}
+
+function animalTotalAdCandidates(reserve = {}) {
+  const { chapterCaptiveSpeciesSet } = require("./chapterRescueSystem");
+  const { getChapterSandboxSpecies, speciesPopulationGroup, SPECIES_DB } = require("./animalWorld");
+  const progression = (reserve && reserve.progression) || {};
+  const chapter = Math.max(1, Math.round(Number(progression.stage || progression.displayChapter || 1)));
+  const captive = chapterCaptiveSpeciesSet(reserve);
+  const ecology = (reserve && reserve.ecology) || {};
+  const candidates = [];
+  getChapterSandboxSpecies(chapter).forEach((species) => {
+    const id = species && species.id ? species.id : species;
+    if (!id || captive.has(id)) return;
+    const group = speciesPopulationGroup(id);
+    const pop = Math.max(0, Number((ecology[group] || {})[id]) || 0);
+    if (pop <= 0) return;
+    const maxPop = Math.max(1, Number((SPECIES_DB[id] || {}).maxPop) || 999);
+    if (pop >= maxPop) return;
+    candidates.push({ id, group, pop, maxPop });
+  });
+  return candidates.sort((a, b) => b.pop - a.pop);
+}
+
+function applyAnimalTotalAdReward(reserve, random = Math.random, now = Date.now(), config = REWARDED_ANIMAL_AD_CONFIG) {
+  const status = animalTotalAdStatus(reserve, now, config);
+  if (!status.eligible) return { ok: false, reason: "daily_cap", status };
+  const { livingAnimalTotal } = require("./chapterRescueSystem");
+  const before = Math.max(0, Math.round(livingAnimalTotal(reserve) || 0));
+  const span = Math.max(0, status.maxPercent - status.minPercent);
+  const roll = Math.max(0, Math.min(0.999999, Number(typeof random === "function" ? random() : random) || 0));
+  const percent = status.minPercent + Math.floor(roll * (span + 1));
+  const wanted = Math.max(1, Math.round(before * percent / 100));
+  const ecology = reserve.ecology || (reserve.ecology = {});
+  const candidates = animalTotalAdCandidates(reserve);
+  if (!candidates.length) return { ok: false, reason: "no_candidates", status, before, percent, amount: 0 };
+  let added = 0;
+  for (let index = 0; index < wanted; index += 1) {
+    const open = candidates.filter((item) => item.pop < item.maxPop);
+    if (!open.length) break;
+    const pick = open[added % open.length];
+    const bucket = ecology[pick.group] || (ecology[pick.group] = {});
+    pick.pop += 1;
+    bucket[pick.id] = pick.pop;
+    added += 1;
+  }
+  if (!added) return { ok: false, reason: "at_cap", status, before, percent, amount: 0 };
+  const { recordIncrease } = require("./animalSourceLedger");
+  recordIncrease(reserve, "advertised", added);
+  const after = Math.max(0, Math.round(livingAnimalTotal(reserve) || 0));
+  const previous = reserve.animalTotalAd || {};
+  reserve.animalTotalAd = {
+    version: 1,
+    dateKey: status.dateKey,
+    claimCount: safeNumber(previous.claimCount) + 1,
+    claimCountToday: String(previous.dateKey || "") === status.dateKey
+      ? safeNumber(previous.claimCountToday) + 1
+      : 1,
+    lastReward: { day: status.dateKey, percent, amount: added, before, after }
+  };
+  return { ok: true, percent, amount: added, before, after, status: animalTotalAdStatus(reserve, now, config) };
 }
 
 function applyEmergencyFundReward(reserve, config = REWARDED_FUND_AD_CONFIG) {
@@ -213,6 +307,8 @@ class InterstitialAdController {
     this.now = typeof options.now === "function" ? options.now : () => Date.now();
     this.instance = null;
     this.showing = false;
+    this.awaitingClose = false;
+    this.showWatchdog = 0;
     this.pendingResolve = null;
     this.adErrorPending = null;
     this.state = this.readState();
@@ -260,8 +356,10 @@ class InterstitialAdController {
           if (typeof console !== "undefined" && console.warn) console.warn("插屏广告加载失败", error);
           // show() 的 Promise 会负责 load + show 重试；不要在 onError
           // 事件先到时提前放行，否则重试成功后广告会盖到下一页。
+          // 已经进入等关闭态时再报错，说明原生层没有真正展示，必须立刻解锁点击。
           if (this.showing) {
             this.adErrorPending = error || true;
+            if (this.awaitingClose) this.finishPending(false, "error");
             return;
           }
           this.finishPending(false, "error");
@@ -284,8 +382,10 @@ class InterstitialAdController {
 
   shouldShow(context = {}) {
     if (!this.available() || this.showing) return false;
-    // 新用户首分钟只完成必要引导，不打断首次操作。
-    if (Number.isFinite(Number(context.activeSeconds)) && Number(context.activeSeconds) < 60) return false;
+    // 活跃时长只在配置了静默秒数时拦截；恢复旧策略后默认为 0，开局即可进入候选。
+    if (this.config.minActiveSeconds > 0
+      && Number.isFinite(Number(context.activeSeconds))
+      && Number(context.activeSeconds) < this.config.minActiveSeconds) return false;
     // guardianNight 仍兼容旧调用；普通结算通过 settlement/eligible 进入。
     const eligibleContext = context.eligible !== false && (context.guardianNight || context.settlement || context.actionCount != null);
     if (!eligibleContext || context.majorMoment || context.onboarding || context.emergency) return false;
@@ -307,9 +407,11 @@ class InterstitialAdController {
   show(context = {}) {
     if (!this.shouldShow(context)) return Promise.resolve({ shown: false, reason: "ineligible" });
     this.showing = true;
+    this.awaitingClose = false;
     this.adErrorPending = null;
     return new Promise((resolve) => {
       this.pendingResolve = resolve;
+      this.armShowWatchdog();
       let showResult;
       try {
         showResult = this.instance.show();
@@ -322,6 +424,11 @@ class InterstitialAdController {
         if (typeof this.instance.load !== "function") return Promise.reject(error);
         return Promise.resolve(this.instance.load()).then(() => this.instance.show());
       }).then(() => {
+        if (!this.showing) return;
+        if (this.adErrorPending) {
+          this.finishPending(false, "error");
+          return;
+        }
         this.state.lastShownAt = this.now();
         this.state.lastGuardianDay = Math.max(0, safeNumber(context.guardianDay));
         const actionCount = safeNumber(context.actionCount, 0);
@@ -331,6 +438,7 @@ class InterstitialAdController {
         this.state.shownCountToday = this.state.shownDate === today ? this.state.shownCountToday + 1 : 1;
         this.state.shownDate = today;
         this.persistState();
+        this.awaitingClose = true;
         // 微信实例通过 onClose 结束流程；极简测试或兼容运行时没有回调时直接放行。
         if (!this.instance || typeof this.instance.onClose !== "function") this.finishPending(true, "shown");
       }).catch((error) => {
@@ -340,11 +448,26 @@ class InterstitialAdController {
     });
   }
 
+  armShowWatchdog() {
+    this.clearShowWatchdog();
+    const timeoutMs = Math.max(0, safeNumber(this.config.showTimeoutMs, 8000));
+    if (!timeoutMs || typeof setTimeout !== "function") return;
+    this.showWatchdog = setTimeout(() => this.finishPending(false, "timeout"), timeoutMs);
+  }
+
+  clearShowWatchdog() {
+    if (!this.showWatchdog) return;
+    if (typeof clearTimeout === "function") clearTimeout(this.showWatchdog);
+    this.showWatchdog = 0;
+  }
+
   finishPending(shown, reason) {
     if (!this.showing && !this.pendingResolve) return;
+    this.clearShowWatchdog();
     const resolve = this.pendingResolve;
     this.pendingResolve = null;
     this.showing = false;
+    this.awaitingClose = false;
     this.adErrorPending = null;
     if (resolve) resolve({ shown: !!shown, reason, placement: this.config.placement });
   }
@@ -363,8 +486,10 @@ class NativeTemplateAdController {
     this.slotTop = null;
     this.measuredWidth = 0;
     this.measuredHeight = 0;
+    this.showGeneration = 0;
     this.onLayoutChange = typeof options.onLayoutChange === "function" ? options.onLayoutChange : null;
-    this.initialize();
+    // 微信自定义广告在 create 时就会挂原生触控层。top 移出屏幕常被夹回
+    // 视口底部，正好盖住「进入游戏」和首页底栏。因此只在真正展示时创建。
   }
 
   systemViewport() {
@@ -379,13 +504,24 @@ class NativeTemplateAdController {
     }
   }
 
+  offscreenTop() {
+    const viewportHeight = Math.max(1, safeNumber(this.viewport.height, 667));
+    const height = Math.max(1, safeNumber(this.measuredHeight, this.config.estimatedHeight));
+    return viewportHeight + height + 16;
+  }
+
+  parkOffscreen() {
+    if (this.instance && this.instance.style) this.instance.style.top = this.offscreenTop();
+  }
+
   initialStyle() {
     const viewportWidth = Math.max(1, safeNumber(this.viewport.width, 375));
-    const viewportHeight = Math.max(1, safeNumber(this.viewport.height, 667));
     const width = Math.max(1, Math.min(this.config.maxWidth, viewportWidth - this.config.sideInset * 2));
     return {
       left: Math.max(0, Math.round((viewportWidth - width) / 2)),
-      top: Math.max(0, Math.round(viewportHeight - this.config.bottomInset - this.config.estimatedHeight)),
+      // 创建时绝不能贴在屏幕底部。微信自定义广告即使还没 show，
+      // 原生触控层也会盖住序章「进入游戏」和首页底栏。
+      top: this.offscreenTop(),
       width
     };
   }
@@ -399,6 +535,7 @@ class NativeTemplateAdController {
       });
       if (!instance) return false;
       this.instance = instance;
+      this.parkOffscreen();
       if (typeof instance.onLoad === "function") {
         instance.onLoad(() => {
           if (this.requestedVisible && !this.shown) this.show();
@@ -411,12 +548,9 @@ class NativeTemplateAdController {
         instance.onError((error) => {
           this.showing = false;
           this.shown = false;
-          // A failed native ad can leave its platform-owned touch surface
-          // mounted even though it is no longer visually shown. Always hide
-          // and park it outside the viewport so the materials page buttons
-          // remain tappable when inventory ads have no fill.
-          this.hide();
           this.retryAt = Date.now() + this.config.retryDelayMs;
+          // 失败后必须拆掉原生层。hide/park 在真机上经常仍拦截点击。
+          this.destroy();
           if (typeof console !== "undefined" && console.warn) console.warn("原生模板广告加载失败", error && (error.errMsg || error));
         });
       }
@@ -441,9 +575,13 @@ class NativeTemplateAdController {
     this.measuredHeight = height;
     this.instance.style.width = width;
     this.instance.style.left = Math.max(0, Math.round((viewportWidth - width) / 2));
-    this.instance.style.top = Number.isFinite(this.slotTop)
-      ? Math.max(0, Math.round(this.slotTop))
-      : fallback.top;
+    if (!this.requestedVisible) {
+      this.parkOffscreen();
+    } else {
+      this.instance.style.top = Number.isFinite(this.slotTop)
+        ? Math.max(0, Math.round(this.slotTop))
+        : Math.max(0, Math.round(this.viewport.height - this.config.bottomInset - this.config.estimatedHeight));
+    }
     if (notify && this.onLayoutChange && (width !== previousWidth || height !== previousHeight)) {
       this.onLayoutChange({ width, height });
     }
@@ -474,10 +612,14 @@ class NativeTemplateAdController {
 
   setVisible(visible) {
     const next = !!visible;
-    if (next === this.requestedVisible && (next ? (this.shown || this.showing) : !this.shown)) return;
-    this.requestedVisible = next;
-    if (next) this.show();
-    else this.hide();
+    if (!next) {
+      this.requestedVisible = false;
+      if (this.instance || this.shown || this.showing) this.destroy();
+      return;
+    }
+    if (this.requestedVisible && (this.shown || this.showing)) return;
+    this.requestedVisible = true;
+    this.show();
   }
 
   show() {
@@ -485,33 +627,35 @@ class NativeTemplateAdController {
     if (Date.now() < this.retryAt) return Promise.resolve(false);
     if (!this.instance && !this.initialize()) return Promise.resolve(false);
     if (!this.instance || typeof this.instance.show !== "function") return Promise.resolve(false);
-    // A hidden WeChat custom-ad is parked outside the viewport so its native
-    // layer cannot intercept later canvas taps. Restore its saved slot first.
     this.position();
     this.showing = true;
+    this.showGeneration += 1;
+    const generation = this.showGeneration;
     let result;
     try {
       result = this.instance.show();
     } catch (error) {
       this.showing = false;
-      this.hide();
       this.retryAt = Date.now() + this.config.retryDelayMs;
+      this.destroy();
       if (typeof console !== "undefined" && console.warn) console.warn("原生模板广告显示失败", error);
       return Promise.resolve(false);
     }
     return Promise.resolve(result).then(() => {
+      if (generation !== this.showGeneration) return false;
       this.showing = false;
       if (!this.requestedVisible) {
-        this.hide();
+        this.destroy();
         return false;
       }
       this.shown = true;
       return true;
     }).catch((error) => {
+      if (generation !== this.showGeneration) return false;
       this.showing = false;
       this.shown = false;
-      this.hide();
       this.retryAt = Date.now() + this.config.retryDelayMs;
+      this.destroy();
       if (typeof console !== "undefined" && console.warn) console.warn("原生模板广告显示失败", error);
       return false;
     });
@@ -523,22 +667,22 @@ class NativeTemplateAdController {
     if (typeof this.instance.hide === "function") {
       try { this.instance.hide(); } catch (error) { /* 广告隐藏失败不阻断游戏。 */ }
     }
-    // Some base-library versions briefly leave the native touch surface alive
-    // after hide(). Moving it away prevents invisible click interception.
-    if (this.instance.style) {
-      const viewportHeight = Math.max(1, safeNumber(this.viewport.height, 667));
-      const height = Math.max(1, safeNumber(this.measuredHeight, this.config.estimatedHeight));
-      this.instance.style.top = viewportHeight + height + 16;
-    }
+    this.parkOffscreen();
   }
 
   destroy() {
     this.requestedVisible = false;
-    this.hide();
-    if (this.instance && typeof this.instance.destroy === "function") {
-      try { this.instance.destroy(); } catch (error) { /* ignore */ }
-    }
+    this.showing = false;
+    this.shown = false;
+    this.showGeneration += 1;
+    const instance = this.instance;
     this.instance = null;
+    if (instance && typeof instance.hide === "function") {
+      try { instance.hide(); } catch (error) { /* ignore */ }
+    }
+    if (instance && typeof instance.destroy === "function") {
+      try { instance.destroy(); } catch (error) { /* ignore */ }
+    }
   }
 }
 
@@ -548,11 +692,14 @@ module.exports = {
   REWARDED_SUPPLY_AD_CONFIG,
   REWARDED_VISITOR_AD_CONFIG,
   REWARDED_FUND_AD_CONFIG,
+  REWARDED_ANIMAL_AD_CONFIG,
   InterstitialAdController,
   NativeTemplateAdController,
   RewardedSupplyAdController,
   emergencySupplyAdStatus,
   applyEmergencySupplyReward,
   emergencyFundAdStatus,
-  applyEmergencyFundReward
+  applyEmergencyFundReward,
+  animalTotalAdStatus,
+  applyAnimalTotalAdReward
 };

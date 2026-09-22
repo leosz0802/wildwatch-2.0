@@ -11,17 +11,19 @@ game.currentGoalView = () => ({ primary: { id: 'goal:2', kind: 'daily', recommen
 let opened = 0; game.openGoalCenter = () => { opened += 1; return true; };
 const realNow = Date.now; let now = 1_000_000; Date.now = () => now;
 try {
+  const gapMs = 57 * 1000;
   game.markUserTaskTrigger();
-  assert.strictEqual(game.maybeOpenMissionPush('settlement', { force: true }), false, '系统任务必须等待用户任务结束后30秒');
-  now += 30_000;
-  assert.strictEqual(game.maybeOpenMissionPush('settlement', { force: true }), false, '恰好30秒仍不能触发，必须超过30秒');
+  assert.strictEqual(game.maybeOpenMissionPush('settlement', { force: true }), false, '系统任务必须等待用户任务结束后的全局间隔');
+  now += gapMs;
+  assert.strictEqual(game.maybeOpenMissionPush('settlement', { force: true }), false, '恰好到达间隔仍不能触发，必须超过间隔');
   now += 1;
-  assert.strictEqual(game.maybeOpenMissionPush('settlement', { force: true }), true, '30秒后系统任务应可触发');
+  assert.strictEqual(game.maybeOpenMissionPush('settlement', { force: true }), true, '超过全局间隔后系统任务应可触发');
   assert.strictEqual(opened, 1);
+  game.currentGoalView = () => ({ primary: { id: 'goal:3', kind: 'story', recommendedAction: 'habitat', buttonLabel: '去处理' }, alternatives: [], daily: { complete: 1, required: 1 } });
   game.markUserTaskTrigger();
-  now += 29_999;
-  assert.strictEqual(game.maybeOpenMissionPush('settlement', { force: true }), false, '用户任务再次触发后仍需等待30秒');
+  now += gapMs - 1;
+  assert.strictEqual(game.maybeOpenMissionPush('settlement', { force: true }), false, '用户任务再次触发后仍需等待全局间隔');
   now += 2;
-  assert(game.maybeOpenMissionPush('settlement', { force: true }), '30秒后后续系统任务可以继续按既有任务键策略判断');
+  assert(game.maybeOpenMissionPush('settlement', { force: true }), '超过间隔后后续系统任务可以继续按既有任务键策略判断');
 } finally { Date.now = realNow; }
-console.log('system task cooldown check ok: user/system triggers keep a 30-second gap');
+console.log('system task cooldown check ok: user/system triggers keep a 57-second gap');

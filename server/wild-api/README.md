@@ -39,6 +39,8 @@ Dynamic art can be enabled without a client release by uploading the reviewed at
 
 The survival catalog uses `assets.wildernessMaterialAtlas`. Copy `assets/wilderness-materials-atlas-v1.webp` to `/var/lib/wild-guard-api/assets/`, keep the configured URL on `wild.hubao.tv`, and bump its version whenever the atlas changes. The client crops the atlas as four columns by three rows and falls back to twelve distinct Canvas symbols while offline.
 
+Post-login gameplay atlases also live under `/assets/`: `facility-sprites-atlas-v4.png` and `collection-items-atlas.png`. They are excluded from the first WeChat package so the login/prologue screen stays under 4MiB; the client downloads them after the player leaves the fog screen. Sandbox animal sprites stay in the main package as `assets/art/animal-map-sprites-atlas-v2.png`.
+
 Animal portraits use `assets.animalPortraitAtlas` and `assets/animal-portraits-atlas-v4.jpg`. They are cached separately; the built-in Canvas animal heads remain the offline fallback.
 
 Premium interface textures use `assets.premiumUiAtlas`. The checked-in deployment asset `assets/premium-ui-v1.jpg` is a 1536×512 strip containing three 512×512 tiles in this order: parchment, forest leather and brass. Deploy it to `/var/lib/wild-guard-api/assets/premium-ui-v1.jpg` together with the matching remote config version. The client caches it independently from the gameplay art atlas and uses Canvas material rendering as the offline fallback.
@@ -51,3 +53,7 @@ Production paths:
 - database: `/var/lib/wild-guard-api/wild.sqlite`
 - secrets: `/etc/wild-guard-api.env`
 - service: `wild-guard-api.service`
+
+World friend identity display uses opaque account matches. After importing verified WeChat friend relations, the authenticated world leaderboard includes `friendMatchKey` only for that viewer's linked accounts. The client sends world rows into the open data domain, which matches accounts and draws the actual WeChat nickname/avatar without returning those details to the main domain. Score/level/animal values are never used to identify a person. Login also returns `publicId`, saved in the player's friend-cloud record for future matching.
+
+Release both the API and the client for this change. Existing accounts can be linked by refreshing friend relations; friends using older clients need not upload a new nickname. A missing server score still requires that player to log in and sync their reserve. Friend details distinguish a verified world rank from a record awaiting sync or outside the top 100.

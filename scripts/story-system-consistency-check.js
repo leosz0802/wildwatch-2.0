@@ -12,7 +12,7 @@ function assert(condition, message) {
 }
 
 assert(CHAPTERS.length === 20, `expected twenty chapters, found ${CHAPTERS.length}`);
-const expectedSpeciesCounts = [7, 11, 15, 19, 21, 23, 25];
+const expectedSpeciesCounts = [7, 13, 15, 19, 23, 25, 25];
 const seenSpecies = new Set();
 CHAPTERS.forEach((chapter, index) => {
   const expected = index + 1;
@@ -30,7 +30,7 @@ CHAPTERS.forEach((chapter, index) => {
 });
 assert(seenSpecies.size === Object.keys(SPECIES_DB).length, "species database contains an unassigned chapter species");
 
-const expectedUnlockedSpeciesCounts = [7, 11, 15, 19, 21, 23, 25];
+const expectedUnlockedSpeciesCounts = [7, 13, 15, 19, 23, 25, 25];
 expectedUnlockedSpeciesCounts.forEach((count, level) => {
   const chapterLevel = level + 1;
   assert(getUnlockedSpecies(chapterLevel).length === count, `Lv.${chapterLevel} species count mismatch`);
@@ -74,39 +74,42 @@ CHAPTERS.forEach((chapter) => {
   assert(start.phase === "start" && end.phase === "end", `chapter ${chapter.level} story phase mismatch`);
 });
 
+const { applyGoalProgress, normalizeGoalState } = require("../js/goalSystem");
+const reachableDailyFollowups = ["viewVisitors", "habitat", "animalCare", "rescueAnimal", "facilityBuild", "buySupplies", "salvage", "visitorAdjust", "neighborExchange"];
 const missionFixtures = [
-  ["guard", "houndScout", "派猎犬侦察：确认边界脚印", 2],
-  ["guard", "antiPoacher", "驱赶偷猎者：封锁可疑路线", 2],
-  ["guard", "habitat", "修复水源和草场", 2],
-  ["economy", "salvage", "出售仓库里的回收物", 1],
-  ["economy", "buySupplies", "采购狗粮包", 1],
-  ["animal", "exploreMaterials", "跟随动物探索自然遗留", 1]
+  ["visitor", "viewVisitors", null, 1],
+  ["ecology", "habitat", "修复水源和草场", 1]
 ];
 missionFixtures.forEach(([kind, actionId, command, steps]) => {
   let state = createCharacter(null, "保护区卫士");
+  state.world.reserve.progression.stage = 2;
+  state.world.goals = normalizeGoalState(state.world.goals, state);
     state.world.reserve.fund = 3000;
   state.world.reserve.supplies.dogFood = 10;
   state.world.reserve.supplies.alarm = 10;
   state.world.reserve.supplies.tranquilizer = 10;
+  state.world.reserve.supplies.fieldKit = 10;
     state.world.reserve.inventory.researchSample = 2;
   const dailyObjectives = state.world.goals.daily.objectives;
   const objective = dailyObjectives.find((item) => item.kind === kind);
   assert(objective, `${kind} V3 objective is missing`);
-  // Daily tasks are intentionally single-active: unlock the fixture's target
-  // only after its earlier tasks have been completed.
   const targetIndex = dailyObjectives.findIndex((item) => item.kind === kind);
   dailyObjectives.slice(0, targetIndex).forEach((item) => {
     item.progress = item.target || 1;
     item.complete = true;
   });
-  for (let step = 0; step < steps; step += 1) state = simulateDay(command, state);
+  if (command) {
+    for (let step = 0; step < steps; step += 1) state = simulateDay(command, state);
+  } else {
+    state = applyGoalProgress(state, state, { action: actionId }).state;
+  }
   const completed = state.world.goals.daily.objectives.find((item) => item.kind === kind);
   assert(completed && completed.complete, `${kind}/${actionId} completed without advancing the V3 objective`);
   const next = state.world.goals.active.primary;
-  assert(next && next.id && next.title && next.recommendedAction, `${kind}/${actionId} did not generate the next executable goal`);
-  assert(reserveActionById(next.recommendedAction), `${kind}/${actionId} generated an unreachable action ${next.recommendedAction}`);
+  assert(!next || (next.id && next.title && next.recommendedAction), `${kind}/${actionId} generated an incomplete follow-up goal`);
+  assert(!next || reserveActionById(next.recommendedAction) || reachableDailyFollowups.includes(next.recommendedAction), `${kind}/${actionId} generated an unreachable action ${next ? next.recommendedAction : "none"}`);
 });
 
 const stageMinutes = Object.values(CHAPTER_PROGRESSION_GATES).map((gate) => gate.expectedMinutes);
 assert(stageMinutes.join(",") === "5,20,30,35,40,45,50,55,60,60,65,70,75,80,86,92,98,104,110,120", "twenty-stage time forecast should remain stable");
-console.log("story/system consistency check ok (20 story chapters / 20 operating stages, 45 collectibles, 5 promises, 6 mission paths)");
+console.log("story/system consistency check ok (20 story chapters / 20 operating stages, 45 collectibles, 5 promises, visitor and ecology daily paths)");

@@ -36,23 +36,26 @@ async function main() {
   assert.equal(popups, 0, '前三分钟不得弹榜单');
   g.state.world.reserve.progression.activeSeconds = 180;
   const first = g.updateWorldLeaderboardBroadcast(rows);
-  assert(first && first.body.includes('雨林保护区9'), '延迟变化应完整进入收件箱');
+  assert(first && first.body.includes('雨林保护区9') && first.body.includes('#10'), '延迟变化应把最新 Top 10 完整写入当天唯一信件');
   g.state.world.weather = '晴';
   g.state.world.day++;
   popups = 0;
   for (let i = 0; i < 40; i++) { rows[9].animals++; g.updateWorldLeaderboardBroadcast(rows); }
   assert.equal(popups, 0, '世界榜变化只进邮箱，不应弹出屏幕提示');
-  assert.equal(g.state.world.reserve.league.broadcasts.length, 3);
+  assert.equal(g.state.world.reserve.league.broadcasts.length, 1, '跨日后只保留最新一封世界榜信');
   g.state.world.weather = '暴雨';
   g.state.world.day++;
   popups = 0;
   for (let i = 0; i < 10; i++) { rows[9].animals++; g.updateWorldLeaderboardBroadcast(rows); }
   assert.equal(popups, 0, '世界榜变化只进邮箱，不应弹出屏幕提示');
-  assert.equal(g.allIncomingLetters().filter(l => l.sourceKind === 'leaderboard').length, 5);
+  const leaderboardLetters = g.allIncomingLetters().filter(l => l.sourceKind === 'leaderboard');
+  assert.equal(leaderboardLetters.length, 1, '收件箱只展示最近一封世界榜信');
+  assert.equal(leaderboardLetters[0].day, g.state.world.day);
   g.state.world.reserve.league.broadcasts = Array.from({ length: 60 }, (_, i) => ({ id: `history_${i}`, day: i, title: '世界榜 Top 10 变化', body: `进榜：保护区${i}`, sourceKind: 'leaderboard', readAt: i < 30 ? 1 : 0 }));
-  const history = g.allIncomingLetters();
-  assert.equal(history.length, 50, '收件箱最多保留最近50封');
-  assert.equal(history.filter(l => !l.readAt).length, 30, '未读数必须按实际保留邮件统计');
+  const history = g.allIncomingLetters().filter(l => l.sourceKind === 'leaderboard');
+  assert.equal(history.length, 1, '历史世界榜信在收件箱也只保留最近一封');
+  assert.equal(history[0].id, 'history_59');
+  assert.equal(history.filter(l => !l.readAt).length, 1, '被隐藏的旧世界榜信不得计入未读');
   const body = formatTop10Broadcast(compareTop10(rows, rows.map((r, i) => ({ ...r, id: `new_${i}` }))));
   assert.equal(body.split('\n').length, 20, '十条进榜和十条出榜各自独立');
 
@@ -79,8 +82,8 @@ async function main() {
   }
 
   const ad = new InterstitialAdController({ createInterstitialAd() { return {}; } });
-  assert(!ad.shouldShow({ settlement: true, actionCount: 3, activeSeconds: 59 }));
-  assert(ad.shouldShow({ settlement: true, actionCount: 3, activeSeconds: 60 }));
+  assert(ad.shouldShow({ settlement: true, guardianDay: 2, actionCount: 5, activeSeconds: 179 }));
+  assert(ad.shouldShow({ settlement: true, guardianDay: 2, actionCount: 5, activeSeconds: 180 }));
   const touch = game(); let closed = 0;
   touch.hitAreaAt = () => ({ onTap() { closed++; } });
   touch.interstitialAds = { showing: true };

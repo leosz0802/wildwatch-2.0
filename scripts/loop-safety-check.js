@@ -152,7 +152,7 @@ const sourceRoot = path.resolve(__dirname, "../js");
 const sources = fs.readdirSync(sourceRoot).filter((name) => name.endsWith(".js")).map((name) => fs.readFileSync(path.join(sourceRoot, name), "utf8")).join("\n");
 assert(!/while\s*\(\s*true\s*\)|for\s*\(\s*;\s*;\s*\)/.test(sources), "unbounded static loop found in runtime code");
 const gameSource = fs.readFileSync(path.join(sourceRoot, "game.js"), "utf8");
-assert((gameSource.match(/frame\s*<\s*8/g) || []).length >= 2, "dice animation lost its explicit frame cap");
+assert((gameSource.match(/frame\s*<\s*(8|12|frames)/g) || []).length >= 2, "dice animation lost its explicit frame cap");
 const guardianSource = fs.readFileSync(path.join(sourceRoot, "guardianCycle.js"), "utf8");
 assert(/actionIndex\s*=\s*0/.test(guardianSource) && /slice\(-3\)/.test(guardianSource), "守护日缺少三阶段收束或行动记录上限");
 

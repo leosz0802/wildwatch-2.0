@@ -1,0 +1,135 @@
+'use strict';
+
+const assert = require('assert');
+const { Game } = require('../js/game');
+const { createCharacter } = require('../js/storage');
+const { CHAPTERS } = require('../js/animalWorld');
+const {
+  addRescueItem,
+  findRecord,
+  normalizeChapterRescue
+} = require('../js/chapterRescueSystem');
+
+const gradient = { addColorStop() {} };
+function context() {
+  return new Proxy({ globalAlpha: 1 }, {
+    get(target, key) {
+      if (key === 'measureText') return value => ({ width: Array.from(String(value || '')).length * 7 });
+      if (key === 'createLinearGradient' || key === 'createRadialGradient') return () => gradient;
+      if (!(key in target)) target[key] = () => {};
+      return target[key];
+    },
+    set(target, key, value) { target[key] = value; return true; }
+  });
+}
+
+global.wx = {
+  getSystemInfoSync: () => ({ windowWidth: 375, windowHeight: 667, pixelRatio: 1 }),
+  createCanvas: () => ({ width: 375, height: 667, getContext: context }),
+  createImage: () => ({
+    loaded: true,
+    width: 1536,
+    height: 864,
+    set src(value) { this._src = value; if (this.onload) this.onload(); },
+    get src() { return this._src; }
+  }),
+  getStorageSync: () => null,
+  setStorageSync() {},
+  onTouchStart() {}, onTouchMove() {}, onTouchEnd() {}, onTouchCancel() {},
+  onKeyboardConfirm() {}, onAppHide() {}, onAppShow() {}, showToast() {}
+};
+
+function makeGame(chapter) {
+  const game = new Game();
+  game.stopLoop();
+  game.state = createCharacter(null, `解救地图回归-${chapter}`);
+  game.state.ui.onboarding = { version: 2, completed: true, recruitmentDone: true, seen: {} };
+  game.width = 375;
+  game.height = 667;
+  game.ctx = context();
+  game.screen = 'home';
+  game.scrollY = 0;
+  Object.assign(game.state.world.reserve.progression, {
+    stage: chapter,
+    displayChapter: chapter,
+    level: CHAPTERS[chapter - 1].level
+  });
+  normalizeChapterRescue(game.state.world.reserve, chapter, { fresh: true });
+  return game;
+}
+
+const originalSetTimeout = global.setTimeout;
+const deferred = [];
+global.setTimeout = (callback) => { deferred.push(callback); return deferred.length; };
+let checked = 0;
+try {
+  // Reproduce the reported blank-ground frame while the local JPEG is still
+  // loading. Procedural river/terrain must render immediately instead of
+  // returning after painting only a flat gradient.
+  const fallbackGame = makeGame(3);
+  fallbackGame.art.map = null;
+  fallbackGame.mapArtLoad = { status: 'loading', attempt: 0 };
+  let fallbackRiverDraws = 0;
+  fallbackGame.drawSavannaRiver = () => { fallbackRiverDraws += 1; };
+  fallbackGame.drawCartoonSavannaMap(context(), 0, 0, 375, 600, false, true);
+  assert(fallbackRiverDraws > 0, 'map must render procedural terrain while the packaged illustration loads');
+
+  for (let chapter = 1; chapter <= CHAPTERS.length; chapter += 1) {
+    const game = makeGame(chapter);
+    const reserve = game.state.world.reserve;
+    const target = game.chapterRescueState().targets[0];
+    if (!target) continue;
+    target.requiredItems.forEach(itemId => addRescueItem(reserve, itemId));
+
+    let mapDraws = 0;
+    const originalBackdrop = game.drawSimpleReserveMapBackdrop;
+    game.drawSimpleReserveMapBackdrop = function (...args) {
+      mapDraws += 1;
+      return originalBackdrop.apply(this, args);
+    };
+    game.setScreen = function (screen) { this.screen = screen; };
+    game.requestRender = () => {};
+    game.toast = () => {};
+    game.playSfx = () => {};
+
+    game.render();
+    const before = mapDraws;
+    assert(game.renderedRescueMapMarkers && game.renderedRescueMapMarkers.length > 0, `chapter ${chapter}: rescue marker missing`);
+    assert(game.openChapterRescueTask(target.targetId, { autoRun: true }), `chapter ${chapter}: rescue click failed`);
+    assert.strictEqual(findRecord(reserve.chapterRescue, target.targetId).status, 'rescued', `chapter ${chapter}: target did not settle`);
+    assert(game.mapConsequencePulse && game.mapConsequencePulse.rescueSpeciesId, `chapter ${chapter}: release pulse missing`);
+    assert(mapDraws > before, `chapter ${chapter}: sandbox map was not redrawn after rescue`);
+    assert.deepStrictEqual(game.renderedRescueMapMarkers, [], `chapter ${chapter}: rescued marker remained interactive`);
+
+    game.mapConsequencePulse = null;
+    game.render();
+    assert(mapDraws > before + 1, `chapter ${chapter}: sandbox map disappeared after release pulse`);
+    checked += 1;
+  }
+
+  // The reported boar path is covered explicitly (boar is chapter 2 in the
+  // current chapter table; older UI labels called this the third rescue step).
+  const boarGame = makeGame(2);
+  const boarReserve = boarGame.state.world.reserve;
+  const boar = findRecord(boarReserve.chapterRescue, 'boar');
+  assert(boar, 'boar rescue record missing');
+  boar.requiredItems.forEach(itemId => addRescueItem(boarReserve, itemId));
+  boarGame.setScreen = function (screen) { this.screen = screen; };
+  boarGame.requestRender = () => {};
+  boarGame.toast = () => {};
+  boarGame.playSfx = () => {};
+  assert(boarGame.openChapterRescueTask('boar', { autoRun: true }), 'boar rescue click failed');
+  assert.strictEqual(findRecord(boarReserve.chapterRescue, 'boar').status, 'rescued');
+
+  // A malformed legacy portrait must degrade to a small result card instead
+  // of aborting the frame after clearRect.
+  const pulse = boarGame.mapConsequencePulse;
+  boarGame.drawRescueReleasePulse = () => { throw new Error('legacy portrait'); };
+  boarGame.render();
+  assert(/legacy portrait/.test(boarGame.lastRescueMapRenderError || ''), 'rescue render error was not recorded');
+  assert(pulse && pulse.renderedRelease && pulse.renderedRelease.fallback, 'rescue render did not use fallback');
+} finally {
+  global.setTimeout = originalSetTimeout;
+}
+
+console.log(`chapter rescue map regression ok: ${checked} target chapters, boar path, marker cleanup, map redraw, malformed legacy fallback`);

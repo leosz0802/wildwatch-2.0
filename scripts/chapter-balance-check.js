@@ -2,28 +2,28 @@
 
 const assert = require('node:assert/strict');
 const { chapterTargets } = require('../js/chapterTargets');
-const { CHAPTERS } = require('../js/animalWorld');
+const { CHAPTERS, SPECIES_DB, speciesPopulationGroup } = require('../js/animalWorld');
 const { createInitialWorld } = require('../js/world');
+const { createCharacter } = require('../js/storage');
 const { simulateDay } = require('../js/simulator');
 const {
   chapterDefinition,
   normalizeChapterRescue,
   addRescueItem,
   rescueAnimal,
-  chapterRescueSummary
+  chapterRescueSummary,
+  livingAnimalTotal
 } = require('../js/chapterRescueSystem');
 const { previewVisitorRecruitment } = require('../js/visitorRecruitment');
 
-// The duration curve is part of the product contract: six onboarding chapters
-// stay in the 3–5 minute band, and the 30% curve begins at chapter 7.
+// The duration curve is part of the product contract: chapter 1 is onboarding,
+// later chapters require an 8–10 minute story-led session.
 for (let chapter = 1; chapter <= 20; chapter += 1) {
   const current = chapterTargets(chapter);
   assert(current.species > 0 && current.animals > 0 && current.visitors > 0);
-  if (chapter <= 6) assert(current.expectedMinutes >= 3 && current.expectedMinutes <= 5);
-  if (chapter >= 7) {
-    const previous = chapterTargets(chapter - 1);
-    assert(Math.abs(current.expectedMinutes / previous.expectedMinutes - 1.3) < 0.001);
-  }
+  if (chapter === 1) assert(current.expectedMinutes >= 3 && current.expectedMinutes <= 5);
+  if (chapter === 2) assert(current.expectedMinutes >= 8 && current.expectedMinutes <= 10);
+  if (chapter >= 3) assert(current.expectedMinutes >= 12 && current.expectedMinutes <= 24);
 }
 
 // A rescue belongs to the chapter that introduces its captive species. It must
@@ -47,7 +47,7 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
   }
   assert(chapterRescueSummary(reserve, chapter).complete, `chapter ${chapter} rescue ledger should settle`);
 }
-assert.equal(rescueSpecies.size, 14, 'the rescue schedule should contain only the 14 newly introduced captive species');
+assert.equal(rescueSpecies.size, 22, 'the rescue schedule should contain the 22 newly introduced captive species');
 
 // Water, grass and safety are strategic inputs to both population health and
 // visitor recruitment. Keep a deterministic smoke run so future balance edits
@@ -102,9 +102,44 @@ visitorStrained.poacherPressure = 80;
 assert(previewVisitorRecruitment(visitorHealthy, 1, 0.5).visitors > previewVisitorRecruitment(visitorStrained, 1, 0.5).visitors,
   'healthy water/grass/safety should recruit more visitors');
 
-// Keep the first-chapter target aligned with its only required rescue: five
-// starter populations + the released antelope = six species.
-assert.equal(chapterTargets(1).species, 6);
+// Keep the first-chapter target aligned with its only required rescue: six
+// starter populations + the released antelope = seven species. Trapped
+// antelope must not count as an owned herd at the opening. Released herds
+// count toward the animal total, but the gate stays above a single rescue.
+assert.equal(chapterTargets(1).species, 7);
 assert.equal(chapterDefinition(1).targets[0], 'antelope');
 
-console.log('chapter balance check ok: 20 target rows, six-chapter onboarding, 30% late pacing, 14 unique rescue slots, ecology and visitor sensitivity');
+const openingState = createCharacter(null, '解救种群对章节动物总数');
+const openingReserve = openingState.world.reserve;
+const openingAnimals = livingAnimalTotal(openingReserve);
+const chapterOneTarget = chapterTargets(1).animals;
+assert.ok(openingAnimals < chapterOneTarget, `trapped antelope must not already meet chapter 1 animal total: ${openingAnimals}/${chapterOneTarget}`);
+const antelope = (normalizeChapterRescue(openingReserve, 1).targets || [])[0];
+(antelope.requiredItems || []).forEach((itemId) => addRescueItem(openingReserve, itemId));
+assert.equal(rescueAnimal(openingReserve, antelope.targetId).ok, true);
+const releasedAnimals = livingAnimalTotal(openingReserve);
+const antelopeHerd = Math.max(1, Math.round(Number(SPECIES_DB.antelope.initialPop) || 1));
+assert.equal(openingReserve.ecology.herbivores.antelope, antelopeHerd);
+assert.equal(releasedAnimals, openingAnimals + antelopeHerd - 1);
+assert.ok(releasedAnimals < chapterOneTarget, `releasing the antelope herd must count toward, not finish, chapter 1 animal total: ${releasedAnimals}/${chapterOneTarget}`);
+assert.ok(chapterOneTarget - releasedAnimals >= 40, `chapter 1 must still need habitat growth after rescue: ${releasedAnimals}/${chapterOneTarget}`);
+for (let chapter = 1; chapter <= 20; chapter += 1) {
+  const later = createCharacter(null, `第${chapter}章解救`);
+  const reserve = later.world.reserve;
+  Object.assign(reserve.progression, { stage: chapter, displayChapter: chapter, level: CHAPTERS[chapter - 1].level });
+  normalizeChapterRescue(reserve, chapter, { fresh: chapter === 1 });
+  const before = livingAnimalTotal(reserve);
+  let expectedGain = 0;
+  (normalizeChapterRescue(reserve, chapter).targets || []).forEach((record) => {
+    const existing = Math.max(0, Number(((reserve.ecology || {})[speciesPopulationGroup(record.speciesId)] || {})[record.speciesId]) || 0);
+    const released = Math.max(1, Math.round(Number((SPECIES_DB[record.speciesId] || {}).initialPop) || 1));
+    expectedGain += Math.max(0, released - existing);
+    (record.requiredItems || []).forEach((itemId) => addRescueItem(reserve, itemId));
+    assert.equal(rescueAnimal(reserve, record.targetId).ok, true);
+  });
+  const after = livingAnimalTotal(reserve);
+  assert.equal(after - before, expectedGain, `chapter ${chapter} rescue must add the released starter herds to the animal total`);
+  assert.ok(after < chapterTargets(chapter).animals, `chapter ${chapter} rescue alone must not finish the animal total: ${after}/${chapterTargets(chapter).animals}`);
+}
+
+console.log('chapter balance check ok: 20 target rows, 10% visitor carryover, two-free/ad-quick visitor pacing, 22 unique rescue slots, ecology and visitor sensitivity');

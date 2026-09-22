@@ -10,6 +10,8 @@ const scenarios = [
   ["new-player", "onboarding-pacing-check.js"],
   ["returning-player", "offline-brief-check.js"],
   ["jumping-tasks", "nonlinear-task-routing-check.js"],
+  ["linear-jump-disrupt", "user-play-path-check.js"],
+  ["single-choice-collapse", "single-choice-play-path-check.js"],
   ["rescue-in-progress", "chapter-rescue-no-repeat-check.js"],
   ["mixed-interruptions", "mixed-task-deadlock-check.js"],
   ["narrow-layouts", "visitor-routine-layout-check.js"],

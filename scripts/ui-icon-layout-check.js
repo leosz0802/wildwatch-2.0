@@ -210,20 +210,20 @@ function checkUiImageBasics(records, context) {
 function checkPatrolTiles() {
   game.prepareLocalAssetsForScreen("action");
   const reserve = game.state.world.reserve || {};
-  const groups = game.patrolActionGroups(reserve);
-  const tileGap = 10;
-  const groupW = viewport.width - 24;
-  const tileW = (groupW - tileGap - 32) / 2;
-  groups.forEach((group, groupIndex) => {
-    group.options.forEach((option, optionIndex) => {
+  // The retired four-choice menu no longer exists. Check the retained story
+  // task renderer at the same full width used by drawPatrolExecuteBoard.
+  const options = game.reserveActionOptions().filter(option => game.isPatrolTaskAction(option.id));
+  if (options.length !== 4) fail("story task render coverage must include all four action types");
+  const tileW = viewport.width - 56;
+  options.forEach((option) => {
       const buttonValue = game.patrolButtonValue(option.id, reserve);
       const numericTokens = (buttonValue.match(/-?\d+/g) || []);
       if (numericTokens.length > 1) {
         fail(`patrol tile ${option.id}: button value should expose one current stock number, got ${buttonValue}`);
       }
-      const x = 28 + optionIndex * (tileW + tileGap);
-      const y = 20 + groupIndex * 118;
-      const h = 84;
+      const x = 28;
+      const y = 86;
+      const h = 86;
       const records = resetRecords(`patrol:${option.id}`);
       game.drawPatrolActionTile(game.ctx, option, x, y, tileW, h, reserve);
       checkUiImageBasics(records, `patrol tile ${option.id}`);
@@ -251,7 +251,6 @@ function checkPatrolTiles() {
       if (cost.baseline <= primary.baseline + 10 || cost.baseline > y + h - 4) {
         fail(`patrol tile ${option.id}: cost line is outside its safe band`);
       }
-    });
   });
 }
 
@@ -302,20 +301,29 @@ function checkMaterialPage() {
 
 function checkActionPage() {
   game.prepareLocalAssetsForScreen("action");
+  const reserve = game.state.world.reserve;
+  const previousEmergency = reserve.emergency;
+  reserve.emergency = { active: { id: "icon-story-habitat", recommendedAction: "habitat", daysRemaining: 2 } };
   const records = resetRecords("action-screen");
   game.screen = "action";
   game.scrollY = 0;
   game.render();
   checkUiImageBasics(records, "action screen");
   const patrolIcons = uiImages(records).filter((image) => image.w >= 38 && image.w <= 42);
-  if (patrolIcons.length < 4) fail("action screen: four compact patrol buttons should have 38-42px icons");
+  const board = game.renderedPatrolExecuteBoard;
+  if (!board || board.choiceCount !== 1 || game.renderedPatrolActionTiles.length !== 1) {
+    fail("action screen: only the triggered story task may be offered");
+  }
+  if (game.renderedPatrolActionTiles[0].id !== "habitat") fail("action screen: card must match the triggering event");
+  if (!patrolIcons.length) fail("action screen: current task needs a 38-42px icon");
   const labels = records.texts.map((item) => item.text);
-  ["本次巡护", "选择1项任务"].forEach((label) => {
+  ["当前任务", "触发后直接进入任务并结算"].forEach((label) => {
     if (!labels.includes(label)) fail(`action screen: missing ${label} section`);
   });
-  if (labels.includes("动物线索") || labels.includes("任务引导") || labels.includes("选择巡护任务") || labels.includes("经营补给") || labels.includes("出售") || labels.includes("采购")) {
+  if (labels.includes("选择1项任务") || labels.includes("动物线索") || labels.includes("任务引导") || labels.includes("选择巡护任务") || labels.includes("经营补给") || labels.includes("出售") || labels.includes("采购")) {
     fail("action screen: duplicated guidance sections should not return");
   }
+  reserve.emergency = previousEmergency;
 }
 
 function checkLargeIconsPreferUiV3() {

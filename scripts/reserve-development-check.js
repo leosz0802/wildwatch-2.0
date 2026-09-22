@@ -120,10 +120,11 @@ game.drawLivingReserveNode(fakeContext(), camera, false, { view: restoredView, i
 assert(game.renderedLivingReserveNode && game.renderedLivingReserveNode.planId === "visitor_boardwalk", "地图应绘制玩家选择的真实设施形态");
 assert.strictEqual(game.renderedLivingReserveNode.buildingLevel, restoredView.building.level, "地图建筑应同步显示当前升级等级");
 assert(/Lv\.\d+|未启用|施工|待建/.test(game.renderedLivingReserveNode.buildingLabel), "地图建筑应同步显示等级阶段标签");
-assert.strictEqual(game.renderedLivingReserveNode.mapLabelMode, "compact", "地图建筑默认只显示短标签");
+assert.strictEqual(game.renderedLivingReserveNode.mapLabelMode, "hidden", "地图建筑不常驻显示标签，点击建筑仍可查看详情");
+assert.strictEqual(game.renderedLivingReserveNode.mapLabel, "", "隐藏标签不能残留文字遮挡地图任务");
 assert(!/[·]|未启用|待治理|建设中|稳定|受损/.test(game.renderedLivingReserveNode.mapLabel), "地图建筑短标签不应常驻展示完整状态");
 assert(game.renderedLivingReserveNode.visitors > 0, "游客应作为地图角色出现");
-assert(game.renderedLivingReserveNode.visitorPositions.length >= 1 && game.renderedLivingReserveNode.visitorPositions.length <= 3, "地图应按客流绘制有限数量的独立游客角色");
+assert(game.renderedLivingReserveNode.visitorPositions.length >= 1 && game.renderedLivingReserveNode.visitorPositions.length <= 6, "地图应按客流绘制有限数量的独立游客角色");
 assert(game.hitAreas.length > 0, "浅滩节点应可点击查看经营数据");
 let nodeDetailRoutes = 0;
 let visitorTableRoutes = 0;
@@ -163,6 +164,12 @@ assert.strictEqual(pausedFrame.x, pausedVisitor.x, "打开弹窗时游客移动�
 assert.strictEqual(pausedFrame.y, pausedVisitor.y, "打开弹窗时游客移动应暂停，避免背景继续争夺注意力");
 game.infoDetailModal = null;
 assert.notStrictEqual(game.visitorMapDialogue(restoredView, { nodeIndex: 0 }), game.visitorMapDialogue(restoredView, { nodeIndex: 7 }), "游客对白应随所在地图区域变化");
+const visitorLine = `游客：${game.visitorMapDialogue(restoredView, { nodeIndex: 7 })}`;
+game.drawMapMarkerDialogueBubble(fakeContext(), { dialogue: visitorLine, type: "visitor" }, 80, 220, camera, 0);
+const bubble = game.renderedMapDialogueBubble || {};
+assert.strictEqual(bubble.text, visitorLine, "游客对白应完整落入对话框，不能截断");
+assert(bubble.w >= (bubble.textW || 0) + (bubble.padX || 0) * 2 - 1, "游客对话框必须宽于文字");
+assert(bubble.h >= 36, "游客对话框应放大");
 
 const uiBuildReserve = createReserveState();
 const uiBuildFund = uiBuildReserve.fund;
@@ -202,11 +209,19 @@ assert(game.executeGoalAction({ id: "development:river_shallows:build", recommen
 assert.strictEqual(game.screen, "home", "建设目标应先回到沙盘");
 assert.strictEqual(game.infoDetailModal.kind, "livingReserveNode", "活地图建设必须通过节点任务弹窗展开");
 assert.strictEqual(game.infoDetailModal.nodeId, "river_shallows", "任务弹窗必须绑定具体地图节点");
-const beforeGoalProgress = (((game.state.world.goals || {}).daily || {}).objectives || []).find((item) => item.kind === "economy");
+game.state.world.goals = require('../js/goalSystem').normalizeGoalState(game.state.world.goals, game.state);
+game.state.world.reserve.progression.stage = 2;
+game.state.world.goals = require('../js/goalSystem').normalizeGoalState(game.state.world.goals, game.state);
+const beforeDaily = JSON.stringify((game.state.world.goals.daily.objectives || []).map((item) => ({
+  id: item.id, kind: item.kind, progress: item.progress, complete: item.complete
+})));
+assert.deepStrictEqual((game.state.world.goals.daily.objectives || []).map((item) => item.kind), ["visitor", "ecology"], "建设前每日任务只应保留游客和水草");
 assert(game.openRiverShallowsChoiceConfirm("community_waterpoint"), "节点任务弹窗应继续进入二次确认");
 assert(game.confirmRiverShallowsPlan("community_waterpoint"), "确认建设应返回成功，避免按钮无反馈");
-const afterGoalProgress = (((game.state.world.goals || {}).daily || {}).objectives || []).find((item) => item.kind === "economy");
-assert(afterGoalProgress && afterGoalProgress.progress > ((beforeGoalProgress || {}).progress || 0), "活地图建成后必须推进目标系统，避免资源充足时再次循环同一任务");
+const afterDaily = JSON.stringify((((game.state.world.goals || {}).daily || {}).objectives || []).map((item) => ({
+  id: item.id, kind: item.kind, progress: item.progress, complete: item.complete
+})));
+assert.strictEqual(afterDaily, beforeDaily, "设施建设不得改写游客/水草每日任务");
 assert.strictEqual(riverShallowsView(taskDrivenReserve, 1).phase, "operational", "任务驱动建设后节点必须进入运行态");
 
 
@@ -328,12 +343,27 @@ buildingReserve.development.operations.today.tourismScore = 12;
 buildingReserve.fund = 1000;
 const secondUpgrade = require("../js/reserveDevelopment").upgradeDevelopmentBuilding(buildingReserve, "river_shallows", 1);
 assert(secondUpgrade.ok && secondUpgrade.node.buildingLevel === 2, "达到两项等级后才能进入下一阶升级");
+assert(secondUpgrade.changes.some((item) => item.key === "water" && item.delta > 0), "经营路线升级应放大对栖息地的影响");
+const visitorReserve = createReserveState();
+const animalReserve = createReserveState();
+const habitatBaseline = createReserveState().ecology.water;
+animalReserve.wildernessKnowledge = animalReserve.wildernessKnowledge || {};
+animalReserve.wildernessKnowledge.tradeStock = Object.assign({}, animalReserve.wildernessKnowledge.tradeStock || {}, { reed_cord: 1, pinecone_humidity: 1 });
+assert(buildReserveDevelopmentPlan(visitorReserve, "river_shallows", "visitor_boardwalk", 1).ok);
+assert(buildReserveDevelopmentPlan(animalReserve, "river_shallows", "reed_refuge", 1).ok);
+const visitorView = riverShallowsView(visitorReserve, 2);
+const animalView = riverShallowsView(animalReserve, 2);
+assert(visitorView.visitors > animalView.visitors + 8, "游客友好建设应明显提高客流");
+assert(animalView.disturbance < visitorView.disturbance, "动物友好建设应显著降低惊扰");
+assert((animalReserve.ecology.water - habitatBaseline) > (visitorReserve.ecology.water - habitatBaseline), "动物友好建设应对水源/栖息地的提升更大");
 const story = require("../js/reserveDevelopment").developmentBuildingStoryTask(buildingReserve, "river_shallows", 1);
 assert(story.ready && story.independent && story.kind === "facilityStory", "建筑剧情应是独立任务而非巡护任务");
 const storyDone = require("../js/reserveDevelopment").completeDevelopmentBuildingStory(buildingReserve, "river_shallows", 1);
 assert(storyDone.ok && storyDone.businessChange.visitors > 0, "完成建筑剧情应提升游客贡献");
 assert(storyDone.businessChange.fundDelta > 0 && storyDone.businessChange.operation === "调节水线", "建筑运营应把独立收益即时写入保护基金");
-assert.strictEqual(buildingReserve.development.operations.today.recruitedVisitors, storyDone.businessChange.visitors, "建筑运营游客应即时进入今日客流");
+assert.strictEqual(buildingReserve.development.operations.today.visitors, storyDone.businessChange.visitors, "建筑运营游客应即时进入今日到访");
+assert.strictEqual(buildingReserve.development.operations.today.recruitedVisitors, 0, "建筑运营不得记成主动招募");
+assert.strictEqual(buildingReserve.development.operations.visitorLedger.taskVisitors, storyDone.businessChange.visitors, "建筑运营应记入本章任务游客");
 const buildingSnap = require("../js/reserveDevelopment").reserveOperationsSnapshot(buildingReserve, 2);
 assert(buildingSnap.buildingVisitors > 0 && buildingSnap.buildingIncome > 0 && buildingSnap.buildingMaintenance > 0, "建筑经营应同时暴露游客增量、收入和维护消耗");
 game.state.world.reserve = buildingReserve;
@@ -341,7 +371,8 @@ game.openDevelopmentBuildingStory("river_shallows");
 assert.strictEqual(game.infoDetailModal.kind, "developmentBuildingStory", "建筑剧情必须使用独立弹窗");
 game.hitAreas = [];
 game.drawInfoDetailModal();
-assert(game.infoDetailModal.renderedBuildingRows.length === 4, "建筑剧情弹窗应把现场、任务、游客影响和状态分开呈现");
+assert(game.infoDetailModal.renderedBuildingRows.length === 2, "建筑运营弹窗应只保留运营内容和游客收益两张卡");
+assert(game.infoDetailModal.renderedBuildingRows.some(row => /游客/.test(row.text)) && game.infoDetailModal.renderedBuildingRows.some(row => /可运营|恢复|守护日/.test(row.text)), "建筑运营必须清楚说明游客收益和可执行状态");
 assert(game.infoDetailModal.kicker.includes("调节水线") && game.infoDetailModal.task.taskMode === "facilityOperation", "建筑弹窗应显示专属运营方式，不得回落到巡护任务模板");
 game.openDevelopmentBuildingUpgrade("river_shallows");
 assert.strictEqual(game.infoDetailModal.kind, "developmentBuildingUpgrade", "建筑升级必须使用独立弹窗");

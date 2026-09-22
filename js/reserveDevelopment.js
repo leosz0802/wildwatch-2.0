@@ -1,5 +1,6 @@
 const { visitorStoryLetter } = require("./speciesStoryLetters");
-const { normalizeVisitorRecruitment } = require("./visitorRecruitment");
+const { normalizeVisitorRecruitment, normalizeVisitorFlowLedger, visitorWaterUseForCount } = require("./visitorRecruitment");
+const { applyChapterVisitorDelta, applyChapterVisitorDailyAttrition, normalizeChapterVisitorRecord } = require("./chapterTargets");
 const { recordFundChange } = require("./fundLedger");
 const { eventBusinessFactors, visitorEngagement } = require("./eventEconomy");
 const { upgradeProgressionGate } = require("./progressionGates");
@@ -50,10 +51,10 @@ const RESERVE_DEVELOPMENT_NODES = Object.freeze([
 // 四个活地图节点各自拥有独立的经营层。它们不占用本次巡护，升级后按日
 // 消耗保护基金，并把新增接待能力纳入“规模×活跃度×留存”的游客收入模型。
 const DEVELOPMENT_BUILDING_PROFILES = Object.freeze({
-  river_shallows: Object.freeze({ title: "浅滩水域", storyTitle: "水线运营", storyTask: "校准今日饮水时段", operation: "调节水线", operationType: "hydrology", storyReward: "游客更愿意在固定观景点停留", capacityPerLevel: 2, incomePerVisitor: 2, maintenancePerLevel: 18, upgradeCosts: Object.freeze([0, 220, 360, 520, 720, 980]), storyCooldown: 2 }),
-  meadow_edge: Object.freeze({ title: "草场区域", storyTitle: "草场运营", storyTask: "排定一次低扰讲解时段", operation: "安排讲解", operationType: "interpretation", storyReward: "游客停留时间增加，草场路线更清晰", capacityPerLevel: 2, incomePerVisitor: 2, maintenancePerLevel: 16, upgradeCosts: Object.freeze([0, 200, 340, 500, 680, 920]), storyCooldown: 2 }),
-  border_pass: Object.freeze({ title: "边界通行", storyTitle: "边界运营", storyTask: "签发今日低光通行批次", operation: "签发通行", operationType: "access", storyReward: "游客能更早看到安全提示，减少误入", capacityPerLevel: 1, incomePerVisitor: 3, maintenancePerLevel: 20, upgradeCosts: Object.freeze([0, 240, 380, 560, 760, 1020]), storyCooldown: 3 }),
-  forest_watch: Object.freeze({ title: "高地观测", storyTitle: "高地运营", storyTask: "发布一段静音观测时段", operation: "发布静音时段", operationType: "broadcast", storyReward: "形成独家观察内容，提升游客贡献", capacityPerLevel: 2, incomePerVisitor: 3, maintenancePerLevel: 22, upgradeCosts: Object.freeze([0, 260, 400, 580, 780, 1040]), storyCooldown: 3 })
+  river_shallows: Object.freeze({ title: "浅滩水域", storyTitle: "水线运营", storyTask: "校准今日饮水时段", operation: "调节水线", operationType: "hydrology", storyReward: "游客更愿意在固定观景点停留", capacityPerLevel: 5, incomePerVisitor: 3, maintenancePerLevel: 18, upgradeCosts: Object.freeze([0, 220, 360, 520, 720, 980]), storyCooldown: 2 }),
+  meadow_edge: Object.freeze({ title: "草场区域", storyTitle: "草场运营", storyTask: "排定一次低扰讲解时段", operation: "安排讲解", operationType: "interpretation", storyReward: "游客停留时间增加，草场路线更清晰", capacityPerLevel: 5, incomePerVisitor: 3, maintenancePerLevel: 16, upgradeCosts: Object.freeze([0, 200, 340, 500, 680, 920]), storyCooldown: 2 }),
+  border_pass: Object.freeze({ title: "边界通行", storyTitle: "边界运营", storyTask: "签发今日低光通行批次", operation: "签发通行", operationType: "access", storyReward: "游客能更早看到安全提示，减少误入", capacityPerLevel: 4, incomePerVisitor: 4, maintenancePerLevel: 20, upgradeCosts: Object.freeze([0, 240, 380, 560, 760, 1020]), storyCooldown: 3 }),
+  forest_watch: Object.freeze({ title: "高地观测", storyTitle: "高地运营", storyTask: "发布一段静音观测时段", operation: "发布静音时段", operationType: "broadcast", storyReward: "形成独家观察内容，提升游客贡献", capacityPerLevel: 5, incomePerVisitor: 4, maintenancePerLevel: 22, upgradeCosts: Object.freeze([0, 260, 400, 580, 780, 1040]), storyCooldown: 3 })
 });
 
 const DEVELOPMENT_BUILDING_STORIES = Object.freeze({
@@ -65,6 +66,74 @@ const DEVELOPMENT_BUILDING_STORIES = Object.freeze({
 
 const RIVER_SHALLOWS_NODE = RESERVE_DEVELOPMENT_NODES[0];
 const freezeChoices = (items) => Object.freeze(items.map((item) => Object.freeze(item)));
+
+const CHOICE_IMPACT_SCALE = Object.freeze({
+  visitor: Object.freeze({ visitors: 1.9, disturbance: 1.55, animal: 0.45, visitor: 2.1 }),
+  animal: Object.freeze({ visitors: 0.45, disturbance: 0.62, animal: 2.25, visitor: 0.4 }),
+  economy: Object.freeze({ visitors: 1.2, disturbance: 1.18, animal: 1.35, visitor: 1.45 })
+});
+const ANIMAL_EFFECT_KEYS = Object.freeze(["water", "grass", "ecologyScore", "stability", "safety", "disease", "poacherPressure"]);
+const VISITOR_EFFECT_KEYS = Object.freeze(["business", "reputation"]);
+
+function scaleEffectValue(key, value, scale) {
+  const amount = Number(value) || 0;
+  if (!amount || key === "fund") return amount;
+  const factor = ANIMAL_EFFECT_KEYS.includes(key) ? scale.animal : VISITOR_EFFECT_KEYS.includes(key) ? scale.visitor : 1;
+  return amount > 0 ? Math.max(1, Math.round(amount * factor)) : Math.min(-1, Math.round(amount * factor));
+}
+
+function scaleChoiceEffects(effects, scale) {
+  const next = {};
+  Object.keys(effects || {}).forEach((key) => { next[key] = scaleEffectValue(key, effects[key], scale); });
+  return next;
+}
+
+function formatChoiceImpactLabel(effects = {}) {
+  const names = {
+    water: "水源", grass: "草场", ecologyScore: "生态", stability: "稳定", safety: "安全",
+    disease: "疾病", poacherPressure: "偷猎压力", business: "经营", reputation: "声誉"
+  };
+  return Object.keys(names).map((key) => {
+    const delta = Number(effects[key]) || 0;
+    if (!delta) return "";
+    return `${names[key]} ${delta > 0 ? "+" : ""}${delta}`;
+  }).filter(Boolean).join(" · ");
+}
+
+function effectiveDevelopmentChoice(choice) {
+  if (!choice || choice.kind !== "building") return choice;
+  const scale = CHOICE_IMPACT_SCALE[choice.routeKey] || CHOICE_IMPACT_SCALE.economy;
+  const immediate = scaleChoiceEffects(choice.immediate, scale);
+  const completed = scaleChoiceEffects(choice.completed, scale);
+  const combined = {};
+  [immediate, completed].forEach((group) => {
+    Object.keys(group).forEach((key) => {
+      if (key === "fund") return;
+      combined[key] = (combined[key] || 0) + (Number(group[key]) || 0);
+    });
+  });
+  return Object.assign({}, choice, {
+    immediate,
+    completed,
+    visitorBase: Math.max(0, Math.round((choice.visitorBase || 0) * scale.visitors)),
+    disturbanceBase: Math.max(1, Math.round((choice.disturbanceBase || 0) * scale.disturbance)),
+    incomePerVisitor: Math.max(1, Math.round((choice.incomePerVisitor || 1) * (choice.routeKey === "visitor" ? 1.25 : choice.routeKey === "animal" ? 0.85 : 1.1))),
+    immediateLabel: formatChoiceImpactLabel(combined) || choice.immediateLabel
+  });
+}
+
+function upgradeImpactEffects(choice, level) {
+  const rank = Math.max(1, Number(level) || 1);
+  if (!choice || choice.kind !== "building") return {};
+  if (choice.routeKey === "visitor") return { business: 2 + rank, reputation: 2 + Math.floor(rank / 2), water: -rank, grass: -rank };
+  if (choice.routeKey === "animal") return { water: 2 + rank, grass: 2 + rank, ecologyScore: 3 + rank, stability: 1 + Math.ceil(rank / 2), business: -1 - Math.floor(rank / 2) };
+  return { business: 1 + rank, stability: 1 + rank, water: 1, grass: 1, reputation: 1 };
+}
+
+function buildingRouteCapacityScale(choice) {
+  if (!choice || choice.kind !== "building") return 1;
+  return choice.routeKey === "visitor" ? 2.15 : choice.routeKey === "animal" ? 0.35 : 1.15;
+}
 
 const RESERVE_DEVELOPMENT_CHOICES = Object.freeze({
   river_shallows: freezeChoices([
@@ -126,8 +195,14 @@ function normalizedOperations(saved = {}) {
     totalVisitors: bounded(saved.totalVisitors),
     totalIncome: bounded(saved.totalIncome),
     totalTrouble: bounded(saved.totalTrouble, 9999),
+    visitorLedger: normalizeVisitorFlowLedger(saved.visitorLedger || {}),
+    // 本章游客自持记录必须原样带过规范化：它是章节游客总数的唯一权威，
+    // 一旦被丢掉就会退回旧的“生涯总数 − 基线”推导并再次出现清零/横跳。
+    chapterVisitors: saved.chapterVisitors && typeof saved.chapterVisitors === "object"
+      ? normalizeChapterVisitorRecord(saved.chapterVisitors, saved.chapterVisitors.stage)
+      : undefined,
     today: {
-      day: bounded(today.day, 99999), realDateKey: String(today.realDateKey || "").slice(0, 10), visitors: bounded(today.visitors, 9999), recruitedVisitors: bounded(today.recruitedVisitors, 999999), recruitedIncome: bounded(today.recruitedIncome), income: bounded(today.income),
+      day: bounded(today.day, 99999), realDateKey: String(today.realDateKey || "").slice(0, 10), visitors: bounded(today.visitors, 9999), recruitedVisitors: bounded(today.recruitedVisitors, 999999), hostedVisitors: bounded(today.hostedVisitors, 9999), hostedChapter: bounded(today.hostedChapter, 99), recruitedIncome: bounded(today.recruitedIncome), income: bounded(today.income),
       survivalIncome: bounded(today.survivalIncome), ecologyScore: clamp(today.ecologyScore), safetyScore: clamp(today.safetyScore),
       speciesCount: bounded(today.speciesCount, 99), animalTotal: bounded(today.animalTotal, 99999),
       // null marks a legacy save with no tourism history; it is seeded from
@@ -138,7 +213,12 @@ function normalizedOperations(saved = {}) {
         ? Math.max(0, Math.min(40, Number(today.tourismRawScore) || 0)) : null,
       buildingVisitors: bounded(today.buildingVisitors, 9999), buildingIncome: bounded(today.buildingIncome), buildingMaintenance: bounded(today.buildingMaintenance),
       facilityImpact: String(today.facilityImpact || "暂无设施联动").slice(0, 180), facilityActiveCount: bounded(today.facilityActiveCount, 99), facilityChanges: Array.isArray(today.facilityChanges) ? today.facilityChanges.slice(-12) : [],
-      weather: String(today.weather || "").slice(0, 8), trouble: String(today.trouble || "尚无明显麻烦").slice(0, 64)
+      weather: String(today.weather || "").slice(0, 8), trouble: String(today.trouble || "尚无明显麻烦").slice(0, 64),
+      recruitmentWaterUse: bounded(today.recruitmentWaterUse, 999),
+      // 当日客流里真正计入本章总数的人数，事件负向影响的上限。缺失时保持
+      // undefined：那代表旧存档从未跟踪过，事件要退回按当日客流计算。
+      chapterGained: today.chapterGained === undefined || today.chapterGained === null
+        ? undefined : bounded(today.chapterGained, 999999)
     },
     history: (Array.isArray(saved.history) ? saved.history : []).slice(-14),
     // Do not normalize against the wall clock here. This function is also used
@@ -200,15 +280,17 @@ function developmentBuildingView(reserve = {}, nodeId, day = 1, preparedDevelopm
     : canUnlock ? "完成巡护并入夜，推进守护日"
     : "完成后重新计算冷却";
   const storyProgress = bounded(node.storyProgress, 99);
+  const capacityScale = buildingRouteCapacityScale(plan);
+  const visitorCapacity = Math.round(level * profile.capacityPerLevel * capacityScale);
   return {
     id: config.id,
     title: profile.title,
     level,
     levelLabel: level ? `等级${level}/5` : "未启用 · 等级1–5",
     maintenance: level * profile.maintenancePerLevel,
-    visitorCapacity: level * profile.capacityPerLevel,
+    visitorCapacity,
     incomePerVisitor: profile.incomePerVisitor,
-    visitorIncomePotential: level * profile.capacityPerLevel * profile.incomePerVisitor,
+    visitorIncomePotential: visitorCapacity * profile.incomePerVisitor,
     nextUpgradeCost: nextCost,
     upgradeAvailable: !!nextCost && permanent && node.phase === "operational" && bounded(reserve.fund) >= nextCost && upgradeGate.available,
     upgradeGate,
@@ -236,8 +318,10 @@ function upgradeDevelopmentBuilding(reserve = {}, nodeId, day = 1) {
   recordFundChange(reserve, before, reserve.fund, "建筑升级", bounded(day, 99999), `${config.name} ${view.level + 1}级`);
   node.buildingLevel = view.level + 1;
   node.lastActionDay = bounded(day, 99999);
-  node.memory = (node.memory || []).concat(`${config.name}升级至等级${node.buildingLevel}，接待能力提升。`).slice(-8);
-  return { ok: true, node, config, building: developmentBuildingView(reserve, config.id, day, development), cost: view.nextUpgradeCost, changes: [{ key: "fund", before, after: reserve.fund, delta: reserve.fund - before }] };
+  const plan = choiceById(node.planId, config.id);
+  const impact = applyMetricEffects(reserve, upgradeImpactEffects(plan, node.buildingLevel));
+  node.memory = (node.memory || []).concat(`${config.name}升级至等级${node.buildingLevel}，对游客与动物的影响扩大。`).slice(-8);
+  return { ok: true, node, config, building: developmentBuildingView(reserve, config.id, day, development), cost: view.nextUpgradeCost, changes: [{ key: "fund", before, after: reserve.fund, delta: reserve.fund - before }].concat(impact) };
 }
 
 function developmentBuildingStoryTask(reserve = {}, nodeId, day = 1) {
@@ -278,11 +362,10 @@ function completeDevelopmentBuildingStory(reserve = {}, nodeId, day = 1) {
   const incomeGain = Math.max(2, Math.round(visitorGain * Math.max(1, profile.incomePerVisitor) * .75));
   const operations = development.operations;
   const today = operations.today || (operations.today = {});
-  today.recruitedVisitors = bounded(today.recruitedVisitors) + visitorGain;
   today.recruitedIncome = bounded(today.recruitedIncome) + incomeGain;
   today.income = bounded(today.income) + incomeGain;
-  operations.totalVisitors = bounded(operations.totalVisitors + visitorGain);
   operations.totalIncome = bounded(operations.totalIncome + incomeGain);
+  applyChapterVisitorDelta(reserve, visitorGain, "task");
   const fundBefore = bounded(reserve.fund);
   reserve.fund = bounded(fundBefore + incomeGain);
   recordFundChange(reserve, fundBefore, reserve.fund, "建筑运营收入", bounded(day, 99999), `${config.name} · ${task.operation}`);
@@ -295,6 +378,36 @@ function resourceAmount(reserve, type, id) {
   if (type === "supplies") return bounded(((reserve.supplies || {})[id]), 99);
   if (type === "materials") return bounded(((((reserve.wildernessKnowledge || {}).tradeStock) || {})[id]), 99);
   return 0;
+}
+
+function nodeStillNeedsBuildingMaterials(node = {}) {
+  return !["construction", "operational", "managed"].includes(String(node.phase || "available"));
+}
+
+function reservedDevelopmentMaterials(reserve = {}) {
+  const reserved = {};
+  const nodes = ((reserve.development || {}).nodes) || {};
+  RESERVE_DEVELOPMENT_NODES.forEach((config) => {
+    if (!nodeStillNeedsBuildingMaterials(nodes[config.id] || {})) return;
+    const needed = {};
+    choicesForNode(config.id).forEach((choice) => {
+      if (!choice || choice.kind !== "building") return;
+      Object.keys((choice.cost && choice.cost.materials) || {}).forEach((id) => {
+        const need = Math.max(0, Math.round(Number(choice.cost.materials[id]) || 0));
+        if (need) needed[id] = Math.max(needed[id] || 0, need);
+      });
+    });
+    Object.keys(needed).forEach((id) => {
+      reserved[id] = (reserved[id] || 0) + needed[id];
+    });
+  });
+  return reserved;
+}
+
+function surplusTradeAmount(reserve = {}, itemId = "", stock = null) {
+  const have = stock == null ? resourceAmount(reserve, "materials", itemId) : bounded(stock, 99);
+  const reserved = reservedDevelopmentMaterials(reserve)[itemId] || 0;
+  return Math.max(0, have - reserved);
 }
 
 function choiceAvailability(reserve = {}, choiceOrId, nodeId = "") {
@@ -354,7 +467,7 @@ function selectReserveDevelopmentPlan(reserve = {}, nodeId, choiceId, day = 1) {
   const node = config && development.nodes[nodeId];
   if (!config || !node) return { ok: false, error: "建设节点不存在" };
   expireTemporaryPlan(node, nodeId, day);
-  const choice = choiceById(choiceId, nodeId);
+  const choice = effectiveDevelopmentChoice(choiceById(choiceId, nodeId));
   if (!choice) return { ok: false, error: "建设方案不存在" };
   if (node.phase !== "available") return { ok: false, error: `${config.short}已经作出长期选择` };
   const availability = choiceAvailability(reserve, choice);
@@ -373,7 +486,7 @@ function completeReserveDevelopmentConstruction(reserve = {}, nodeId, day = 1) {
   const development = normalizeReserveDevelopment(reserve);
   const config = nodeById(nodeId);
   const node = config && development.nodes[nodeId];
-  const choice = node && choiceById(node.planId, nodeId);
+  const choice = node && effectiveDevelopmentChoice(choiceById(node.planId, nodeId));
   if (!choice || node.phase !== "construction") return { ok: false, error: `当前没有待完成的${config ? config.short : "设施"}施工` };
   const changes = applyMetricEffects(reserve, choice.completed || {});
   node.phase = "operational"; node.progress = 2; node.completedDay = bounded(day, 99999); node.lastActionDay = bounded(day, 99999);
@@ -419,7 +532,7 @@ function reserveDevelopmentNodeView(reserve = {}, nodeId, day = 1, preparedDevel
   const config = nodeById(nodeId) || RIVER_SHALLOWS_NODE;
   const node = development.nodes[config.id];
   expireTemporaryPlan(node, config.id, day);
-  const choice = choiceById(node.planId, config.id);
+  const choice = effectiveDevelopmentChoice(choiceById(node.planId, config.id));
   const risk = nodeRiskState(config, reserve);
   const building = developmentBuildingView(reserve, config.id, day, development);
   const damaged = node.phase === "operational" && risk.damaged;
@@ -432,12 +545,12 @@ function reserveDevelopmentNodeView(reserve = {}, nodeId, day = 1, preparedDevel
   const income = choice && ["operational", "managed"].includes(node.phase)
     ? visitors * choice.incomePerVisitor + building.visitorIncomePotential + building.businessBonus * 2
     : 0;
-  const disturbance = clamp((choice ? choice.disturbanceBase : 8) + Math.max(0, visitors - 4) * 3 + (node.phase === "construction" ? 8 : 0));
+  const disturbance = clamp((choice ? choice.disturbanceBase : 8) + Math.max(0, visitors - 4) * 3 + (node.phase === "construction" ? 8 : 0) + Math.max(0, building.level) * (choice && choice.routeKey === "visitor" ? 6 : choice && choice.routeKey === "animal" ? -2 : 2));
   const eco = reserve.ecology || {};
   const ready = config.id === "river_shallows" ? clamp(eco.water) >= 45 : config.id === "meadow_edge" ? clamp(eco.grass) >= 45 : config.id === "border_pass" ? clamp(reserve.poacherPressure) < 58 : clamp(eco.disease) < 48;
   const animalUse = node.phase === "operational" && ready && disturbance < 43 && !damaged;
   const condition = damaged ? "damaged" : strained ? "strained" : "stable";
-  return { node: Object.assign({}, config, node), config, choice, phase: node.phase, visualStage: damaged ? "damaged" : node.phase, condition, conditionLabel: damaged ? "受损" : strained ? "承压" : "稳定", visitors, income, disturbance, trouble: troubleFor(config, node.phase, damaged, disturbance, visitors), animalUse, animalState: animalState(config, animalUse, reserve), animalLine: choice ? choice.animalLine : config.availableLine, touristLine: choice ? choice.touristLine : `向导说，${config.short}还在观察期。`, building, availability: choicesForNode(config.id).map((item) => Object.assign({ choice: item }, choiceAvailability(reserve, item))), ledger: node.visitorLedger };
+  return { node: Object.assign({}, config, node), config, choice, phase: node.phase, visualStage: damaged ? "damaged" : node.phase, condition, conditionLabel: damaged ? "受损" : strained ? "承压" : "稳定", visitors, income, disturbance, trouble: troubleFor(config, node.phase, damaged, disturbance, visitors), animalUse, animalState: animalState(config, animalUse, reserve), animalLine: choice ? choice.animalLine : config.availableLine, touristLine: choice ? choice.touristLine : `向导说，${config.short}还在观察期。`, building, availability: choicesForNode(config.id).map((item) => Object.assign({ choice: effectiveDevelopmentChoice(item) }, choiceAvailability(reserve, item))), ledger: node.visitorLedger };
 }
 
 function reserveDevelopmentViews(reserve = {}, day = 1) {
@@ -487,7 +600,10 @@ function reserveOperationsSnapshot(reserve = {}, day = 1, context = {}) {
   const baseIncome = active.reduce((sum, view) => sum + view.visitors * view.choice.incomePerVisitor, 0);
   const facilityActivity = Math.max(0, Math.min(90, activity + Math.round(facilityImpact.activity * 100)));
   const facilityRetention = Math.max(0, Math.min(90, retention + Math.round(facilityImpact.retention * 100)));
-  const grossIncome = baseVisitors ? Math.round(baseIncome * (1 + facilityImpact.incomeRate) * actualVisitors / baseVisitors * facilityActivity / 100 * facilityRetention / 100) + survivalIncome : 0;
+  // 活跃度和留存调节客流质量，但不能把健康保护区的游客设施压成日维护都赚不回。
+  // 原先 activity×retention 在开局约 0.64，高架步道毛收入 45、维护 50，净收入长期为 0。
+  const qualityFactor = Math.max(0.48, Math.min(1.12, 0.56 + facilityActivity / 100 * 0.28 + facilityRetention / 100 * 0.22));
+  const grossIncome = baseVisitors ? Math.round(baseIncome * (1 + facilityImpact.incomeRate) * actualVisitors / baseVisitors * qualityFactor) + survivalIncome : 0;
   const baseMaintenance = reserveLevel * 3;
   const visitorServiceMaintenance = Math.ceil(actualVisitors / 80);
   const upkeep = active.reduce((sum, view) => sum + bounded((view.choice || {}).upkeep, 9999) + bounded((view.building || {}).maintenance, 9999), 0)
@@ -497,7 +613,7 @@ function reserveOperationsSnapshot(reserve = {}, day = 1, context = {}) {
   const disturbance = active.reduce((max, view) => Math.max(max, view.disturbance), 0) + Math.max(0, Math.round((crowding - 1) * 18));
   // 游客只要实际到访就会产生可见的用水成本；按 120 人一份计，
   // 避免小规模保护区的游客用水长期显示为 0。
-  const visitorWaterUse = actualVisitors > 0 ? Math.min(8, Math.max(1, Math.ceil(actualVisitors / 120))) : 0;
+  const visitorWaterUse = visitorWaterUseForCount(actualVisitors);
   const visitorPressure = visitorWaterUse || disturbance > 40 ? "游客活动正在消耗水源并增加现场压力" : "游客活动处于可控范围";
   let trouble = "尚无明显麻烦";
   if (actualVisitors && nature.safetyScore < 45) trouble = "安全线偏薄，游客越过了临时封闭标记";
@@ -586,14 +702,25 @@ function settleReserveDevelopmentDay(reserve = {}, day = 1, context = {}) {
   recordFundChange(reserve, fundBefore, reserve.fund, "游客运营收入", snapshot.day, "游客结算");
   const operations = development.operations;
   operations.lastSettlementDay = snapshot.day;
-  operations.totalVisitors = bounded(operations.totalVisitors + result.visitors);
   operations.totalIncome = bounded(operations.totalIncome + result.income);
+  applyChapterVisitorDelta(reserve, result.visitors, "visit", { skipToday: true });
+  result.visitorAttrition = applyChapterVisitorDailyAttrition(reserve, result);
   if (result.trouble !== "尚无明显麻烦") operations.totalTrouble = bounded(operations.totalTrouble + 1, 9999);
   const influenceDelta = result.visitors > 0 ? (result.trouble === "尚无明显麻烦" ? 2 : -1) : 0;
   operations.influence = clamp(operations.influence + influenceDelta);
-  const recruitedToday = Number((snapshot.previous || {}).day) === snapshot.day ? bounded((snapshot.previous || {}).recruitedVisitors) : 0;
-  const recruitedIncome = Number((snapshot.previous || {}).day) === snapshot.day ? bounded((snapshot.previous || {}).recruitedIncome) : 0;
-  operations.today = { day: snapshot.day, visitors: result.visitors, recruitedVisitors: recruitedToday, recruitedIncome, income: result.income + recruitedIncome, survivalIncome: result.survivalIncome, buildingVisitors: snapshot.buildingVisitors, buildingIncome: snapshot.buildingIncome, buildingMaintenance: snapshot.buildingMaintenance, baseMaintenance: snapshot.baseMaintenance, visitorServiceMaintenance: snapshot.visitorServiceMaintenance, visitorWaterUse: snapshot.visitorWaterUse, visitorWaterDelta: result.visitorWater.delta, ecologyScore: snapshot.nature.ecologyScore, safetyScore: snapshot.nature.safetyScore, speciesCount: snapshot.nature.speciesCount, animalTotal: snapshot.nature.animalTotal, tourismScore: snapshot.tourism.score, tourismRawScore: snapshot.tourism.rawScore, facilityImpact: snapshot.facilityImpact.label || "暂无设施联动", facilityActiveCount: snapshot.facilityImpact.activeFacilities || 0, facilityChanges: facilitySettlement.changes, weather: snapshot.weather, trouble: result.trouble };
+  const sameDay = Number((snapshot.previous || {}).day) === snapshot.day;
+  const currentChapter = Math.max(1, Math.round(Number((reserve.progression || {}).stage || (reserve.progression || {}).displayChapter) || 1));
+  const previousHostedChapter = Math.max(0, Math.round(Number((snapshot.previous || {}).hostedChapter) || 0));
+  const recruitedToday = sameDay ? bounded((snapshot.previous || {}).recruitedVisitors) : 0;
+  const recruitedIncome = sameDay ? bounded((snapshot.previous || {}).recruitedIncome) : 0;
+  const recruitmentWaterUse = sameDay ? bounded((snapshot.previous || {}).recruitmentWaterUse, 999) : 0;
+  const hostedToday = sameDay && previousHostedChapter === currentChapter
+    ? bounded((snapshot.previous || {}).hostedVisitors)
+    : 0;
+  // skipToday 已经把本日结算客流记进旧 today.chapterGained；新对象必须把这个
+  // 上限带过去，否则事件会把 chapterGained 当成“从未跟踪”并回头啃本章存量。
+  const chapterGained = sameDay ? bounded((snapshot.previous || {}).chapterGained) : bounded(result.visitors);
+  operations.today = { day: snapshot.day, visitors: result.visitors, recruitedVisitors: recruitedToday, hostedVisitors: hostedToday, hostedChapter: currentChapter, recruitedIncome, income: result.income + recruitedIncome, survivalIncome: result.survivalIncome, buildingVisitors: snapshot.buildingVisitors, buildingIncome: snapshot.buildingIncome, buildingMaintenance: snapshot.buildingMaintenance, baseMaintenance: snapshot.baseMaintenance, visitorServiceMaintenance: snapshot.visitorServiceMaintenance, visitorWaterUse: snapshot.visitorWaterUse, recruitmentWaterUse, visitorWaterDelta: result.visitorWater.delta, ecologyScore: snapshot.nature.ecologyScore, safetyScore: snapshot.nature.safetyScore, speciesCount: snapshot.nature.speciesCount, animalTotal: snapshot.nature.animalTotal, tourismScore: snapshot.tourism.score, tourismRawScore: snapshot.tourism.rawScore, facilityImpact: snapshot.facilityImpact.label || "暂无设施联动", facilityActiveCount: snapshot.facilityImpact.activeFacilities || 0, facilityChanges: facilitySettlement.changes, weather: snapshot.weather, trouble: result.trouble, chapterGained };
   operations.history = operations.history.concat(Object.assign({}, operations.today)).slice(-14);
   if (result.visitors > 0) {
     const troubled = result.trouble !== "尚无明显麻烦";
@@ -634,4 +761,4 @@ function riverShallowsAnimalTarget(species, reserve = {}, day = 1) {
   return null;
 }
 
-module.exports = { BUILDING_OPERATION_UNLOCK_COST, unlockDevelopmentBuildingStory, tourismProgression, TOURISM_THRESHOLDS, RESERVE_DEVELOPMENT_NODES, RESERVE_DEVELOPMENT_CHOICES, DEVELOPMENT_BUILDING_PROFILES, RIVER_SHALLOWS_NODE, RIVER_SHALLOWS_CHOICES, normalizeReserveDevelopment, nodeById, buildingProfileById, choicesForNode, choiceById, choiceAvailability, developmentBuildingView, upgradeDevelopmentBuilding, developmentBuildingStoryTask, completeDevelopmentBuildingStory, selectReserveDevelopmentPlan, buildReserveDevelopmentPlan, completeReserveDevelopmentConstruction, reserveDevelopmentNodeView, reserveDevelopmentViews, reserveDevelopmentAnimalTarget, reserveOperationsSnapshot, settleReserveDevelopmentDay, selectRiverShallowsPlan, buildRiverShallowsPlan, completeRiverShallowsConstruction, riverShallowsView, riverShallowsAnimalTarget };
+module.exports = { BUILDING_OPERATION_UNLOCK_COST, unlockDevelopmentBuildingStory, tourismProgression, TOURISM_THRESHOLDS, RESERVE_DEVELOPMENT_NODES, RESERVE_DEVELOPMENT_CHOICES, DEVELOPMENT_BUILDING_PROFILES, RIVER_SHALLOWS_NODE, RIVER_SHALLOWS_CHOICES, normalizeReserveDevelopment, nodeById, buildingProfileById, choicesForNode, choiceById, effectiveDevelopmentChoice, choiceAvailability, reservedDevelopmentMaterials, surplusTradeAmount, developmentBuildingView, upgradeDevelopmentBuilding, developmentBuildingStoryTask, completeDevelopmentBuildingStory, selectReserveDevelopmentPlan, buildReserveDevelopmentPlan, completeReserveDevelopmentConstruction, reserveDevelopmentNodeView, reserveDevelopmentViews, reserveDevelopmentAnimalTarget, reserveOperationsSnapshot, settleReserveDevelopmentDay, selectRiverShallowsPlan, buildRiverShallowsPlan, completeRiverShallowsConstruction, riverShallowsView, riverShallowsAnimalTarget };

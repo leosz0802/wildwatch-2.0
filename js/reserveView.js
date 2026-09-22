@@ -1,5 +1,7 @@
 const { fundHealth, ECOLOGY_THRESHOLDS, levelOf } = require("./balanceConfig");
 const { criticalPatrolRisk, PATROL_ACTIONS } = require("./patrolTriggerPolicy");
+const { isVisitorArcheryEvent, isNeighborExchangeEvent } = require("./worldEventSystem");
+const { proposeEcologyCrises, applySandboxTaskCadence } = require("./sandboxTaskCadence");
 
 function clamp(value) {
   return Math.max(0, Math.min(100, Math.round(value || 0)));
@@ -45,7 +47,9 @@ function actionLabel(action) {
     salvage: "移交守护样本",
     buySupplies: "采购补给",
     patrol: "巡护",
-    visitorAdjust: "调节游客现场"
+    visitorAdjust: "调节游客现场",
+    neighborExchange: "射箭判定交换",
+    harshNature: "射箭判定伤害"
   }[action] || "巡护";
 }
 
@@ -91,22 +95,41 @@ function primaryReasons(before = {}, reserve = {}, context = {}) {
   const action = context.action || "";
   const emergency = reserve.emergency && reserve.emergency.active;
   const visitorToday = ((((reserve.development || {}).operations || {}).today) || {});
-  const social = reserve.social || {};
 
-  if (emergency) reasons.push({
-    id: emergency.type,
-    eventType: emergency.type,
-    priority: 120,
-    label: emergency.title,
-    body: `${emergency.impact || "保护区危机仍在持续"} 剩余 ${emergency.daysRemaining} 次处置机会，进度 ${emergency.progress || 0}/${emergency.target || 3}`,
-    action: emergency.type === "visitor_conflict" ? "visitorAdjust" : emergency.recommendedAction,
-    marker: emergency.type === "visitor_conflict" ? "visitor" : "crisis",
-    regionId: emergency.regionId || "center",
-    responseOptions: emergency.type === "visitor_conflict" ? [] : (emergency.responses || []).map((item) => Object.assign({}, item)),
-    visualKind: emergency.visualKind || emergency.type
-  });
+  if (emergency) {
+    const visitorEvent = isVisitorArcheryEvent(emergency.type);
+    const exchangeEvent = isNeighborExchangeEvent(emergency.type);
+    reasons.push({
+      id: emergency.type,
+      eventType: emergency.type,
+      priority: 120,
+      label: emergency.title,
+      body: emergency.category === "realNature"
+        ? `${emergency.date}｜${emergency.place}｜来源：${emergency.sourceName}。${emergency.impact} 剩余 ${emergency.daysRemaining} 次处置机会，进度 ${emergency.progress || 0}/${emergency.target || 3}`
+        : `${emergency.impact || "保护区危机仍在持续"} 剩余 ${emergency.daysRemaining} 次处置机会，进度 ${emergency.progress || 0}/${emergency.target || 3}`,
+      category: emergency.category,
+      categoryLabel: emergency.categoryLabel,
+      realEventId: emergency.realEventId,
+      date: emergency.date,
+      dateKind: emergency.dateKind,
+      place: emergency.place,
+      sourceName: emergency.sourceName,
+      sourceUrl: emergency.sourceUrl,
+      summary: emergency.summary,
+      polarity: emergency.polarity,
+      drill: emergency.drill,
+      metrics: emergency.metrics,
+      impact: emergency.impact,
+      action: visitorEvent ? "visitorAdjust" : exchangeEvent ? "neighborExchange" : emergency.recommendedAction,
+      marker: visitorEvent ? "visitor" : "crisis",
+      regionId: emergency.regionId || "center",
+      responseOptions: (visitorEvent || exchangeEvent) ? [] : (emergency.responses || []).map((item) => Object.assign({}, item)),
+      visualKind: emergency.visualKind || emergency.type
+    });
+  }
   if ((reserve.poacherPressure || 0) > 58 || poacherDelta > 5) reasons.push({ id: "poacher", priority: 100, label: "陌生脚印升级", body: "偷猎压力正在挤压动物路线", action: "antiPoacher", marker: "crisis", regionId: "river" });
-  if (visitorToday.trouble && visitorToday.trouble !== "尚无明显麻烦" && !/已回到观察线|现场恢复|已处理/.test(visitorToday.trouble)) {
+  const visitorEmergency = !!(emergency && isVisitorArcheryEvent(emergency.type));
+  if (!visitorEmergency && visitorToday.trouble && visitorToday.trouble !== "尚无明显麻烦" && !/已回到观察线|现场恢复|已处理/.test(visitorToday.trouble)) {
     reasons.push({
       id: "visitor_trouble",
       priority: 90,
@@ -118,19 +141,15 @@ function primaryReasons(before = {}, reserve = {}, context = {}) {
       regionId: "river"
     });
   }
-  if (social.log && social.pressure > 0) reasons.push({ id: "reserve_network", priority: 84, label: "相邻保护区传来异动", body: social.title || "跨区动物与边界关系正在变化", action: "houndScout", marker: "event", regionId: "forest" });
-  if (safetyDelta < -2) reasons.push({ id: "safety_down", priority: 92, label: "边界安全变薄", body: "动物会先从边缘退走", action: "houndScout", marker: "event", regionId: "center" });
-  if (diseaseDelta > 2 || (eco.disease || 0) >= ECOLOGY_THRESHOLDS.warningDisease) reasons.push({ id: "disease", priority: 88, label: "病味扩散", body: "幼体和老弱个体会先减少活动", action: "houndScout", marker: "question", regionId: "meadow" });
-  if (waterDelta < -2 || (eco.water || 0) < ECOLOGY_THRESHOLDS.lowWater) reasons.push({ id: "water", priority: 82, label: "水线变紧", body: "饮水点会变成风险路口", action: "habitat", marker: "event", regionId: "river", presentation: "resource-flow", metric: "water", metricLabel: "水源", delta: waterDelta, value: eco.water || 0 });
-  if (grassDelta < -2 || (eco.grass || 0) < ECOLOGY_THRESHOLDS.lowGrass) reasons.push({ id: "grass", priority: 78, label: "草场吃紧", body: "食草动物会扩大取食范围", action: "habitat", marker: "event", regionId: "meadow", presentation: "resource-flow", metric: "grass", metricLabel: "草场", delta: grassDelta, value: eco.grass || 0 });
+  proposeEcologyCrises(reserve, {
+    season: context.season,
+    weather: context.weather,
+    diseaseDelta
+  }).forEach((crisis) => reasons.push(crisis));
+  if ((eco.water || 0) < ECOLOGY_THRESHOLDS.earlyWater) reasons.push({ id: "water", priority: 82, label: "水线变紧", body: "饮水点会变成风险路口", action: "habitat", marker: "event", regionId: "river", presentation: "resource-flow", metric: "water", metricLabel: "水源", delta: waterDelta, value: eco.water || 0 });
+  if ((eco.grass || 0) < ECOLOGY_THRESHOLDS.earlyGrass) reasons.push({ id: "grass", priority: 78, label: "草场吃紧", body: "食草动物会扩大取食范围", action: "habitat", marker: "event", regionId: "meadow", presentation: "resource-flow", metric: "grass", metricLabel: "草场", delta: grassDelta, value: eco.grass || 0 });
   if (migrationDelta < 0) reasons.push({ id: "migration_out", priority: 75, label: "迁移线变薄", body: (reserve.migration && reserve.migration.reason) || "动物开始离开边缘", action: "habitat", marker: "event", regionId: "meadow", presentation: "resource-flow", metric: "migration", metricLabel: "迁徙", delta: migrationDelta - beforeMigrationDelta, value: migrationDelta, flowKind: "consumption", beneficial: false });
-  const fundBand = fundHealth(levelOf(reserve));
-  if (fundDelta < -120 || (reserve.fund || 0) < fundBand.danger) reasons.push({ id: "fund", priority: 70, label: "保护基金紧张", body: "先收取并移交回收物，再采购巡护补给", action: "salvage", marker: "question", regionId: "rocks", presentation: "resource-flow", metric: "fund", metricLabel: "基金", delta: fundDelta, value: reserve.fund || 0 });
-  if (safetyDelta > 4 || poacherDelta < -6) {
-    const safetyLead = safetyDelta > 4;
-    reasons.push({ id: "recovery_safety", priority: 54, label: "边界恢复", body: "猎犬和巡护压低了坏脚印", action: "houndScout", marker: "recovery", regionId: context.regionId || "center", presentation: "resource-flow", metric: safetyLead ? "safety" : "poacher", metricLabel: safetyLead ? "安全" : "偷猎压力", delta: safetyLead ? safetyDelta : poacherDelta, value: safetyLead ? (reserve.safety || reserve.stability || 0) : (reserve.poacherPressure || 0), flowKind: "production", beneficial: true });
-  }
-  if (waterDelta > 2 || grassDelta > 2) {
+  if (((eco.water || 0) < ECOLOGY_THRESHOLDS.earlyWater && waterDelta > 2) || ((eco.grass || 0) < ECOLOGY_THRESHOLDS.earlyGrass && grassDelta > 2)) {
     const waterLead = waterDelta >= grassDelta;
     reasons.push({
       id: "recovery_ecology",
@@ -148,7 +167,6 @@ function primaryReasons(before = {}, reserve = {}, context = {}) {
     });
   }
   if (migrationDelta > 0) reasons.push({ id: "migration_in", priority: 48, label: "动物回流", body: (reserve.migration && reserve.migration.reason) || "动物开始靠近核心区", action: "habitat", marker: "recovery", regionId: "meadow", presentation: "resource-flow", metric: "migration", metricLabel: "迁徙", delta: migrationDelta - beforeMigrationDelta, value: migrationDelta, flowKind: "production", beneficial: true });
-  if (!reasons.length) reasons.push({ id: "stable", priority: 10, label: `${actionLabel(action)}后局面稳定`, body: "今天没有爆出大危机，但仍要听动物线索", action: action || "houndScout", marker: "question", regionId: context.regionId || "center" });
   const critical = criticalPatrolRisk(reserve);
   return reasons.map(reason => {
     // A recovery notification or a moderate metric fluctuation is information,
@@ -196,13 +214,15 @@ function buildReserveView(beforeReserve, reserve, context = {}) {
   const migrationDelta = (current.migration && current.migration.delta) || 0;
   const beforeMigrationDelta = (before.migration && before.migration.delta) || 0;
   const animalBefore = animalStatusFor(before, context);
+  const animalCount = totalOf(eco.predators) + totalOf(eco.herbivores) + totalOf(eco.birds);
+  const beforeCount = totalOf(beforeEco.predators) + totalOf(beforeEco.herbivores) + totalOf(beforeEco.birds);
   const outcome = {
     id: "animal",
     label: "生态结果",
     value: animal.value,
     status: animal.value,
     tone: animal.tone,
-    delta: animal.value === animalBefore.value ? 0 : (["回归", "繁殖中", "安定"].includes(animal.value) ? 1 : -1),
+    delta: animalCount - beforeCount,
     reason: animal.reason,
     action: animal.action
   };
@@ -291,7 +311,11 @@ function buildReserveView(beforeReserve, reserve, context = {}) {
   // lake marker and generic "stable" marker produced unexplained water/signal
   // icons even when there was nothing to handle, which looked like broken
   // pickups. Stable information stays in the status panel and animal dialogue.
-  const markerReasons = reasons.filter((reason) => reason.id !== "stable").slice(0, 3);
+  const markerReasons = applySandboxTaskCadence(
+    current,
+    reasons.filter((reason) => reason.id !== "stable"),
+    context.now || Date.now()
+  );
   const mapMarkers = markerReasons.slice(0, 3).map((reason, index) => ({
     id: `rv_${context.day || 0}_${reason.id}_${index}`,
     type: reason.marker === "visitor" ? "visitorIncident" : reason.marker === "crisis" ? "crisis" : reason.marker === "recovery" ? "recovery" : reason.marker === "event" ? "event" : "question",
@@ -314,6 +338,18 @@ function buildReserveView(beforeReserve, reserve, context = {}) {
     responseOptions: (reason.responseOptions || []).map((item) => Object.assign({}, item)),
     eventType: reason.eventType || "",
     visualKind: reason.visualKind || "",
+    category: reason.category || "",
+    categoryLabel: reason.categoryLabel || "",
+    realEventId: reason.realEventId || "",
+    date: reason.date || "",
+    dateKind: reason.dateKind || "",
+    place: reason.place || "",
+    sourceName: reason.sourceName || "",
+    sourceUrl: reason.sourceUrl || "",
+    summary: reason.summary || "",
+    polarity: reason.polarity || "",
+    drill: reason.drill || "",
+    metrics: reason.metrics || "",
     focused: reason.marker === "crisis" && reason.id === ((current.emergency || {}).active || {}).type,
     progress: reason.id && reason.id === ((current.emergency || {}).active || {}).type ? (((current.emergency || {}).active || {}).progress || 0) : 0,
     target: reason.id && reason.id === ((current.emergency || {}).active || {}).type ? (((current.emergency || {}).active || {}).target || 0) : 0,
@@ -322,9 +358,9 @@ function buildReserveView(beforeReserve, reserve, context = {}) {
   }));
   const settlement = {
     statLine: buildStatLine(states, topReason),
-    animalLine: animal.value === animalBefore.value
-      ? `动物保持「${animal.value}」：${animal.reason}`
-      : `动物从「${animalBefore.value}」变为「${animal.value}」：${animal.reason}`,
+    animalLine: `${animal.value === animalBefore.value
+      ? `动物保持「${animal.value}」`
+      : `动物从「${animalBefore.value}」变为「${animal.value}」`}，${outcome.delta ? `数量${signed(outcome.delta)}只` : "数量未变"}：${animal.reason}`,
     tomorrowRiskLine: buildTomorrowRiskLine(reasons, current),
     reasons: reasons.slice(0, 4).map((reason) => ({ label: reason.label, body: reason.body, action: reason.action }))
   };

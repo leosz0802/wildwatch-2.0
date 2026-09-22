@@ -26,9 +26,7 @@ function animalStoryLetter(reserve, letter, history) {
   const previous = history.find(item => item.species === letter.species && item.storyId);
   const view = storyView(reserve, letter.species, previous); if (!view) return letter;
   if (history.some(item => item.storyId === view.story.id && item.storyPhase === view.phase)) return letter;
-  return Object.assign({}, letter, { storyId: view.story.id, storyPhase: view.phase, contentKey: view.key, title: view.story.name,
-    paragraphs: [view.paragraphs[0], `第${letter.day || 1}日 · ${{water:"水源", safety:"安全", grass:"草场"}[view.story.metric]} ${view.value}。${view.paragraphs[1]}`], actionId: view.story.action, actionLabel: view.story.label,
-    factLabel: { water: '水源', safety: '安全', grass: '草场' }[view.story.metric], factValue: view.value, target: view.story.target });
+  return Object.assign({}, letter, { storyId: view.story.id, storyPhase: view.phase });
 }
 function visitorStoryLetter(reserve, day, history) {
   const ecology = reserve.ecology || {};

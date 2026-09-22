@@ -54,17 +54,31 @@ const patrolCases = [
   ["修复水源和草场：清理堵塞水道", "fieldKit"],
   ["执行许可内生态干预：转移过度聚集个体", "tranquilizer"]
 ];
+function taskFundReward(visual) {
+  return ((visual && visual.goalResult && visual.goalResult.rewards) || [])
+    .filter((item) => item && item.type === "fund")
+    .reduce((sum, item) => sum + Math.max(0, Math.round(Number(item.amount) || 0)), 0);
+}
+
 for (const [command, supply] of patrolCases) {
   const fixture = stateWithResources(command);
   const before = JSON.parse(JSON.stringify(fixture.world.reserve));
-  const after = run(fixture, command).world.reserve;
+  const result = withRandom(0.01, () => simulateDay(command, fixture));
+  const after = result.world.reserve;
   ["actionPoints", "intel", "fieldPermits"].forEach((key) => assert(!Object.prototype.hasOwnProperty.call(after, key), `${command}不得恢复废弃字段${key}`));
-  const expectedFund = command.includes("修复水源")
-    ? before.fund - chapterEconomy(before).habitatCost
+  const actionCost = command.includes("修复水源")
+    ? chapterEconomy(before).habitatCost
     : command.includes("生态干预")
-      ? before.fund - chapterEconomy(before).interventionCost
-      : before.fund;
-  assert.strictEqual(after.fund, expectedFund, `${command}应按章节成本结算基金`);
+      ? chapterEconomy(before).interventionCost
+      : 0;
+  const reward = taskFundReward(result.visual);
+  assert.strictEqual(after.fund, before.fund - actionCost + reward, `${command}应按章节成本与任务奖励结算基金`);
+  if (actionCost) {
+    assert.strictEqual(result.visual.actionFundCost.cost, actionCost, `${command}必须披露行动成本`);
+  }
+  if (command.includes("修复水源") && reward) {
+    assert.strictEqual(reward, 8, "完成稳住水草每日任务应发放基金 +8");
+  }
   assert(after.supplies[supply] < before.supplies[supply], `${command}应消耗具体补给${supply}`);
 }
 
@@ -145,6 +159,19 @@ const untouchedFixture = JSON.parse(JSON.stringify(actionFixture));
 const repaired = run(actionFixture, "修复水源和草场：维护饮水点", 0.2).world.reserve;
 const observed = run(untouchedFixture, "派猎犬侦察：检查水边路线", 0.2).world.reserve;
 assert(repaired.ecology.water > observed.ecology.water && repaired.ecology.grass > observed.ecology.grass, "玩家修复行动必须即时提高水源与草场");
+
+const latePressure = stateWithResources("中后期水草承压");
+latePressure.world.reserve.progression = Object.assign({}, latePressure.world.reserve.progression || {}, { stage: 3, displayChapter: 3, level: 2 });
+latePressure.world.reserve.ecology.water = 58;
+latePressure.world.reserve.ecology.grass = 58;
+let lateState = latePressure;
+for (let day = 0; day < 4; day += 1) {
+  for (let action = 0; action < 3; action += 1) lateState = run(lateState, "派猎犬侦察：检查水边路线", 0.4);
+}
+assert(lateState.world.reserve.ecology.water < 45 || lateState.world.reserve.ecology.grass < 45, "过了第2章后，不修水草应经常掉到45以下");
+assert(/任务或栖息地操作回补/.test((lateState.world.reserve.lastHabitatBalance || {}).note || ""), "中后期水草账单必须提示需要任务回补");
+const lateRepair = run(lateState, "修复水源和草场：维护饮水点", 0.2).world.reserve;
+assert(lateRepair.ecology.water > lateState.world.reserve.ecology.water || lateRepair.ecology.grass > lateState.world.reserve.ecology.grass, "掉到45以下后，栖息地任务必须能把水草抬回去");
 
 // 固定循环验证无负数、NaN和旧资源复活。
 state = stateWithResources("长循环");

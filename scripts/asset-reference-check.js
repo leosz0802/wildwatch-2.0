@@ -28,12 +28,14 @@ assets.forEach((asset) => {
 });
 
 [
-  "assets/art/core-map-anime-v1.jpg",
-  "assets/art/core-sprites-atlas.png"
+  "assets/art/core-map-anime-v1.jpg"
 ].forEach((asset) => {
   if (!assets.has(asset)) throw new Error(`core first-package asset is not referenced: ${asset}`);
   if (isIgnored(asset)) throw new Error(`core first-package asset must not be ignored: ${asset}`);
 });
+if (assets.has("assets/art/core-sprites-atlas.png")) {
+  throw new Error("retired core sprites atlas should not stay in runtime references");
+}
 
 if (Array.from(assets).some((asset) => asset.startsWith("assets/art/ui-v2/"))) {
   throw new Error("runtime should not reference deprecated ui-v2 icon assets");

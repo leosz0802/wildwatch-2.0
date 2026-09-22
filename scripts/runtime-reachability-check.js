@@ -111,5 +111,15 @@ assert(
   !fs.existsSync(path.join(root, "assets/art/animal-map-sprites-atlas-v1.png")),
   "superseded animal map atlas v1 should stay removed"
 );
+assert(
+  !fs.existsSync(path.join(root, "assets/art/core-sprites-atlas.png")),
+  "retired core sprites atlas should stay removed"
+);
+[
+  "assets/audio/sfx-tap.m4a",
+  "assets/audio/sfx-warning.m4a"
+].forEach((asset) => {
+  assert(!fs.existsSync(path.join(root, asset)), `unused audio should stay removed: ${asset}`);
+});
 
 console.log(`runtime reachability check ok (${reachable.size} modules, ${runtimeAssets.length} packaged assets, 0 orphans)`);

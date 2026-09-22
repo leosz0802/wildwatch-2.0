@@ -12,6 +12,7 @@ const { Game } = require('../js/game');
 const { createCharacter, saveState, loadState } = require('../js/storage');
 const { updateReserveEmergency } = require('../js/simulator');
 const { worldEventDefinition } = require('../js/worldEventSystem');
+const { realNatureTriggerType } = require('../js/realNatureEventSystem');
 const { nextRescueTask, createPoacherRescue, findRecord, rescueItemCountFor } = require('../js/chapterRescueSystem');
 const { explorationTargetScore, explorationGoodById } = require('../js/materialExploration');
 const originalRandom = Math.random;
@@ -26,6 +27,7 @@ function make() {
   const game = new Game(); game.stopLoop();
   game.state = createCharacter(null, '交叉任务死锁回归');
   game.state.world.reserve.fund = 10000;
+  game.state.world.reserve.progression.activeSeconds = (((game.state.world.reserve.progression.chapterStart || {}).activeSeconds) || 0) + 30;
   game.screen = 'home';
   game.render = game.requestRender = game.playSfx = game.playSettlementSfx = () => {};
   game.setScreen = screen => { game.screen = screen; };
@@ -58,7 +60,8 @@ function restart(game) {
 function interruptWithEvent(game, type, index) {
   const reserve = game.state.world.reserve;
   const before = JSON.stringify([reserve.chapterRescue, reserve.poacherRescue]);
-  const definition = worldEventDefinition(type);
+  const definition = type ? worldEventDefinition(type) : null;
+  if (!definition || !Array.isArray(definition.responses) || !definition.responses.length) return;
   const id = `mixed_${type}_${index}`;
   reserve.emergency.active = Object.assign({}, definition, { id, type, progress: 0, daysRemaining: definition.days });
   if (type === 'visitor_conflict') {
@@ -102,7 +105,8 @@ for (const order of [[0, 1], [1, 0]]) {
       const id = ids[choice];
       for (let attempt = 0; attempt < 24 && !rescueItemCountFor(game.state.world.reserve, record(game, id), item); attempt++) {
         shot(game, id, [1, 4, 2, 6][attempt % 4]); shots++;
-        interruptWithEvent(game, ['visitor_conflict', 'wildfire', 'flash_flood', 'disease_outbreak'][attempt % 4], attempt);
+        const realEventType = realNatureTriggerType(game.state.world.reserve, Date.UTC(2026, 8, 19 + attempt));
+        interruptWithEvent(game, ['visitor_conflict', realEventType, 'neighbor_water', realEventType][attempt % 4], attempt);
         interruptions++;
         restart(game);
       }

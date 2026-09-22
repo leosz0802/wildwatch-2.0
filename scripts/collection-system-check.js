@@ -42,6 +42,13 @@ ITEMS.forEach((item) => {
   assert(item.discoveryRole, `${item.id}缺少剧情角色`);
   assert(item.discoveryAction, `${item.id}缺少发现行动`);
   assert(item.discoveryRegion, `${item.id}缺少沙盘区域`);
+  const condition = item.condition || {};
+  if (condition.trust) assert(condition.trust <= 55, `${item.id} 关系门槛过高，会卡在本章最后一件`);
+  if (condition.enforcement) assert(condition.enforcement <= 50, `${item.id} 执法门槛过高`);
+  if (condition.reputation) assert(condition.reputation <= 50, `${item.id} 声望门槛过高`);
+  if (condition.choices) assert(condition.choices <= 8, `${item.id} 策略次数门槛过高`);
+  if (condition.houndRuns) assert(condition.houndRuns <= 8, `${item.id} 猎犬次数门槛过高`);
+  if (condition.namedMemories) assert(condition.namedMemories <= 8, `${item.id} 记忆门槛过高`);
 });
 const legacyMaterialIds = ["shedAntlerA", "shedAntlerB", "naturalHide", "recoveredTrap", "researchSample", "whiteRhinoHornEvidence", "ivoryEvidence"];
 legacyMaterialIds.forEach((id) => assert(!collectionItemById(id), `剧情发现禁止沿用库存ID: ${id}`));
@@ -102,6 +109,51 @@ setDay(currentChapterState, 30);
 currentChapterState.world.reserve.eventChain = Object.assign({}, currentChapterState.world.reserve.eventChain, { chapterLevel: 5, step: 1 });
 const currentChapterOffer = offerAnimalCollectionLead(currentChapterState, deer, { guaranteed: true }, () => 0);
 assert(currentChapterOffer.discovery && currentChapterOffer.discovery.caseId === "case_5", "自动剧情发现必须优先当前章节案件");
+
+{
+  const lateChapter = fresh(5);
+  setDay(lateChapter, 40);
+  lateChapter.world.reserve.progression.stage = 9;
+  lateChapter.world.reserve.progression.displayChapter = 9;
+  lateChapter.world.reserve.eventChain = Object.assign({}, lateChapter.world.reserve.eventChain, { chapterLevel: 9, step: 2 });
+  const lateOffer = offerAnimalCollectionLead(lateChapter, deer, { guaranteed: true }, () => 0);
+  assert(lateOffer.discovery && lateOffer.discovery.caseId === "case_5", "进入第9章后仍应能投放第5章未完成藏品");
+}
+
+// 动物发现的“每天一次”必须跟随现实自然日，而不是停留在同一个
+// 守护日时永久锁住；高章节和旧数字存档也不能阻止后续碎片出现。
+{
+  const savedNow = Date.now;
+  const firstDate = new Date(2026, 8, 17, 12).getTime();
+  const secondDate = new Date(2026, 8, 18, 12).getTime();
+  try {
+    Date.now = () => firstDate;
+    const calendarState = fresh(7);
+    setDay(calendarState, 100);
+    calendarState.world.reserve.eventChain = Object.assign({}, calendarState.world.reserve.eventChain, { chapterLevel: 7, step: 1 });
+    const guide = calendarState.world.knownCharacters[0];
+    const first = offerAnimalCollectionLead(calendarState, guide, {}, () => 0);
+    assert(first.discovery && first.discovery.caseId === "case_5", "高章节仍应继续投放未完成收藏");
+    assert(advanceStoryDiscovery(calendarState, { actionId: first.discovery.actionId }).advanced, "自然日测试线索必须能定位");
+    assert(collectStoryDiscovery(calendarState, first.discovery.itemId).ok, "自然日测试线索必须能收录");
+    const sameDate = offerAnimalCollectionLead(calendarState, calendarState.world.knownCharacters[1], {}, () => 0);
+    assert(!sameDate.lead, "同一自然日不得开启第二件剧情发现");
+
+    Date.now = () => secondDate;
+    const nextDate = offerAnimalCollectionLead(calendarState, guide, {}, () => 0);
+    assert(nextDate.lead, "跨自然日后无需推进游戏日也应恢复碎片发现");
+
+    const legacy = fresh(7);
+    setDay(legacy, 100);
+    legacy.world.reserve.eventChain = Object.assign({}, legacy.world.reserve.eventChain, { chapterLevel: 7, step: 1 });
+    legacy.world.collection.discovery.lastStartedDay = 100;
+    legacy.world.collection.investigation.animalLeadSeen[`100:${guide.id}:listen`] = 100;
+    const migrated = offerAnimalCollectionLead(legacy, guide, {}, () => 0);
+    assert(migrated.lead, "旧版数字游戏日记录必须自动过期");
+  } finally {
+    Date.now = savedNow;
+  }
+}
 
 // 三件主证据开始修复设施；七件后才允许案件结局。
 for (let index = 1; index < 7; index += 1) {

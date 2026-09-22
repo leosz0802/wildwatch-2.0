@@ -17,9 +17,14 @@ for (const { stage, id } of Array.from({ length: 20 }, (_, i) => i + 1)
  const buttons=[]; g.modalButton=(_c,_x,_y,_w,_h,label,_f,onTap)=>buttons.push({label,onTap}); g.drawPatrolTaskModal();
  assert(!buttons.some(b=>/规划路线|路线出发|选择节点/.test(b.label)));
  const execute=buttons.find(b=>/执行/.test(b.label)); assert(execute,id+': direct execute button missing'); execute.onTap();
- assert(g.settlementModal,id+': direct execute did not settle'); assert.equal(g.state.world.reserve.progression.totalActions,before+1);
- const after=JSON.stringify(g.state.world.reserve); execute.onTap(); assert.equal(JSON.stringify(g.state.world.reserve),after,id+': second tap changed saved state');
  const modal=g.settlementModal;
+ assert.equal(g.state.world.reserve.progression.totalActions,before+1);
+ if (!modal || modal.silent) {
+  assert.equal(g.settlementModal,null,id+': B/C must drop the settlement flow');
+  assert.equal(g.activeTaskLock,null,id+': B/C must release the task lock');
+  continue;
+ }
+ const after=JSON.stringify(g.state.world.reserve); execute.onTap(); assert.equal(JSON.stringify(g.state.world.reserve),after,id+': second tap changed saved state');
  const savedScreen=g.screen; g.screen='action';
  const frozen=g.reserveDynamicTargets(g.state.world.reserve);
  g.screen=savedScreen;

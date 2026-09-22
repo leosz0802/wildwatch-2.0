@@ -1,4 +1,5 @@
 const { BALANCE_V2, speciesVitalFor } = require("./balanceConfig");
+const { chapterCaptiveSpeciesSet } = require("./chapterRescueSystem");
 
 function clampRange(value, min, max) {
   return Math.max(min, Math.min(max, Number(value) || 0));
@@ -53,10 +54,48 @@ function habitatEcologyScore(snapshot) {
   ), 0, 100);
 }
 
+function habitatChapter(reserve = {}) {
+  const progression = reserve.progression || {};
+  return Math.max(1, Math.round(Number(progression.displayChapter || progression.stage || 1)));
+}
+
+function presentHerbivoreIds(reserve = {}) {
+  const herd = (reserve.ecology || {}).herbivores || {};
+  const preferred = ["deer", "antelope", "hare", "zebra", "boar"];
+  const captive = chapterCaptiveSpeciesSet(reserve);
+  const present = Object.keys(herd).filter((id) => Number(herd[id]) > 0 && !captive.has(id));
+  return preferred.filter((id) => present.includes(id)).concat(present.filter((id) => !preferred.includes(id)));
+}
+
+function applyHabitatPopulationDelta(reserve = {}, delta) {
+  const amount = Math.round(Number(delta) || 0);
+  const herd = (reserve.ecology || {}).herbivores || {};
+  const candidates = presentHerbivoreIds(reserve);
+  if (!amount || !candidates.length) return 0;
+  let applied = 0;
+  for (let index = 0; index < Math.abs(amount); index += 1) {
+    const id = candidates[index % candidates.length];
+    const next = Math.max(0, Number(herd[id] || 0) + (amount > 0 ? 1 : -1));
+    if (next === Number(herd[id] || 0)) continue;
+    herd[id] = next;
+    applied += amount > 0 ? 1 : -1;
+  }
+  return applied;
+}
+
+function scaleHabitatMigrationDelta(assessment = {}, intensity = "idle") {
+  const raw = Math.round(Number(assessment.delta) || 0);
+  if (!raw) return 0;
+  if (intensity === "task") return clampRange(raw, -8, 8);
+  if (raw < 0) return assessment.forced ? Math.max(raw, -2) : -1;
+  return 1;
+}
+
 function habitatMigrationAssessment(reserve = {}, beforeEcology) {
   const capacity = habitatCapacitySnapshot(reserve);
   const ecologyScore = habitatEcologyScore(capacity);
   const previousScore = Number.isFinite(Number(beforeEcology)) ? Number(beforeEcology) : ecologyScore;
+  const chapter = habitatChapter(reserve);
   const criticalGrass = capacity.grass <= 35;
   const criticalWater = capacity.water <= 35;
   const criticalDisease = capacity.disease >= 70;
@@ -68,7 +107,9 @@ function habitatMigrationAssessment(reserve = {}, beforeEcology) {
   }, 0);
   const migrationSensitivity = capacity.totalPopulation > 0 ? speciesAtRisk / capacity.totalPopulation : 0.65;
   let delta = 0;
-  let reason = "水源、草场与种群承载暂时平衡，动物保持观望";
+  let reason = chapter <= 1
+    ? "泥岸初醒，动物只把这里当作临时路过点，暂时观望"
+    : "水源、草场与种群承载暂时平衡，动物保持观望";
 
   if (forced) {
     const resourceDeficit = Math.max(0, 39 - capacity.grass, 41 - capacity.water);
@@ -88,23 +129,52 @@ function habitatMigrationAssessment(reserve = {}, beforeEcology) {
     reason = `种群已超过当前水草承载，部分动物向外围分散`;
   } else if (ecologyScore < 48 || capacity.limitingResource < 45 || capacity.disease > 45) {
     delta = -Math.max(1, Math.ceil((48 - Math.min(48, ecologyScore)) / 7));
-    reason = capacity.grass <= capacity.water
-      ? "草场产能偏低，食草动物减少停留并向外觅食"
-      : "水源不足，动物向外寻找稳定饮水点";
+    if (capacity.disease > 45 && capacity.disease >= 48 - Math.min(capacity.water, capacity.grass)) {
+      reason = `疾病风险 ${capacity.disease}，动物减少聚集并开始外迁`;
+    } else {
+      reason = capacity.grass <= capacity.water
+        ? "草场产能偏低，食草动物减少停留并向外觅食"
+        : "水源不足，动物向外寻找稳定饮水点";
+    }
   } else if (ecologyScore >= 72 && capacity.limitingResource >= 58 && capacity.disease <= 30 && capacity.loadRatio <= 0.95) {
     delta = clampRange(3 + Math.round((ecologyScore - 72) / 10), 3, 6);
     reason = capacity.water <= capacity.grass ? "水源稳定，周边动物沿饮水路线迁入" : "草场丰茂，周边动物开始迁入";
   } else if (ecologyScore >= previousScore + 5 && capacity.limitingResource >= 48 && capacity.disease <= 40 && capacity.loadRatio <= 1.02) {
     delta = 2;
     reason = "水草承载改善，少量动物开始回流";
+  } else if (chapter >= 2 && ecologyScore >= 58 && capacity.limitingResource >= 52 && capacity.disease <= 40 && capacity.loadRatio <= 1) {
+    // 第2章剧情门槛是水源52、浅滩开始停留；开局第1章即使水草够用也只观望。
+    delta = clampRange(1 + Math.round((ecologyScore - 58) / 14), 1, 2);
+    reason = capacity.water <= capacity.grass
+      ? "浅滩水源站稳，少量已有种群开始停留"
+      : "草场能支持短暂停留，少量已有种群开始靠近";
   }
 
+  const safety = reserve.safety == null ? 60 : clampRange(reserve.safety, 0, 100);
+  if (delta > 0 && safety < 45) {
+    delta = 0;
+    reason = "水草已有改善，但安全不足，动物暂缓回归";
+  }
+  const animalFacilities = require("./reserveFacilities").facilityAnimalImpact(reserve);
+  const immigrationBias = Math.max(0, Math.min(0.12, Number(animalFacilities.immigrationBias) || 0));
+  const retentionBoost = Math.max(0, Math.min(0.12, Number(animalFacilities.animalRetention) || 0));
+  if (delta > 0 && immigrationBias > 0) {
+    delta = clampRange(Math.round(delta * (1 + immigrationBias)), 1, 8);
+  } else if (!forced && delta === 0 && immigrationBias >= 0.04 && ecologyScore >= 62 && safety >= 50 && capacity.loadRatio <= 0.98 && capacity.disease <= 35) {
+    delta = 1;
+    reason = "观测设施让迁入判定略微放宽，少量已有种群开始试探停留";
+  } else if (delta < 0 && retentionBoost > 0) {
+    const reduced = Math.round(delta * (1 - retentionBoost));
+    delta = reduced === 0 ? 0 : Math.min(-1, reduced);
+    if (delta === 0) reason = "巡护与治理设施稳住了离场判定，动物暂时留下观察";
+  }
   return Object.assign({}, capacity, {
     ecologyScore,
     previousScore,
+    chapter,
     migrationSensitivity: Math.round(migrationSensitivity * 100) / 100,
     forced,
-    allowIn: !forced && capacity.limitingResource >= 48 && capacity.disease <= 40 && capacity.loadRatio <= 1.02,
+    allowIn: !forced && safety >= 45 && capacity.limitingResource >= 48 && capacity.disease <= 40 && capacity.loadRatio <= 1.02,
     trend: delta > 0 ? "in" : delta < 0 ? "out" : "stable",
     delta,
     reason
@@ -136,5 +206,8 @@ module.exports = {
   totalAnimals,
   habitatCapacitySnapshot,
   habitatMigrationAssessment,
-  consistentMigrationSnapshot
+  consistentMigrationSnapshot,
+  presentHerbivoreIds,
+  applyHabitatPopulationDelta,
+  scaleHabitatMigrationDelta
 };

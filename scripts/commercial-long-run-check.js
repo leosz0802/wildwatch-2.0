@@ -2,11 +2,21 @@ const { performance } = require("perf_hooks");
 const { createCharacter } = require("../js/storage");
 const { simulateDay, reserveProgressionFor } = require("../js/simulator");
 const { actionExecutable, applyGoalProgress, buildGoalView, normalizeGoalState, resolveGoals } = require("../js/goalSystem");
+const { actionSupplyRequirement, supplyPurchaseById, supplyPurchaseForQuantity } = require("../js/actions");
 const { collectStoryDiscovery, normalizeCollectionState, offerAnimalCollectionLead, updateCollectionAfterAction } = require("../js/collectionSystem");
 const { strategicDilemmaById, applyStrategicChoice } = require("../js/strategySystem");
 const { promiseByChapter, applyGuardianPromiseChoice } = require("../js/guardianPromises");
-const { getUnlockedSpecies, SPECIES_DB, speciesPopulation } = require("../js/animalWorld");
-const { BALANCE_V2 } = require("../js/balanceConfig");
+const { getUnlockedSpecies, SPECIES_DB, speciesPopulation, CHAPTERS } = require("../js/animalWorld");
+const { BALANCE_V2, supplyCapFor } = require("../js/balanceConfig");
+const {
+  nextRescueTask,
+  nextPoacherRescue,
+  canRescueAnimal,
+  rescueAnimal,
+  rescuePoacherAnimal,
+  recordRescueExploration,
+  rescuePointTarget
+} = require("../js/chapterRescueSystem");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -50,6 +60,23 @@ function collectPending(reserve) {
     reserve.pendingRecovered[id] = amount - accepted;
     room -= accepted;
   });
+}
+
+function restockVisibleGoalSupplies(state) {
+  const reserve = (state.world || {}).reserve || {};
+  const goals = buildGoalView(state, state.world.goals);
+  const visible = [goals.primary].concat(goals.alternatives || []).filter(Boolean);
+  visible.forEach((goal) => {
+    if (!goal || actionExecutable(state, goal.recommendedAction)) return;
+    const requirement = actionSupplyRequirement(goal.intendedAction || goal.recommendedAction, reserve);
+    if (!requirement) return;
+    const purchase = supplyPurchaseForQuantity(requirement.id, 1, reserve) || supplyPurchaseById(requirement.id, reserve);
+    if (!purchase || purchase.amount < 1 || (reserve.fund || 0) < purchase.cost) return;
+    reserve.fund = Math.max(0, Math.round(Number(reserve.fund) || 0) - purchase.cost);
+    reserve.supplies = reserve.supplies || {};
+    reserve.supplies[requirement.id] = Math.max(0, Math.round(Number(reserve.supplies[requirement.id]) || 0)) + purchase.amount;
+  });
+  return state;
 }
 
 function clone(value) {
@@ -143,24 +170,68 @@ function recoveryAction(reserve, intended) {
   return intended;
 }
 
-function riskAction(reserve) {
+function riskAction(reserve, waterFloor = 38) {
   const eco = reserve.ecology || {};
-  if ((eco.water || 0) < 38 || (eco.grass || 0) < 38) return "habitat";
+  if ((eco.water || 0) < waterFloor || (eco.grass || 0) < waterFloor) return "habitat";
   if ((eco.disease || 0) > 55) return "intervention";
   if ((reserve.poacherPressure || 0) > 65) return "antiPoacher";
   return "";
 }
 
+function activeRescueTask(state) {
+  const reserve = (state.world || {}).reserve || {};
+  const chapter = Math.max(1, Math.round(Number((reserve.progression || {}).stage || 1)));
+  return nextRescueTask(reserve, chapter) || nextPoacherRescue(reserve) || null;
+}
+
+function rescueItemNeeded(task) {
+  return ((task && task.requiredItems) || []).find((itemId) => {
+    const current = Math.max(0, Math.round(Number(((task.pointProgress || {})[itemId]) || 0)));
+    return current < rescuePointTarget(task, itemId);
+  }) || "";
+}
+
+function settleChapterRescue(state) {
+  const reserve = (state.world || {}).reserve || {};
+  const task = activeRescueTask(state);
+  if (!task) return state;
+  const last = reserve.lastMaterialExploration || {};
+  const itemId = String(last.targetId || "") || ((task.requiredItems || [])[0] || "");
+  const progress = last.collectionProgress || {};
+  if (itemId && (task.requiredItems || []).includes(itemId) && Number(progress.current) > 0) {
+    task.pointProgress = Object.assign({}, task.pointProgress || {}, { [itemId]: Math.max(0, Math.round(Number(progress.current) || 0)) });
+    if (progress.completed || (last.reward && last.reward.id === itemId)) {
+      recordRescueExploration(reserve, task.targetId || task.speciesId, itemId, true);
+      task.collectedItems = Object.assign({}, task.collectedItems || {}, { [itemId]: true });
+    }
+  }
+  if (task.recurring) {
+    if ((task.requiredItems || []).every((id) => (task.collectedItems || {})[id] || Number((task.pointProgress || {})[id]) >= rescuePointTarget(task, id))) {
+      rescuePoacherAnimal(reserve, task.targetId);
+    }
+  } else if (canRescueAnimal(reserve, task.targetId || task.speciesId)) {
+    rescueAnimal(reserve, task.targetId || task.speciesId);
+  }
+  return state;
+}
+
 function intendedAction(state, profile, route, actionIndex) {
   const reserve = state.world.reserve;
+  const urgent = riskAction(reserve, profile === "goal" ? 55 : 38);
   if (profile === "goal") {
     const primary = (buildGoalView(state, state.world.goals).primary || {});
     const action = primary.recommendedAction;
-    if (["houndScout", "antiPoacher", "habitat", "intervention", "exploreMaterials", "salvage", "buySupplies"].includes(action)) return action;
-    if (["animalCare", "collectionInvestigate"].includes(action)) return "exploreMaterials";
+    if (["buySupplies", "salvage"].includes(action) && !urgent) return action;
+    if (urgent) return urgent;
+    const rescue = activeRescueTask(state);
+    const canPatrol = (reserve.fund || 0) >= 45 || Object.values(reserve.supplies || {}).some((value) => Math.max(0, Number(value) || 0) > 0);
+    const blockingGoal = primary.kind === "crisis"
+      || ["habitat", "intervention", "antiPoacher"].includes(action);
+    if (rescue && rescueItemNeeded(rescue) && canPatrol && !blockingGoal) return "exploreMaterials";
+    if (["houndScout", "antiPoacher", "habitat", "intervention", "exploreMaterials"].includes(action)) return action;
+    if (["animalCare", "collectionInvestigate", "rescueAnimal"].includes(action)) return "exploreMaterials";
     if (action === "facilityBuild") return "habitat";
   }
-  const urgent = riskAction(reserve);
   if (urgent) return urgent;
   if (profile === "casual") {
     const cycle = ["houndScout", "exploreMaterials", "habitat"];
@@ -171,6 +242,16 @@ function intendedAction(state, profile, route, actionIndex) {
 }
 
 function commandFor(action, reserve, intended, state) {
+  if (action === "exploreMaterials") {
+    const rescue = activeRescueTask(state);
+    const itemId = rescueItemNeeded(rescue);
+    const canPatrol = (reserve.fund || 0) >= 45 || Object.values(reserve.supplies || {}).some((value) => Math.max(0, Number(value) || 0) > 0);
+    if (itemId && canPatrol) {
+      const score = rescuePointTarget(rescue, itemId);
+      const kind = rescue.recurring ? "poacher" : "chapter";
+      return `跟随动物探索森林，寻找自然遗留。目标:${itemId} 掷骰:6 rescueTask:${kind} rescueScore:${score}`;
+    }
+  }
   if (action !== "buySupplies") return actionCommands[action] || actionCommands.houndScout;
   const goalPurchaseId = ((((buildGoalView(state, state.world.goals) || {}).primary) || {}).purchaseId) || "";
   // 若本次采购是为了解锁一个明确的风险行动，必须优先采购该行动所需
@@ -219,6 +300,13 @@ function validateState(state, label, previousStage) {
     assert(reserve.supplies[key] <= (BALANCE_V2.supplyCaps[key] || 999), `${label}.supplies.${key}超过上限`);
   });
   [reserve.inventory, reserve.pendingRecovered].forEach((group, groupIndex) => Object.keys(group || {}).forEach((key) => {
+    if (key === "rescueItems" && group[key] && typeof group[key] === "object") {
+      Object.keys(group[key]).forEach((itemId) => {
+        finite(group[key][itemId], `${label}.goods${groupIndex}.rescueItems.${itemId}`);
+        assert(group[key][itemId] >= 0, `${label}.goods${groupIndex}.rescueItems.${itemId}为负数`);
+      });
+      return;
+    }
     finite(group[key], `${label}.goods${groupIndex}.${key}`);
     assert(group[key] >= 0, `${label}.goods${groupIndex}.${key}为负数`);
   }));
@@ -226,7 +314,10 @@ function validateState(state, label, previousStage) {
   assert(total(reserve.pendingRecovered) <= 12, `${label}.待收取队列持续膨胀`);
   const stage = (reserve.progression || {}).stage || 1;
   assert(stage >= previousStage && stage <= previousStage + 1, `${label}.章节倒退或跳级 ${previousStage}->${stage}`);
-  const unlocked = new Set(getUnlockedSpecies((reserve.progression || {}).level || 1).map((item) => item.id));
+  const unlocked = new Set(getUnlockedSpecies((reserve.progression || {}).level || 1, stage).map((item) => item.id));
+  (CHAPTERS || []).forEach((chapter) => {
+    if (chapter.chapter <= stage) (chapter.newSpecies || []).forEach((id) => unlocked.add(id));
+  });
   Object.keys(SPECIES_DB).forEach((id) => {
     const population = speciesPopulation(reserve, id);
     finite(population, `${label}.species.${id}`);
@@ -236,7 +327,12 @@ function validateState(state, label, previousStage) {
   const goals = buildGoalView(state, state.world.goals);
   const visible = [goals.primary].concat(goals.alternatives || []).filter(Boolean);
   assert(visible.length >= 1 && visible.length <= 3, `${label}.没有1-3个可见目标`);
-  visible.forEach((goal) => assert(goal.executable && actionExecutable(state, goal.recommendedAction), `${label}.目标${goal.id}不可执行`));
+  assert(visible.some((goal) => goal.executable && actionExecutable(state, goal.recommendedAction)), `${label}.没有可执行目标`);
+  visible.forEach((goal) => {
+    if (goal.executable && actionExecutable(state, goal.recommendedAction)) return;
+    if (goal.kind === "crisis" && (actionExecutable(state, "buySupplies") || actionExecutable(state, "salvage"))) return;
+    assert(goal.executable && actionExecutable(state, goal.recommendedAction), `${label}.目标${goal.id}不可执行`);
+  });
   assert(((reserve.strategy || {}).choiceHistory || []).length <= 80, `${label}.策略历史越界`);
   assert(((reserve.strategy || {}).consequences || []).length <= 16, `${label}.持续后果队列越界`);
   assert(((reserve.emergency || {}).history || []).length <= 8, `${label}.危机历史越界`);
@@ -332,7 +428,12 @@ try {
         }, rng).state;
         collectPending(state.world.reserve);
         resolvePending(state.world.reserve, route, rng, Math.floor(actionIndex / 3) + 1);
+        settleChapterRescue(state);
+        const lived = state.world.reserve.progression || {};
+        lived.activeSeconds = Math.max(0, Number(lived.activeSeconds) || 0) + 60;
         state.world.reserve.progression = reserveProgressionFor(state.world.reserve);
+        state.world.goals = resolveGoals(state, normalizeGoalState(state.world.goals, state), "external_settlement");
+        restockVisibleGoalSupplies(state);
         state.world.goals = resolveGoals(state, normalizeGoalState(state.world.goals, state), "external_settlement");
         if (trace && route === traceRoute && profile === "goal" && seedIndex === 0 && (actionIndex < 20 || actionIndex % 15 === 14)) {
           const snapshot = state.world.reserve;

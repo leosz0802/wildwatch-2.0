@@ -39,15 +39,8 @@ function webpInfo(data) {
   return null;
 }
 
-const coreSprites = fs.readFileSync(coreSpritesPath);
-if (coreSprites.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") {
-  throw new Error("core-sprites-atlas.png is not a valid PNG");
-}
-if (coreSprites.readUInt32BE(16) !== 2048 || coreSprites.readUInt32BE(20) !== 2048) {
-  throw new Error("core sprites atlas dimensions changed");
-}
-if (coreSprites.length < 700 * 1024 || coreSprites.length > 1400 * 1024) {
-  throw new Error(`core sprites atlas unexpected size: ${coreSprites.length}`);
+if (fs.existsSync(coreSpritesPath)) {
+  throw new Error("retired core sprites atlas should stay removed from the first package");
 }
 
 const coreMap = fs.readFileSync(coreMapPath);
@@ -67,8 +60,8 @@ if (animalPortraits.subarray(0, 2).toString("hex") !== "ffd8") throw new Error("
 if (animalPortraits.length < 90 * 1024 || animalPortraits.length > 140 * 1024) throw new Error(`animal portraits v4 unexpected size: ${animalPortraits.length}`);
 
 [
-  // Indexed PNG keeps all 25 transparent sprites crisp while protecting the 4MiB upload budget.
-  { path: animalMapSpritesPath, width: 896, height: 512, min: 75 * 1024, max: 140 * 1024, label: "animal map sprites v2" },
+  // Full 25-species sandbox atlas stays in the first package.
+  { path: animalMapSpritesPath, width: 896, height: 512, min: 75 * 1024, max: 96 * 1024, label: "animal map sprites v2" },
   { path: facilitiesPath, width: 480, height: 320, min: 12 * 1024, max: 60 * 1024, label: "facility sprites v4" },
   // V2 deliberately uses flat color, broad silhouettes and transparent space.
   // A lower byte size is a quality signal here: the icons stay crisp at 96px
@@ -82,10 +75,13 @@ if (animalPortraits.length < 90 * 1024 || animalPortraits.length > 140 * 1024) t
 });
 
 const game = fs.readFileSync(gamePath, "utf8");
-if (!/assets\/art\/core-sprites-atlas\.png/.test(game) || !/assets\/art\/core-map-anime-v1\.jpg/.test(game)
-  || !/ANIMAL_PORTRAIT_ATLAS/.test(game) || !/loadAnimalPortraitCandidate/.test(game) || !/assets\/art\/animal-map-sprites-atlas-v2\.png/.test(game)
+if (!/assets\/art\/core-map-anime-v1\.jpg/.test(game)
+  || !/ANIMAL_PORTRAITS_SRC/.test(game) || !/ensureLocalArtSlot\("animalPortraits"/.test(game) || !/assets\/art\/animal-map-sprites-atlas-v2\.png/.test(game)
   || !/assets\/art\/facility-sprites-atlas-v4\.png/.test(game)) {
-  throw new Error("game should load core art and dynamically cache animal portraits");
+  throw new Error("game should load core art, local animal portraits and local sandbox sprites");
+}
+if (/assets\/art\/core-sprites-atlas\.png/.test(game) || /ensureLocalArtSlot\("atlas"/.test(game)) {
+  throw new Error("game should not decode or reference the retired local core sprites atlas");
 }
 if (!/downloadFile/.test(game) || !/getFileSystemManager/.test(game)) {
   throw new Error("game should support remote art atlas download and cache");
@@ -114,11 +110,22 @@ if (game.slice(groundedStart, groundedEnd).includes("drawGroundedPlayerToken")) 
   throw new Error("sandbox overview must not replace full-body animals with abstract player tokens");
 }
 const project = fs.readFileSync(projectPath, "utf8");
-if (/"value": "assets\/art\/core-map-anime-v1\.jpg"/.test(project) || /"value": "assets\/art\/core-sprites-atlas\.png"/.test(project)) {
-  throw new Error("core art must stay in the first package");
+if (/"value": "assets\/art\/core-map-anime-v1\.jpg"/.test(project)) {
+  throw new Error("core map must stay in the first package");
 }
-if (!/"value": "assets\/art\/animal-portraits-atlas-v4\.jpg"/.test(project)) {
-  throw new Error("animal portraits should stay outside the first package and use their Canvas fallback offline");
+if (/"value": "assets\/art\/animal-portraits-atlas-v4\.jpg"/.test(project)) {
+  throw new Error("animal portraits should stay in the first package");
+}
+[
+  "assets/art/facility-sprites-atlas-v4.png",
+  "assets/art/collection/collection-items-atlas.png"
+].forEach((asset) => {
+  if (!project.includes(`"value": "${asset}"`)) {
+    throw new Error(`${asset} should stay outside the first package and download after login`);
+  }
+});
+if (project.includes(`"value": "assets/art/animal-map-sprites-atlas-v2.png"`)) {
+  throw new Error("sandbox animal sprites should stay in the first package");
 }
 [
   "map",

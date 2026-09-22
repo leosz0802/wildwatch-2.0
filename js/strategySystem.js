@@ -402,7 +402,9 @@ const TACTICAL_DILEMMAS = [
       choice("budget_ecology", "投入生态", "ecology", { water: 4, grass: 5, fund: -140, poacherPressure: 2 }, "生态预算", { water: 1, grass: 1 }, "承载力提高，边界风险短暂上升。")
     ]
   }
-].map((item) => Object.assign({ tier: "tactical", maxOccurrences: 5, maxOccurrencesPerChapter: 1 }, item));
+].map((item) => Object.assign({ tier: "tactical", maxOccurrences: 5, maxOccurrencesPerChapter: 1 }, item, {
+  choices: (item.choices || []).slice(0, 1)
+}));
 
 function majorDecision(id, title, story, minChapter, minActions, parentId, options = {}) {
   return {

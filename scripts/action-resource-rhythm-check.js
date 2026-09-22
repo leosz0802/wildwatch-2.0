@@ -1,6 +1,7 @@
 const assert = require("assert");
 const { createCharacter } = require("../js/storage");
 const { simulateDay } = require("../js/simulator");
+const { applyGoalProgress, normalizeGoalState } = require("../js/goalSystem");
 
 function withRandom(value, fn) {
   const previous = Math.random;
@@ -21,6 +22,8 @@ function quietGoal(state) {
 }
 
 const scoutState = createCharacter(null, "节奏测试");
+scoutState.world.reserve.progression.stage = 2;
+scoutState.world.goals = normalizeGoalState(scoutState.world.goals, scoutState);
 quietGoal(scoutState);
 scoutState.world.reserve.supplies.dogFood = 3;
 scoutState.world.reserve.poacherPressure = 48;
@@ -44,21 +47,17 @@ assert(purchase.world.reserve.fund < 1000, "采购应消耗基金");
 assert(purchase.world.reserve.supplies.dogFood > 0, "采购应补入具体物资");
 
 const goalState = createCharacter(null, "目标测试");
-goalState.world.reserve.supplies.dogFood = 3;
-const guardOne = withRandom(.05, () => simulateDay("派猎犬侦察：推进今日守护", goalState));
-const guardTwo = withRandom(.05, () => simulateDay("派猎犬侦察：完成守护目标", Object.assign({}, goalState, {
-  world: guardOne.world,
-  character: guardOne.character,
-  reports: guardOne.reports
-})));
-guardTwo.world.reserve.inventory.researchSample = 1;
-const goal = withRandom(.05, () => simulateDay("出售研究样本：接通经营循环", Object.assign({}, goalState, {
-  world: guardTwo.world,
-  character: guardTwo.character,
-  reports: guardTwo.reports
-})));
-["actionPoints", "intel", "fieldPermits"].forEach((key) => assert(!Object.prototype.hasOwnProperty.call(goal.world.reserve, key), `废弃字段${key}不得重新进入核心循环`));
-assert(((goal.visual.goalResult || {}).completions || []).some((item) => item.type === "daily_core"), "今日2/3奖励必须进入统一目标结算数据");
+goalState.world.reserve.progression.stage = 2;
+goalState.world.goals = normalizeGoalState(goalState.world.goals, goalState);
+goalState.world.reserve.supplies.fieldKit = 3;
+const visitor = applyGoalProgress(goalState, goalState, { action: "viewVisitors" });
+goalState.world.goals = visitor.goals;
+["actionPoints", "intel", "fieldPermits"].forEach((key) => assert(!Object.prototype.hasOwnProperty.call(goalState.world.reserve, key), `废弃字段${key}不得重新进入核心循环`));
+assert(visitor.completions.some((item) => item.type === "daily_objective" && item.id === "daily_visitor"), "招募游客必须进入统一结算数据");
+assert(!visitor.completions.some((item) => item.type === "daily_core"), "只完成1/2项不能提前发放每日全清奖励");
+const ecologyGoal = withRandom(.05, () => simulateDay("修复水源和草场", goalState));
+assert(((ecologyGoal.visual.goalResult || {}).completions || []).some((item) => item.type === "daily_objective" && item.id === "daily_ecology"), "水草修复必须进入统一结算数据");
+assert(((ecologyGoal.visual.goalResult || {}).completions || []).some((item) => item.type === "daily_core"), "完成2/2项后必须结算每日全清奖励");
 
 const zeroState = createCharacter(null, "零资源测试");
 quietGoal(zeroState);

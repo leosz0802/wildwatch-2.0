@@ -52,17 +52,23 @@ if (g.displayStats.hunger >= 80) {
   throw new Error(`displayStats.hunger 不应一步到位，实际 ${g.displayStats.hunger}`);
 }
 
-// 5. screenFade 随时间从 0 升到 1
-g.screenChangedAt = g.anim.t;
-if (g.screenFade() !== 0) {
-  throw new Error("刚切屏时 screenFade 应为 0");
+// 5. 切屏首帧必须可读，随后用真实时间淡到 1
+g.markScreenChange();
+if (g.screenFade() < 0.7) {
+  throw new Error(`刚切屏时 screenFade 必须可读，实际 ${g.screenFade()}`);
 }
-for (let i = 0; i < 10; i++) {
-  ts += 40;
-  lastCb(ts);
-}
-if (g.screenFade() < 0.9) {
+g.screenChangedAtMs = Date.now() - 300;
+if (g.screenFade() < 0.99) {
   throw new Error(`300ms 后 screenFade 应接近 1，实际 ${g.screenFade()}`);
+}
+
+// 5b. rAF 时间戳停在 0 时，循环仍要推进
+const stalledAt = g.anim.t;
+for (let i = 0; i < 8; i++) {
+  lastCb(0);
+}
+if (g.anim.t <= stalledAt) {
+  throw new Error("rAF 时间戳为 0 时 anim.t 仍应推进");
 }
 
 // 6. stopLoop 暂停并取消下一帧

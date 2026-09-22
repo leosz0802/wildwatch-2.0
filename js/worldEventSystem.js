@@ -1,5 +1,15 @@
 const { ECOLOGY_THRESHOLDS } = require("./balanceConfig");
 const { eventCategory, eventBusinessProfile } = require("./eventEconomy");
+const {
+  REAL_NATURE_EVENT_DEFINITIONS,
+  realNatureTriggerType,
+  chapterNeedsRequiredRealNature,
+  markChapterRealNatureSeen
+} = require("./realNatureEventSystem");
+const OBSOLETE_GENERIC_NATURE_TYPES = Object.freeze([
+  "disease_outbreak", "wildfire", "flash_flood", "heatwave",
+  "dust_storm", "cold_fog", "animal_water_conflict"
+]);
 const BASE_WORLD_EVENTS = {
   poacher_ring: Object.freeze({
     title: "偷猎团伙越界",
@@ -37,63 +47,6 @@ const BASE_WORLD_EVENTS = {
     responses: Object.freeze([
       Object.freeze({ action: "houndScout", label: "划定安全线", gain: 2, preview: "先定位全部套索，降低巡护员和动物受伤风险。" }),
       Object.freeze({ action: "antiPoacher", label: "强行清除", gain: 1, preview: "立即拆除眼前套索，但可能遗漏隐藏点。" })
-    ])
-  }),
-  disease_outbreak: Object.freeze({
-    title: "疾病集中爆发",
-    regionId: "meadow",
-    visualKind: "disease-zone",
-    recommendedAction: "intervention",
-    recommendLabel: "隔离病征区域",
-    target: 3,
-    days: 3,
-    impact: "疾病会压低动物种群，并降低保护区稳定度。",
-    startBody: "潮湿草场出现集中病征。沙盘已圈出异常活动区，可进行隔离救治，或先修复栖息地降低传播。",
-    resolvedTitle: "疾病传播已控制",
-    resolvedBody: "集中病征得到控制，幼体与老弱动物的风险开始回落。",
-    failedTitle: "疾病扩散至多个区域",
-    failedBody: "处置窗口已经错过，多个物种将承受种群压力。",
-    responses: Object.freeze([
-      Object.freeze({ action: "intervention", label: "隔离救治", gain: 2, preview: "最快控制病征，需要医疗补给。" }),
-      Object.freeze({ action: "habitat", label: "修复栖息地", gain: 1, preview: "改善环境，减慢后续传播。" })
-    ])
-  }),
-  wildfire: Object.freeze({
-    title: "旱季雷火蔓延",
-    regionId: "meadow",
-    visualKind: "wildfire",
-    recommendedAction: "habitat",
-    recommendLabel: "开辟防火隔离带",
-    target: 3,
-    days: 3,
-    impact: "火线会消耗草场和水源，并迫使动物离开核心区。",
-    startBody: "干草被雷火点燃，烟带正向核心草场推进。沙盘已显示火线，可开辟隔离带，或抢救受困动物。",
-    resolvedTitle: "山火已被截断",
-    resolvedBody: "隔离带阻断火线，受困动物撤离，烧毁区域将逐日恢复。",
-    failedTitle: "火线烧入核心草场",
-    failedBody: "草场与水源同时受损，动物被迫迁出，后续修复成本上升。",
-    responses: Object.freeze([
-      Object.freeze({ action: "habitat", label: "修隔离带", gain: 2, preview: "快速截断火线，需要野外工具包。" }),
-      Object.freeze({ action: "intervention", label: "抢救动物", gain: 1, preview: "优先降低伤亡；持续救助可完成撤离，烧区仍需修复。", resolvedTitle: "受困动物已撤离", resolvedBody: "受困动物已撤出火线，游客绕行安全区；烧毁草场仍需后续修复。" })
-    ])
-  }),
-  flash_flood: Object.freeze({
-    title: "雨季山洪突发",
-    regionId: "river",
-    visualKind: "flash-flood",
-    recommendedAction: "habitat",
-    recommendLabel: "疏导洪水通道",
-    target: 3,
-    days: 3,
-    impact: "洪水会冲毁草场、设施和固定迁移路线。",
-    startBody: "上游水位突然暴涨，漂木堵塞河道。沙盘已显示漫水区，可疏通河道，也可先撤离沿岸动物。",
-    resolvedTitle: "山洪通道已疏开",
-    resolvedBody: "堵塞物被清理，沿岸动物撤至高地，主河道恢复泄洪。",
-    failedTitle: "洪水冲入低地",
-    failedBody: "低地草场被淹，固定迁移路线中断，设施修复压力上升。",
-    responses: Object.freeze([
-      Object.freeze({ action: "habitat", label: "疏通河道", gain: 2, preview: "从源头降低水位，需要野外工具包。" }),
-      Object.freeze({ action: "houndScout", label: "撤离动物", gain: 1, preview: "确认高地路线，连续疏导可完成撤离。", resolvedTitle: "沿岸撤离已完成", resolvedBody: "动物和游客转移到高地，低地游线改道；被淹草场仍需修复。" })
     ])
   }),
   water_contamination: Object.freeze({
@@ -144,13 +97,13 @@ const BASE_WORLD_EVENTS = {
     target: 1,
     days: 1,
     impact: "游客与动物路线发生短时冲突，游客满意度和当日收入会受到影响。",
-      startBody: "向导报告游客现场出现拥挤或越线。请直接调节现场并生成点数，3点及以上即可稳定游线。",
+    startBody: "向导报告游客现场出现拥挤或越线。请用射箭判定现场结果：3点及以上正向稳定游线，1–2点负向会引发投诉。",
     resolvedTitle: "游客现场已稳定",
     resolvedBody: "游客回到观察线，动物重新接近原来的活动区域。",
     failedTitle: "游客冲突引发投诉",
-    failedBody: "部分游客离场，今日收入与现场口碑受到影响。",
+    failedBody: "射箭判定未稳住现场，部分游客离场，今日收入与口碑受到影响。",
     responses: Object.freeze([
-      Object.freeze({ action: "visitorAdjust", label: "调节现场", gain: 1, preview: "生成点数：3点及以上成功，低于3点会有游客离场。" })
+      Object.freeze({ action: "visitorAdjust", label: "射箭调节现场", gain: 1, preview: "射箭得分 ≥3 正向，1–2 点负向并引发投诉。不得改用猎犬巡逻。" })
     ])
   }),
   neighbor_animal_dispute: Object.freeze({
@@ -176,14 +129,16 @@ const BASE_WORLD_EVENTS = {
 };
 
 const WORLD_EVENT_DEFINITIONS = Object.freeze(Object.fromEntries(
-  Object.entries(Object.assign({}, BASE_WORLD_EVENTS, require("./reserveEventCatalog"))).map(([type, definition]) => {
+  Object.entries(Object.assign({}, BASE_WORLD_EVENTS, require("./reserveEventCatalog"), REAL_NATURE_EVENT_DEFINITIONS))
+    .filter(([type]) => !OBSOLETE_GENERIC_NATURE_TYPES.includes(type))
+    .map(([type, definition]) => {
     const category = eventCategory(Object.assign({ type }, definition));
     const business = eventBusinessProfile({ type });
     return [type, Object.freeze(Object.assign({}, definition, {
-      category: category.id, categoryLabel: category.label,
+      type, category: category.id, categoryLabel: category.label,
       source: definition.source || category.id,
       business, economicChain: category.chain,
-      responses: Object.freeze(definition.responses.map((item) => Object.freeze(item)))
+      responses: Object.freeze((definition.responses || []).slice(0, 1).map((item) => Object.freeze(item)))
     }))];
   })
 ));
@@ -211,36 +166,93 @@ function isNeighborEventType(type = "") {
   return String(type || "").startsWith("neighbor_") || type === "neighbor_animal_dispute";
 }
 
+const VISITOR_ARCHERY_THRESHOLD = 3;
+const NEIGHBOR_EXCHANGE_SELF_MIN = 5;
+const NEIGHBOR_EXCHANGE_FAIR_MIN = 3;
+const VISITOR_ARCHERY_EVENTS = Object.freeze([
+  "visitor_conflict",
+  "visitor_litter",
+  "visitor_queue"
+]);
+
+function isVisitorArcheryEvent(type = "") {
+  return VISITOR_ARCHERY_EVENTS.includes(String(type || ""));
+}
+
+function visitorArcherySuccess(roll) {
+  return Math.max(1, Math.min(6, Math.round(Number(roll) || 0))) >= VISITOR_ARCHERY_THRESHOLD;
+}
+
+function isNeighborExchangeEvent(type = "") {
+  return String(type || "") === "neighbor_exchange";
+}
+
+function neighborExchangeAdvantage(roll) {
+  const score = Math.max(1, Math.min(6, Math.round(Number(roll) || 0)));
+  if (score >= NEIGHBOR_EXCHANGE_SELF_MIN) return "self";
+  if (score >= NEIGHBOR_EXCHANGE_FAIR_MIN) return "fair";
+  return "neighbor";
+}
+
+function reserveChapterNumber(reserve = {}) {
+  const progression = reserve.progression || {};
+  return Math.max(1, Math.round(Number(progression.stage || progression.displayChapter || 1) || 1));
+}
+
+function lateChapterRealNatureChance(chapter = 1) {
+  if (chapter < 3) return 0;
+  return Math.min(0.52, 0.20 + (chapter - 3) * 0.025);
+}
+
+function lateChapterRealNatureWeight(chapter = 1) {
+  if (chapter < 3) return 1.6;
+  return Math.min(4.6, 2.6 + (chapter - 3) * 0.16);
+}
+
+function neighborEventChance(chapter = 1) {
+  if (chapter < 3) return 0.08;
+  return Math.min(0.24, 0.16 + (chapter - 3) * 0.008);
+}
+
+function neighborIdleWeight(chapter = 1, base = 0.65) {
+  if (chapter < 3) return base;
+  return Math.min(1.8, base * (1.55 + Math.min(8, chapter - 3) * 0.06));
+}
+
 function worldEventTriggerType(reserve = {}, seasonState = {}, random = Math.random) {
+  if (chapterNeedsRequiredRealNature(reserve)) return realNatureTriggerType(reserve);
   const ecology = reserve.ecology || {};
   const core = reserve.coreResources || {};
   const season = seasonState.name || "雨季";
+  const chapter = reserveChapterNumber(reserve);
   const poacher = Number(reserve.poacherPressure) || 0;
   const water = Number(ecology.water) || 0;
   const grass = Number(ecology.grass) || 0;
   const disease = Number(ecology.disease) || 0;
   const visitorToday = ((((reserve.development || {}).operations || {}).today) || {});
   const social = reserve.social || {};
+  const lateChance = lateChapterRealNatureChance(chapter);
+  const reservedReal = lateChance > 0 ? realNatureTriggerType(reserve) : null;
+  if (reservedReal && random() < lateChance) return reservedReal;
   if (poacher >= 65) return "poacher_ring";
-  if (disease >= ECOLOGY_THRESHOLDS.criticalDisease) return "disease_outbreak";
   if (hasVisitorTrouble(visitorToday) && random() < 0.62) return "visitor_conflict";
-  if ((social.pressure || 0) > 0 && random() < 0.08) return "neighbor_animal_dispute";
-  if (season === "旱季" && water <= ECOLOGY_THRESHOLDS.lowWater && grass <= 58 && random() < 0.18) return "wildfire";
-  if (season === "雨季" && water >= 86 && random() < 0.15) return "flash_flood";
-  if (water <= ECOLOGY_THRESHOLDS.lowWater && disease >= ECOLOGY_THRESHOLDS.earlyDisease && random() < 0.18) return "water_contamination";
+  if ((social.pressure || 0) > 0 && random() < neighborEventChance(chapter)) return "neighbor_animal_dispute";
+  if (water <= ECOLOGY_THRESHOLDS.lowWater && disease >= ECOLOGY_THRESHOLDS.earlyDisease && random() < 0.28) return "water_contamination";
+  if (water <= ECOLOGY_THRESHOLDS.criticalWater && random() < 0.16) return "water_contamination";
   if (poacher >= 48 && random() < 0.15) return "snare_line";
   if (Number.isFinite(core.community) && core.community <= 30 && random() < 0.15) return "community_blockade";
   if ((visitorToday.visitors || 0) + (visitorToday.recruitedVisitors || 0) >= 80 && random() < .15) return random() < .5 ? "visitor_litter" : "visitor_queue";
-  if (water < ECOLOGY_THRESHOLDS.earlyWater && Object.values(ecology.herbivores || {}).reduce((a, b) => a + b, 0) > 100 && random() < .15) return "animal_water_conflict";
   if ((social.pressure || 0) > 0 || ((reserve.progression || {}).level || 1) >= 2) {
-    if (random() < .08) return water < ECOLOGY_THRESHOLDS.lowWater ? "neighbor_water" : grass < ECOLOGY_THRESHOLDS.earlyGrass ? "neighbor_exchange" : "neighbor_migration";
+    if (random() < neighborEventChance(chapter)) return water < ECOLOGY_THRESHOLDS.lowWater ? "neighbor_water" : grass < ECOLOGY_THRESHOLDS.earlyGrass ? "neighbor_exchange" : "neighbor_migration";
   }
-  return null;
+  return realNatureTriggerType(reserve);
 }
 
 function worldEventIdleTriggerType(reserve = {}, seasonState = {}, random = Math.random) {
+  if (chapterNeedsRequiredRealNature(reserve)) return realNatureTriggerType(reserve);
   const ecology = reserve.ecology || {};
   const season = seasonState.name || "雨季";
+  const chapter = reserveChapterNumber(reserve);
   const poacher = Number(reserve.poacherPressure) || 0;
   const water = Number(ecology.water) || 0;
   const grass = Number(ecology.grass) || 0;
@@ -248,40 +260,32 @@ function worldEventIdleTriggerType(reserve = {}, seasonState = {}, random = Math
   const social = reserve.social || {};
   const pool = [];
   const push = (type, weight) => {
-    if (weight > 0) pool.push([type, weight]);
+    if (type && weight > 0 && WORLD_EVENT_DEFINITIONS[type]) pool.push([type, weight]);
   };
 
   if (poacher >= 52) push("poacher_ring", 1.6);
   if (poacher >= 38) push("snare_line", 1.2);
-  if (disease >= ECOLOGY_THRESHOLDS.earlyDisease) push("disease_outbreak", 1.7);
-  if (season === "旱季" && water <= ECOLOGY_THRESHOLDS.earlyWater && grass <= 64) push("wildfire", 1.5);
-  if (season === "雨季" && water >= 78) push("flash_flood", 1.4);
-  if (water <= ECOLOGY_THRESHOLDS.lowWater && disease >= ECOLOGY_THRESHOLDS.warningDisease) push("water_contamination", 1.25);
-  if ((social.pressure || 0) > 0) push("neighbor_animal_dispute", 0.72);
-  if (hasVisitorTrouble((((reserve.development || {}).operations || {}).today || {}))) push("visitor_conflict", 0.85);
+  push(realNatureTriggerType(reserve, Date.now(), { ignoreQuiet: true }), lateChapterRealNatureWeight(chapter));
+  if (water <= ECOLOGY_THRESHOLDS.lowWater && disease >= ECOLOGY_THRESHOLDS.earlyDisease) push("water_contamination", 1.45);
+  else if (water <= ECOLOGY_THRESHOLDS.criticalWater || disease >= ECOLOGY_THRESHOLDS.warningDisease) push("water_contamination", 1.05);
+  if ((social.pressure || 0) > 0) push("neighbor_animal_dispute", neighborIdleWeight(chapter, 0.72));
+  if (hasVisitorTrouble((((reserve.development || {}).operations || {}).today || {}))) {
+    if (chapter < 7) return "visitor_conflict";
+    push("visitor_conflict", 1.35);
+  }
   const today = (((reserve.development || {}).operations || {}).today) || {};
   if ((today.visitors || 0) + (today.recruitedVisitors || 0) > 0) {
     push("visitor_litter", .9);
     if ((today.visitors || 0) + (today.recruitedVisitors || 0) >= 80) push("visitor_queue", 1.05);
   }
-  if (water < ECOLOGY_THRESHOLDS.earlyWater) push("animal_water_conflict", .7);
   if ((social.pressure || 0) > 0 || ((reserve.progression || {}).level || 1) >= 2) {
-    push("neighbor_water", water < ECOLOGY_THRESHOLDS.earlyWater ? .85 : 0);
-    push("neighbor_exchange", grass < 70 ? .8 : .3);
-    push("neighbor_migration", .65);
+    push("neighbor_water", water < ECOLOGY_THRESHOLDS.earlyWater ? neighborIdleWeight(chapter, .85) : 0);
+    push("neighbor_exchange", neighborIdleWeight(chapter, grass < 70 ? .8 : .3));
+    push("neighbor_migration", neighborIdleWeight(chapter, .65));
   }
 
   if (!pool.length) {
-    if (season === "旱季") {
-      push("wildfire", 1);
-      push("snare_line", 0.84);
-    } else if (season === "雨季") {
-      push("flash_flood", 1);
-      push("water_contamination", 0.82);
-    } else {
-      push("disease_outbreak", 1);
-      push("snare_line", 0.82);
-    }
+    push(realNatureTriggerType(reserve, Date.now(), { ignoreQuiet: true }), 1);
   }
 
   const total = pool.reduce((sum, item) => sum + item[1], 0);
@@ -299,7 +303,22 @@ module.exports = {
   worldEventDefinition,
   worldEventTriggerType,
   worldEventIdleTriggerType,
+  reserveChapterNumber,
+  chapterNeedsRequiredRealNature,
+  markChapterRealNatureSeen,
+  lateChapterRealNatureChance,
+  lateChapterRealNatureWeight,
+  neighborEventChance,
+  neighborIdleWeight,
   isNeighborEventType,
+  isVisitorArcheryEvent,
+  visitorArcherySuccess,
+  VISITOR_ARCHERY_THRESHOLD,
+  isNeighborExchangeEvent,
+  neighborExchangeAdvantage,
+  NEIGHBOR_EXCHANGE_SELF_MIN,
+  NEIGHBOR_EXCHANGE_FAIR_MIN,
   responseGain,
-  hasVisitorTrouble
+  hasVisitorTrouble,
+  OBSOLETE_GENERIC_NATURE_TYPES
 };

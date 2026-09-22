@@ -1,16 +1,21 @@
 const { recordFundChange } = require("./fundLedger");
+const { addPendingRecovered } = require("./resourceLedger");
+const { applyChapterVisitorDelta, todayChapterContribution } = require("./chapterTargets");
+const { isRealNatureEventType, realNatureImpactPair, applyCoreMetric, CORE_METRIC_AMOUNTS } = require("./realNatureEventSystem");
 
 const EVENT_CATEGORIES = Object.freeze({
   nature: { label: "自然规则", mode: "观察风险 → 修复或救助", chain: "水草与种群 → 观赏体验 → 游客与基金" },
   social: { label: "游客与社会", mode: "疏导现场 → 恢复秩序", chain: "安全与口碑 → 游客留存 → 保护基金" },
-  neighbor: { label: "相邻保护区", mode: "核验需求 → 协作或保留", chain: "共享资源与迁徙 → 游览吸引力 → 游客与基金" }
+  neighbor: { label: "相邻保护区", mode: "核验需求 → 协作或保留", chain: "共享资源与迁徙 → 游览吸引力 → 游客与基金" },
+  realNature: { label: "真实事件", mode: "核对真实记录 → 保护区演练", chain: "真实案例 → 演练处置 → 两项核心数据" }
 });
 const SOCIAL_EVENTS = new Set(["poacher_ring", "snare_line", "community_blockade", "visitor_conflict", "visitor_litter", "visitor_queue", "water_contamination"]);
 const n = (value) => Math.max(0, Math.round(Number(value) || 0));
 
 function eventCategory(event = {}) {
   const type = event.type || event.id || "";
-  const key = event.category || (event.source === "neighbor" || type.startsWith("neighbor_") ? "neighbor"
+  const key = event.category || (isRealNatureEventType(type) ? "realNature"
+    : event.source === "neighbor" || type.startsWith("neighbor_") ? "neighbor"
     : ["social", "visitor"].includes(event.source) || SOCIAL_EVENTS.has(type) ? "social" : "nature");
   return Object.assign({ id: key }, EVENT_CATEGORIES[key] || EVENT_CATEGORIES.nature);
 }
@@ -127,39 +132,154 @@ function visitorContributionRate(reserve = {}) {
   return { activity, retention, unit: Math.max(2, Math.min(6, 2 + n(reserve.business) * .03)), rate: Math.max(2, Math.min(6, 2 + n(reserve.business) * .03)) * activity * retention };
 }
 
+// 所有客流增减都必须经过章节账本，否则界面会把差额显示成“待分类 N 人”。
+// 对外仍按“当日客流”口径报告 before/after：旧存档的章节账本在写入第一笔
+// 来源流水时会重算基线，直接用账本返回的 before/after 会把一次正收益显示
+// 成大额负数。这里只取账本真正落地的人数（applied）。
+function todayVisitorLossRoom(reserve, crowd) {
+  const contribution = todayChapterContribution(reserve);
+  if (contribution === null) return crowd;
+  return Math.min(crowd, contribution);
+}
+
+function applyVisitorFlow(reserve, delta, source = "visit") {
+  const before = businessTodaySnapshot(reserve).visitors;
+  let wanted = Math.round(Number(delta) || 0);
+  if (wanted < 0) {
+    wanted = -Math.min(todayVisitorLossRoom(reserve, before), Math.abs(wanted));
+  }
+  if (!wanted) return { before, after: before, delta: 0 };
+  const applied = Math.round(Number(applyChapterVisitorDelta(reserve, wanted, source).applied) || 0);
+  return { before, after: Math.max(0, before + applied), delta: applied };
+}
+
+function applyTodayIncome(reserve, incomeDelta, fundBefore, label, title, recordLedger) {
+  const operations = ((reserve.development || {}).operations);
+  const today = operations && operations.today;
+  if (today && incomeDelta) {
+    today.income = Math.max(0, n(today.income) + incomeDelta);
+    today.recruitedIncome = Math.max(0, n(today.recruitedIncome) + incomeDelta);
+    operations.totalIncome = Math.max(0, n(operations.totalIncome) + incomeDelta);
+  }
+  reserve.fund = Math.max(0, fundBefore + incomeDelta);
+  if (recordLedger && reserve.fund !== fundBefore) {
+    recordFundChange(reserve, fundBefore, reserve.fund, label, ((reserve.guardianCycle || {}).day) || 1, title);
+  }
+  return reserve.fund;
+}
+
+// 真实事件不走“客流恢复百分比”，而是按事件本身影响的两项核心指标结算，
+// 结果直接进入结算卡片。数值取自 realNatureEventSystem，保持两条结算路径一致。
+function applyRealNatureBusinessChange(reserve, active = {}, resolved = true, recordLedger = true) {
+  const emergency = reserve.emergency || (reserve.emergency = {});
+  if (emergency.pendingArcheryRoll !== undefined) delete emergency.pendingArcheryRoll;
+  const sign = resolved ? 1 : -1;
+  const fundBefore = n(reserve.fund);
+  const crowdBefore = businessTodaySnapshot(reserve).visitors;
+  const impactChanges = realNatureImpactPair(active).map((item) => {
+    const amounts = CORE_METRIC_AMOUNTS[item.metric] || {};
+    const amount = (amounts[item.weight] || amounts.中 || 1) * sign;
+    if (item.metric === "fund") {
+      const before = n(reserve.fund);
+      const after = applyTodayIncome(reserve, Math.round(amount), before, "真实事件结算", active.title, recordLedger);
+      return { metric: "fund", label: item.label, unit: item.unit, before, after, delta: after - before };
+    }
+    if (item.metric === "visitors") {
+      const flow = applyVisitorFlow(reserve, amount, amount >= 0 ? "visit" : "loss");
+      return { metric: "visitors", label: item.label, unit: item.unit, before: flow.before, after: flow.after, delta: flow.delta };
+    }
+    return Object.assign({ unit: item.unit }, applyCoreMetric(reserve, item.metric, amount));
+  });
+  const byMetric = (metric) => impactChanges.find((item) => item.metric === metric);
+  const visitors = byMetric("visitors");
+  const animals = byMetric("animals");
+  return {
+    visitorsBefore: visitors ? visitors.before : crowdBefore,
+    visitorsAfter: visitors ? visitors.after : crowdBefore,
+    visitorsDelta: visitors ? visitors.delta : 0,
+    fundBefore,
+    fundAfter: n(reserve.fund),
+    fundDelta: n(reserve.fund) - fundBefore,
+    animalsBefore: animals ? animals.before : 0,
+    animalsAfter: animals ? animals.after : 0,
+    animalsDelta: animals ? animals.delta : 0,
+    impactChanges
+  };
+}
+
 function applyEventBusinessOutcome(reserve, active, resolved, recordLedger = true) {
   const emergency = reserve.emergency || (reserve.emergency = {});
   if (emergency.businessEffect && emergency.businessEffect.eventId === active.id) return emergency.businessEffect.change;
+  if (isRealNatureEventType(active.type)) {
+    const realChange = applyRealNatureBusinessChange(reserve, active, resolved, recordLedger);
+    emergency.businessEffect = { eventId: active.id, resolved, remainingActions: 3, change: realChange };
+    return realChange;
+  }
   const operations = ((reserve.development || {}).operations);
   const today = operations && operations.today;
   const visitorsBefore = today ? n(today.visitors) + n(today.recruitedVisitors) : 0;
   const profile = eventBusinessProfile(active);
   const rawDelta = resolved ? visitorsBefore * profile.recoveryRate : -visitorsBefore * profile.lossRate;
   // 小客流也必须看见事件结果：9 名游客不能因为四舍五入而显示为“无变化”。
-  const delta = rawDelta > 0 ? Math.max(1, Math.round(rawDelta)) : rawDelta < 0 ? -Math.min(visitorsBefore, Math.max(1, Math.ceil(-rawDelta))) : 0;
+  // 负向变化只能吃掉“今天真正计入本章的人”，不能动本章此前攒下的存量。
+  const lossRoom = todayVisitorLossRoom(reserve, visitorsBefore);
+  const wanted = rawDelta > 0 ? Math.max(1, Math.round(rawDelta))
+    : rawDelta < 0 && lossRoom > 0 ? -Math.min(lossRoom, Math.max(1, Math.ceil(-rawDelta))) : 0;
+  const flow = today ? applyVisitorFlow(reserve, wanted, wanted >= 0 ? "visit" : "loss") : { before: visitorsBefore, after: visitorsBefore, delta: 0 };
+  const delta = flow.delta;
   const fundBefore = n(reserve.fund);
   // Refund only contributions actually recorded today; no fictional loss when
   // there are no guests, and never debit the same incident twice.
   const incomeDelta = delta >= 0 ? Math.round(delta * visitorContributionRate(reserve).rate)
     : -Math.min(fundBefore, n(today && today.income), Math.round(n(today && today.income) * -delta / Math.max(1, visitorsBefore)));
-  if (today) {
-    if (delta >= 0) {
-      today.recruitedVisitors = n(today.recruitedVisitors) + delta;
-      today.recruitedIncome = n(today.recruitedIncome) + incomeDelta;
-    } else {
-      const localLeft = Math.min(n(today.visitors), -delta);
-      today.visitors = n(today.visitors) - localLeft;
-      today.recruitedVisitors = n(today.recruitedVisitors) - (-delta - localLeft);
-      today.recruitedIncome = Math.max(0, n(today.recruitedIncome) + incomeDelta);
-    }
-    operations.totalVisitors = Math.max(0, n(operations.totalVisitors) + delta);
-    today.income = Math.max(0, n(today.income) + incomeDelta);
-    operations.totalIncome = Math.max(0, n(operations.totalIncome) + incomeDelta);
-  }
-  reserve.fund = Math.max(0, fundBefore + incomeDelta);
-  if (recordLedger) recordFundChange(reserve, fundBefore, reserve.fund, resolved ? "事件恢复客流" : "事件游客退款", ((reserve.guardianCycle || {}).day) || 1, active.title);
+  applyTodayIncome(reserve, incomeDelta, fundBefore, resolved ? "事件恢复客流" : "事件游客退款", active.title, recordLedger);
   const change = { visitorsBefore, visitorsAfter: visitorsBefore + delta, visitorsDelta: delta, fundBefore, fundAfter: reserve.fund, fundDelta: reserve.fund - fundBefore };
   emergency.businessEffect = { eventId: active.id, resolved, remainingActions: !resolved && profile.lossRate === 0 ? 0 : 3, change };
+  return change;
+}
+
+// 射箭点数只决定分配比例，不决定成败：三档都是一次完成的交换，1–2 点也要
+// 给到正收益，只是我方拿得最少。分档必须与 worldEventSystem 的
+// neighborExchangeAdvantage 一致（5–6 self / 3–4 fair / 1–2 neighbor）。
+const NEIGHBOR_EXCHANGE_SHARES = Object.freeze({
+  self: Object.freeze({ grass: 6, sample: 3, visitorRate: .12, visitorFloor: 3, label: "我方更得利" }),
+  fair: Object.freeze({ grass: 4, sample: 2, visitorRate: .08, visitorFloor: 2, label: "互惠交换" }),
+  neighbor: Object.freeze({ grass: 2, sample: 1, visitorRate: .04, visitorFloor: 1, label: "邻区更得利" })
+});
+
+function neighborExchangeShareKey(roll) {
+  const score = Math.max(1, Math.min(6, Math.round(Number(roll) || 0)));
+  return score >= 5 ? "self" : score >= 3 ? "fair" : "neighbor";
+}
+
+function applyNeighborExchangeShare(reserve, active = {}, roll = 4, recordLedger = true) {
+  const emergency = reserve.emergency || (reserve.emergency = {});
+  if (emergency.businessEffect && emergency.businessEffect.eventId === active.id) return emergency.businessEffect.change;
+  const key = neighborExchangeShareKey(roll);
+  const share = NEIGHBOR_EXCHANGE_SHARES[key];
+  const ecology = reserve.ecology || (reserve.ecology = {});
+  const grassBefore = n(ecology.grass);
+  ecology.grass = Math.max(0, Math.min(100, grassBefore + share.grass));
+  const sampleDelta = addPendingRecovered(reserve, "researchSample", share.sample);
+  const crowd = businessTodaySnapshot(reserve).visitors;
+  const flow = applyVisitorFlow(reserve, Math.max(share.visitorFloor, Math.round(crowd * share.visitorRate)), "visit");
+  const fundBefore = n(reserve.fund);
+  const incomeDelta = Math.round(flow.delta * visitorContributionRate(reserve).rate);
+  applyTodayIncome(reserve, incomeDelta, fundBefore, "邻区交换客流", active.title, recordLedger);
+  const change = {
+    exchangeShare: key,
+    exchangeLabel: share.label,
+    exchangeRoll: Math.max(1, Math.min(6, Math.round(Number(roll) || 4))),
+    grassDelta: ecology.grass - grassBefore,
+    sampleDelta,
+    visitorsBefore: flow.before,
+    visitorsAfter: flow.after,
+    visitorsDelta: flow.delta,
+    fundBefore,
+    fundAfter: reserve.fund,
+    fundDelta: reserve.fund - fundBefore
+  };
+  emergency.businessEffect = { eventId: active.id, resolved: true, remainingActions: 3, change };
   return change;
 }
 
@@ -174,20 +294,16 @@ function applyNarrativeBusinessChange(reserve = {}, profile = {}, event = {}, la
   const fundBefore = n(reserve.fund);
   const rawDelta = today && visitorsBefore ? visitorsBefore * (profile.demand - 1) : 0;
   // 事件/剧情对少量游客也要有可见反馈，避免 3%～8% 的影响被 round 成 0。
-  const delta = rawDelta > 0 ? Math.max(1, Math.round(rawDelta)) : rawDelta < 0 ? -Math.min(visitorsBefore, Math.max(1, Math.ceil(-rawDelta))) : 0;
+  // 负向影响以“当日对本章的实际贡献”为上限，避免按当日客流百分比去啃本章存量。
+  const narrativeLossRoom = todayVisitorLossRoom(reserve, visitorsBefore);
+  const wanted = rawDelta > 0 ? Math.max(1, Math.round(rawDelta))
+    : rawDelta < 0 && narrativeLossRoom > 0 ? -Math.min(narrativeLossRoom, Math.max(1, Math.ceil(-rawDelta))) : 0;
+  const delta = today ? applyVisitorFlow(reserve, wanted, wanted >= 0 ? "visit" : "loss").delta : 0;
   const rate = visitorContributionRate(reserve).rate;
   const incomeDelta = delta >= 0
     ? Math.round(delta * rate)
     : -Math.min(n(today && today.income), Math.round(n(today && today.income) * (-delta) / Math.max(1, visitorsBefore)));
   if (today && delta !== 0) {
-    if (delta > 0) {
-      today.recruitedVisitors = n(today.recruitedVisitors) + delta;
-    } else {
-      const fromWalkIns = Math.min(n(today.visitors), -delta);
-      today.visitors = n(today.visitors) - fromWalkIns;
-      today.recruitedVisitors = Math.max(0, n(today.recruitedVisitors) - (-delta - fromWalkIns));
-    }
-    operations.totalVisitors = Math.max(0, n(operations.totalVisitors) + delta);
     today.income = Math.max(0, n(today.income) + incomeDelta);
     today.recruitedIncome = Math.max(0, n(today.recruitedIncome) + incomeDelta);
     operations.totalIncome = Math.max(0, n(operations.totalIncome) + incomeDelta);
@@ -294,6 +410,7 @@ function eventBusinessSummary(change = {}) {
 
 module.exports = {
   EVENT_CATEGORIES, eventCategory, eventBusinessProfile, eventBusinessFactors, visitorEngagement,
+  NEIGHBOR_EXCHANGE_SHARES, neighborExchangeShareKey, applyNeighborExchangeShare,
   visitorContributionRate, applyEventBusinessOutcome, applyNarrativeBusinessPressure,
   applyNarrativeBusinessOutcome, applyActionBusinessPulse, advanceBusinessEffects, narrativeBusinessProfile, eventBusinessSummary
 };

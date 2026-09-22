@@ -5,11 +5,14 @@ const {
   REWARDED_SUPPLY_AD_CONFIG,
   REWARDED_FUND_AD_CONFIG,
   REWARDED_VISITOR_AD_CONFIG,
+  REWARDED_ANIMAL_AD_CONFIG,
   RewardedSupplyAdController,
   emergencySupplyAdStatus,
   applyEmergencySupplyReward,
   emergencyFundAdStatus,
-  applyEmergencyFundReward
+  applyEmergencyFundReward,
+  animalTotalAdStatus,
+  applyAnimalTotalAdReward
 } = require("../js/adSystem");
 
 async function main() {
@@ -131,6 +134,59 @@ async function main() {
 
   const gameSource = require("fs").readFileSync(require.resolve("../js/game"), "utf8");
   assert(gameSource.includes("this.rewardedVisitorAds = new RewardedSupplyAdController(this.runtime, { config: REWARDED_VISITOR_AD_CONFIG });"), "游客激励视频必须随延迟运行时服务提前初始化");
+  assert(gameSource.includes("this.rewardedAnimalAds = new RewardedSupplyAdController(this.runtime, { config: REWARDED_ANIMAL_AD_CONFIG });"), "动物总数激励视频必须随延迟运行时服务提前初始化");
+  assert.strictEqual(REWARDED_ANIMAL_AD_CONFIG.adUnitId, "adunit-a74d65c9384d70b7", "动物总数必须使用指定的激励视频广告位");
+
+  const animalReserve = createReserveState();
+  const { livingAnimalTotal } = require("../js/chapterRescueSystem");
+  const animalBefore = livingAnimalTotal(animalReserve);
+  assert(animalTotalAdStatus(animalReserve).eligible, "动物总数广告每天开始时应可看");
+  assert.strictEqual(animalTotalAdStatus(animalReserve).remaining, 2, "动物总数广告每天最多两次");
+  const lowAnimal = applyAnimalTotalAdReward(animalReserve, () => 0);
+  assert(lowAnimal.ok && lowAnimal.percent === 5, "完播后应按 5% 下限增加动物");
+  assert.strictEqual(lowAnimal.amount, Math.max(1, Math.round(animalBefore * 0.05)), "5% 奖励数量必须按当前动物总数计算");
+  assert.strictEqual(livingAnimalTotal(animalReserve), animalBefore + lowAnimal.amount, "完播后动物总数必须真实增加");
+  assert.strictEqual(require("../js/animalSourceLedger").animalSourceSummary(animalReserve).advertised, lowAnimal.amount, "幸运迁入必须记入广告来源");
+  assert.strictEqual(require("../js/animalSourceLedger").animalSourceSummary(animalReserve).returned, 0, "广告不得记入迁入/繁殖");
+  assert.strictEqual(require("../js/animalSourceLedger").animalSourceSummary(animalReserve).growth, 0, "广告不得记入繁殖剩余");
+  const highAnimalReserve = createReserveState();
+  const highBefore = livingAnimalTotal(highAnimalReserve);
+  const highAnimal = applyAnimalTotalAdReward(highAnimalReserve, () => 0.99);
+  assert(highAnimal.ok && highAnimal.percent === 10, "完播后应按 10% 上限增加动物");
+  assert.strictEqual(highAnimal.amount, Math.max(1, Math.round(highBefore * 0.10)), "10% 奖励数量必须按当前动物总数计算");
+  const secondWatch = applyAnimalTotalAdReward(animalReserve, () => 0.5);
+  assert(secondWatch.ok, "同一天应允许看第二次动物广告");
+  const thirdWatch = applyAnimalTotalAdReward(animalReserve, () => 0.5);
+  assert(!thirdWatch.ok && thirdWatch.reason === "daily_cap", "同一天第三次不得发放动物奖励");
+  assert.strictEqual(animalTotalAdStatus(animalReserve).remaining, 0, "两次之后当日次数应耗尽");
+
+  const animalDetailGame = Object.create(Game.prototype);
+  animalDetailGame.state = { world: { reserve: createReserveState() } };
+  const animalDetail = animalDetailGame.buildChapterProgressDetail().metricDetails.animals;
+  const animalVisible = [animalDetail.actionLabel, animalDetail.footer]
+    .concat((animalDetail.items || []).flatMap((item) => [item.tag, item.title, item.body]))
+    .join(" ");
+  assert.strictEqual(animalDetail.adPlacement, "animal_total_detail_footer", "动物总数详情必须提供幸运迁入入口");
+  assert(/幸运获得/.test(animalDetail.actionLabel) && /迁入动物/.test(animalDetail.actionLabel), "动物总数详情底部必须出现幸运获得迁入动物");
+  assert(animalDetail.items.some((item) => item.tag === "幸运" && typeof item.action === "function"), "动物总数详情必须有可点击的幸运迁入说明卡");
+  const specificAnimalTask = animalDetail.items.find((item) => item.tag === "具体任务");
+  assert(specificAnimalTask && typeof specificAnimalTask.action === "function", "动物总数不足时必须在幸运迁入之外提供一个可执行的具体任务");
+  assert(/解救.+|修复饮水点 1 次|恢复草场 1 次/.test(specificAnimalTask.title), "具体任务必须明确到动物或一次栖息地行动");
+  assert(/还差 \d+ 只/.test(specificAnimalTask.body), "具体任务必须写出当前动物缺口");
+  assert(!/广告|激励|5%|10%/.test(animalVisible), "动物总数详情不得向玩家展示广告或百分比规则");
+
+  const failedAnimalReserve = createReserveState();
+  const failedAnimalBefore = livingAnimalTotal(failedAnimalReserve);
+  const failedAnimalGame = Object.create(Game.prototype);
+  failedAnimalGame.state = { world: { reserve: failedAnimalReserve } };
+  failedAnimalGame.rewardedAnimalAds = { show: () => Promise.resolve({ completed: false, reason: "closed_early" }) };
+  failedAnimalGame.toast = () => {};
+  failedAnimalGame.playSfx = () => {};
+  failedAnimalGame.openCoreMetricDetail = () => {};
+  failedAnimalGame.claimAnimalTotalAd();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.strictEqual(livingAnimalTotal(failedAnimalReserve), failedAnimalBefore, "广告未完整观看时不得增加动物总数");
+
   console.log("rewarded supply ad check ok");
 }
 

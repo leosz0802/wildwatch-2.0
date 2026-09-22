@@ -34,6 +34,14 @@ game.gesture = { pinch: true };
 if (!game.isFastMapRender() || game.targetFrameMs() > 20) {
   throw new Error("map pinch should use the same near-60fps fast path as map drag");
 }
+if (game.isQuietSandboxPaint()) {
+  throw new Error("map pinch must not use the idle particle skip");
+}
+
+game.gesture = null;
+if (!game.isQuietSandboxPaint()) {
+  throw new Error("idle sandbox should skip decorative map particles");
+}
 
 game.gesture = null;
 game.screen = "collection";
@@ -82,9 +90,12 @@ if (!storyContext.storyText || storyLabelReads !== storyReadsAfterContext) {
   throw new Error("animal priority should build story event text once per frame");
 }
 eventReads = 0;
-game.mapAnimalVisualGroupCounts(cachedRoster, game.state.world.reserve || {});
-if (eventReads !== 1) {
-  throw new Error(`animal group sizing should share one event snapshot, got ${eventReads} reads`);
+const groupCounts = game.mapAnimalVisualGroupCounts(cachedRoster, game.state.world.reserve || {});
+if (eventReads !== 0) {
+  throw new Error(`single-herd group sizing must not rescan map events, got ${eventReads} reads`);
+}
+if (Object.values(groupCounts).some((count) => count < 1 || count > 2)) {
+  throw new Error("sandbox group sizing must keep one herd per species and at most two animals");
 }
 
 // Cached regional grouping must be pixel-equivalent to the original layout.
@@ -138,6 +149,19 @@ if (!/if \(!fast\) this\.resolveAnimalMotionOverlaps\(placements, camera\)/.test
 }
 if (!/if \(!fastMapGesture && this\.wechatFriends/.test(gameSource) || !/if \(!fastMapGesture && this\.cloudService/.test(gameSource)) {
   throw new Error("map drag still performs cloud synchronization checks in the render path");
+}
+
+if (!/if \(!fastMapGesture && this\.screen !== "home"\)/.test(gameSource)) {
+  throw new Error("idle home still paints fireflies and page weather under the map");
+}
+if (!/this\.drawMapAmbientDynamics\(ctx, camera, fast \|\| this\.isQuietSandboxPaint\(\)\)/.test(gameSource)) {
+  throw new Error("idle sandbox still paints extra map weather particles every frame");
+}
+if (!/cloneStateForGoalProgress/.test(gameSource) || /JSON\.parse\(JSON\.stringify\(this\.state\)\)/.test(gameSource)) {
+  throw new Error("goal progress still deep-clones the full live save including reports");
+}
+if (!/else if \(this\.screen === "home"\)/.test(gameSource)) {
+  throw new Error("drawCurrentScreen still evaluates every screen branch");
 }
 
 console.log("performance check ok");

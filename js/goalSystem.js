@@ -1,14 +1,22 @@
-const { BALANCE_V2, chapterEconomy, levelOf } = require("./balanceConfig");
+const { BALANCE_V2, chapterEconomy, ECOLOGY_THRESHOLDS, levelOf, supplyCapFor } = require("./balanceConfig");
 const { collectionSummary } = require("./collectionSystem");
 const { facilityStates } = require("./reserveFacilities");
-const { reserveDevelopmentViews } = require("./reserveDevelopment");
 const { eventStepGuidance } = require("./storyGuidance");
 const { addPendingRecovered, addSupply } = require("./resourceLedger");
 const { supplyPurchaseCatalog, actionSupplyRequirement } = require("./actions");
 const { recordFundChange } = require("./fundLedger");
 const { eventCategory } = require("./eventEconomy");
+const { isVisitorArcheryEvent, isNeighborExchangeEvent } = require("./worldEventSystem");
+const { isRealNatureEventType } = require("./realNatureEventSystem");
 const { chapterRescueSummary, nextRescueTask, nextPoacherRescue } = require("./chapterRescueSystem");
+const { chapterCoreLiveSnapshot } = require("./chapterTargets");
 const { criticalPatrolRisk } = require("./patrolTriggerPolicy");
+const { chapterSpecialStatus, METRIC_LABELS } = require("./chapterSpecialSystem");
+const { reserveDevelopmentViews } = require("./reserveDevelopment");
+const { chapterHostedVisitors } = require("./visitorReception");
+
+const SANDBOX_VISITOR_SPARSE_LIMIT = 8;
+const VISITOR_FACILITY_NODE_ORDER = Object.freeze(["river_shallows", "meadow_edge", "border_pass", "forest_watch"]);
 
 const GOAL_BALANCE = Object.freeze({
   version: 3,
@@ -18,9 +26,9 @@ const GOAL_BALANCE = Object.freeze({
   goalRewardScale: 1,
   instantRefreshActions: 1,
   dailyResetHour: 4,
-  dailyGoalCount: 3,
-  dailyRequiredCount: 3,
-  dailySchemaVersion: 3,
+  dailyGoalCount: 2,
+  dailyRequiredCount: 2,
+  dailySchemaVersion: 4,
   maxVisibleGoals: 3,
   fallbackCooldownActions: 3,
   rerouteAfterNoProgress: 2,
@@ -31,6 +39,17 @@ const GOAL_BALANCE = Object.freeze({
   chapterFundReward: Object.freeze({ 1: 40, 2: 60, 3: 70, 4: 90, 5: 100, 6: 120, 7: 140, 8: 170, 9: 200, 10: 1200 }),
   longNodeFundReward: Object.freeze({ 0: 50, 1: 80, 2: 120 })
 });
+
+const TASK_CATEGORIES = Object.freeze({
+  naturalEvent: "natural_event",
+  story: "story",
+  userTriggered: "user_triggered",
+  sandbox: "sandbox",
+  metric: "metric",
+  survival: "survival",
+  animal: "animal"
+});
+const TASK_CATEGORY_SET = new Set(Object.values(TASK_CATEGORIES));
 
 const LONG_TERM_UNLOCKS = Object.freeze({
   guardian_journey: Object.freeze({ appearance: "守护年轮边框", title: "十章守护者", shareCard: "守护历程分享卡" }),
@@ -50,14 +69,18 @@ const ACTION_META = Object.freeze({
   collectionInvestigate: { label: "去沙盘收录", icon: "trail", screen: "home" },
   guideSandbox: { label: "回沙盘查看", icon: "nav_sandbox", screen: "home" },
   viewFund: { label: "查看星币", icon: "fund", screen: "home" },
-  viewVisitors: { label: "查看游客运营", icon: "community", screen: "collection" },
+  viewVisitors: { label: "发布游客招募", icon: "community", screen: "collection" },
   viewSurvival: { label: "查看生存频道", icon: "leaf", screen: "survival" },
   viewDiscovery: { label: "打开发现频道", icon: "trail", screen: "animalworld" },
   visitorAdjust: { label: "调节游客现场", icon: "community", screen: "home" },
+  neighborExchange: { label: "射箭判定交换", icon: "community", screen: "home" },
+  harshNature: { label: "射箭判定伤害", icon: "wildfire", screen: "home" },
+  realEvent: { label: "查看事件详情", icon: "trail", screen: "home" },
   facilityBuild: { label: "建设保护设施", icon: "reserve_level", screen: "home" },
   rescueAnimal: { label: "前往沙盘解救", icon: "paw", screen: "home" },
   animalCare: { label: "安抚命名动物", icon: "eye", screen: "population" },
-  observeReserve: { label: "观察保护区", icon: "eye", screen: "home" }
+  observeReserve: { label: "观察保护区", icon: "eye", screen: "home" },
+  chapterSpecial: { label: "处理本章特别任务", icon: "paw", screen: "home" }
 });
 
 const SUPPLY_CAPS = BALANCE_V2.supplyCaps;
@@ -78,18 +101,74 @@ function reserveFor(state) {
   return (((state || {}).world || {}).reserve) || {};
 }
 
+function chapterNumberOf(state) {
+  const progression = reserveFor(state).progression || {};
+  return clamp(progression.stage || progression.displayChapter || 1, 1, 20);
+}
+
+function ecologyNeedsAttention(reserve) {
+  const eco = (reserve || {}).ecology || {};
+  return (eco.water || 0) < ECOLOGY_THRESHOLDS.recoveryWater
+    || (eco.grass || 0) < ECOLOGY_THRESHOLDS.recoveryGrass
+    || Number(((reserve || {}).migration || {}).delta) < 0;
+}
+
+function dailyObjectiveKinds() {
+  // 全章节每日任务只保留招募游客和水草养护，不再强制去生存频道。
+  return ["visitor", "ecology"];
+}
+
+function dailyNeedCount(daily = {}) {
+  return Math.max(
+    Number(GOAL_BALANCE.dailyRequiredCount) || 2,
+    dailyObjectiveKinds().length,
+    Array.isArray(daily.objectives) ? daily.objectives.length : 0
+  );
+}
+
+function dailyBatchComplete(daily = {}) {
+  const kinds = dailyObjectiveKinds();
+  const objectives = daily.objectives || [];
+  return kinds.length > 0 && kinds.every((kind) => objectives.some((item) => item && item.kind === kind && item.complete));
+}
+
+function isCoreReserveGoal(item) {
+  if (!item) return false;
+  if (["crisis", "recovery", "daily"].includes(item.kind)) return true;
+  if (item.rescueAligned || item.recommendedAction === "rescueAnimal") return true;
+  if (item.kind === "stage" || item.kind === "collection") return true;
+  if (["habitat", "intervention", "visitorAdjust", "neighborExchange", "viewVisitors", "animalCare", "chapterSpecial", "harshNature"].includes(item.recommendedAction)) return true;
+  if (item.visitorFacilityGuidance) return true;
+  return false;
+}
+
 function inventoryTotal(reserve) {
   return Object.values((reserve || {}).inventory || {}).reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
+}
+
+function hasRecoveredStock(reserve) {
+  return inventoryTotal(reserve) > 0
+    || Object.values((reserve || {}).pendingRecovered || {}).some((value) => Number(value) > 0);
+}
+
+function safeRecoveryAction(state, preferredSupplyId = "") {
+  const reserve = reserveFor(state);
+  const purchaseId = affordableSupplyId(reserve, preferredSupplyId);
+  if (purchaseId) return { action: "buySupplies", purchaseId };
+  if (hasRecoveredStock(reserve)) return { action: "salvage", purchaseId: "" };
+  if (ecologyNeedsAttention(reserve) && actionExecutable(state, "habitat")) return { action: "habitat", purchaseId: "" };
+  return { action: "viewVisitors", purchaseId: "" };
 }
 
 function dailyGuardAction(state) {
   const reserve = reserveFor(state);
   const emergency = ((reserve.emergency || {}).active) || null;
+  if (emergency && isVisitorArcheryEvent(emergency.type)) return "visitorAdjust";
+  if (emergency && isNeighborExchangeEvent(emergency.type)) return "neighborExchange";
   if (emergency && emergency.recommendedAction) return emergency.recommendedAction;
   const risk = criticalPatrolRisk(reserve);
-  // Story patrols belong to the actual pending story step, not a duplicate
-  // daily task selected from the chapter number or the previous action.
-  return risk ? risk.action : "exploreMaterials";
+  // 没有真实巡护风险时，章节进度卡也只指向游客或水草，不再去生存频道。
+  return risk ? risk.action : "viewVisitors";
 }
 
 function dailyEconomyAction(state) {
@@ -98,33 +177,41 @@ function dailyEconomyAction(state) {
   const level = Math.max(1, Math.min(7, Math.round((((reserve.progression || {}).level) || 1))));
   const health = BALANCE_V2.fundHealth[level];
   const stock = inventoryTotal(reserve);
-  const pendingRecovered = Object.values(reserve.pendingRecovered || {}).reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
   const lowSupply = Object.keys(SUPPLY_CAPS).some((key) => (supplies[key] || 0) / Math.max(1, SUPPLY_CAPS[key]) <= 0.34);
   if (stock > 0 && (reserve.fund || 0) < health.healthyMin) return "salvage";
   if (lowSupply && (reserve.fund || 0) >= health.healthyMin) return "buySupplies";
-  // 待收样本本身就是可完成的经营动作，优先引导到收取，不要把任务
-  // 误判成“还要再探索一份样本”。
-  return stock > 0 || pendingRecovered > 0 ? "salvage" : "exploreMaterials";
+  return stock > 0 || hasRecoveredStock(reserve) ? "salvage" : "viewVisitors";
 }
 
 function dailyAnimalAction(state) {
   const collection = (((state || {}).world || {}).collection) || {};
   const active = ((collection.discovery || {}).active) || null;
   if (active && active.status === "located") return "collectionInvestigate";
-  if (active && active.status === "hinted") return ["animalCare", "careAnimal"].includes(active.actionId) ? "exploreMaterials" : active.actionId || "exploreMaterials";
+  if (active && active.status === "hinted") return ["animalCare", "careAnimal"].includes(active.actionId) ? "animalCare" : active.actionId || "animalCare";
   return "animalCare";
 }
 
 function objectiveFor(kind, state) {
-  const action = kind === "guard" ? dailyGuardAction(state) : kind === "economy" ? dailyEconomyAction(state) : kind === "animal" ? dailyAnimalAction(state) : kind === "visitor" ? "visitorAdjust" : "habitat";
+  const action = kind === "guard"
+    ? dailyGuardAction(state)
+    : kind === "economy"
+      ? dailyEconomyAction(state)
+      : kind === "animal"
+        ? dailyAnimalAction(state)
+        : kind === "visitor"
+          ? "viewVisitors"
+          : "habitat";
   const meta = ACTION_META[action] || ACTION_META.observeReserve;
+  const water = Number((reserveFor(state).ecology || {}).water) || 0;
+  const grass = Number((reserveFor(state).ecology || {}).grass) || 0;
+  const ecologyFocus = water <= grass ? "水源" : "草场";
   const definitions = {
     guard: {
       id: "daily_guard",
       kind: "guard",
-      title: action === "exploreMaterials" ? "记录今天的生态线索" : "处理当前风险",
-      story: action === "exploreMaterials" ? "跟随动物，留下今天的观察记录。" : "回应现场的危险信号。",
-      description: action === "exploreMaterials" ? "完成2次动物引路探索。" : "完成2次相关行动或动物引路探索。",
+      title: "处理当前风险",
+      story: "回应现场的危险信号。",
+      description: "完成2次相关守护行动。",
       target: Math.max(1, Math.round(2 * GOAL_BALANCE.dailyDifficultyScale)),
       reward: "研究样本待收 +1 · 基金 +8"
     },
@@ -147,12 +234,22 @@ function objectiveFor(kind, state) {
       reward: "研究样本待收 +1 · 基金 +8"
     },
     visitor: {
-      id: "daily_visitor", kind: "visitor", title: "回应游客现场", story: "让游客与生态保持平衡。",
-      description: "完成1次游客现场调节。", target: 1, reward: "研究样本待收 +1 · 基金 +8"
+      id: "daily_visitor",
+      kind: "visitor",
+      title: "招揽游客来访",
+      story: "让游客进入保护区，观察客流对水源和草地的影响。",
+      description: "发布1次游客招募，真正带来游客。",
+      target: 1,
+      reward: "研究样本待收 +1 · 基金 +8"
     },
     ecology: {
-      id: "daily_ecology", kind: "ecology", title: "稳住生态循环", story: "让水源与草场保持可用。",
-      description: "完成1次栖息地修复或生态干预。", target: 1, reward: "研究样本待收 +1 · 基金 +8"
+      id: "daily_ecology",
+      kind: "ecology",
+      title: water < grass ? "稳住饮水点" : grass < water ? "稳住草场" : "稳住水源与草场",
+      story: "水源、草地和迁徙线会直接改变游客与动物去留。",
+      description: `完成1次栖息地修复，优先照顾${ecologyFocus}。`,
+      target: 1,
+      reward: "研究样本待收 +1 · 基金 +8"
     },
     discovery: {
       id: "daily_discovery", kind: "discovery", title: "记录一条新线索", story: "让今天的观察留下记录。",
@@ -163,9 +260,9 @@ function objectiveFor(kind, state) {
     progress: 0,
     complete: false,
     recommendedAction: action,
-    buttonLabel: action === "exploreMaterials" ? "去生存频道" : meta.label,
+    buttonLabel: meta.label,
     icon: meta.icon,
-    targetScreen: action === "exploreMaterials" ? "survival" : meta.screen
+    targetScreen: meta.screen
   });
 }
 
@@ -227,13 +324,14 @@ function syncDailyProjection(daily) {
 
 function createDailyState(state, now = Date.now()) {
   const chapter = clamp((((reserveFor(state).progression || {}).stage) || 1), 1, 10);
+  const kinds = dailyObjectiveKinds(state);
   return syncDailyProjection({
     version: 3,
     schemaVersion: GOAL_BALANCE.dailySchemaVersion,
     dateKey: goalDateKey(now),
     chapterNumber: chapter,
-    objectives: ["guard", "economy", "animal"].slice(0, GOAL_BALANCE.dailyGoalCount).map((kind) => objectiveFor(kind, state)),
-    required: GOAL_BALANCE.dailyRequiredCount,
+    objectives: kinds.map((kind) => objectiveFor(kind, state)),
+    required: kinds.length,
     coreClaimed: false,
     fullClaimed: false,
     completedPrevious: false,
@@ -287,7 +385,8 @@ function normalizeGoalState(saved, state = {}, now = Date.now()) {
   next.history = (saved.history || []).slice(-80);
   next.daily = Object.assign(createDailyState(state, now), clone(saved.daily));
   const savedObjectives = saved.daily.objectives || [];
-  next.daily.objectives = ["guard", "economy", "animal"].slice(0, GOAL_BALANCE.dailyGoalCount).map((kind, index) => {
+  const kinds = dailyObjectiveKinds(state);
+  next.daily.objectives = kinds.map((kind) => {
     const objective = savedObjectives.find((item) => item.kind === kind) || {};
     const base = objectiveFor(kind, state);
     // 存档只继承本类进度，文案与动作始终取同一份定义，避免旧游客任务被配上修复动作。
@@ -295,14 +394,10 @@ function normalizeGoalState(saved, state = {}, now = Date.now()) {
       progress: clamp(objective.progress || 0, 0, objective.target || base.target),
       complete: !!objective.complete || (objective.progress || 0) >= (objective.target || base.target)
     });
-    if (merged.recommendedAction === "exploreMaterials") {
-      merged.buttonLabel = "去生存频道";
-      merged.targetScreen = "survival";
-    }
     return merged;
   });
   next.daily.schemaVersion = GOAL_BALANCE.dailySchemaVersion;
-  next.daily.required = GOAL_BALANCE.dailyRequiredCount;
+  next.daily.required = kinds.length;
   next.daily = syncDailyProjection(next.daily);
   if (next.daily.dateKey !== goalDateKey(now)) {
     next.history = (next.history || []).concat([{
@@ -338,8 +433,8 @@ function actionMatchesObjective(action, objective) {
   if (objective.kind === "guard") return ["houndScout", "antiPoacher", "habitat", "intervention", "patrol", "exploreMaterials", "viewSurvival"].includes(action) || action === objective.recommendedAction;
   if (objective.kind === "economy") return ["buySupplies", "salvage", "facilityBuild", "collectRecovered", "exploreMaterials", "viewSurvival"].includes(action);
   if (objective.kind === "animal" || objective.kind === "discovery") return ["exploreMaterials", "animalCare", "collectionInvestigate", "careAnimal", "guideMigration", "rescueCare", "viewSurvival", "viewDiscovery"].includes(action) || action === objective.recommendedAction;
-  if (objective.kind === "visitor") return action === "visitorAdjust";
-  if (objective.kind === "ecology") return ["habitat", "intervention"].includes(action);
+  if (objective.kind === "visitor") return action === "visitorAdjust" || action === "viewVisitors";
+  if (objective.kind === "ecology") return ["habitat", "intervention", "harshNature"].includes(action);
   return action === objective.recommendedAction;
 }
 
@@ -365,6 +460,7 @@ function actionExecutable(state, action) {
   const requirement = actionSupplyRequirement(action, reserve);
   if (requirement) return (supplies[requirement.id] || 0) > 0;
   if (action === "exploreMaterials") return true;
+  if (action === "harshNature") return true;
   if (action === "rescueAnimal") {
     const chapter = Math.max(1, Math.round(Number((reserve.progression || {}).stage || (reserve.progression || {}).displayChapter || 1)));
     return !!nextPoacherRescue(reserve) || !!nextRescueTask(reserve, chapter);
@@ -411,15 +507,22 @@ function candidate(id, kind, title, body, action, basePriority, state, extras = 
     + (extras.expiresSoon ? 15 : 0)
     + (extras.shortage ? 8 : 0)
     - (repeat && kind !== "crisis" ? GOAL_BALANCE.repeatedActionPenalty : 0);
+  const inferredCategory = extras.taskCategory
+    || (extras.rescueAligned || action === "animalCare" || action === "rescueAnimal" ? TASK_CATEGORIES.animal
+      : kind === "crisis" ? TASK_CATEGORIES.naturalEvent
+        : kind === "stage" || kind === "collection" ? TASK_CATEGORIES.story
+          : kind === "recovery" ? TASK_CATEGORIES.metric
+            : action === "exploreMaterials" || action === "viewSurvival" ? TASK_CATEGORIES.survival
+              : "");
   return Object.assign({
     id,
     kind,
     title,
     body,
     recommendedAction: action,
-    buttonLabel: action === "exploreMaterials" ? "去生存频道" : meta.label,
+    buttonLabel: meta.label,
     icon: meta.icon,
-    targetScreen: action === "exploreMaterials" ? "survival" : meta.screen,
+    targetScreen: extras.targetScreen || meta.screen,
     basePriority,
     priorityScore: score,
     // 紧急事件即使缺少补给也必须留在主任务中；点击后由巡护入口显示
@@ -427,8 +530,159 @@ function candidate(id, kind, title, body, action, basePriority, state, extras = 
     executable: executable || allowBlocked,
     progress: 0,
     target: 1,
+    taskCategory: inferredCategory,
     rewardText: "行动本身会推进保护区"
   }, extras);
+}
+
+function chapterSpecialCandidate(state) {
+  const reserve = reserveFor(state);
+  const status = chapterSpecialStatus(reserve);
+  if (!status.available) return null;
+  const def = status.def;
+  const pair = def.metrics.map((metric) => METRIC_LABELS[metric] || metric).join("与");
+  const play = def.mode === "archery" ? "射箭判定" : "骰子判定";
+  return candidate(`stage:${status.state.chapter}:special:${def.taskTitle}`, "stage",
+    def.taskTitle,
+    `${def.storyTitle}。${def.taskBody} ${play}，结果直接影响${pair}。`,
+    "chapterSpecial", 93, state, {
+      forcePrimary: true,
+      oneStep: true,
+      storyAligned: true,
+      chapterSpecial: true,
+      rewardText: `直接影响${pair}`
+    });
+}
+
+function animalShortageCandidate(state) {
+  const reserve = reserveFor(state);
+  const chapterNumber = Math.max(1, Math.round(Number((reserve.progression || {}).stage || (reserve.progression || {}).displayChapter || 1)));
+  const snapshot = chapterCoreLiveSnapshot(reserve, chapterNumber);
+  const gap = Math.max(0, Math.round(Number(snapshot.target.animals) || 0) - Math.round(Number(snapshot.animals) || 0));
+  if (gap <= 0) return null;
+
+  const actionsDone = Math.max(0, Number((reserve.progression || {}).totalActions) || 0);
+  const onboardingDefer = chapterNumber === 1 && actionsDone < 2;
+  const priority = onboardingDefer ? 70 : 91;
+
+  const rescue = nextPoacherRescue(reserve) || nextRescueTask(reserve, chapterNumber);
+  if (rescue) {
+    const label = rescue.speciesName || rescue.speciesId || "被困动物";
+    return candidate(`metric:animals:rescue:${rescue.targetId || rescue.speciesId}`, "stage",
+      `增加动物总数：解救${label}`,
+      `本章动物 ${snapshot.animals}/${snapshot.target.animals}，还差 ${gap} 只。完成这次解救，放归数量会直接计入动物总数。`,
+      "rescueAnimal", priority, state, {
+        oneStep: true,
+        rescueAligned: true,
+        progress: snapshot.animals,
+        target: snapshot.target.animals,
+        animalId: rescue.speciesId,
+        targetId: rescue.targetId || rescue.speciesId,
+        rewardText: "解救回归直接增加动物总数",
+        taskCategory: TASK_CATEGORIES.animal,
+        buttonLabel: ACTION_META.rescueAnimal.label
+      });
+  }
+
+  const ecology = reserve.ecology || {};
+  const water = Number(ecology.water) || 0;
+  const grass = Number(ecology.grass) || 0;
+  const metricFocus = water <= grass ? "water" : "grass";
+  let action = "habitat";
+  let preparing = false;
+  let purchaseId = "";
+  if (!actionExecutable(state, action)) {
+    preparing = true;
+    const neededSupply = ((actionSupplyRequirement(action, reserve) || {}).id) || "";
+    const recovery = safeRecoveryAction(state, neededSupply);
+    purchaseId = recovery.purchaseId;
+    action = recovery.action;
+  }
+  const repairLabel = metricFocus === "water" ? "修复饮水点" : "恢复草场";
+  return candidate(`metric:animals:habitat:${metricFocus}`, "stage",
+    preparing ? "为增加动物总数先补物资" : `增加动物总数：${repairLabel}`,
+    `本章动物 ${snapshot.animals}/${snapshot.target.animals}，还差 ${gap} 只。当前${metricFocus === "water" ? "水源" : "草场"} ${metricFocus === "water" ? water : grass}。完成这次栖息地修复，已有种群会靠近，动物总数上升。`,
+    action, Math.max(80, priority - 1), state, {
+      shortage: preparing,
+      oneStep: true,
+      progress: snapshot.animals,
+      target: snapshot.target.animals,
+      metricFocus,
+      intendedAction: "habitat",
+      purchaseId,
+      rewardText: "栖息地修复会吸引已有种群靠近",
+      taskCategory: TASK_CATEGORIES.metric,
+      buttonLabel: preparing ? (ACTION_META[action] || ACTION_META.habitat).label : repairLabel
+    });
+}
+
+function sandboxVisitorCrowd(state) {
+  const reserve = reserveFor(state);
+  const day = (((reserve.guardianCycle || {}).day) || (((state || {}).world || {}).day) || 1);
+  const views = reserveDevelopmentViews(reserve, day);
+  const active = views.filter((view) => ["operational", "managed"].includes(view.phase));
+  let crowd = active.reduce((sum, view) => sum + Math.max(0, Number(view.visitors) || 0), 0);
+  const today = (((reserve.development || {}).operations) || {}).today || {};
+  if (Number(today.day) === Number(day)) {
+    crowd += Math.max(0, Number(today.recruitedVisitors) || 0);
+    crowd += chapterHostedVisitors(reserve, day);
+  }
+  return crowd;
+}
+
+function nextVisitorFacilityTarget(state) {
+  const reserve = reserveFor(state);
+  const day = (((reserve.guardianCycle || {}).day) || (((state || {}).world || {}).day) || 1);
+  const views = reserveDevelopmentViews(reserve, day);
+  const hasVisitorBuilding = views.some((view) => view.choice && view.choice.routeKey === "visitor"
+    && ["operational", "managed", "construction"].includes(view.phase));
+  if (hasVisitorBuilding) return null;
+  for (let index = 0; index < VISITOR_FACILITY_NODE_ORDER.length; index += 1) {
+    const nodeId = VISITOR_FACILITY_NODE_ORDER[index];
+    const view = views.find((item) => item.config && item.config.id === nodeId);
+    if (!view || view.phase !== "available") continue;
+    const visitorChoice = (view.availability || []).find((row) => row.choice && row.choice.routeKey === "visitor" && row.choice.kind === "building");
+    if (!visitorChoice || !visitorChoice.choice) continue;
+    return {
+      nodeId,
+      nodeShort: (view.config && (view.config.short || view.config.name)) || "沙盘节点",
+      choice: visitorChoice.choice,
+      available: !!visitorChoice.available,
+      missing: visitorChoice.missing || []
+    };
+  }
+  return null;
+}
+
+function visitorFacilityCandidate(state) {
+  const reserve = reserveFor(state);
+  const chapterNumber = chapterNumberOf(state);
+  const actionsDone = Math.max(0, Number((reserve.progression || {}).totalActions) || 0);
+  if (chapterNumber === 1 && actionsDone < 2) return null;
+  const crowd = sandboxVisitorCrowd(state);
+  if (crowd >= SANDBOX_VISITOR_SPARSE_LIMIT) return null;
+  const target = nextVisitorFacilityTarget(state);
+  if (!target) return null;
+  const empty = crowd <= 0;
+  const choiceName = target.choice.short || target.choice.label || "游客设施";
+  const title = empty ? `增加沙盘游客：建设${choiceName}` : `沙盘游客偏少：建设${choiceName}`;
+  const body = empty
+    ? `沙盘上还没有游客。去${target.nodeShort}选择游客友好方案，建成后接待人数会出现在地图上。`
+    : `沙盘游客只有 ${crowd} 人。去${target.nodeShort}建设游客设施，把接待从临时招募变成固定步道。`;
+  const missing = target.available || !(target.missing || []).length ? "" : ` 当前${target.missing[0]}。`;
+  return candidate(`metric:visitors:guest-build:${target.nodeId}`, "stage", title, body + missing, "facilityBuild", empty ? 84 : 80, state, {
+    visitorFacilityGuidance: true,
+    allowBlocked: true,
+    nodeId: target.nodeId,
+    developmentTask: "build",
+    preferredChoiceId: target.choice.id,
+    progress: crowd,
+    target: SANDBOX_VISITOR_SPARSE_LIMIT,
+    taskCategory: TASK_CATEGORIES.metric,
+    buttonLabel: "建设游客设施",
+    icon: "community",
+    rewardText: "游客设施会提高沙盘接待人数"
+  });
 }
 
 function criticalEcologyCandidate(state) {
@@ -441,12 +695,24 @@ function criticalEcologyCandidate(state) {
   if (!actionExecutable(state, action)) {
     preparing = true;
     const neededSupply = ((actionSupplyRequirement(risk.action, reserve) || {}).id) || "";
-    purchaseId = affordableSupplyId(reserve, neededSupply);
-    action = purchaseId ? "buySupplies" : (inventoryTotal(reserve) > 0 || Object.values(reserve.pendingRecovered || {}).some((value) => Number(value) > 0)) ? "salvage" : "exploreMaterials";
+    const recovery = safeRecoveryAction(state, neededSupply);
+    purchaseId = recovery.purchaseId;
+    action = recovery.action;
   }
   return candidate(`ecology-risk:${risk.id}`, "recovery", preparing ? `为“${risk.title}”补齐物资` : risk.title,
     preparing ? `${risk.body} 当前缺少执行物资，先恢复补给。` : risk.body,
     action, 96, state, { shortage: preparing, oneStep: true, rewardText: "阻止生态继续恶化", riskMetric: risk.id, riskValue: risk.value, purchaseId });
+}
+
+function liveEventStoryBeat(reserve = {}) {
+  const chain = reserve.eventChain || {};
+  if (!chain || chain.completed || chain.stageBound) return null;
+  if (Math.max(0, Number(chain.step) || 0) < 1) return null;
+  const next = chain.next || {};
+  const recommended = String(next.recommendedAction || "").trim();
+  const valid = Array.isArray(next.validActions) ? next.validActions.filter(Boolean) : [];
+  if (!recommended && !valid.length) return null;
+  return { chain, next: Object.assign({}, next, { recommendedAction: recommended || valid[0], validActions: valid }) };
 }
 
 function stageCandidate(state) {
@@ -464,19 +730,16 @@ function stageCandidate(state) {
   if (activeDiscovery) {
     const requiredAction = activeDiscovery.status === "located"
       ? "collectionInvestigate"
-      : (["animalCare", "careAnimal"].includes(activeDiscovery.actionId) ? "exploreMaterials" : (activeDiscovery.actionId || "houndScout"));
+      : (["animalCare", "careAnimal"].includes(activeDiscovery.actionId) ? "animalCare" : (activeDiscovery.actionId || "houndScout"));
     let action = requiredAction;
     let preparing = false;
     let purchaseId = "";
     if (!actionExecutable(state, action)) {
       preparing = true;
       const neededSupply = ((actionSupplyRequirement(requiredAction, reserve) || {}).id) || "";
-      purchaseId = affordableSupplyId(reserve, neededSupply);
-      action = purchaseId
-        ? "buySupplies"
-        : (inventoryTotal(reserve) > 0 || Object.values(reserve.pendingRecovered || {}).some((value) => Number(value) > 0))
-          ? "salvage"
-          : "exploreMaterials";
+      const recovery = safeRecoveryAction(state, neededSupply);
+      purchaseId = recovery.purchaseId;
+      action = recovery.action;
     }
     const title = preparing
       ? `为剧情补齐物资：${activeDiscovery.title || "动物发现"}`
@@ -488,31 +751,36 @@ function stageCandidate(state) {
       : activeDiscovery.status === "located"
       ? "物件已出现在沙盘，点击它完成收录并推进章节证据。"
       : `执行“${activeDiscovery.actionLabel || "对应守护行动"}”，验证动物指出的迹象。`;
-    return candidate(`stage:${progression.stage || 1}:discovery:${activeDiscovery.itemId || activeDiscovery.id}`, "collection", title, body, action, 55, state, {
-      oneStep: true,
-      rewardText: "支线收藏与章节旁证",
-      storyAligned: true,
-      evidenceAligned: true,
-      shortage: preparing,
-      intendedAction: requiredAction,
-      purchaseId
-    });
+    // 只有缺补给时才把发现做成任务卡。可执行的发现留在沙盘物件上，
+    // 避免“找到案件主证据 / 陷阱证据”在每章循环成强制卡片。
+    if (preparing) {
+      return candidate(`stage:${progression.stage || 1}:discovery:${activeDiscovery.itemId || activeDiscovery.id}`, "collection", title, body, action, 55, state, {
+        oneStep: true,
+        rewardText: "支线收藏与章节旁证",
+        storyAligned: true,
+        evidenceAligned: true,
+        shortage: true,
+        intendedAction: requiredAction,
+        purchaseId
+      });
+    }
   }
   const objectives = progression.objectives || [];
   const incomplete = objectives.filter((item) => !item.optional && !item.complete);
-  const milestones = objectives.filter((item) => item.optional && item.id !== "expectedTime" && !item.complete);
   // 晋级门槛包含本章解救，但解救不是传统的 progression.objectives。
-  // 当剧情、数值和里程碑都完成后，必须显式生成一个可执行的解救目标，
-  // 否则 resolveGoals 会退回观察任务，玩家看不到进入沙盘的出口。
+  // 必做目标完成后，即使可选里程碑（案件证据、珍稀回收）还没做，
+  // 也要给出可执行的解救卡，而不是循环“找到案件主证据”。
+  // 第一次侦察后剧情段仍是玩法主线（修栖息地），即使 leftover 把 chapterStory
+  // 标成可选、不再卡住晋级，也不能让解救抢主按钮；新手第二步要打开巡护弹窗。
+  const liveStory = liveEventStoryBeat(reserve);
   const chapterNumber = Math.max(1, Math.round(Number(progression.stage || progression.displayChapter || 1)));
   const rescueSummary = chapterRescueSummary(reserve, chapterNumber);
   const rescueGateRequired = !reserve.chapterRescue
     || (reserve.chapterRescue.enforceCompletion !== false && reserve.chapterRescue.legacyGateBypass !== true);
   const onlyRescueBlocksPromotion = Array.isArray(progression.objectives)
     && progression.objectives.length > 0
-    && incomplete.length === 0
-    && milestones.length === 0;
-  if (rescueGateRequired && onlyRescueBlocksPromotion && rescueSummary.remaining > 0) {
+    && incomplete.length === 0;
+  if (!liveStory && rescueGateRequired && onlyRescueBlocksPromotion && rescueSummary.remaining > 0) {
     const rescue = nextRescueTask(reserve, chapterNumber);
     if (rescue) {
       const missing = (rescue.requiredItems || []).filter((itemId) => {
@@ -530,7 +798,6 @@ function stageCandidate(state) {
           progress: rescueSummary.rescued,
           target: rescueSummary.total,
           oneStep: true,
-          storyAligned: true,
           rescueAligned: true,
           animalId: rescue.speciesId,
           targetId: rescue.targetId || rescue.speciesId,
@@ -538,9 +805,17 @@ function stageCandidate(state) {
         });
     }
   }
-  const storyGoal = incomplete.find((item) => item.id === "chapterStory");
-  const evidenceGoal = milestones.find((item) => item.id === "storyEvidence");
-  const goal = storyGoal || incomplete[0] || evidenceGoal || milestones.sort((a, b) => ((b.current || 0) / Math.max(1, b.target || 1)) - ((a.current || 0) / Math.max(1, a.target || 1)))[0];
+  const storyGoal = liveStory
+    ? (objectives.find((item) => item && item.id === "chapterStory") || {
+      id: "chapterStory",
+      label: "阶段剧情",
+      current: Number(liveStory.chain.step) || 0,
+      target: (Number(liveStory.chain.step) || 0) + 1,
+      unit: "段",
+      complete: false
+    })
+    : incomplete.find((item) => item.id === "chapterStory");
+  const goal = storyGoal || incomplete[0];
   if (!goal) return null;
   const actionMap = {
     actions: dailyGuardAction(state),
@@ -550,8 +825,7 @@ function stageCandidate(state) {
     chapterStory: dailyGuardAction(state),
     population: dailyGuardAction(state),
     fundEarned: inventoryTotal(reserve) ? "salvage" : "buySupplies",
-    migratedIn: dailyGuardAction(state),
-    rareRecovered: "exploreMaterials"
+    migratedIn: dailyGuardAction(state)
   };
   const chain = reserve.eventChain || {};
   // Keep the current narrative copy from the chain, but always recompute the
@@ -564,15 +838,6 @@ function stageCandidate(state) {
   let action = actionMap[goal.id] || dailyGuardAction(state);
   let preparingStory = false;
   let purchaseId = "";
-  if (goal.id === "storyEvidence") {
-    const collection = (((state || {}).world || {}).collection) || {};
-    const activeDiscovery = ((collection.discovery || {}).active) || null;
-    action = activeDiscovery && activeDiscovery.status === "located"
-      ? "collectionInvestigate"
-      : activeDiscovery
-        ? (["animalCare", "careAnimal"].includes(activeDiscovery.actionId) ? "exploreMaterials" : (activeDiscovery.actionId || "houndScout"))
-        : "animalCare";
-  }
   if (goal.id === "chapterStory") {
     const ordered = [nextStory.recommendedAction].concat(validStoryActions).filter((item, index, all) => item && all.indexOf(item) === index);
     const executableStoryAction = ordered.find((item) => actionExecutable(state, item));
@@ -580,29 +845,22 @@ function stageCandidate(state) {
     else {
       preparingStory = true;
       const neededSupply = ordered.map((item) => (actionSupplyRequirement(item, reserve) || {}).id).find(Boolean) || "";
-      purchaseId = affordableSupplyId(reserve, neededSupply);
-      action = purchaseId ? "buySupplies" : (inventoryTotal(reserve) > 0 || Object.values(reserve.pendingRecovered || {}).some((value) => Number(value) > 0)) ? "salvage" : "exploreMaterials";
+      const recovery = safeRecoveryAction(state, neededSupply);
+      purchaseId = recovery.purchaseId;
+      action = recovery.action;
     }
     if (!actionExecutable(state, action)) {
       preparingStory = true;
-      const recoveryActions = [
-        (inventoryTotal(reserve) > 0 || Object.values(reserve.pendingRecovered || {}).some((value) => Number(value) > 0)) ? "salvage" : "",
-        affordableSupplyId(reserve) ? "buySupplies" : "",
-        "exploreMaterials"
-      ].filter(Boolean);
-      action = recoveryActions.find((item) => actionExecutable(state, item)) || "exploreMaterials";
-      if (action === "buySupplies" && !purchaseId) purchaseId = affordableSupplyId(reserve);
+      const recovery = safeRecoveryAction(state);
+      action = recovery.action;
+      if (action === "buySupplies" && !purchaseId) purchaseId = recovery.purchaseId;
     }
   }
   const title = goal.id === "chapterStory"
     ? `${preparingStory ? "为剧情做准备" : "推进剧情"}：${nextStory.title || goal.label}`
-    : goal.id === "storyEvidence"
-      ? `推进章节：${goal.label}`
     : `推进章节：${goal.label}`;
   const body = goal.id === "chapterStory"
     ? `${nextStory.prompt || chain.waitingText || "完成对应行动，推进本章剧情。"}${preparingStory ? " 先补齐执行条件。" : ""}`
-    : goal.id === "storyEvidence"
-      ? `${goal.current || 0}/${goal.target || 1}件；倾听动物、完成它指出的守护行动，再到沙盘收录实物。`
     : `${goal.current || 0}/${goal.target || 1}${goal.unit || ""}，这是当前最接近的晋级条件。`;
   return candidate(`stage:${progression.stage || 1}:${goal.id}`, "stage", title, body, action, goal.id === "chapterStory" ? 88 : 80, state, {
     progress: goal.current || 0,
@@ -610,7 +868,7 @@ function stageCandidate(state) {
     oneStep: (goal.target || 1) - (goal.current || 0) <= 1,
     rewardText: goal.id === "chapterStory" ? "推进剧情与章节晋级" : "推进章节晋级",
     storyAligned: goal.id === "chapterStory",
-    evidenceAligned: goal.id === "storyEvidence",
+    evidenceAligned: false,
     storyStep: goal.id === "chapterStory" ? (chain.step || 0) + 1 : 0,
     storyValidActions: goal.id === "chapterStory" ? validStoryActions : [],
     purchaseId
@@ -623,9 +881,13 @@ function resolveGoals(state, suppliedGoals = null, trigger = "refresh") {
   const candidates = [];
   const emergency = ((reserve.emergency || {}).active) || null;
   if (emergency) {
-    const intendedEmergencyAction = emergency.type === "visitor_conflict"
+    const intendedEmergencyAction = isVisitorArcheryEvent(emergency.type)
       ? "visitorAdjust"
-      : (emergency.recommendedAction || dailyGuardAction(state));
+      : isNeighborExchangeEvent(emergency.type)
+        ? "neighborExchange"
+        : isRealNatureEventType(emergency.type)
+          ? "realEvent"
+          : (emergency.recommendedAction || dailyGuardAction(state));
     const requirement = actionSupplyRequirement(intendedEmergencyAction, reserve);
     let emergencyAction = intendedEmergencyAction;
     let purchaseId = "";
@@ -641,6 +903,8 @@ function resolveGoals(state, suppliedGoals = null, trigger = "refresh") {
   }
   const ecologyRisk = criticalEcologyCandidate(state);
   if (ecologyRisk) candidates.push(ecologyRisk);
+  const chapterSpecial = chapterSpecialCandidate(state);
+  if (chapterSpecial) candidates.push(chapterSpecial);
   // A single missing patrol item must be visible as a recovery task. The old
   // flow only surfaced recovery when *all* supplies were empty, so a depleted
   // dog-food/field-kit slot could leave the same patrol task on screen over
@@ -649,7 +913,7 @@ function resolveGoals(state, suppliedGoals = null, trigger = "refresh") {
   const progressionForSupply = reserve.progression || {};
   const storyGoalPending = (progressionForSupply.objectives || []).some((item) =>
     item && ["chapterStory", "storyEvidence"].includes(item.id) && !item.complete
-  ) || !!activeDiscoveryForSupply;
+  ) || !!activeDiscoveryForSupply || !!liveEventStoryBeat(reserve);
   const desiredPatrolActions = [
     emergency && emergency.recommendedAction,
     activeDiscoveryForSupply && activeDiscoveryForSupply.actionId,
@@ -664,12 +928,9 @@ function resolveGoals(state, suppliedGoals = null, trigger = "refresh") {
   // cannot hide the chapter context.
   if (missingPatrolAction && !storyGoalPending) {
     const requirement = missingPatrolAction.requirement;
-    const purchaseId = affordableSupplyId(reserve, requirement.id);
-    const recoveryAction = purchaseId
-      ? "buySupplies"
-      : inventoryTotal(reserve) > 0
-        ? "salvage"
-        : "exploreMaterials";
+    const recovery = safeRecoveryAction(state, requirement.id);
+    const purchaseId = recovery.purchaseId;
+    const recoveryAction = recovery.action;
     const meta = ACTION_META[missingPatrolAction.action] || ACTION_META.houndScout;
     candidates.push(candidate(`recovery:patrol:${missingPatrolAction.action}:${requirement.id}`, "recovery",
       `巡护暂停：先补${requirement.label}`,
@@ -686,17 +947,28 @@ function resolveGoals(state, suppliedGoals = null, trigger = "refresh") {
       }));
   }
   const supplyTotal = Object.values(reserve.supplies || {}).reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
-  if (supplyTotal <= 0) {
-    const purchaseId = affordableSupplyId(reserve);
-    const canPurchase = !!purchaseId;
-    const hasInventory = inventoryTotal(reserve) > 0;
-    const action = canPurchase ? "buySupplies" : hasInventory ? "salvage" : "exploreMaterials";
-    const body = canPurchase
+  if (supplyTotal <= 0 && !storyGoalPending) {
+    const recovery = safeRecoveryAction(state);
+    const purchaseId = recovery.purchaseId;
+    const action = recovery.action;
+    const body = action === "buySupplies"
       ? "基金已经足够，补齐当前最短缺的巡护物资。"
-      : hasInventory
+      : action === "salvage"
         ? "先移交回收物获得基金，再采购具体补给。"
-        : "先跟动物探索回收物，再移交换取基金。";
+        : "先发布游客招募获得基金，再采购补给。";
     candidates.push(candidate("recovery:supplies", "recovery", "接通基金与补给", body, action, 90, state, { shortage: true, oneStep: true, rewardText: "恢复一条巡护路径", purchaseId }));
+  }
+  const animalShortage = animalShortageCandidate(state);
+  if (animalShortage) {
+    candidates.push(storyGoalPending
+      ? Object.assign({}, animalShortage, { forcePrimary: false, priorityScore: Math.min(Number(animalShortage.priorityScore) || 0, 72) })
+      : animalShortage);
+  }
+  const visitorFacility = visitorFacilityCandidate(state);
+  if (visitorFacility) {
+    candidates.push(storyGoalPending
+      ? Object.assign({}, visitorFacility, { forcePrimary: false, priorityScore: Math.min(Number(visitorFacility.priorityScore) || 0, 70) })
+      : visitorFacility);
   }
   const stage = stageCandidate(state);
   if (stage) candidates.push(stage);
@@ -716,76 +988,17 @@ function resolveGoals(state, suppliedGoals = null, trigger = "refresh") {
     })
   });
   goals.daily = syncDailyProjection(daily);
-  const dailyPriority = { guard: 74, economy: 62, animal: 61 };
-  (daily.objectives || []).filter((objective) => !objective.complete).slice(0, 1).forEach((objective) => {
-    const remaining = Math.max(0, (objective.target || 1) - (objective.progress || 0));
-    candidates.push(candidate(`daily:${daily.dateKey}:${objective.id}`, "daily", objective.title, objective.description, objective.recommendedAction, dailyPriority[objective.kind] || 60, state, {
-      progress: objective.progress || 0,
-      target: objective.target || 1,
-      oneStep: remaining <= 1,
-      rewardText: "完成即得研究样本待收 +1、基金 +8",
-      targetScreen: objective.targetScreen
-    }));
-  });
-  if (!(stage && (stage.storyAligned || stage.evidenceAligned))) {
-    const collection = (((state || {}).world || {}).collection) || {};
-    const activeDiscovery = ((collection.discovery || {}).active) || null;
-    if (activeDiscovery && activeDiscovery.status === "located") {
-      candidates.push(candidate("story:collection:located", "collection", "现场物件等待收录", "迹象已确认；回沙盘收录。", "collectionInvestigate", 34, state, { oneStep: true, rewardText: "获得附加收藏" }));
-    } else if (activeDiscovery) {
-      candidates.push(candidate("story:collection:hinted", "collection", activeDiscovery.title || "动物发现异常", `完成“${activeDiscovery.actionLabel || "跟随动物踪迹探索"}”，回沙盘定位。`, ["animalCare", "careAnimal"].includes(activeDiscovery.actionId) ? "exploreMaterials" : (activeDiscovery.actionId || "houndScout"), 34, state, { oneStep: true, rewardText: "定位附加物件" }));
-    } else if ((collection.leads || []).length && (((collection.investigation || {}).charges) || 0) > 0) {
-      candidates.push(candidate("story:collection:legacy", "collection", "隐藏档案仍有一条线索", "用点数判定调查隐藏线索。", "collectionInvestigate", 28, state, { oneStep: true, rewardText: "推进附加发现" }));
-    } else {
-      candidates.push(candidate("story:animal", "story", "听听动物发现了什么", "倾听或安抚一只动物，开启新线索。", "animalCare", 50, state, { rewardText: "开启剧情发现" }));
-    }
+  // 每日游客/水草记录仍保留在“每日事件”中结算奖励，但不再自动占用
+  // 主任务卡。只有真实剧情、沙盘事件、指标异常、生存或动物触发才上卡。
+  // 可执行的动物发现留在沙盘，不再做成循环强制卡片。
+  // 缺补给时 stageCandidate 已经给出采购卡。
+  // 游客设施引导只在沙盘没有游客或游客很少时出现，不按章节循环填充。
+  const core = candidates.filter(isCoreReserveGoal);
+  if (core.length) {
+    candidates.length = 0;
+    core.forEach((item) => candidates.push(item));
   }
-  // 剧情任务始终给出频道落点，避免玩家只看到“听动物”却不知道去哪里继续。
-  const inventoryCount = inventoryTotal(reserve);
-  candidates.push(candidate("channel:discovery", "story", "去发现频道看看", "查看动物图鉴和当前章节的剧情发现，再回沙盘回应线索。", "viewDiscovery", 27, state, { oneStep: true, rewardText: "发现新的动物线索", targetScreen: "animalworld" }));
-  if (inventoryCount === 0) {
-    candidates.push(candidate("channel:survival", "story", "去生存频道找素材", "跟随动物探索野外素材；找到后可用于补给、样本和后续任务。", "viewSurvival", 38, state, { oneStep: true, rewardText: "获得生存素材", targetScreen: "survival" }));
-  }
-  try {
-    const day = (((reserve.guardianCycle || {}).day) || (((state || {}).world || {}).day) || 1);
-    const developmentViews = reserveDevelopmentViews(reserve, day);
-    const operationNode = developmentViews.find((view) => {
-      const building = view.building || {};
-      return ["operational", "managed"].includes(view.phase)
-        && view.condition !== "damaged"
-        && !!(building.story && building.story.ready);
-    });
-    if (operationNode) {
-      const building = operationNode.building || {};
-      candidates.push(candidate(`development:${operationNode.config.id}:operation`, "long",
-        `${building.title || operationNode.config.name}运营任务`,
-        `完成“${building.story.operation || "建筑运营"}”，获得游客与基金。`,
-        "facilityBuild", 78, state, {
-          rewardText: "完成日常运营",
-          nodeId: operationNode.config.id,
-          developmentTask: "operation",
-          targetScreen: "home"
-        }));
-    }
-    const buildableNode = developmentViews.find((view) => {
-      if (view.phase === "available") return (view.availability || []).some((row) => row.choice && row.choice.kind === "building" && row.available);
-      const building = view.building || {};
-      return ["operational", "managed"].includes(view.phase) && view.condition !== "damaged" && !!building.upgradeAvailable;
-    });
-    if (buildableNode) {
-      const upgrading = buildableNode.phase !== "available";
-      const building = buildableNode.building || {};
-      candidates.push(candidate(`development:${buildableNode.config.id}:${upgrading ? "upgrade" : "build"}`, "long",
-        upgrading ? `升级${building.title || buildableNode.config.name}` : `建设${buildableNode.config.name}`,
-        upgrading ? `游客建筑可升级至${(building.level || 0) + 1}级；通过沙盘任务确认投入。` : "沙盘节点已具备建设条件；点击地图任务弹窗选择方案。",
-        "facilityBuild", 72, state, { rewardText: upgrading ? "提升游客建筑运营" : "解锁活地图建筑", nodeId: buildableNode.config.id, developmentTask: upgrading ? "upgrade" : "build", targetScreen: "home" }));
-    }
-    const buildable = facilityStates(state).find((facility) => facility.repaired && facility.buildStage < 3 && (reserve.fund || 0) >= (facility.nextBuildCost || facility.specializeCost || Infinity));
-    if (buildable) candidates.push(candidate(`facility:${buildable.id}`, "long", `建设${buildable.name}`, buildable.stageLabel || "让案件结局真正改变沙盘。", "facilityBuild", 64, state, { rewardText: "推进设施复兴", facilityId: buildable.id, targetScreen: "home" }));
-  } catch (error) {
-    // 设施尚未初始化时不阻断目标系统。
-  }
-  let valid = candidates.filter((item) => item.executable);
+  let valid = candidates.filter((item) => item.executable && TASK_CATEGORY_SET.has(item.taskCategory));
   const stalePrimary = goals.noProgressActions >= GOAL_BALANCE.rerouteAfterNoProgress
     ? ((goals.active || {}).primary || null)
     : null;
@@ -794,19 +1007,18 @@ function resolveGoals(state, suppliedGoals = null, trigger = "refresh") {
       ? Object.assign({}, item, { priorityScore: item.priorityScore - 35, rerouted: true })
       : item);
   }
-  if (!valid.length) {
-    valid = [candidate("fallback:observe", "fallback", "观察保护区", "观察动物与水草，寻找线索。", "observeReserve", 20, state, { rewardText: "待收研究样本 +1" })];
-  }
+  // 没有七类真实触发时允许任务位为空。沙盘本身继续展示动物、建筑和
+  // 地图事件，不再用“观察保护区”伪造一张任务卡。
   valid.sort((a, b) => b.priorityScore - a.priorityScore || a.id.localeCompare(b.id));
   const deduped = [];
   const actionIds = new Set();
   valid.forEach((item) => {
-    if (deduped.length >= GOAL_BALANCE.maxVisibleGoals) return;
+    if (deduped.length >= 2) return;
     if (actionIds.has(item.recommendedAction) && item.kind !== "crisis") return;
     actionIds.add(item.recommendedAction);
     deduped.push(item);
   });
-  if (!deduped.length) deduped.push(valid[0]);
+  if (!deduped.length && valid[0]) deduped.push(valid[0]);
   const mandatoryOverride = ["crisis", "recovery"].includes((deduped[0] || {}).kind);
   const manualSelectedId = (((goals.active || {}).manualSelectedId) || "");
   if (manualSelectedId && !mandatoryOverride) {
@@ -880,8 +1092,8 @@ function applyDailyObjectiveReward(reserve, objective, rewards) {
 function applyDailyFullReward(state, rewards) {
   const reserve = reserveFor(state);
   const supplies = reserve.supplies || (reserve.supplies = {});
-  const supplyKey = Object.keys(SUPPLY_CAPS).sort((a, b) => ((supplies[a] || 0) / SUPPLY_CAPS[a]) - ((supplies[b] || 0) / SUPPLY_CAPS[b]))[0];
-  if (supplyKey && (supplies[supplyKey] || 0) < SUPPLY_CAPS[supplyKey]) {
+  const supplyKey = Object.keys(SUPPLY_CAPS).sort((a, b) => ((supplies[a] || 0) / Math.max(1, supplyCapFor(a, reserve))) - ((supplies[b] || 0) / Math.max(1, supplyCapFor(b, reserve))))[0];
+  if (supplyKey && (supplies[supplyKey] || 0) < supplyCapFor(supplyKey, reserve)) {
     const accepted = addSupply(reserve, supplyKey, 1);
     const labels = { dogFood: "狗粮", alarm: "警报器", tranquilizer: "麻醉弹", fieldKit: "野外工具包", medicalKit: "医疗包" };
     addReward(rewards, supplyKey, accepted, `${labels[supplyKey]} +${accepted}`, "daily_full");
@@ -955,14 +1167,15 @@ function applyGoalProgress(beforeState, afterState, context = {}) {
   }
 
   const previousDaily = clone(goals.daily);
-  const activeDailyId = ((goals.daily.objectives || []).find((objective) => !objective.complete) || {}).id;
   if (!derivedOnly) {
+    let creditedDailyId = "";
     goals.daily.objectives = (goals.daily.objectives || []).map((objective) => {
       const next = Object.assign({}, objective);
-      if (!next.complete && next.id === activeDailyId && actionMatchesObjective(action, next)) {
+      if (!next.complete && !creditedDailyId && actionMatchesObjective(action, next)) {
         next.progress = Math.min(next.target || 1, (next.progress || 0) + 1);
         next.complete = next.progress >= (next.target || 1);
         if (next.complete) {
+          creditedDailyId = next.id;
           applyDailyObjectiveReward(reserve, next, rewards);
           completions.push({ type: "daily_objective", id: next.id, title: next.title, reward: next.reward });
         }
@@ -970,20 +1183,25 @@ function applyGoalProgress(beforeState, afterState, context = {}) {
       return next;
     });
   }
-  if (!derivedOnly) goals.daily.completedPrevious = completions.some((item) => item.type === "daily_objective");
+  if (!derivedOnly) {
+    goals.daily.completedPrevious = !!goals.daily.completedPrevious
+      || completions.some((item) => item.type === "daily_objective");
+  }
   goals.daily.creditedActions = ((goals.daily.creditedActions || []).concat(action ? [action] : [])).slice(-12);
+  goals.daily.required = dailyNeedCount(goals.daily);
   const dailyCompleteCount = goals.daily.objectives.filter((objective) => objective.complete).length;
-  if (dailyCompleteCount >= goals.daily.required && !goals.daily.coreClaimed) {
+  const dailyAllDone = dailyBatchComplete(goals.daily) && dailyCompleteCount >= goals.daily.required;
+  if (dailyAllDone && !goals.daily.coreClaimed) {
     goals.daily.coreClaimed = true;
     applyDailyCoreReward(reserve, level, rewards);
     completions.push({ type: "daily_core", id: `daily:${today}:core`, title: "每日任务全部完成", reward: "额外补给 +1 · 动物信任 +1" });
   }
-  if (dailyCompleteCount >= goals.daily.objectives.length && !goals.daily.fullClaimed) {
+  if (dailyAllDone && !goals.daily.fullClaimed) {
     goals.daily.fullClaimed = true;
     applyDailyFullReward(afterState, rewards);
     completions.push({ type: "daily_full", id: `daily:${today}:full`, title: "每日任务全清奖励", reward: "额外补给 +1 · 动物信任 +1" });
   }
-  if (!derivedOnly) goals.daily.cycle = Math.max(1, Number(goals.daily.cycle) || 1) + (goals.daily.completedPrevious ? 1 : 0);
+  if (!derivedOnly && dailyAllDone) goals.daily.cycle = Math.max(1, Number(goals.daily.cycle) || 1) + 1;
   goals.daily = syncDailyProjection(goals.daily);
 
   const priorPrimary = ((beforeGoals.active || {}).primary) || null;
@@ -1109,6 +1327,7 @@ function buildGoalView(state, suppliedGoals = null) {
 
 module.exports = {
   GOAL_BALANCE,
+  TASK_CATEGORIES,
   goalDateKey,
   createGoalState,
   normalizeGoalState,
@@ -1118,5 +1337,9 @@ module.exports = {
   selectActiveGoal,
   actionMatchesObjective,
   actionExecutable,
-  longTrackDefinitions
+  longTrackDefinitions,
+  dailyObjectiveKinds,
+  dailyNeedCount,
+  dailyBatchComplete,
+  SANDBOX_VISITOR_SPARSE_LIMIT
 };

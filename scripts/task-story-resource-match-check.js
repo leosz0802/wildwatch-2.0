@@ -24,7 +24,7 @@ outbreakReserve.ecology.disease = 40;
 outbreakReserve.supplies.medicalKit = 1;
 outbreakReserve.supplies.tranquilizer = 3;
 outbreakReserve.emergency = {
-  active: { id: "test_outbreak", type: "disease_outbreak", title: "疾病集中爆发", recommendedAction: "intervention", progress: 0, target: 3, daysRemaining: 3 },
+  active: { id: "test_contamination", type: "water_contamination", title: "水源污染扩散", recommendedAction: "intervention", progress: 0, target: 3, daysRemaining: 3 },
   cooldown: 0,
   history: []
 };

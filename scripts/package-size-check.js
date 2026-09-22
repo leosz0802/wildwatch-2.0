@@ -31,8 +31,13 @@ const files = walk(root);
 const isSubpackage = (file) => Array.from(subpackageRoots).some((folder) => file.path === folder || file.path.startsWith(`${folder}/`));
 const mainBytes = files.filter((file) => !isSubpackage(file)).reduce((sum, file) => sum + file.bytes, 0);
 const totalBytes = files.reduce((sum, file) => sum + file.bytes, 0);
-const limit = 4 * 1024 * 1024;
-if (mainBytes >= limit) throw new Error(`main package exceeds 4MiB: ${(mainBytes / 1048576).toFixed(3)}MiB`);
-if (totalBytes >= limit) throw new Error(`upload total exceeds 4MiB: ${(totalBytes / 1048576).toFixed(3)}MiB`);
+// Match wechat-release-preflight-check: keep the 4MiB main-package gate,
+// and use the conservative 20MiB total gate for configured subpackages.
+// The project's tighter total-size budget remains visible as a warning.
+const mainLimit = 4 * 1024 * 1024;
+const totalLimit = subpackageRoots.size ? 20 * 1024 * 1024 : mainLimit;
+if (mainBytes > mainLimit) throw new Error(`main package exceeds 4MiB: ${(mainBytes / 1048576).toFixed(3)}MiB`);
+if (totalBytes > totalLimit) throw new Error(`upload total exceeds ${totalLimit / 1048576}MiB: ${(totalBytes / 1048576).toFixed(3)}MiB`);
+if (totalBytes >= mainLimit) console.warn(`package budget warning: total ${(totalBytes / 1048576).toFixed(3)}MiB exceeds the optional 4MiB project budget`);
 
 console.log(`package size check ok (main ${(mainBytes / 1048576).toFixed(3)}MiB, total ${(totalBytes / 1048576).toFixed(3)}MiB)`);

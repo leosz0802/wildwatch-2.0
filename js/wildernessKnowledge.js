@@ -1,4 +1,5 @@
 const { recordFundChange } = require("./fundLedger");
+const { surplusTradeAmount } = require("./reserveDevelopment");
 
 const RAW_WILDERNESS_FIND_CATALOG = Object.freeze([
   Object.freeze({ id: "resin_tinder", label: "松脂火绒片", icon: "berry", rarity: "常见", minLevel: 1, minQuality: 5, region: "北部针叶林", material: "自然脱落、带松脂的枯木薄片", knowledge: "松脂能帮助薄木片在潮湿环境中较稳定地点燃，但真正维持火焰仍需要逐级加入细枝和干柴。", use: "潮湿天气的引火教学样本", safety: "只取落地枯木，不剥活树；仅在允许用火且具备灭火条件的区域使用。", tradeValue: 1, storyHook: "营地取暖与雨季失温事件的环境旁证", reserveEffect: { key: "safety", label: "安全", delta: 1 } }),
@@ -100,11 +101,25 @@ const WILDERNESS_TRADE_KIND_BY_ID = Object.freeze({
 });
 
 const WILDERNESS_TRADE_DAILY_LIMIT = 3;
+const EXCHANGE_ICON_GAP_MS = 3 * 60 * 1000;
+
+// 探索总点数 = 骰子1–6 + floor(等级/2) + 关系0–2。
+// 收藏门槛只按“掷出6、关系为0”能达到的分数封顶，避免本章最后一件永远差1点。
+function maxObtainableQualityScore(level = 1) {
+  const lv = Math.max(1, Math.round(Number(level) || 1));
+  return 6 + Math.floor(lv / 2);
+}
+
+function capCollectibleMinQuality(minLevel, minQuality) {
+  const desired = Math.max(1, Math.round(Number(minQuality) || 1));
+  return Math.min(desired, maxObtainableQualityScore(minLevel));
+}
 
 const WILDERNESS_FIND_CATALOG = Object.freeze(RAW_WILDERNESS_FIND_CATALOG.map((item) => {
   const layer = WILDERNESS_NARRATIVE_LAYERS[item.id] || {};
   const tradeKind = WILDERNESS_TRADE_KIND_BY_ID[item.id] || "basic";
   return Object.freeze(Object.assign({}, item, {
+    minQuality: capCollectibleMinQuality(item.minLevel, item.minQuality),
     tradeKind,
     tradeKindLabel: WILDERNESS_TRADE_KINDS[tradeKind].label,
     reality: item.knowledge,
@@ -163,6 +178,8 @@ function normalizeTradeRecord(entry = {}) {
     receivedAmount: boundedCount(entry.receivedAmount, 99),
     rewardLabel: String(entry.rewardLabel || "").slice(0, 64),
     paymentLabel: String(entry.paymentLabel || "").slice(0, 64),
+    partnerKind: entry.partnerSimulated === true || entry.partnerKind === "npc" ? "npc" : "player",
+    source: ["sandbox", "league"].includes(entry.source) ? entry.source : "",
     createdAt: Math.max(0, Math.round(Number(entry.createdAt) || 0)),
     claimedAt: Math.max(0, Math.round(Number(entry.claimedAt) || 0)),
     claimed: entry.claimed === true || Number(entry.claimedAt) > 0
@@ -174,7 +191,7 @@ function normalizeStoryLink(value = null) {
   const title = String(value.title || "").slice(0, 40);
   if (!title) return null;
   return {
-    type: value.type === "active" ? "active" : "chapter",
+    type: value.type === "active" ? "active" : value.type === "exchange" ? "exchange" : "chapter",
     title,
     caseId: String(value.caseId || "").slice(0, 40),
     itemId: String(value.itemId || "").slice(0, 40),
@@ -209,6 +226,76 @@ function applyWildernessReserveEffect(reserve = {}, item = null) {
   };
 }
 
+function normalizeExchangeIcon(value = {}) {
+  return {
+    pendingKey: String(value.pendingKey || "").slice(0, 80),
+    pendingItemId: String(value.pendingItemId || "").slice(0, 40),
+    pendingAt: Math.max(0, Math.round(Number(value.pendingAt) || 0)),
+    consumedKey: String(value.consumedKey || "").slice(0, 80),
+    visible: !!value.visible,
+    shownKey: String(value.shownKey || "").slice(0, 80),
+    shownAt: Math.max(0, Math.round(Number(value.shownAt) || 0))
+  };
+}
+
+function noteSandboxExchangeItem(reserve = {}, itemId = "", now = Date.now()) {
+  const item = wildernessFindById(itemId);
+  if (!item) return null;
+  const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
+  const stamp = Math.max(1, Math.round(Number(now) || Date.now()));
+  const stock = boundedCount(state.tradeStock[item.id], 99);
+  if (surplusTradeAmount(reserve, item.id, stock) < 1) return null;
+  state.exchangeIcon = Object.assign(normalizeExchangeIcon(state.exchangeIcon), {
+    pendingKey: `${item.id}|${stamp}|${stock}`,
+    pendingItemId: item.id,
+    pendingAt: stamp,
+    visible: false,
+    shownKey: ""
+  });
+  reserve.wildernessKnowledge = state;
+  return state.exchangeIcon;
+}
+
+function consumeSandboxExchangeIcon(reserve = {}, now = Date.now()) {
+  const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
+  const icon = normalizeExchangeIcon(state.exchangeIcon);
+  icon.consumedKey = icon.pendingKey || icon.consumedKey;
+  icon.visible = false;
+  icon.shownAt = Math.max(1, Math.round(Number(now) || Date.now()));
+  state.exchangeIcon = icon;
+  reserve.wildernessKnowledge = state;
+  return icon;
+}
+
+function sandboxExchangeIconReady(reserve = {}, now = Date.now()) {
+  const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
+  const icon = normalizeExchangeIcon(state.exchangeIcon);
+  const stamp = Math.max(1, Math.round(Number(now) || Date.now()));
+  if (!icon.pendingKey || icon.pendingKey === icon.consumedKey) {
+    icon.visible = false;
+    state.exchangeIcon = icon;
+    reserve.wildernessKnowledge = state;
+    return false;
+  }
+  if (icon.visible && icon.shownKey === icon.pendingKey) {
+    state.exchangeIcon = icon;
+    reserve.wildernessKnowledge = state;
+    return true;
+  }
+  if (icon.shownAt && stamp - icon.shownAt <= EXCHANGE_ICON_GAP_MS) {
+    icon.visible = false;
+    state.exchangeIcon = icon;
+    reserve.wildernessKnowledge = state;
+    return false;
+  }
+  icon.visible = true;
+  icon.shownKey = icon.pendingKey;
+  icon.shownAt = stamp;
+  state.exchangeIcon = icon;
+  reserve.wildernessKnowledge = state;
+  return true;
+}
+
 function normalizeWildernessKnowledge(value = {}) {
   const discoveries = {};
   Object.keys(value.discoveries || {}).forEach((id) => {
@@ -235,7 +322,8 @@ function normalizeWildernessKnowledge(value = {}) {
     tradeHistory: (Array.isArray(value.tradeHistory) ? value.tradeHistory : []).map(normalizeTradeRecord).filter((entry) => entry.tradeId || entry.clientTradeId).slice(-24),
     incomingTradeIds: (Array.isArray(value.incomingTradeIds) ? value.incomingTradeIds : []).map((id) => String(id || "").slice(0, 80)).filter(Boolean).slice(-80),
     incomingHistory: (Array.isArray(value.incomingHistory) ? value.incomingHistory : []).map((entry) => normalizeTradeRecord(Object.assign({ claimed: true }, entry))).filter((entry) => entry.tradeId).slice(-24),
-    lastTrade: value.lastTrade ? normalizeTradeRecord(value.lastTrade) : null
+    lastTrade: value.lastTrade ? normalizeTradeRecord(value.lastTrade) : null,
+    exchangeIcon: normalizeExchangeIcon(value.exchangeIcon)
   };
 }
 
@@ -243,14 +331,28 @@ function wildernessFindById(id) {
   return WILDERNESS_FIND_CATALOG.find((item) => item.id === id) || null;
 }
 
-function wildernessActivation(item, reserve = {}, context = {}) {
-  if (!item) return { active: false, storyReady: false, metricReady: false, statusText: "没有待激活素材" };
+function wildernessStoryProgress(reserve = {}, context = {}) {
   const level = Math.max(1, Math.min(7, Math.round(Number(((reserve.progression || {}).level)) || 1)));
   const chain = context.eventChain || reserve.eventChain || {};
-  const requiredStep = Math.min(7, Math.max(1, (Number(item.tradeValue) || 1) * 2 - 1));
   const chainChapter = Math.max(1, Math.round(Number(chain.chapterLevel) || level));
-  const storyStep = chainChapter === item.minLevel ? Math.max(0, Math.round(Number(chain.step) || 0)) : 0;
-  const storyReady = level > item.minLevel || (level === item.minLevel && chainChapter === item.minLevel && storyStep >= requiredStep);
+  const displayChapter = Math.max(1, Math.round(Number((reserve.progression || {}).displayChapter || (reserve.progression || {}).stage || 0)));
+  return {
+    level,
+    chain,
+    chainChapter,
+    progressChapter: Math.max(level, chainChapter, displayChapter)
+  };
+}
+
+function wildernessActivation(item, reserve = {}, context = {}) {
+  if (!item) return { active: false, storyReady: false, metricReady: false, statusText: "没有待激活素材" };
+  const { level, chain, chainChapter, progressChapter } = wildernessStoryProgress(reserve, context);
+  const requiredStep = Math.min(7, Math.max(1, (Number(item.tradeValue) || 1) * 2 - 1));
+  const storyStep = chainChapter === item.minLevel
+    ? Math.max(0, Math.round(Number(chain.step) || 0))
+    : progressChapter > item.minLevel ? 7 : 0;
+  const storyReady = progressChapter > item.minLevel
+    || (level >= item.minLevel && chainChapter === item.minLevel && storyStep >= requiredStep);
   const effect = item.reserveEffect || {};
   const metric = effect.key === "water"
     ? { label: "水源", value: metricValue(reserve, "water"), target: 52 }
@@ -266,20 +368,31 @@ function wildernessActivation(item, reserve = {}, context = {}) {
 
 function survivalFindForExploration(preview = {}, roll = 1, targetId = "", context = {}) {
   const qualityScore = Math.max(0, Number(preview.qualityScore) || (Number(roll) || 0));
-  if (!preview.success) return null;
   const level = Math.max(1, Math.min(7, Math.round(Number(preview.level) || 1)));
   const reserve = context.reserve || {};
+  const requested = wildernessFindById(String(targetId || "").trim());
+  if (requested) {
+    if (requested.minLevel > level || requested.minQuality > qualityScore) return null;
+    const activation = wildernessActivation(requested, reserve, context);
+    if (!activation.storyReady) return null;
+    return Object.assign({}, requested, { activation });
+  }
+  if (!preview.success) return null;
   const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
   const action = (((context.storyDiscovery || {}).actionId) || "");
   const preferredKeys = ({ habitat: ["water"], antiPoacher: ["poacherPressure"], houndScout: ["poacherPressure", "safety"], intervention: ["safety", "water"] })[action] || [];
-  const eligible = WILDERNESS_FIND_CATALOG.filter((item) => item.minLevel <= level && item.minQuality <= qualityScore && wildernessActivation(item, reserve, context).active)
-    .sort((a, b) => {
-      const aPreferred = preferredKeys.includes((a.reserveEffect || {}).key) ? 1 : 0;
-      const bPreferred = preferredKeys.includes((b.reserveEffect || {}).key) ? 1 : 0;
-      const aCount = ((state.discoveries[a.id] || {}).count) || 0;
-      const bCount = ((state.discoveries[b.id] || {}).count) || 0;
-      return bPreferred - aPreferred || aCount - bCount || WILDERNESS_FIND_CATALOG.indexOf(a) - WILDERNESS_FIND_CATALOG.indexOf(b);
-    });
+  const qualityReady = (item) => item.minLevel <= level && item.minQuality <= qualityScore;
+  let eligible = WILDERNESS_FIND_CATALOG.filter((item) => qualityReady(item) && wildernessActivation(item, reserve, context).active);
+  if (!eligible.length) {
+    eligible = WILDERNESS_FIND_CATALOG.filter((item) => qualityReady(item) && wildernessActivation(item, reserve, context).storyReady);
+  }
+  eligible = eligible.slice().sort((a, b) => {
+    const aPreferred = preferredKeys.includes((a.reserveEffect || {}).key) ? 1 : 0;
+    const bPreferred = preferredKeys.includes((b.reserveEffect || {}).key) ? 1 : 0;
+    const aCount = ((state.discoveries[a.id] || {}).count) || 0;
+    const bCount = ((state.discoveries[b.id] || {}).count) || 0;
+    return bPreferred - aPreferred || aCount - bCount || WILDERNESS_FIND_CATALOG.indexOf(a) - WILDERNESS_FIND_CATALOG.indexOf(b);
+  });
   if (!eligible.length) return null;
   const selected = eligible[0];
   return Object.assign({}, selected, { activation: wildernessActivation(selected, reserve, context) });
@@ -325,7 +438,28 @@ function recordWildernessFind(reserve = {}, find = null, day = 0, context = {}) 
   state.lastFind = record;
   state.history = state.history.concat({ id: find.id, day: record.day, isNew }).slice(-24);
   reserve.wildernessKnowledge = state;
+  noteSandboxExchangeItem(reserve, find.id, Date.now());
   return record;
+}
+
+function unlockWildernessCatalog(reserve = {}, itemId = "", day = 0, source = "exchange") {
+  const item = wildernessFindById(itemId);
+  if (!item) return null;
+  const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
+  const previous = state.discoveries[item.id] || { count: 0, firstDay: day, lastDay: day };
+  if ((previous.count || 0) > 0) return previous;
+  const chapter = Math.max(1, Math.round(Number((reserve.progression || {}).displayChapter || (reserve.progression || {}).stage || item.minLevel) || 1));
+  state.discoveries[item.id] = {
+    count: 1,
+    firstDay: Math.max(0, Math.round(Number(day) || 0)),
+    lastDay: Math.max(0, Math.round(Number(day) || 0)),
+    storyLink: normalizeStoryLink({ type: "exchange", title: "交换入档", chapter }),
+    impact: null,
+    source
+  };
+  state.history = state.history.concat({ id: item.id, day: Math.max(0, Math.round(Number(day) || 0)), isNew: true, source }).slice(-24);
+  reserve.wildernessKnowledge = state;
+  return state.discoveries[item.id];
 }
 
 function wildernessKnowledgeSummary(reserve = {}) {
@@ -340,7 +474,8 @@ function wildernessTradeOffer(reserve = {}, id = "", amount = 1) {
   const item = wildernessFindById(id);
   const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
   const requested = Math.max(1, Math.round(Number(amount) || 1));
-  const available = Math.max(0, Number(state.tradeStock[id]) || 0);
+  const stock = Math.max(0, Number(state.tradeStock[id]) || 0);
+  const available = surplusTradeAmount(reserve, id, stock);
   return {
     version: 1,
     type: "wilderness_material",
@@ -348,6 +483,8 @@ function wildernessTradeOffer(reserve = {}, id = "", amount = 1) {
     label: item ? item.label : "未知生存素材",
     amount: Math.min(requested, available),
     available,
+    stock,
+    reserved: Math.max(0, stock - available),
     ready: !!item && available >= requested
   };
 }
@@ -363,8 +500,7 @@ function wildernessTradePurpose(reserve = {}, item = null) {
 }
 
 function wildernessTradeMotive(reserve = {}, offeredItem = null, wantedItem = null) {
-  const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
-  if (offeredItem && boundedCount(state.tradeStock[offeredItem.id], 99) > 1) return "消化溢出库存";
+  if (offeredItem && surplusTradeAmount(reserve, offeredItem.id) > 0) return "消化溢出库存";
   if (wantedItem && Number(wantedItem.tradeValue) > Number((offeredItem || {}).tradeValue)) return "获取稀有素材";
   const purpose = wildernessTradePurpose(reserve, wantedItem);
   if (/风险|巡查/.test(purpose)) return "降低探索风险";
@@ -423,8 +559,8 @@ function wildernessStockReadiness(reserve = {}, normalizedState = null) {
 
 function bestWildernessTradeItem(reserve = {}) {
   const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
-  return WILDERNESS_FIND_CATALOG.filter((item) => boundedCount(state.tradeStock[item.id], 99) > 0)
-    .sort((a, b) => (b.tradeValue || 0) - (a.tradeValue || 0) || boundedCount(state.tradeStock[b.id], 99) - boundedCount(state.tradeStock[a.id], 99))[0] || null;
+  return WILDERNESS_FIND_CATALOG.filter((item) => surplusTradeAmount(reserve, item.id, state.tradeStock[item.id]) > 0)
+    .sort((a, b) => (b.tradeValue || 0) - (a.tradeValue || 0) || surplusTradeAmount(reserve, b.id, state.tradeStock[b.id]) - surplusTradeAmount(reserve, a.id, state.tradeStock[a.id]))[0] || null;
 }
 
 function wildernessTradePreview(reserve = {}, id = "", channelId = "friends", partner = {}, wantedId = "") {
@@ -501,12 +637,178 @@ function applyTradeMetric(reserve = {}, key = "", value = 0) {
   }
 }
 
+function proposeFriendExchangeChoices(reserve = {}) {
+  const base = proposeAutoExchange(reserve);
+  if (!base) return null;
+  const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
+  const level = Math.max(1, Math.min(7, Math.round(Number(((reserve.progression || {}).level)) || 1)));
+  const seen = new Set();
+  const wants = [];
+  const add = (item) => {
+    if (!item || !item.id || item.id === base.offer.id || seen.has(item.id)) return;
+    if (Math.abs(Number(item.tradeValue) - Number(base.offer.tradeValue)) > 1) return;
+    seen.add(item.id);
+    wants.push(item);
+  };
+  add(base.want);
+  wildernessTradeRecommendations(reserve, base.offer.id).forEach(add);
+  WILDERNESS_FIND_CATALOG.filter((item) => Number(item.minLevel || 1) <= level + 1)
+    .sort((a, b) => boundedCount(state.tradeStock[a.id], 99) - boundedCount(state.tradeStock[b.id], 99)
+      || (/当前/.test(wildernessTradePurpose(reserve, b)) ? 1 : 0) - (/当前/.test(wildernessTradePurpose(reserve, a)) ? 1 : 0))
+    .forEach(add);
+  const options = wants.slice()
+    .sort((a, b) => boundedCount(state.tradeStock[a.id], 99) - boundedCount(state.tradeStock[b.id], 99)
+      || (/当前/.test(wildernessTradePurpose(reserve, b)) ? 1 : 0) - (/当前/.test(wildernessTradePurpose(reserve, a)) ? 1 : 0))
+    .slice(0, 3)
+    .map((item) => ({
+      id: item.id,
+      label: item.label,
+      stock: boundedCount(state.tradeStock[item.id], 99),
+      purpose: wildernessTradePurpose(reserve, item),
+      item
+    }));
+  if (!options.length) return null;
+  return {
+    offer: base.offer,
+    offerStock: base.offerStock,
+    wants: options,
+    defaultWantId: options[0].id
+  };
+}
+
+function proposalWithWant(reserve = {}, wantId = "") {
+  const base = proposeAutoExchange(reserve);
+  if (!base) return null;
+  const id = String(wantId || base.want.id);
+  if (!id || id === base.want.id) return base;
+  const want = wildernessFindById(id);
+  if (!want || want.id === base.offer.id) return null;
+  if (Math.abs(Number(want.tradeValue) - Number(base.offer.tradeValue)) > 1) return null;
+  const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
+  return {
+    offer: base.offer,
+    want,
+    offerStock: base.offerStock,
+    wantStock: boundedCount(state.tradeStock[want.id], 99),
+    purpose: wildernessTradePurpose(reserve, want),
+    motive: wildernessTradeMotive(reserve, base.offer, want)
+  };
+}
+
+function proposeAutoExchange(reserve = {}) {
+  const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
+  const level = Math.max(1, Math.min(7, Math.round(Number(((reserve.progression || {}).level)) || 1)));
+  const owned = WILDERNESS_FIND_CATALOG.filter((item) => surplusTradeAmount(reserve, item.id, state.tradeStock[item.id]) > 0)
+    .sort((a, b) => surplusTradeAmount(reserve, b.id, state.tradeStock[b.id]) - surplusTradeAmount(reserve, a.id, state.tradeStock[a.id])
+      || Number(b.tradeValue || 0) - Number(a.tradeValue || 0));
+  const pendingId = String((state.exchangeIcon || {}).pendingItemId || "");
+  const offer = owned.find((item) => item.id === pendingId) || owned[0];
+  if (!offer) return null;
+  const reachable = (item) => Number(item.minLevel || 1) <= level + 1;
+  const stockOf = (item) => boundedCount(state.tradeStock[item.id], 99);
+  const lacking = WILDERNESS_FIND_CATALOG.filter((item) => item.id !== offer.id && reachable(item) && stockOf(item) <= 0);
+  const byFairValue = (a, b) => Math.abs(Number(a.tradeValue) - Number(offer.tradeValue)) - Math.abs(Number(b.tradeValue) - Number(offer.tradeValue));
+  const needNow = lacking.filter((item) => /当前/.test(wildernessTradePurpose(reserve, item))).sort(byFairValue);
+  const want = needNow[0]
+    || lacking.slice().sort(byFairValue)[0]
+    || wildernessTradeRecommendations(reserve, offer.id).find((item) => item.id !== offer.id && reachable(item) && stockOf(item) <= 0)
+    || WILDERNESS_FIND_CATALOG.filter((item) => item.id !== offer.id && reachable(item))
+      .sort((a, b) => stockOf(a) - stockOf(b) || byFairValue(a, b))[0];
+  if (!want || want.id === offer.id) return null;
+  return {
+    offer,
+    want,
+    offerStock: surplusTradeAmount(reserve, offer.id, state.tradeStock[offer.id]),
+    wantStock: stockOf(want),
+    purpose: wildernessTradePurpose(reserve, want),
+    motive: wildernessTradeMotive(reserve, offer, want)
+  };
+}
+
+function settleAutoExchange(reserve = {}, proposal = null, partner = {}, receipt = {}) {
+  if (!proposal || !proposal.offer || !proposal.want) return { ok: false, reason: "no_proposal" };
+  const day = Math.max(1, Math.round(Number(receipt.day) || 1));
+  const usage = wildernessTradeDailyUsage(reserve, day);
+  if (usage.remaining <= 0) return { ok: false, reason: "limit" };
+  const channelId = partner.channel === "world" ? "world" : "friends";
+  const preview = wildernessTradePreview(reserve, proposal.offer.id, channelId, partner, proposal.want.id);
+  if (!preview.ready) return { ok: false, reason: "not_ready" };
+  const stamp = Number(receipt.createdAt) || Date.now();
+  const tradeId = String(receipt.tradeId || `ax_${stamp.toString(36)}_${Math.floor(Math.random() * 0xffffff).toString(36)}`).slice(0, 80);
+  const result = settleWildernessTrade(reserve, preview, {
+    tradeId,
+    clientTradeId: tradeId,
+    status: "matched",
+    partnerId: partner.id,
+    partnerName: partner.name,
+    day,
+    createdAt: stamp
+  });
+  if (!result.ok) return result;
+  const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
+  state.tradeStock[proposal.want.id] = Math.min(99, boundedCount(state.tradeStock[proposal.want.id], 99) + 1);
+  const partnerKind = partner.simulated === true ? "npc" : "player";
+  const partnerLabel = partnerKind === "npc" ? `${partner.name || "巡护员"}（巡护员）` : (partner.name || "真实玩家");
+  const outbox = Object.assign({}, result.record, {
+    status: "matched",
+    partnerName: partnerLabel,
+    partnerKind,
+    source: ["sandbox", "league"].includes(receipt.source) ? receipt.source : "",
+    rewardLabel: `${proposal.want.label} ×1`,
+    paymentLabel: `${proposal.offer.label} ×1`,
+    wantedItemId: proposal.want.id,
+    wantedItemLabel: proposal.want.label
+  });
+  state.tradeHistory = state.tradeHistory.map((entry) => entry.tradeId === tradeId ? outbox : entry);
+  const inboxId = `${tradeId}_in`;
+  const inbox = normalizeTradeRecord({
+    tradeId: inboxId,
+    itemId: proposal.want.id,
+    label: proposal.want.label,
+    wantedItemId: proposal.offer.id,
+    wantedItemLabel: proposal.offer.label,
+    tradeKind: proposal.want.tradeKind,
+    motive: proposal.motive,
+    purpose: proposal.purpose,
+    status: "claimed",
+    escrow: true,
+    channel: channelId,
+    partnerId: partner.id,
+    partnerName: partnerLabel,
+    partnerKind,
+    source: outbox.source,
+    day,
+    receivedAmount: 1,
+    rewardLabel: `${proposal.want.label} ×1`,
+    paymentLabel: `${proposal.offer.label} ×1`,
+    createdAt: stamp,
+    claimed: true,
+    claimedAt: stamp
+  });
+  state.incomingTradeIds = (state.incomingTradeIds || []).concat(inboxId).slice(-80);
+  state.incomingHistory = (state.incomingHistory || []).concat(inbox).slice(-24);
+  state.lastTrade = outbox;
+  reserve.wildernessKnowledge = state;
+  unlockWildernessCatalog(reserve, proposal.want.id, day, "exchange");
+  return {
+    ok: true,
+    proposal,
+    partner: Object.assign({}, partner, { kind: partnerKind, label: partnerLabel }),
+    outbox,
+    inbox,
+    tradeId,
+    summary: `拿出${proposal.offer.label}，换回${proposal.want.label} · ${partnerLabel}`
+  };
+}
+
 function settleWildernessTrade(reserve = {}, preview = null, receipt = {}) {
   if (!preview || !preview.ready || !preview.item) return { ok: false, reason: "not_ready" };
   const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
   const tradeId = String(receipt.tradeId || preview.clientTradeId || "").slice(0, 80);
   if (tradeId && state.tradeHistory.some((entry) => entry.tradeId === tradeId)) return { ok: false, reason: "duplicate" };
-  if (boundedCount(state.tradeStock[preview.item.id], 99) < 1) return { ok: false, reason: "out_of_stock" };
+  if (surplusTradeAmount(reserve, preview.item.id, state.tradeStock[preview.item.id]) < 1) {
+    return { ok: false, reason: boundedCount(state.tradeStock[preview.item.id], 99) < 1 ? "out_of_stock" : "reserved" };
+  }
   state.tradeStock[preview.item.id] = boundedCount(state.tradeStock[preview.item.id], 99) - 1;
   if (preview.version >= 2 && preview.wantedItem) {
     const status = receipt.status === "matched" ? "matched" : "open";
@@ -620,6 +922,11 @@ function applyWildernessTradeInbox(reserve = {}, receipts = []) {
     state.incomingTradeIds = Array.from(seen).slice(-80);
     state.incomingHistory = state.incomingHistory.concat(applied).slice(-24);
     reserve.wildernessKnowledge = state;
+    applied.forEach((entry) => {
+      if (entry.itemId) {
+        unlockWildernessCatalog(reserve, entry.itemId, entry.day, "inbox");
+      }
+    });
   }
   return {
     applied,
@@ -629,6 +936,8 @@ function applyWildernessTradeInbox(reserve = {}, receipts = []) {
 }
 
 module.exports = {
+  maxObtainableQualityScore,
+  capCollectibleMinQuality,
   WILDERNESS_FIND_CATALOG,
   WILDERNESS_TRADE_KINDS,
   WILDERNESS_TRADE_DAILY_LIMIT,
@@ -638,6 +947,7 @@ module.exports = {
   applyWildernessReserveEffect,
   survivalFindForExploration,
   recordWildernessFind,
+  unlockWildernessCatalog,
   wildernessKnowledgeSummary,
   wildernessTradeOffer,
   wildernessTradePurpose,
@@ -648,6 +958,14 @@ module.exports = {
   wildernessStockReadiness,
   bestWildernessTradeItem,
   wildernessTradePreview,
+  proposeAutoExchange,
+  proposeFriendExchangeChoices,
+  proposalWithWant,
+  settleAutoExchange,
   settleWildernessTrade,
-  applyWildernessTradeInbox
+  applyWildernessTradeInbox,
+  EXCHANGE_ICON_GAP_MS,
+  noteSandboxExchangeItem,
+  consumeSandboxExchangeIcon,
+  sandboxExchangeIconReady
 };

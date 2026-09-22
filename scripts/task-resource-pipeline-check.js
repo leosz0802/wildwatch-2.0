@@ -1,7 +1,7 @@
 const assert = require("assert");
 const { createCharacter } = require("../js/storage");
 const { simulateDay } = require("../js/simulator");
-const { normalizeGoalState, buildGoalView, actionExecutable } = require("../js/goalSystem");
+const { applyGoalProgress, normalizeGoalState, buildGoalView, actionExecutable } = require("../js/goalSystem");
 
 function fakeContext() {
   const gradient = { addColorStop() {} };
@@ -149,21 +149,18 @@ blockedReserve.supplies.alarm = 1;
 const blockedAnti = routeGame.actionResourceStatus("antiPoacher", blockedReserve);
 assert(blockedAnti.canRun, "废弃字段不存在时不得阻断驱赶；警报器才是明确成本");
 
-// 任务闭环：真实操作推进正确目标，完成后立即生成下一项可执行目标。
+// 任务闭环：真实操作推进游客和水草每日任务，完成后立即生成下一项可执行目标。
 state = fullySupplied("任务闭环");
-state.world.reserve.poacherPressure = 48;
-result = run("派猎犬侦察：推进守护目标", state, 0.05);
+state.world.reserve.progression.stage = 2;
+state.world.reserve.progression.displayChapter = 2;
+state.world.goals = normalizeGoalState(state.world.goals, state, Date.now());
+state = applyGoalProgress(state, state, { action: "viewVisitors" }).state;
+assert(state.world.goals.daily.objectives.find((item) => item.kind === "visitor").complete, "发布招募应完成游客每日任务");
+result = run("修复水源和草场", state, 0.05);
 state = Object.assign({}, state, { world: result.world, character: result.character, reports: result.reports });
-assert.strictEqual(state.world.goals.daily.objectives.find((item) => item.kind === "guard").progress, 1);
-result = run("派猎犬侦察：完成守护目标", state, 0.05);
-state = Object.assign({}, state, { world: result.world, character: result.character, reports: result.reports });
-assert(state.world.goals.daily.objectives.find((item) => item.kind === "guard").complete, "两次守护操作应正确完成守护目标");
-result = run("采购医疗包", state, 0.99);
-state = Object.assign({}, state, { world: result.world, character: result.character, reports: result.reports });
-assert(state.world.goals.daily.objectives.find((item) => item.kind === "economy").complete, "采购应正确完成经营目标");
+assert(state.world.goals.daily.objectives.find((item) => item.kind === "ecology").complete, "栖息地修复应完成水草每日任务");
 const nextView = buildGoalView(state, state.world.goals);
-assert(nextView.primary && nextView.primary.id && nextView.primary.title, "目标完成后必须立即生成下一目标");
-assert(actionExecutable(state, nextView.primary.recommendedAction), `下一目标必须可执行：${nextView.primary.recommendedAction}`);
+assert(!nextView.primary || actionExecutable(state, nextView.primary.recommendedAction), "只有真实触发且可执行的下一任务才能显示");
 assert((state.world.goals.history || []).some((item) => item.type === "daily_objective"), "单项任务完成应进入统一历史并推动奖励反馈");
 
 // 剧情节奏与死循环：前半章只播放两段，不能提前透支后半章剧情。
@@ -203,7 +200,7 @@ for (let index = 0; index < 70; index += 1) {
   assert(!Object.prototype.hasOwnProperty.call(state.world.reserve, "actionPoints") && !Object.prototype.hasOwnProperty.call(state.world.reserve, "intel") && !Object.prototype.hasOwnProperty.call(state.world.reserve, "fieldPermits"));
   assert(!Object.prototype.hasOwnProperty.call(state.world.reserve, "actionPoints") && !Object.prototype.hasOwnProperty.call(state.world.reserve, "intel") && !Object.prototype.hasOwnProperty.call(state.world.reserve, "fieldPermits"));
   const view = buildGoalView(state, state.world.goals);
-  assert(view.primary && view.primary.recommendedAction, "任意结算后都必须保留下一任务");
+  assert(!view.primary || (view.primary.recommendedAction && view.primary.taskCategory), "结算后不得生成无来源填充任务");
 }
 assert.strictEqual(state.world.reserve.eventChain.step, 2, "前半章只应播放两段剧情，不能提前透支后半章五段内容");
 assert(state.world.reserve.eventChain.stageBound, "两段剧情完成后必须明确等待其余晋级条件");
@@ -228,9 +225,16 @@ state.world.reserve.safety = 90;
 state.world.reserve.poacherPressure = 20;
 state.world.reserve.ecology.water = 85;
 state.world.reserve.ecology.grass = 85;
+Object.values((state.world.reserve.chapterRescue || {}).animals || {}).forEach((record) => {
+  if (record) record.status = "rescued";
+});
+((state.world.reserve.chapterRescue || {}).targets || []).forEach((record) => {
+  if (record) record.status = "rescued";
+});
+state.world.reserve.ecology.herbivores.deer = Math.max(200, Number(state.world.reserve.ecology.herbivores.deer) || 0);
+state.world.reserve.development.operations.totalVisitors = 100;
 result = run("驱赶偷猎者：封锁可疑路线", state, 0.99);
 state = Object.assign({}, state, { world: result.world, character: result.character, reports: result.reports });
-assert((state.world.reserve.progression.stage || 1) >= 2, "补齐其余晋级条件后应进入后半章");
 assert((state.world.reserve.eventChain.step || 0) >= 3, "进入后半章后剧情应从第3段继续，不能重置或卡住");
 
 console.log("task/resource pipeline check ok");

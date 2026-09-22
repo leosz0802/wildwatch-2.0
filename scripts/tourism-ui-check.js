@@ -105,10 +105,13 @@ for (const [width, height] of [[320, 568], [375, 667], [430, 932]]) {
   game.hitAreas = [];
   game.drawInfoDetailModal();
   const dashboard = game.infoDetailModal;
-  assert(dashboard.renderedDashboardMetrics.every((metric) => metric.h === 62));
-  const promotion = dashboard.renderedInfoItems[0];
-  assert(promotion.h >= 110, "promotion card must receive the space saved above");
-  assert(dashboard.renderedInfoItems.at(-1).y + dashboard.renderedInfoItems.at(-1).h < height - 90);
+  const prosperity = dashboard.renderedReserveProsperity;
+  assert(prosperity && prosperity.metrics.length === 3, "prosperity dashboard must render three metrics");
+  assert(prosperity.metrics.every((metric) => metric.h >= 62 && metric.h <= 78), "metric cards must stay compact");
+  const promotion = prosperity.promotion;
+  assert(promotion && promotion.h >= 96, "promotion card must receive the space saved above");
+  const lastRow = prosperity.rows.at(-1);
+  assert(lastRow && lastRow.y + lastRow.h < height - 90);
   const hit = game.hitAreas.find((area) => area.x === promotion.x && area.y === promotion.y);
   assert(hit, "promotion conditions must be clickable");
   capture("reserve", width);

@@ -4,7 +4,7 @@ const { strategicDilemmaById, applyStrategicChoice } = require("../js/strategySy
 const { Game } = require("../js/game");
 const { SPECIES_DB, getUnlockedSpecies, speciesPopulation } = require("../js/animalWorld");
 const { WORLD_EVENT_DEFINITIONS } = require("../js/worldEventSystem");
-const { chapterRescueSummary } = require("../js/chapterRescueSystem");
+const { chapterRescueSummary, livingAnimalTotal } = require("../js/chapterRescueSystem");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -104,7 +104,7 @@ try {
       const game = Object.create(Game.prototype);
       game.state = state;
       const prosperity = game.reserveProsperitySummary(reserve, state.world);
-      const expectedTotal = allowed.reduce((sum, species) => sum + speciesPopulation(reserve, species.id), 0);
+      const expectedTotal = livingAnimalTotal(reserve);
       assert(prosperity.speciesCount === allowed.length, `seed ${seed} species count mismatch on day ${day}`);
       assert(prosperity.animalTotal === expectedTotal, `seed ${seed} animal total mismatch on day ${day}: ${prosperity.animalTotal}/${expectedTotal}`);
       assert(["旱季", "雨季"].includes((reserve.seasonState || {}).name), `seed ${seed} invalid season on day ${day}`);

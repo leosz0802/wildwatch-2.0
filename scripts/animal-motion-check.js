@@ -39,11 +39,29 @@ game.infoDetailModal = null;
 game.gesture = null;
 game.anim = { t: 0 };
 
-const allSpecies = getUnlockedSpecies(7).map((species) => species.name);
+const allSpecies = getUnlockedSpecies(7, 20).map((species) => species.name);
 const atlasIndices = allSpecies.map((species) => game.animalMapSpriteIndex(species));
-if (atlasIndices.some((index) => index < 0) || new Set(atlasIndices).size !== 25 || Math.max(...atlasIndices) !== 24) {
-  throw new Error(`all 25 unlocked species must have unique full-body map sprites: ${atlasIndices.join(",")}`);
+if (atlasIndices.some((index) => index < 0) || Math.max(...atlasIndices) !== 24) {
+  throw new Error(`all 33 unlocked species must map onto the 25-cell full-body atlas: ${atlasIndices.join(",")}`);
 }
+if (new Set(atlasIndices).size !== 25) {
+  throw new Error(`late-chapter species should reuse atlas fallbacks without inventing new cells: ${atlasIndices.join(",")}`);
+}
+const spriteFallbacks = {
+  水獭: "水貂",
+  鹈鹕: "火烈鸟",
+  猩猩: "熊",
+  巨嘴鸟: "乌鸦",
+  貘: "野猪",
+  夜莺: "猫头鹰",
+  野牛: "斑马",
+  鹤: "火烈鸟"
+};
+Object.keys(spriteFallbacks).forEach((species) => {
+  if (game.animalMapSpriteIndex(species) !== game.animalMapSpriteIndex(spriteFallbacks[species])) {
+    throw new Error(`${species} should reuse the ${spriteFallbacks[species]} atlas cell until dedicated art exists`);
+  }
+});
 if (game.animalMapSpriteIndex("兔子") !== game.animalMapSpriteIndex("野兔")) {
   throw new Error("legacy rabbit alias should resolve to the wild-hare sprite");
 }
@@ -56,8 +74,9 @@ if (game.animalMapSpriteIndex("兔子") !== game.animalMapSpriteIndex("野兔"))
 // from the production lookup so a bad metadata edit cannot self-validate.
 const expectedNativeRight = new Set(["狼", "斑马", "野猪", "野犬", "水貂"]);
 allSpecies.forEach((species) => {
+  const atlasSpecies = spriteFallbacks[species] || species;
   const nativeRight = game.animalSpriteFacesRight(species);
-  if (nativeRight !== expectedNativeRight.has(species)) {
+  if (nativeRight !== expectedNativeRight.has(atlasSpecies)) {
     throw new Error(`${species} native atlas direction metadata is incorrect`);
   }
   const rightMirror = game.animalSpriteMirrorForMotion(species, 0.01);
@@ -86,7 +105,8 @@ allSpecies.forEach((species) => {
     if (!drawn || scales.length !== 1 || scales[0].y !== 1) {
       throw new Error(`${species} must render upright with horizontal-only mirroring`);
     }
-    const renderedRight = expectedNativeRight.has(species) !== (scales[0].x < 0);
+    const atlasSpecies = spriteFallbacks[species] || species;
+    const renderedRight = expectedNativeRight.has(atlasSpecies) !== (scales[0].x < 0);
     if (renderedRight !== (facingX > 0)) {
       throw new Error(`${species} rendered body direction does not match travel direction`);
     }
@@ -299,6 +319,27 @@ if (distance(panA, panB) > 0.00001) {
   throw new Error("animal motion should pause during map pan");
 }
 game.gesture = null;
+
+game.animalMotionStates = {};
+game.anim.t = 0;
+const walkDeer = { id: "gait_deer", species: "鹿", name: "鹿" };
+const walkAnchor = game.animalMapPosition(walkDeer, 0);
+game.movingAnimalPosition(walkDeer, 0, walkAnchor);
+let previousGait = null;
+for (let frame = 1; frame <= 40; frame += 1) {
+  game.anim.t = frame * 100;
+  const walked = game.movingAnimalPosition(walkDeer, 0, walkAnchor);
+  if (Math.abs(walked.dirX) + Math.abs(walked.dirY) > 0.00005) {
+    if (previousGait != null) {
+      const delta = Math.min(Math.abs(walked.gaitPhase - previousGait), 1 - Math.abs(walked.gaitPhase - previousGait));
+      if (delta > 0.22) {
+        throw new Error(`walking gait jumped ${delta.toFixed(3)} in one home-frame; animals would jitter instead of stride`);
+      }
+    }
+    previousGait = walked.gaitPhase;
+  }
+}
+if (previousGait == null) throw new Error("gait smoothness check never observed a walking frame");
 
 ["河马", "鳄鱼", "火烈鸟", "鹰", "秃鹫", "斑马", "羚羊"].forEach((species) => {
   const animal = animals.find((item) => item.species === species) || game.state.world.knownCharacters.find((item) => item.species === species);

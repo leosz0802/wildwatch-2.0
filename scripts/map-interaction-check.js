@@ -1,6 +1,6 @@
 const { createInitialWorld } = require("../js/world");
 const { Game } = require("../js/game");
-const { getUnlockedSpecies } = require("../js/animalWorld");
+const { getChapterSandboxSpecies } = require("../js/animalWorld");
 
 const width = 375;
 const overviewX = 12;
@@ -154,9 +154,19 @@ if (game.mapZoom !== 2) throw new Error("map zoom must clamp to maximum");
 [0, 1, 2].forEach((zoom, index) => {
   game.mapZoom = zoom;
   const animals = game.visibleSandAnimals(game.state.world);
-  const expectedSpecies = getUnlockedSpecies(game.state.world.reserve.progression.level).map((species) => species.name).sort();
-  const actualSpecies = animals.map((animal) => animal.species).sort();
-  if (JSON.stringify(actualSpecies) !== JSON.stringify(expectedSpecies)) throw new Error(`sandbox species should exactly match level unlocks at zoom ${zoom}: ${actualSpecies.join(",")}`);
+  const chapter = game.sandboxChapterNumber(game.state.world);
+  const expectedSpecies = getChapterSandboxSpecies(chapter)
+    .filter((species) => game.sandboxMapSpriteReady(species.name))
+    .map((species) => species.name);
+  const actualSpecies = animals.map((animal) => animal.species);
+  if (new Set(actualSpecies).size !== actualSpecies.length) throw new Error(`duplicate sandbox species at zoom ${zoom}`);
+  if (animals.length > 8) throw new Error(`sandbox should keep at most eight herds at zoom ${zoom}`);
+  if (expectedSpecies.length <= 8 && JSON.stringify(actualSpecies.slice().sort()) !== JSON.stringify(expectedSpecies.slice().sort())) {
+    throw new Error(`sandbox species should exactly match the current chapter at zoom ${zoom}: ${actualSpecies.join(",")}`);
+  }
+  if (expectedSpecies.length > 8 && actualSpecies.some((species) => expectedSpecies.indexOf(species) < 0)) {
+    throw new Error(`sandbox herds must stay within the current chapter at zoom ${zoom}`);
+  }
   const ids = animals.map((animal) => animal.id);
   if (new Set(ids).size !== ids.length) throw new Error(`duplicate animal ids at zoom ${zoom}`);
   animals.forEach((animal, animalIndex) => {
@@ -187,6 +197,30 @@ game.state.world.reserveView = Object.assign({}, game.state.world.reserveView, {
 });
 if (game.latestAnimalMapEvent(eventAnimal, game.animalCurrentRegion(eventAnimal))) {
   throw new Error("fund, purchase and transfer markers must not impersonate live animal events even in the same region");
+}
+
+game.mapZoom = 1.85;
+game.mapCamera = { cx: 0.18, cy: 0.22 };
+game.mapEmergencyFocusId = "lingering-task";
+if (Math.abs(game.restoreSandboxOverviewCamera() - 0.97) > 0.001 || game.mapZoom !== 0 || game.mapCamera.cx !== 0.52 || game.mapEmergencyFocusId) {
+  throw new Error("returning to the sandbox must restore the default overview camera");
+}
+const zoomBeforeCrisis = game.mapZoom;
+game.beginMapCrisisBurst({
+  kind: "emergency_started",
+  title: "北太平洋海豹实施二十六次生存干预",
+  body: "现场需要处置。",
+  visualKind: "risk-zone"
+});
+if (game.mapZoom !== zoomBeforeCrisis || game.mapZoom !== 0) {
+  throw new Error("a live task must not persist a closer sandbox scale");
+}
+if (!game.setMapZoom(1.4, 180, 250, false) || game.mapZoom <= 1) {
+  throw new Error("pinch/button zoom should still change the sandbox scale");
+}
+game.restoreSandboxOverviewCamera();
+if (game.mapZoom !== 0 || Math.abs(game.currentMapScale() - 0.97) > 0.001) {
+  throw new Error("background resume must return to the minimum map viewpoint");
 }
 
 console.log("map density and dialogue linkage ok");

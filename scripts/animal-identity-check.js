@@ -21,13 +21,21 @@ const names = knownCharacters.map((animal) => animal.name);
   "阔角犀",
   "环鳞甲",
   "风点猎豹",
-  "鬣影狗"
+  "鬣影狗",
+  "浮须獭",
+  "白帆鹈",
+  "长臂猩",
+  "彩喙鸟",
+  "灰鼻貘",
+  "微光莺",
+  "宽肩牛",
+  "长鸣鹤"
 ].forEach((name) => {
   if (!names.includes(name)) throw new Error(`missing cartoon animal name: ${name}`);
 });
 
-if (knownCharacters.length !== 25) {
-  throw new Error(`expected one NPC template for all 25 species, got: ${knownCharacters.length}`);
+if (knownCharacters.length !== 33) {
+  throw new Error(`expected one NPC template for all 33 species, got: ${knownCharacters.length}`);
 }
 
 knownCharacters.forEach((animal) => {
@@ -41,8 +49,13 @@ if (JSON.stringify(initialSpecies) !== JSON.stringify(levelOneSpecies)) {
 
 const game = new Game();
 const portraitIndices = knownCharacters.map((animal) => game.animalPortraitIndex(animal.species));
-if (portraitIndices.some((index) => index < 0) || new Set(portraitIndices).size !== 25) {
-  throw new Error(`sandbox portraits must map all 25 species to unique new artwork: ${portraitIndices.join(",")}`);
+if (portraitIndices.some((index) => index < 0) || Math.max(...portraitIndices) !== 24) {
+  throw new Error(`all 33 species must map onto the 25-cell portrait atlas: ${portraitIndices.join(",")}`);
+}
+const dedicatedSpecies = knownCharacters.filter((animal) => !["水獭", "鹈鹕", "猩猩", "巨嘴鸟", "貘", "夜莺", "野牛", "鹤"].includes(animal.species));
+const uniquePortraits = new Set(dedicatedSpecies.map((animal) => game.animalPortraitIndex(animal.species)));
+if (dedicatedSpecies.length !== 25 || uniquePortraits.size !== 25) {
+  throw new Error(`the 25 dedicated atlas species must keep unique portraits: ${[...uniquePortraits].join(",")}`);
 }
 if (!/drawAnimalSticker/.test(Game.prototype.drawGroundedAnimal.toString())
   || /drawAnimalPortraitAsset/.test(Game.prototype.drawGroundedAnimal.toString())) {

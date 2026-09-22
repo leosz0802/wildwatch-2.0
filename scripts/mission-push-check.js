@@ -57,10 +57,14 @@ global.wx = {
 
 const { Game } = require("../js/game");
 const { createCharacter } = require("../js/storage");
+const { normalizeGoalState } = require("../js/goalSystem");
 
 const game = new Game();
 game.stopLoop();
 game.state = createCharacter(null, "保护区卫士");
+game.state.world.reserve.progression.stage = 2;
+game.state.world.reserve.progression.displayChapter = 2;
+game.state.world.goals = normalizeGoalState(game.state.world.goals, game.state);
 game.state.ui = { onboarding: { version: 2, completed: true, seen: {} } };
 game.state.world.reserve.progression.totalActions = 9;
 game.state.world.reserve.progression.activeSeconds = 45;
@@ -79,22 +83,8 @@ if (!daily || !daily.story || !daily.recommendedAction || !daily.buttonLabel) {
 }
 
 const opened = game.maybeOpenMissionPush("login");
-if (!opened || !game.infoDetailModal) {
-  throw new Error("mission push should open only after the low-density auto interval");
-}
-if (game.infoDetailModal.kicker !== daily.chapter || game.infoDetailModal.actionLabel !== daily.buttonLabel) {
-  throw new Error("mission push should foreground current chapter and recommended action");
-}
-if (game.infoDetailModal.kind !== "missionPush" || !game.infoDetailModal.mission || !game.infoDetailModal.mission.actionTitle) {
-  throw new Error("mission push should use the dedicated guided mission layout");
-}
-if (!game.infoDetailModal.items || game.infoDetailModal.items.length < 3
-  || game.infoDetailModal.items.some((item) => item.tag === "为什么")
-  || !game.infoDetailModal.items.some((item) => item.tag === "奖励")) {
-  throw new Error("mission push should keep story/action/reward and remove the duplicate why card");
-}
-if (!game.state.ui.missionPushSeenKey) {
-  throw new Error("mission push should mark the current task as seen");
+if (opened || game.infoDetailModal) {
+  throw new Error("routine daily records must not auto-push a task card");
 }
 
 game.infoDetailModal = null;
@@ -104,26 +94,47 @@ if (reopened) {
 }
 
 // After three minutes of active play, automatic mission cards must leave a
-// real-time browsing window of more than 30 seconds. The queue remains
+// real-time browsing window of more than 57 seconds. The queue remains
 // available; only the unsolicited popup is delayed.
 game.state.world.reserve.progression.activeSeconds = 181;
+game.state.world.reserve.ecology.water = 5;
+game.currentGoalView(true);
 game.state.ui.missionPushSeenKey = "";
 game.state.ui.lastMissionAutoAction = 0;
 game.state.ui.lastMissionAutoPushAt = Date.now();
+game.state.ui.lastSystemTaskTriggerAt = Date.now();
 if (game.maybeOpenMissionPush("home")) {
-  throw new Error("experienced players should not receive another automatic mission within 35 seconds");
+  throw new Error("experienced players should not receive another automatic mission within 57 seconds");
 }
-game.state.ui.lastMissionAutoPushAt = Date.now() - 35001;
+game.state.ui.lastMissionAutoPushAt = Date.now() - 80001;
+game.state.ui.lastSystemTaskTriggerAt = Date.now() - 80001;
+game.state.ui.lastUserTaskTriggerAt = Date.now() - 80001;
 game.state.ui.missionPushSeenKey = "";
 game.state.world.reserve.progression.totalActions = 20;
 if (!game.maybeOpenMissionPush("home")) {
-  throw new Error("the automatic mission should resume after the 35-second quiet window");
+  throw new Error("the automatic mission should resume after the 57-second quiet window and chapter cadence");
+}
+game.infoDetailModal = null;
+game.state.ui.missionPushSeenKey = "";
+game.state.ui.lastMissionAutoPushAt = Date.now();
+game.state.ui.lastSystemTaskTriggerAt = Date.now();
+game.state.ui.lastUserTaskTriggerAt = 0;
+if (game.maybeOpenMissionPush("chapter")) {
+  throw new Error("the extra system-push interval must still apply after chapter advance");
+}
+game.state.ui.lastMissionAutoPushAt = Date.now() - 57001;
+game.state.ui.lastSystemTaskTriggerAt = Date.now() - 57001;
+if (!game.maybeOpenMissionPush("chapter")) {
+  throw new Error("chapter advance must not impose a longer wait than the system-push interval");
 }
 game.infoDetailModal = null;
 // Restore the short synthetic timeline used by the legacy action-gap checks.
 game.state.world.reserve.progression.activeSeconds = 60;
 game.state.ui.lastMissionAutoPushAt = 0;
+game.state.ui.lastSystemTaskTriggerAt = 0;
+game.state.ui.lastUserTaskTriggerAt = 0;
 game.state.ui.lastMissionAutoAction = 9;
+game.state.ui.missionAutoPushAttempts = 3;
 
 // A seven-beat chapter event updates its progress, but must remain one
 // consolidated mission card instead of pushing the same task seven times.
@@ -149,10 +160,19 @@ if (game.maybeOpenMissionPush("home")) {
   throw new Error("routine sampling should skip one of the later card opportunities");
 }
 game.state.world.reserve.progression.totalActions = 24;
+if (game.maybeOpenMissionPush("home")) {
+  throw new Error("same-day daily must not auto-push a second time after visitor or ecology rotation");
+}
+game.state.world.reserve.emergency = {
+  active: { id: "fire_test", type: "wildfire", title: "山火", recommendedAction: "antiPoacher", daysRemaining: 1, recommendLabel: "处理现场" }
+};
+game.currentGoalView(true);
 if (!game.maybeOpenMissionPush("home")) {
-  throw new Error("a new stage task should auto-push after the quieter patrol interval");
+  throw new Error("a new crisis task should auto-push after the quieter patrol interval");
 }
 game.infoDetailModal = null;
+game.state.world.reserve.emergency = { active: null };
+game.currentGoalView(true);
 
 game.state.world.goals.daily.cycle = 3;
 game.markPopupQuiet(2);
@@ -165,20 +185,49 @@ game.openGoalCenter();
 if (!game.infoDetailModal || typeof game.infoDetailModal.action !== "function") {
   throw new Error("manual mission push should still be available");
 }
+const routed = game.selectedGoalFromModal() || {};
 game.infoDetailModal.action();
-if (game.screen !== "action") {
-  throw new Error("mission action should take the player to patrol command page");
+if (["houndScout", "antiPoacher", "habitat", "intervention"].includes(routed.recommendedAction)) {
+  if (game.screen !== "action") {
+    throw new Error("mission action should take the player to patrol command page");
+  }
+  if (!game.patrolTaskModal || game.patrolTaskModal.id !== routed.recommendedAction) {
+    throw new Error("mission action should open the recommended patrol task directly");
+  }
+  if (!game.command) {
+    throw new Error("mission action should prefill the patrol command");
+  }
+} else if (game.screen !== "survival" && game.screen !== "role" && !(game.infoDetailModal && game.infoDetailModal.kind)) {
+  throw new Error("mission action should route into the recommended task");
 }
-if (!game.patrolTaskModal || game.patrolTaskModal.id !== daily.recommendedAction) {
-  throw new Error("mission action should open the recommended patrol task directly");
+
+game.screen = "home";
+game.patrolTaskModal = null;
+game.settlementModal = null;
+game.chapterStoryModal = null;
+game.activeTaskLock = null;
+game.infoDetailModal = { kind: "animalInteractionStory", phase: "result" };
+game.openPendingAnimalInteraction = () => {
+  game.infoDetailModal = { kind: "animalInteractionStory", title: "chained" };
+  return true;
+};
+const previousQueued = game.openQueuedMissionPush;
+game.openQueuedMissionPush = () => {
+  game.infoDetailModal = { kind: "missionPush", title: "chained-mission" };
+  return true;
+};
+game.dismissInfoDetailModal();
+if (game.infoDetailModal) {
+  throw new Error("closing a popup must not immediately open another unsolicited popup");
 }
-if (!game.command) {
-  throw new Error("mission action should prefill the patrol command");
-}
+game.openQueuedMissionPush = previousQueued;
 
 const sequenceGame = new Game();
 sequenceGame.stopLoop();
 sequenceGame.state = createCharacter(null, "保护区卫士");
+sequenceGame.state.world.reserve.progression.stage = 2;
+sequenceGame.state.world.reserve.progression.displayChapter = 2;
+sequenceGame.state.world.goals = normalizeGoalState(sequenceGame.state.world.goals, sequenceGame.state);
 sequenceGame.state.ui = { onboarding: { version: 2, completed: true, seen: {} } };
 sequenceGame.state.world.reserve.progression.totalActions = 12;
 sequenceGame.state.world.reserve.progression.activeSeconds = 60;
@@ -193,8 +242,8 @@ sequenceGame.settlementModal = {
   emotionEvent: null
 };
 sequenceGame.finishSettlement("home");
-if (sequenceGame.settlementModal || !sequenceGame.infoDetailModal || sequenceGame.infoDetailModal.kind !== "missionPush") {
-  throw new Error("operation result must close before the newly refreshed mission opens");
+if (sequenceGame.settlementModal || sequenceGame.infoDetailModal) {
+  throw new Error("operation result must close without creating a routine filler mission");
 }
 if (sequenceGame.pendingMissionPush) {
   throw new Error("the queued mission should be consumed exactly once after settlement");

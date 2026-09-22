@@ -1,7 +1,7 @@
 const assert = require('assert');
 const { Game } = require('../js/game');
 const { createCharacter, saveState, loadState } = require('../js/storage');
-const { applyGoalProgress } = require('../js/goalSystem');
+const { applyGoalProgress, normalizeGoalState } = require('../js/goalSystem');
 const storage = new Map();
 global.wx = {
   getStorageSync: key => storage.get(key),
@@ -10,6 +10,8 @@ global.wx = {
 function makeGame() {
   const g = Object.create(Game.prototype);
   g.state = createCharacter(null, '每日事项测试');
+  g.state.world.reserve.progression.stage = 2;
+  g.state.world.goals = normalizeGoalState(g.state.world.goals, g.state);
   g.render = g.toast = () => {};
   g.ensureDailyReserveReport = g.ensureDailyFriendLetters = () => {};
   g.roundRect = g.drawSmallGlyph = g.text = () => {};
@@ -23,23 +25,24 @@ const camera = { x: 0, y: 0, w: 375, h: 600 };
 const plan = { aggregateVisible: false, hidden: [] };
 const g = makeGame();
 g.drawSandboxOpportunityAggregate({}, camera, plan);
-assert.equal(g.renderedMapOpportunityAggregate.mode, 'dailyEvents', '没有隐藏线索也必须显示每日入口');
-g.lastHit();
+assert.equal(g.renderedMapOpportunityAggregate.mode, 'dailyEvents', '每日记录已移出主任务卡，应保留独立清单入口');
+assert(g.openDailyEvents(), '今日每日仍可从任务入口打开清单');
 assert.equal(g.infoDetailModal.kind, 'dailyEvents');
-assert.equal(g.infoDetailModal.checklist.total, 3, '每日任务只展示前三项');
+assert.equal(g.infoDetailModal.checklist.total, 2, '每日任务只展示游客和水草两项');
 const objective = g.infoDetailModal.checklist.objectives.find(item => !item.complete);
 let routed;
 g.executeGoalAction = goal => { routed = goal; return true; };
 g.executeDailyEvent(objective.id, g.infoDetailModal.checklist.dateKey);
 assert.equal(routed.recommendedAction, objective.recommendedAction);
+assert.notEqual(routed.recommendedAction, 'exploreMaterials', '每日入口不得再送去生存频道');
 // 使用正式目标结算更新每日进度，重复打开入口不能提前完成目标。
-for (const action of ['exploreMaterials', 'exploreMaterials', 'buySupplies', 'animalCare']) {
+for (const action of ['viewVisitors', 'habitat']) {
   const before = JSON.parse(JSON.stringify(g.state));
   g.state = applyGoalProgress(before, g.state, { action }).state;
 }
 assert.equal(g.dailyEventChecklist().remaining, 0);
 assert(g.state.world.goals.daily.fullClaimed, '全部每日任务应领取额外奖励');
-assert((g.state.world.reserve.lastTaskReward || {}).fund >= 24, '三项任务奖励应累计进入保护基金');
+  assert((g.state.world.reserve.lastTaskReward || {}).fund >= 16, '两项任务奖励应累计进入保护基金');
 g.drawSandboxOpportunityAggregate({}, camera, plan);
 assert.equal(g.renderedMapOpportunityAggregate.mode, 'clues');
 const pendingChapterRescue = g.chapterRescueState().targets.find(target => target.status !== 'rescued');
@@ -58,7 +61,7 @@ Date.now = () => clock;
 try {
   const yesterdayKey = g.dailyEventChecklist().dateKey;
   clock += 86400000;
-assert.equal(g.dailyEventChecklist().remaining, 3, '下一自然日恢复三项每日事项');
+assert.equal(g.dailyEventChecklist().remaining, 2, '下一自然日恢复两项每日事项');
   g.executeDailyEvent(objective.id, yesterdayKey);
   assert.equal(routed, null, '跨日的旧清单必须先刷新');
 
@@ -130,6 +133,27 @@ assert.equal(g.dailyEventChecklist().remaining, 3, '下一自然日恢复三项�
   assert(animal.infoDetailModal.unreadOnly);
   assert(!animal.infoDetailModal.letters.some(item => item.id === 'animal_test'), '动物信底部返回按钮也必须回到未读列表');
 
+  const chapter1 = makeGame();
+  chapter1.state.world.reserve.progression.stage = 1;
+  chapter1.state.world.reserve.progression.displayChapter = 1;
+  chapter1.state.world.goals = normalizeGoalState(null, chapter1.state);
+  const primary = chapter1.currentGoalView().primary || {};
+  assert(!chapter1.isTodaysDailyGoal(primary), '每日记录不得再占用第一章当前任务卡');
+  chapter1.drawSandboxOpportunityAggregate({}, camera, plan);
+  assert.equal(chapter1.renderedMapOpportunityAggregate.mode, 'dailyEvents', '第一章每日记录应保留独立清单入口');
+  const seenKey = chapter1.missionPushKey();
+  chapter1.markMissionPushSeen(seenKey);
+  const beforeRecruit = JSON.parse(JSON.stringify(chapter1.state));
+  chapter1.state = applyGoalProgress(beforeRecruit, chapter1.state, { action: 'viewVisitors' }).state;
+  assert(chapter1.state.world.goals.daily.objectives.find((item) => item.kind === 'visitor').complete, '从当前目标招募应完成今日游客每日');
+  chapter1.infoDetailModal = null;
+  assert.equal(chapter1.maybeOpenMissionPush('settlement', { force: true }), false, '招募后不得再弹出同日每日');
+  assert.equal(chapter1.missionPushKey(), seenKey, '同一章同一天每日弹窗键不得因下一项每日而变化');
+  clock += 86400000;
+  chapter1.currentGoalView(true);
+  assert.equal(chapter1.dailyEventChecklist().remaining, 2, '隔日登录可以再次出现每日任务');
+  assert.notEqual(chapter1.missionPushKey(), seenKey, '隔日登录应允许再次出现每日');
+
 } finally { Date.now = originalNow; }
 
 // 直接检查清单与邮箱入口在三种手机宽度下的布局和点击范围。
@@ -148,8 +172,8 @@ for (const [width, height] of [[320,568], [375,667], [430,932]]) {
   const bodyH = Math.min(ui.infoDetailModalHeight(ui.infoDetailModal), height - 34) - 178;
   ui.drawDailyEventsContent(ctx, ui.infoDetailModal, 20, 112, width - 40, bodyH);
   const rows = ui.infoDetailModal.renderedDailyItems;
-  assert.equal(rows.length, bodyH >= 400 ? 3 : 2);
-  assert.equal(rows.filter(row => row.button).length, 1, '只有当前任务具有执行按钮');
+  assert.equal(rows.length, 2, "每日清单只展示游客和水草两项");
+  assert.equal(rows.filter(row => row.button).length, 2, '未完成的每日事项都可以直接去做');
   for (let i = 0; i < rows.length; i++) {
     assert(rows[i].y + rows[i].h <= 112 + bodyH);
     assert(rows[i].description.size >= 13 && !rows[i].description.truncated, '描述字号可读且完整换行');
@@ -165,7 +189,7 @@ for (const [width, height] of [[320,568], [375,667], [430,932]]) {
     buttons.find(button => button.label === '下一页').action();
     ui.drawDailyEventsContent(ctx, ui.infoDetailModal, 20, 112, width - 40, bodyH);
     assert.equal(ui.infoDetailModal.renderedDailyItems.length, 1);
-    assert(ui.infoDetailModal.renderedDailyItems.every(row => !row.button), '后续任务保持锁定');
+    assert(ui.infoDetailModal.renderedDailyItems.every(row => !row.complete), '翻页后仍是未完成事项');
   }
   ui.hitAreas = [];
   ui.drawVisitorMailboxEntry({}, 200, []);

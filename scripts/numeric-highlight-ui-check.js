@@ -44,4 +44,19 @@ numberDraws.forEach((item) => {
 const unitDraws = ctx.draws.filter((item) => /星币|人|生态记录/.test(item.text));
 assert(unitDraws.every((item) => item.fillStyle !== "#c54838"), "数字周围文字不能被染红");
 
+const wrapCtx = mockContext();
+const wrapLayout = game.drawNumericHighlightTextBlock(
+  wrapCtx,
+  "分隔取食地能暂时减少冲突，却会把公共资源变成人类划定的份额",
+  0,
+  12,
+  90,
+  51,
+  { size: 15, minSize: 12, lineHeight: 17, weight: "700" }
+);
+assert(wrapLayout.lineCount >= 2, "long CJK titles must wrap instead of remaining one overflowing line");
+wrapCtx.draws.forEach((item) => {
+  assert(item.x + String(item.text || "").length * 6 <= 96, `wrapped CJK overflowed: ${item.text}`);
+});
+
 console.log("numeric highlight ui check ok");

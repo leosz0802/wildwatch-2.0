@@ -35,6 +35,9 @@ reserve.reputation = 100;
 reserve.poacherPressure = 0;
 reserve.ecology.water = 100;
 reserve.ecology.grass = 100;
+reserve.ecology.herbivores.deer = 1000;
+reserve.development.operations.totalVisitors = 1000;
+reserve.development.operations.visitorLedger = { totalVisitors: 1000 };
 reserve.guardianRun.score = 100;
 reserve.progression = Object.assign({}, reserve.progression, {
   level: 1,

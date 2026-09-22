@@ -42,4 +42,15 @@ function formatTop10Broadcast(diff = {}) {
   return parts.join("\n") || "Top 10 暂无变化";
 }
 
-module.exports = { top10Snapshot, compareTop10, formatTop10Broadcast };
+function formatTop10List(rows = []) {
+  const list = top10Snapshot(rows);
+  if (!list.length) return "世界榜 Top 10 暂无数据";
+  return list.map((row) => `#${row.rank} ${row.name} · 动物${row.animals}只 · 市值${row.valuation}`).join("\n");
+}
+
+function isWorldTop10Letter(letter = {}) {
+  if (String(letter.openTarget || "") === "world") return true;
+  return /^world_top10_/.test(String(letter.id || ""));
+}
+
+module.exports = { top10Snapshot, compareTop10, formatTop10Broadcast, formatTop10List, isWorldTop10Letter };

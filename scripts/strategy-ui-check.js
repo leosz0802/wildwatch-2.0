@@ -91,7 +91,7 @@ function makeGame(dilemmaId) {
 });
 
 const tacticalGame = makeGame("patrol_split");
-assert(tacticalGame.infoDetailModal.choiceCards.length === 2, "tactical popup should show exactly two cards");
+assert(tacticalGame.infoDetailModal.choiceCards.length === 1, "tactical popup should show exactly one card");
 tacticalGame.selectStrategicDilemmaChoice("patrol_split", "patrol_river");
 tacticalGame.confirmStrategicChoice("patrol_split", "patrol_river");
 assert(tacticalGame.infoDetailModal.items.some((item) => /→/.test(item.title)), "deterministic result should show old-to-new values");

@@ -42,9 +42,11 @@ for (const [width, height] of [[320, 568], [375, 667], [430, 932]]) {
   const game = new Game();
   game.stopLoop();
   game.state = createCharacter(null, "目标界面测试");
+  game.state.world.reserve.ecology.water = 5;
   game.state.ui = { onboarding: { version: 2, completed: true, seen: {} } };
   game.screen = "home";
   game.infoDetailModal = null;
+  game.currentGoalView(true);
   assert(game.openGoalCenter(), `${width}x${height} 应能打开目标中心`);
   const modal = game.infoDetailModal;
   assert.strictEqual(modal.kind, "missionPush");
@@ -85,6 +87,7 @@ viewport = { windowWidth: 375, windowHeight: 667, pixelRatio: 1 };
 const stableGame = new Game();
 stableGame.stopLoop();
 stableGame.state = createCharacter(null, "目标稳定帧测试");
+stableGame.state.world.reserve.ecology.water = 5;
 stableGame.state.ui = { onboarding: { version: 2, completed: true, seen: {} } };
 const prepared = stableGame.currentGoalView(true);
 stableGame.state.world.goals.noProgressActions = 3;
@@ -126,18 +129,18 @@ assert(navigationGame.openGuidedChannel("guideSandbox"), "沙盘入口必须可�
 assert.strictEqual(navigationGame.screen, "home");
 navigationGame.stopLoop();
 
-// Resource recovery goals should land on the Survival channel first, where
-// the player can choose exploration or a real player exchange without
-// consuming an action by accident.
+// Resource recovery goals should recruit visitors or restore supplies,
+// not force the Survival channel as a daily/main task.
 const survivalRouteGame = new Game();
 survivalRouteGame.stopLoop();
 survivalRouteGame.state = createCharacter(null, "生存引导测试");
 survivalRouteGame.state.ui = { onboarding: { version: 2, completed: true, seen: {} } };
 survivalRouteGame.screen = "home";
 survivalRouteGame.infoDetailModal = { kind: "missionPush" };
-assert(survivalRouteGame.executeGoalAction({ recommendedAction: "exploreMaterials", targetScreen: "survival" }), "补给剧情应能打开生存频道");
-assert.strictEqual(survivalRouteGame.screen, "survival", "需要探索补给的任务应先引导到生存频道");
-assert(survivalRouteGame.survivalExploreFocusUntil > Date.now(), "进入生存频道后应聚焦探索入口");
+survivalRouteGame.state.world.goals = require("../js/goalSystem").normalizeGoalState(survivalRouteGame.state.world.goals, survivalRouteGame.state);
+assert(survivalRouteGame.state.world.goals.daily.objectives.every((item) => item.recommendedAction !== "exploreMaterials" && item.targetScreen !== "survival"), "每日任务不得强制去生存频道");
+assert(survivalRouteGame.executeGoalAction({ recommendedAction: "viewVisitors" }), "游客招募任务应能打开招募");
+assert.notEqual(survivalRouteGame.screen, "survival", "游客任务不得进入生存频道");
 survivalRouteGame.stopLoop();
 
 // Animal-care goals must route to the sandbox and focus a named animal rather

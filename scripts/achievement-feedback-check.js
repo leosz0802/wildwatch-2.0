@@ -23,6 +23,7 @@ global.wx = {
 
 const { Game } = require("../js/game");
 const { createCharacter } = require("../js/storage");
+const { getChapterSandboxSpecies } = require("../js/animalWorld");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -44,8 +45,59 @@ const roster = game.visibleSandAnimals(game.state.world);
 const reserve = game.state.world.reserve;
 const counts = game.mapAnimalVisualGroupCounts(roster, reserve);
 assert(Object.keys(counts).length === roster.length, "every visible species needs a visual group count");
-assert(Object.values(counts).every((count) => count >= 1 && count <= 3), "visual groups must stay readable at one to three animals");
-assert(Object.values(counts).some((count) => count > 1), "a populated reserve must show at least one visible animal group");
+assert(Object.values(counts).every((count) => count >= 1 && count <= 2), "each sandbox herd may show at most two animals");
+assert(roster.length <= 8, "the sandbox should keep at most eight herds on screen");
+const speciesKeys = roster.map((animal) => game.sandboxSpeciesKey(animal)).filter(Boolean);
+assert(speciesKeys.length === roster.length && new Set(speciesKeys).size === speciesKeys.length, "the sandbox must not place two herds of the same species");
+assert(game.uniqueSandboxSpecies([
+  { id: "npc_deer", species: "鹿" },
+  { id: "sandbox_deer", species: "鹿" },
+  { id: "npc_wolf", species: "狼" }
+]).map((animal) => animal.id).join(",") === "npc_deer,npc_wolf", "duplicate species actors must collapse into one herd");
+const chapterOneNames = roster.map((animal) => animal.species).sort();
+assert(chapterOneNames.join(",") === ["鹿", "羚羊", "野兔", "乌鸦", "狼"].sort().join(","), "chapter 1 sandbox must show that chapter's animals plus wolf and crow");
+assert(chapterOneNames.includes("狼") && chapterOneNames.includes("乌鸦"), "chapter 1 sandbox must keep wolf and crow visible");
+
+function assertChapterSandbox(chapter, options = {}) {
+  game.state.world.reserve.progression.displayChapter = chapter;
+  game.state.world.reserve.progression.stage = chapter;
+  game.sandboxAnimalRosterCache = null;
+  if (options.lateReady) {
+    game.art.animalMapSprites = Object.assign({}, game.art.animalMapSprites || {}, { loaded: true, failed: false, source: "remote" });
+    if (!(game.remoteAssetCompleted instanceof Set)) game.remoteAssetCompleted = new Set();
+    game.remoteAssetCompleted.add("animalMapSprites");
+  }
+  const allowed = new Set(getChapterSandboxSpecies(chapter).map((species) => species.name));
+  const fullRoster = game.sandboxAnimalRoster(game.state.world).map((animal) => animal.species);
+  const visible = game.visibleSandAnimals(game.state.world).map((animal) => animal.species);
+  fullRoster.concat(visible).forEach((name) => {
+    assert(allowed.has(name), `chapter ${chapter} sandbox must not show ${name}`);
+  });
+  assert(visible.length <= Math.min(14, Math.max(8, 6 + chapter)), `chapter ${chapter} sandbox must keep the herd cap`);
+  return { allowed, fullRoster, visible };
+}
+
+const chapterFour = assertChapterSandbox(4);
+assert(chapterFour.fullRoster.includes("乌鸦") && chapterFour.fullRoster.includes("狼"), "wolf and crow stay on the sandbox after chapter 1");
+assert(chapterFour.fullRoster.includes("狮子") && chapterFour.fullRoster.includes("豹子"), "chapter 4 sandbox should include that chapter's animals");
+assert(!chapterFour.fullRoster.includes("长颈鹿"), "chapter 4 sandbox must not show later-chapter animals");
+
+const chapterFiveEarly = assertChapterSandbox(5);
+assert(chapterFiveEarly.fullRoster.includes("乌鸦") && chapterFiveEarly.fullRoster.includes("狼"), "wolf and crow remain visible before the late atlas");
+assert(chapterFiveEarly.fullRoster.includes("长颈鹿"), "chapter 5 giraffe must appear from the packaged local atlas");
+
+const chapterFive = assertChapterSandbox(5, { lateReady: true });
+assert(chapterFive.fullRoster.includes("乌鸦") && chapterFive.fullRoster.includes("长颈鹿"), "chapter 5 sandbox should include crow and giraffe after the late atlas loads");
+assert(chapterFive.fullRoster.includes("狼"), "wolf stays on the sandbox in later chapters");
+
+const chapterFourteen = assertChapterSandbox(14, { lateReady: true });
+assert(chapterFourteen.fullRoster.includes("狼"), "chapter 14 sandbox can show the wolf once that chapter is unlocked");
+game.state.world.reserve.progression.level = 7;
+game.state.world.reserve.progression.displayChapter = 20;
+game.sandboxAnimalRosterCache = null;
+const lateRoster = game.visibleSandAnimals(game.state.world);
+assert(lateRoster.length <= 14, "late chapters must still cap sandbox herds so animals stay tappable");
+assert(new Set(lateRoster.map((animal) => game.sandboxSpeciesKey(animal))).size === lateRoster.length, "late-chapter sandbox herds must stay unique");
 
 const camera = game.mapCameraInfo(0, 0, 375, 500);
 reserve.ecology.water = 78;
@@ -141,5 +193,6 @@ assert(game.mapCrisisBurst.rendered && game.mapCrisisBurst.rendered.mapDimmed
   && game.mapCrisisBurst.rendered.targetRing
   && game.mapCrisisBurst.rendered.titleCard
   && game.mapCrisisBurst.rendered.duration >= 1400, "crisis burst must combine map tone, target ring and short title card");
+assert(game.mapZoom === 0, "crisis presentation must not leave the sandbox on a closer persistent scale");
 
 console.log("achievement feedback check ok");

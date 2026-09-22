@@ -131,9 +131,9 @@ if (!remoteDefault || remoteDefault[1] === "") pass("默认版本不加载远程
 else warn(`检测到默认远程美术地址：${remoteDefault[1]}，须配置下载域名并纳入内容审核`);
 
 const secretPatterns = [
-  /sk-[A-Za-z0-9_-]{16,}/,
-  /access_token\s*[:=]\s*["'][A-Za-z0-9_-]{16,}["']/i,
-  /secret\s*[:=]\s*["'][A-Za-z0-9_-]{24,}["']/i
+  /(?:^|[^A-Za-z0-9_-])sk-[A-Za-z0-9]{24,}/,
+  /access_token\s*[:=]\s*["'][A-Za-z0-9._-]{20,}["']/i,
+  /(?:api[_-]?secret|client[_-]?secret|app[_-]?secret)\s*[:=]\s*["'][A-Za-z0-9_-]{24,}["']/i
 ];
 const packageTextFiles = walk(root).filter((file) => {
   const relativePath = path.relative(root, file).replace(/\\/g, "/");

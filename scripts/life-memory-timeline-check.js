@@ -34,6 +34,7 @@ const game = new Game();
 game.stopLoop();
 game.render = () => {};
 game.state = createCharacter(null, "保护区卫士");
+game.screen = "home";
 const memory = normalizeLifeMemory(game.state.world);
 const friends = memory.individuals.slice(0, 3);
 memory.memories = Array.from({ length: 14 }, (_, index) => {

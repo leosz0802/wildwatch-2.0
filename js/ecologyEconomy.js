@@ -1,5 +1,5 @@
 const { getUnlockedSpecies, speciesPopulation } = require("./animalWorld");
-const { BALANCE_V2, levelOf } = require("./balanceConfig");
+const { BALANCE_V2, levelOf, supplyCapFor } = require("./balanceConfig");
 const { wildernessStockReadiness } = require("./wildernessKnowledge");
 
 const FRAGMENT_CATALOG = {
@@ -319,17 +319,20 @@ function exchangeFragments(reserve, fragmentId, choice = "dogFood") {
   reserve.supplies = reserve.supplies || {};
   const before = { fragments: state.fragments[fragmentId], supplies: Object.assign({}, reserve.supplies) };
   if (fragmentId === "fieldNote") {
-    if ((reserve.supplies.fieldKit || 0) >= BALANCE_V2.supplyCaps.fieldKit) return { ok: false, error: "野外工具包已满" };
-    reserve.supplies.fieldKit = Math.min(BALANCE_V2.supplyCaps.fieldKit, (reserve.supplies.fieldKit || 0) + 1);
+    const fieldCap = supplyCapFor("fieldKit", reserve);
+    if ((reserve.supplies.fieldKit || 0) >= fieldCap) return { ok: false, error: "野外工具包已满" };
+    reserve.supplies.fieldKit = Math.min(fieldCap, (reserve.supplies.fieldKit || 0) + 1);
   } else if (fragmentId === "migrationTrace") {
-    if ((reserve.supplies.tranquilizer || 0) >= BALANCE_V2.supplyCaps.tranquilizer) return { ok: false, error: "麻醉弹已满" };
-    reserve.supplies.tranquilizer = Math.min(BALANCE_V2.supplyCaps.tranquilizer, (reserve.supplies.tranquilizer || 0) + 1);
+    const dartCap = supplyCapFor("tranquilizer", reserve);
+    if ((reserve.supplies.tranquilizer || 0) >= dartCap) return { ok: false, error: "麻醉弹已满" };
+    reserve.supplies.tranquilizer = Math.min(dartCap, (reserve.supplies.tranquilizer || 0) + 1);
   } else if (fragmentId === "forestGift") {
     const rewards = { dogFood: 2, alarm: 1, tranquilizer: 1, fieldKit: 1 };
     if (!rewards[choice]) return { ok: false, error: "请选择有效补给" };
     reserve.supplies = reserve.supplies || {};
-    if ((reserve.supplies[choice] || 0) >= BALANCE_V2.supplyCaps[choice]) return { ok: false, error: "该补给已满" };
-    reserve.supplies[choice] = Math.min(BALANCE_V2.supplyCaps[choice], (reserve.supplies[choice] || 0) + rewards[choice]);
+    const giftCap = supplyCapFor(choice, reserve);
+    if ((reserve.supplies[choice] || 0) >= giftCap) return { ok: false, error: "该补给已满" };
+    reserve.supplies[choice] = Math.min(giftCap, (reserve.supplies[choice] || 0) + rewards[choice]);
   }
   state.fragments[fragmentId] -= recipe.amount;
   reserve.resourceAging.exchangeCooldowns[fragmentId] = recipe.cooldown;

@@ -124,6 +124,7 @@ assert(shortageRoute.screen === "role" && !shortageRoute.patrolTaskModal, "suppl
 // Reproduce the saved visitor title paired with an ecology action from the video.
 for (const conflict of [false, true]) {
   const dailyGame = makeGame("home");
+  dailyGame.state.world.reserve.progression.stage = 2;
   const { createGoalState } = require("../js/goalSystem");
   dailyGame.state.world.goals = createGoalState(dailyGame.state);
   const savedDaily = dailyGame.state.world.goals.daily;
@@ -139,9 +140,10 @@ for (const conflict of [false, true]) {
   dailyGame.openDailyEvents();
   assert(dailyGame.infoDetailModal.kind === "dailyEvents", "the intermediate daily list must stay");
   const checklist = dailyGame.infoDetailModal.checklist;
-  assert(checklist.total === 3 && checklist.remaining === 0, "migration must discard the retired fourth task");
-  assert(checklist.complete === 3, "migration must preserve completed task progress");
-  assert(dailyGame.executeDailyEvent('daily_visitor', checklist.dateKey) === false, "retired visitor button must not execute habitat or patrol");
+  assert(checklist.total === 2, "migration must keep only visitor and ecology dailies");
+  assert(checklist.objectives.every(item => ["visitor", "ecology"].includes(item.kind)));
+  const visitor = checklist.objectives.find(item => item.kind === "visitor");
+  assert(visitor.recommendedAction === "viewVisitors", "miswired visitor/habitat rows must be rewritten to recruitment");
   dailyGame.infoDetailModal = null;
   const openedVisitor = dailyGame.openVisitorIncidentDice({ type: "visitorIncident" });
   if (!conflict) {
@@ -153,8 +155,8 @@ for (const conflict of [false, true]) {
     "independent visitor event must never route to habitat repair or the patrol selector");
   dailyGame.animateInlineDiceRoll = (_modal, _roll, _key, done) => done();
   dailyGame.infoDetailModal.action();
-  assert(dailyGame.infoDetailModal.phase === "result" && dailyGame.dailyEventChecklist().remaining === 0,
-    "visitor settlement must not regenerate the retired fourth daily task");
+  assert(dailyGame.infoDetailModal.phase === "result" && dailyGame.dailyEventChecklist().total === 2,
+    "visitor settlement must not regenerate extra daily tasks");
   const after = JSON.stringify(dailyGame.state);
   assert(dailyGame.resolveVisitorIncidentDice() === false && JSON.stringify(dailyGame.state) === after,
     "repeated confirmation must not duplicate income, progress or rewards");
@@ -186,9 +188,9 @@ async function checkAsyncRoutes() {
   tradeGame.leagueScope = "friends";
   tradeGame.prepareWildernessTrade("world", item.id);
   await flushPromises();
-  assert(tradeGame.screen === "survival", "world exchange refresh should stay on Survival");
-  assert(tradeGame.leagueScope === "friends", "world exchange refresh must not silently switch the leaderboard tab");
-  assert(tradeGame.infoDetailModal && tradeGame.infoDetailModal.kind === "wildernessTradeWant", "world exchange should stay on Survival and ask for the wanted material before confirmation");
+  assert(tradeGame.screen === "survival", "world exchange should stay on the current tab");
+  assert(tradeGame.leagueScope === "friends", "world exchange must not silently switch the leaderboard tab");
+  assert(tradeGame.infoDetailModal && tradeGame.infoDetailModal.kind === "friendAidRequest", "world exchange should use the same auto request as sandbox and leaderboard");
 
   let release;
   const deferred = new Promise((resolve) => { release = resolve; });
@@ -196,6 +198,7 @@ async function checkAsyncRoutes() {
   recordWildernessFind(staleGame.state.world.reserve, item, 2, {});
   staleGame.cloudService = cloudWithDeferredRefresh(deferred);
   staleGame.prepareWildernessTrade("world", item.id);
+  staleGame.infoDetailModal = null;
   staleGame.setScreen("role");
   release(staleGame.cloudService.rows);
   await flushPromises();

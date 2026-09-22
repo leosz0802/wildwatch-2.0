@@ -1,4 +1,4 @@
-const { BALANCE_V2, supplyPrice } = require("./balanceConfig");
+const { BALANCE_V2, supplyPrice, supplyCapFor } = require("./balanceConfig");
 
 const SUPPLY_PURCHASES = [
   {
@@ -192,7 +192,7 @@ function pricedSupply(item, reserveOrLevel, storeConfig = null) {
   return Object.assign({}, item, {
     baseCost: item.cost,
     cost: supplyPrice(item.id, reserveOrLevel),
-    cap: BALANCE_V2.supplyCaps[item.id]
+    cap: supplyCapFor(item.id, reserveOrLevel)
   });
 }
 
@@ -223,19 +223,108 @@ function supplyPurchaseForQuantity(id, quantity, reserveOrLevel) {
   });
 }
 
+const SAFETY_REPLENISH_LIMIT = 2;
+
+function supplyReplenishCount(reserve = {}) {
+  const progression = (reserve && reserve.progression) || {};
+  const stored = Number(progression.supplyReplenishCount);
+  if (Number.isFinite(stored) && stored >= 0) return Math.max(0, Math.round(stored));
+  // 旧存档没有计数：已经买过补给的玩家跳过新手两次安全线补货。
+  if (progression.supplyCapUnlocked === true) return SAFETY_REPLENISH_LIMIT;
+  const last = reserve && reserve.lastPurchase;
+  if (last && !last.blocked && Number(last.amount) > 0) return 1;
+  return 0;
+}
+
+function supplyReplenishUsesSafetyLine(reserve = {}) {
+  return supplyReplenishCount(reserve) < SAFETY_REPLENISH_LIMIT;
+}
+
+function supplyFillLine(purchaseOrId, reserve = {}) {
+  const purchase = typeof purchaseOrId === "string"
+    ? supplyPurchaseById(purchaseOrId, reserve)
+    : purchaseOrId;
+  if (!purchase) return 0;
+  return Math.max(0, Number(purchase.cap) || Number(purchase.target) || 0);
+}
+
+function supplySafetyLineMet(reserve = {}) {
+  const supplies = reserve.supplies || {};
+  return supplyPurchaseCatalog(reserve).every((purchase) => {
+    const stock = Math.max(0, Number(supplies[purchase.id]) || 0);
+    const line = Math.max(0, Number(purchase.target) || 0);
+    return stock >= line;
+  });
+}
+
+function purchaseCostForAmount(id, amount, reserve) {
+  if (amount <= 0) return 0;
+  const priced = supplyPurchaseForQuantity(id, amount, reserve);
+  return priced && priced.amount === amount ? priced.cost : Infinity;
+}
+
+function evenFillToCap(desired, reserve, fund) {
+  const counts = {};
+  const blocked = {};
+  desired.forEach((item) => { counts[item.purchase.id] = 0; });
+  let remaining = Math.max(0, Number(fund) || 0);
+  const maxUnits = desired.reduce((sum, item) => sum + item.missing, 0);
+  for (let step = 0; step < maxUnits; step += 1) {
+    const next = desired
+      .filter((item) => !blocked[item.purchase.id] && counts[item.purchase.id] < item.missing)
+      .sort((a, b) => {
+        const ar = (a.stock + counts[a.purchase.id]) / Math.max(1, a.purchase.cap || 1);
+        const br = (b.stock + counts[b.purchase.id]) / Math.max(1, b.purchase.cap || 1);
+        if (ar !== br) return ar - br;
+        return (a.purchase.cost || 0) - (b.purchase.cost || 0);
+      })[0];
+    if (!next) break;
+    const id = next.purchase.id;
+    const qty = counts[id] + 1;
+    const nextCost = purchaseCostForAmount(id, qty, reserve);
+    const prevCost = purchaseCostForAmount(id, counts[id], reserve);
+    const delta = nextCost - prevCost;
+    if (!Number.isFinite(delta) || delta > remaining) {
+      blocked[id] = true;
+      continue;
+    }
+    counts[id] = qty;
+    remaining -= delta;
+  }
+  return desired
+    .map((item) => supplyPurchaseForQuantity(item.purchase.id, counts[item.purchase.id], reserve))
+    .filter((purchase) => purchase && purchase.amount > 0);
+}
+
 function supplyReplenishmentPlan(reserveOrLevel) {
   const reserve = reserveOrLevel || {};
   const supplies = reserve.supplies || {};
-  const items = supplyPurchaseCatalog(reserve).map((purchase) => {
-    const missing = Math.max(0, Math.min(purchase.cap || purchase.target, purchase.target - (supplies[purchase.id] || 0)));
-    return supplyPurchaseForQuantity(purchase.id, missing, reserve);
-  }).filter((purchase) => purchase && purchase.amount > 0);
+  const fund = Math.max(0, Number(reserve.fund) || 0);
+  const catalog = supplyPurchaseCatalog(reserve);
+  const desired = catalog.map((purchase) => {
+    const stock = Math.max(0, Number(supplies[purchase.id]) || 0);
+    const line = Math.max(0, Number(purchase.cap) || 0);
+    const missing = Math.max(0, line - stock);
+    return { purchase, stock, missing };
+  }).filter((item) => item.missing > 0);
+  const fullItems = desired
+    .map((item) => supplyPurchaseForQuantity(item.purchase.id, item.missing, reserve))
+    .filter((purchase) => purchase && purchase.amount > 0);
+  const fullCost = fullItems.reduce((sum, purchase) => sum + purchase.cost, 0);
+  let items = fullCost <= fund ? fullItems : evenFillToCap(desired, reserve, fund);
+  if (!items.length && desired.length) {
+    items = fullItems;
+  }
+  items = items.map((purchase) => Object.assign({}, purchase, {
+    target: Math.max(0, Number(supplies[purchase.id]) || 0) + Math.max(0, Number(purchase.amount) || 0)
+  }));
   const cost = items.reduce((sum, purchase) => sum + purchase.cost, 0);
   const amount = items.reduce((sum, purchase) => sum + purchase.amount, 0);
   const list = items.map((purchase) => `${purchase.id}=${purchase.amount}`).join(",");
   return {
     id: "all",
     batch: true,
+    fillToCap: true,
     label: "一键补齐",
     itemLabel: "全部短缺补给",
     icon: "buySupplies",
@@ -245,7 +334,7 @@ function supplyReplenishmentPlan(reserveOrLevel) {
     cap: items.length,
     items,
     command: `补齐全部短缺补给 清单:${list}`,
-    use: "把所有补给补到安全线"
+    use: "按当前基金尽量平均补到仓库上限"
   };
 }
 
@@ -257,6 +346,11 @@ module.exports = {
   supplyPurchaseById,
   supplyPurchaseForQuantity,
   supplyReplenishmentPlan,
+  supplyReplenishCount,
+  supplyReplenishUsesSafetyLine,
+  supplyFillLine,
+  supplySafetyLineMet,
+  SAFETY_REPLENISH_LIMIT,
   supplySaleEnabled,
   actionSupplyRequirement
 };

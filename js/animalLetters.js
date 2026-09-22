@@ -1,4 +1,5 @@
 const { animalStoryLetter } = require("./speciesStoryLetters");
+const { getCurrentChapter } = require("./animalWorld");
 const PERSONA_NAMES = {
   狼: "沉牙",
   鹿: "晨角",
@@ -32,8 +33,48 @@ const SPECIES_SENSE = {
   大象: "我还记得旧水道在地下的声音",
   长颈鹿: "我在高处看见远处的草色变了",
   野兔: "我把脚步放得很轻",
-  熊: "我在洞口停了很久"
+  熊: "我在洞口停了很久",
+  狮子: "我把鬃毛压低，先听草里的热气",
+  豹子: "我把斑点收进树影",
+  鳄鱼: "我只把眼睛留在水面",
+  野犬: "我把耳朵转向同一阵风",
+  野猪: "我把鼻子埋进还没变硬的土",
+  鹰: "我把盘旋压低了一层",
+  火烈鸟: "我把队伍往还能站住的浅水挪",
+  猫头鹰: "我在树冠上把夜听成一条路",
+  河马: "我把背脊沉回还够深的水",
+  狐狸: "我把机会窗口收得更短",
+  秃鹫: "我把不该新鲜的味道记在风里",
+  白犀牛: "我把幼犀收到身后",
+  穿山甲: "我把鳞片收紧再伸鼻子",
+  猎豹: "我在加速前先看跑道有没有断",
+  斑鬣狗: "我把夜班的笑声先停住",
+  水獭: "我先潜下去再看岸边",
+  鹈鹕: "我把队伍抬离拥挤的水面",
+  猩猩: "我换到更安静的一层",
+  巨嘴鸟: "我先听树冠再决定往哪飞",
+  貘: "我绕开所有还亮着的灯",
+  夜莺: "我把歌停在噪声盖过来之前",
+  野牛: "我让队伍在边界前先聚拢",
+  鹤: "我把落脚点改到水位还稳的一侧"
 };
+
+function pick(list, seed) {
+  const items = Array.isArray(list) && list.length ? list : [""];
+  return items[Math.abs(Number(seed) || 0) % items.length];
+}
+
+function weatherAnomalyLabel(context = {}) {
+  const weather = String(context.weather || "");
+  const pulse = String(context.pulse || "");
+  const eventType = String(context.eventType || "");
+  if (["heatwave", "wildfire"].includes(eventType) || /热浪|干热/.test(weather) || /drought|wildfire|heat/.test(pulse)) return "热浪";
+  if (eventType === "flash_flood" || /暴雨|大雨/.test(weather) || /storm-rain|flash-flood/.test(pulse)) return "暴雨";
+  if (eventType === "dust_storm" || /沙尘/.test(weather) || /dust/.test(pulse)) return "沙尘";
+  if (eventType === "cold_fog" || /寒雾/.test(weather) || /fog/.test(pulse)) return "寒雾";
+  if (/雾/.test(weather)) return "雾";
+  return "";
+}
 
 function hash(text) {
   let value = 2166136261;
@@ -82,6 +123,10 @@ function contextSnapshot(world = {}) {
   const chain = reserve.eventChain || {};
   const last = reserve.lastActionOutcome || reserve.lastAction || {};
   const action = typeof last === "string" ? last : (last.action || last.id || "");
+  const emergency = (reserve.emergency || {}).active || {};
+  const pulse = reserve.weatherPulse || {};
+  const chapter = getCurrentChapter(reserve) || {};
+  const chapterNumber = Math.max(1, number(progression.storyChapter || progression.displayChapter || progression.stage || chapter.chapter, 1));
   return {
     water: number(ecology.water, 50),
     grass: number(ecology.grass, 50),
@@ -92,8 +137,13 @@ function contextSnapshot(world = {}) {
     visitors: number(today.visitors == null ? reserve.visitors : today.visitors, 0),
     season: String((reserve.seasonState || {}).name || world.season || "雨季"),
     weather: String((reserve.seasonState || {}).weather || reserve.weather || world.weather || ""),
+    pulse: String(pulse.type || pulse.label || ""),
+    eventType: String(emergency.type || ""),
+    eventTitle: String(emergency.title || ""),
     stage: Math.max(1, number(progression.stage || progression.storyChapter, 1)),
-    chapter: Math.max(1, number(progression.storyChapter || progression.chapter, 1)),
+    chapter: chapterNumber,
+    chapterTitle: String(chapter.title || `第${chapterNumber}章`),
+    chapterDebt: String(chapter.unpaidDebt || chapter.openQuestion || ""),
     eventStep: Math.max(0, number(chain.step, 0)),
     action: String(action || "")
   };
@@ -103,30 +153,57 @@ function contextKey(context = {}) {
   return [
     context.water, context.grass, context.disease, context.safety,
     context.poacher, context.migration, context.visitors,
-    context.season, context.weather, context.stage, context.chapter,
-    context.eventStep, context.action
+    context.season, context.weather, context.pulse, context.eventType,
+    context.stage, context.chapter, context.eventStep, context.action
   ].join("|");
 }
 
-function contextParagraph(concern, context, variant) {
-  const weather = context.weather ? `，${context.weather}把气味压在地面` : "";
-  const stage = `第${context.chapter}章·第${context.stage}阶段`;
-  switch (concern.id) {
-    case "water":
-      return `${stage}：水源${context.water}，${context.season}${weather}；${variant ? "先看浅滩脚印。" : "修复水线，我们就能回到岸边。"}`;
-    case "grass":
-      return `${stage}：草场${context.grass}，${context.season}把嫩叶压到低地；${variant ? "我们先避开最薄的一块。" : "给草根一点时间，幼崽就不用走远。"}`;
-    case "disease":
-      return `${stage}：疾病风险${context.disease}，${context.weather || context.season}让队尾呼吸更明显；请把异常个体分开观察。`;
-    case "poacher":
-      return `${stage}：边界压力${context.poacher}，最近行动${context.action || "巡护"}；每道新脚印都值得记录。`;
-    case "migration":
-      return `${stage}：迁徙变化${context.migration}，${context.season}${weather}改了旧路线；请确认下一处落脚点。`;
-    case "safety":
-      return `${stage}：安全${context.safety}，${context.weather || context.season}让林缘显得${context.safety < 60 ? "太近" : "安静"}；请做一次确认。`;
-    default:
-      return `${stage}：水源${context.water}、草场${context.grass}、安全${context.safety}；今天游客${context.visitors}人。谢谢你留出选择的距离。`;
-  }
+function contextParagraph(concern, context, variant, animal = {}) {
+  const anomaly = weatherAnomalyLabel(context);
+  const weather = anomaly || context.weather || context.season;
+  const chapterLine = `第${context.chapter}章《${context.chapterTitle}》`;
+  const eventLine = context.eventTitle ? `现场「${context.eventTitle}」` : (context.eventStep ? `事件第${context.eventStep}步` : `${context.season}还没有把旧路改完`);
+  const debt = context.chapterDebt ? context.chapterDebt : "这一章仍有未还的债";
+  const species = animal.species || "我们";
+  const lines = {
+    water: [
+      `${chapterLine}：水源${context.water}，${weather}把浅滩又往回收了一截；${species}先看泥里有没有新脚印。`,
+      `${chapterLine}：${weather}下的水源是${context.water}，${debt}；${eventLine}，请把能喝的岸留住。`
+    ],
+    grass: [
+      `${chapterLine}：草场${context.grass}，${weather}把嫩叶压到低地；${species}会先让出最薄的一块。`,
+      `${chapterLine}：草场${context.grass}，${seasonOr(context)}里草尖托不住脚步；${eventLine}，幼崽会走得更远。`
+    ],
+    disease: [
+      `${chapterLine}：疾病${context.disease}，${weather}让队尾呼吸更重；${species}不会说痛，只会落在风后面。`,
+      `${chapterLine}：疾病${context.disease}。潮湿和拥挤叠在一起，${eventLine}；请把异常个体分开观察。`
+    ],
+    poacher: [
+      `${chapterLine}：边界压力${context.poacher}，最近行动${context.action || "巡护"}；${weather}也盖不住金属味。`,
+      `${chapterLine}：边界仍不安静。${debt}。${species}把孩子赶进更深的草，请把直线脚印记下来。`
+    ],
+    migration: [
+      `${chapterLine}：迁徙${context.migration}，${weather}改了旧路口；${eventLine}。`,
+      `${chapterLine}：迁徙变化${context.migration}。${species}还记得回去的路，年轻的脚步却在等一个方向。`
+    ],
+    safety: [
+      `${chapterLine}：安全${context.safety}，${weather}让林缘显得${context.safety < 60 ? "太近" : "安静"}；请做一次确认。`,
+      `${chapterLine}：太安静不一定安全。${eventLine}，今夜睡得很浅。`
+    ],
+    weather: [
+      `${chapterLine}：${anomaly || weather}改写了今天的气味；水源${context.water}、草场${context.grass}，${eventLine}。`,
+      `${chapterLine}：天气${anomaly || weather}。${debt}。${species}先给幼崽找退路，而不是等风自己停。`
+    ],
+    steady: [
+      `${chapterLine}：水源${context.water}、草场${context.grass}、安全${context.safety}；今天游客${context.visitors}人。`,
+      `${chapterLine}：水源${context.water}，${weather}没有把我们赶走。谢谢你留出选择的距离。`
+    ]
+  };
+  return pick(lines[concern.id] || lines.steady, variant);
+}
+
+function seasonOr(context) {
+  return context.season || "这一季";
 }
 
 function rotationLine(rotation = 0) {
@@ -143,6 +220,8 @@ function concernCatalog(world = {}) {
   const reserve = world.reserve || {};
   const ecology = reserve.ecology || {};
   const migration = reserve.migration || {};
+  const context = contextSnapshot(world);
+  const anomaly = weatherAnomalyLabel(context);
   const values = {
     water: number(ecology.water, 50),
     grass: number(ecology.grass, 50),
@@ -151,7 +230,20 @@ function concernCatalog(world = {}) {
     poacher: number(reserve.poacherPressure, 0),
     migration: number(migration.delta, 0)
   };
+  const weatherBodies = {
+    热浪: ["地面发烫，浅滩中午就失去反光。我们把幼崽赶到阴凉，请把还能喝的井打开。", "热气把气味压在地面。队伍挤向同一口井，不是因为忘记离开，是因为别处更烫。"],
+    暴雨: ["上游先传来漂木相撞的声音。旧浅滩在一次呼吸里变成水道，请给幼崽留高地。", "雨把气味打散，也把退路改了。我们还能走，只是不能再走昨天那条。"],
+    沙尘: ["北风把干土抬到眼高。旧路口还在，气味不在，队尾的回应越来越轻。", "沙把鼻子堵住以后，迁徙就变成原地打转。请标出一条避风的低洼。"],
+    寒雾: ["河岸只剩下呼吸。雾把队形拆成几段声音，浅滩变成必须摸索的走廊。", "我听得见队首，听不见队尾。请点一盏不会吓走夜的灯。"],
+    雾: ["雾把边界抹掉了。我们还在，只是不敢离队太远。", "闻得到看不见。请先确认脚印，再让游客靠近。"]
+  };
   const concerns = [
+    {
+      id: "weather", score: anomaly ? 120 : 0, species: ["乌鸦", "鹿", "大象", "斑马", "鹰", "野兔", "水貂"],
+      title: anomaly ? `${anomaly}里的一封信` : "天气把路改了", factLabel: "天气", factValue: anomaly || context.weather || context.season,
+      target: values.water, actionId: "habitat", actionLabel: "去处理天气现场",
+      body: weatherBodies[anomaly] || weatherBodies.雾
+    },
     {
       id: "water", score: Math.max(8, 70 - values.water), species: ["水貂", "大象", "鹿", "河马", "鳄鱼", "火烈鸟"],
       title: "水边的一封信", factLabel: "水源", factValue: values.water, target: Math.max(52, values.water + 8), actionId: "habitat", actionLabel: "去修复水源",
@@ -188,7 +280,8 @@ function concernCatalog(world = {}) {
       body: ["今早的风没有带来危险。我们还在这里，不是因为忘了离开，而是这里今天值得留下。", "我记得你上次停下脚步的地方。那里没有命令，只有一段让我自己选择的距离。"]
     }
   ];
-  return concerns.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+  return concerns.filter((item) => item.id !== "weather" || item.score > 0)
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
 }
 
 function chooseAnimal(animals, concern, usedIds, seed) {
@@ -198,7 +291,7 @@ function chooseAnimal(animals, concern, usedIds, seed) {
   return pool.length ? pool[seed % pool.length] : { id: "forest", species: "动物", name: "森林居民" };
 }
 
-function buildLetter(world, key, index, concern, animals, usedIds, createdAt, recentContentKeys = new Set()) {
+function buildLetter(world, key, index, concern, animals, usedIds, createdAt) {
   const context = contextSnapshot(world);
   const signature = contextKey(context);
   const serial = ((world.reserve || {}).base || {}).serial || world.id || "reserve";
@@ -207,21 +300,12 @@ function buildLetter(world, key, index, concern, animals, usedIds, createdAt, re
   usedIds.add(animal.id || animal.species);
   const name = animalName(animal);
   const sense = SPECIES_SENSE[animal.species] || "我记得今早风里的味道";
-  let variant = seed % concern.body.length;
   const animalKey = animal.id || animal.species || "forest";
-  const rotation = hash(`${key}|${concern.id}|${index}|${serial}`) % 5;
-  let contentKey = `${concern.id}|${animalKey}|${variant}|${rotation}|${signature}`;
-  for (let offset = 0; offset < concern.body.length; offset += 1) {
-    const candidate = (variant + offset) % concern.body.length;
-    const candidateKey = `${concern.id}|${animalKey}|${candidate}|${rotation}|${signature}`;
-    if (!recentContentKeys.has(candidateKey) || offset === concern.body.length - 1) {
-      variant = candidate;
-      contentKey = candidateKey;
-      break;
-    }
-  }
+  const rotation = hash(`${key}|${animalKey}|${concern.id}|${index}|${serial}`) % 5;
+  const variant = hash(`${key}|${animalKey}|${concern.id}|${context.chapter}|${context.weather}|${context.eventType}|${index}`) % Math.max(1, concern.body.length);
+  const contentKey = `${key}|${animalKey}|${concern.id}|${context.chapter}|${context.weather}|${context.eventType}|${variant}|${rotation}`;
   const paragraph = concern.body[variant];
-  const contextLine = `${contextParagraph(concern, context, variant)} ${rotationLine(rotation)}`;
+  const contextLine = `${contextParagraph(concern, context, variant + rotation, animal)} ${rotationLine(rotation)}`;
   return {
     id: `animal_letter_${key}_${index + 1}_${String(animal.id || animal.species || "forest").replace(/[^a-zA-Z0-9_\u4e00-\u9fa5-]/g, "")}`,
     dateKey: key,
@@ -232,7 +316,6 @@ function buildLetter(world, key, index, concern, animals, usedIds, createdAt, re
     species: animal.species || "动物",
     title: concern.title,
     salutation: "写给今天回到保护区的你：",
-    // 保持旧版两段式布局，避免窄屏换行溢出；第二段包含现场上下文与动物自己的观察。
     paragraphs: [`${sense}。`, `${contextLine} ${paragraph}`],
     signoff: `—— ${name}`,
     factLabel: concern.factLabel,

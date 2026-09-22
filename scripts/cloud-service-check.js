@@ -31,7 +31,7 @@ async function main() {
           balance: { emergencySupplyDailyLimit: 2, eventUploadSampleRate: 1 }
         } }, header: { etag: '"config-v2"' } });
       } else if (options.url === `${CLOUD_BASE_URL}/v1/auth/wechat`) {
-        options.success({ statusCode: 200, data: { ok: true, token: "signed-session-token", expiresIn: 3600 } });
+        options.success({ statusCode: 200, data: { ok: true, token: "signed-session-token", publicId: "pubid0123456789abcd", friendMatchKey: "ab".repeat(32), expiresIn: 3600 } });
       } else if (options.url === `${CLOUD_BASE_URL}/v1/leaderboard/score`) {
         assert(options.header.authorization === "Bearer signed-session-token", "score upload must use the backend session token");
         assert(options.data.profileVersion === 2 && options.data.level === 3 && options.data.animals === 197 && options.data.shield === 42 && options.data.style === "稳定保护站", "world sync must upload the complete ecological population used by the detail panel");
@@ -52,7 +52,7 @@ async function main() {
         }));
         options.success({ statusCode: 200, data: { ok: true, leaderboard: [
           { id: "mine-id", displayName: "卫士·MINE的苔原哨站", ownerName: "卫士·MINE", reserveName: "苔原哨站", rank: 2, score: 1353, updatedAt: 10, mine: true },
-          { id: "other-id", displayName: "Nicole.英的河湾哨站", ownerName: "Nicole.英", reserveName: "河湾哨站", rank: 1, score: 1400, level: 2, animals: 31, shield: 48, style: "水源经营", updatedAt: 11, mine: false }
+          { id: "other-id", displayName: "Nicole.英的河湾哨站", ownerName: "Nicole.英", reserveName: "河湾哨站", rank: 1, score: 1400, level: 2, animals: 31, shield: 48, style: "水源经营", updatedAt: 11, mine: false, friend: true, friendMatchKey: "ab".repeat(32) }
         ].concat(overflowRows) } });
       } else if (options.url === `${CLOUD_BASE_URL}/v1/friends/import`) {
         assert(options.header.authorization === "Bearer signed-session-token", "friend relation payload must go only to the authenticated backend");
@@ -84,10 +84,14 @@ async function main() {
   const reserve = { base: { name: "苔原哨站", rating: 1353, shield: 42, protectedAnimals: { deer: 15, antelope: 12, boar: 5 } }, ecology: { predators: { wolf: 4 }, herbivores: { deer: 35, antelope: 45, zebra: 40, boar: 15, hare: 50 }, birds: { crow: 8 } }, progression: { level: 3, title: "稳定保护站" } };
   await controller.bootstrap(reserve);
   assert(controller.authStatus === "authenticated" && controller.status === "online", "bootstrap should complete silent WeChat login");
+  assert(controller.session.friendMatchKey === "ab".repeat(32) && controller.session.publicId === "pubid0123456789abcd", "login should cache the opaque friend match key for hosted identity writes");
+  assert(controller.rows[0].friendMatchKey === "ab".repeat(32), "world rows should keep opaque match keys from an authenticated leaderboard");
+  const leaderboardCall = calls.find((call) => String(call.url || "").indexOf("/v1/leaderboard?") >= 0);
+  assert(leaderboardCall && leaderboardCall.header.authorization === "Bearer signed-session-token", "logged-in world ranking must send the session so the server can attach match keys");
   assert(controller.feature("worldLeaderboard") && controller.config().version === 3, "remote feature flags should use the allowlisted server config");
   assert(controller.feature("socialTrade") && controller.feature("reciprocalTrade"), "reciprocal material exchange should require an explicit server capability flag");
   assert(controller.myRank === 7 && controller.myScore === 8946, "score upload should retain the server-derived valuation and authoritative world rank");
-  assert(controller.rows.length === 100 && controller.rows[0].name === "Nicole.英的河湾哨站" && controller.rows[0].owner === "Nicole.英" && controller.rows[0].rank === 1 && controller.rows[0].level === 2 && controller.rows[0].animals === 31 && controller.rows[0].shield === 48 && controller.rows[0].profileComplete && controller.rows[0].source === "cloud", "world rows should preserve real player details, exclude my duplicate row and cap the cached list at one hundred players");
+  assert(controller.rows.length === 100 && controller.rows[0].name === "Nicole.英的河湾哨站" && controller.rows[0].owner === "Nicole.英" && controller.rows[0].rank === 1 && controller.rows[0].level === 2 && controller.rows[0].animals === 31 && controller.rows[0].shield === 48 && controller.rows[0].profileComplete && controller.rows[0].source === "cloud" && controller.rows[0].friend, "world rows should preserve real player details, friend identity, exclude my duplicate row and cap the cached list at one hundred players");
   assert(calls.some((call) => call.url === `${CLOUD_BASE_URL}/v1/leaderboard?limit=100`), "world leaderboard should request up to one hundred real players");
   assert(storage.wild_guard_cloud_session_v1.token === "signed-session-token", "session token should be cached locally");
   assert(storage.wild_guard_remote_config_v1.etag === '"config-v2"', "remote config should cache its ETag");
@@ -97,6 +101,7 @@ async function main() {
   const friends = await controller.refreshRelationFriends(true);
   assert(friends.length === 2 && friends[0].name === "好友英的河湾哨站" && friends[0].scope === "friends" && friends[0].source === "wechat", "encrypted relation friends should map server players into exchange targets");
   assert(friends[1].name === "微信同玩好友 2" && friends[1].registered === false && controller.friendRelationCount === 2 && controller.friendMatchedCount === 1 && controller.friendPendingCount === 1, "unregistered relation friends should remain available as pending, privacy-safe exchange targets");
+  assert(controller.rows.some((row) => row.friend === true) && calls.filter((call) => call.url === `${CLOUD_BASE_URL}/v1/leaderboard?limit=100`).length >= 2, "importing WeChat relations should immediately refresh world rows and preserve friend markers");
   const receipt = await controller.exchangeMaterial({ targetId: "friend-public-id", scope: "friends", itemId: "resin_tinder", itemLabel: "松脂火绒片", valuePoints: 1, clientTradeId: "client-trade-1" });
   assert(receipt.tradeId === "trade-1", "material exchange should wait for an authoritative server receipt");
   const inbox = await controller.claimTradeInbox();
@@ -125,7 +130,7 @@ async function main() {
   assert(rankRecord({ base: { name: "苔原哨站保护区", ownerName: "leo.liu", rating: 1216 } }).displayName === "leo.liu的苔原哨站", "score records should combine the real player name and de-duplicated reserve name");
   assert(reserveAnimalTotal(reserve) === 197 && rankRecord(reserve).animals === 197 && rankRecord(reserve).score === 8946, "rank records must count the live ecology and price it with the shared formula");
   const row = leaderboardRow({ id: "stable", displayName: "云端保护区", score: 1234 }, 0);
-  assert(row.id === "cloud_stable" && row.name === "STAB的云端" && row.valuation === 1234 && row.rating === 1234 && row.simulated === false, "cloud rows should map real public identity and valuation without a guardian prefix");
+  assert(row.id === "cloud_stable" && row.worldPlayerId === "stable" && row.name === "STAB的云端" && row.valuation === 1234 && row.rating === 1234 && row.simulated === false, "cloud rows should map real public identity and valuation without a guardian prefix");
   const legacyGuardian = leaderboardRow({ id: "legacy", displayName: "卫士·YXNY的苔原哨站", ownerName: "卫士·YXNY", score: 1220 }, 1);
   assert(legacyGuardian.name === "YXNY的苔原哨站" && legacyGuardian.owner === "YXNY", "cached legacy leaderboard names should also remove the guardian prefix");
   const legacyZero = leaderboardRow({ id: "old", displayName: "OLD1的苔原哨站", score: 6000, level: 1, animals: 0, shield: 0 }, 2);
@@ -141,6 +146,31 @@ async function main() {
   }, { now: () => now });
   await offline.refreshConfig(true);
   assert(offline.configStatus === "cached" && offline.feature("worldLeaderboard"), "network failure should retain the last known safe config");
+
+  const publicCalls = [];
+  const unauthenticated = new CloudServiceController({
+    getStorageSync() { return null; },
+    setStorageSync() {},
+    login(options) { options.fail({ errMsg: "login:fail" }); },
+    request(options) {
+      publicCalls.push(options.url);
+      if (options.url === `${CLOUD_BASE_URL}/v1/config`) {
+        options.success({ statusCode: 200, data: { ok: true, config: {
+          version: 3,
+          features: { worldLeaderboard: true, socialTrade: true, reciprocalTrade: true, telemetry: false }
+        } }, header: { etag: '"config-public"' } });
+      } else if (options.url.indexOf(`${CLOUD_BASE_URL}/v1/leaderboard?`) === 0) {
+        assert(!options.header || !options.header.authorization, "public world list must not require a WeChat session");
+        options.success({ statusCode: 200, data: { ok: true, leaderboard: [
+          { id: "other-id", displayName: "Nicole.英的河湾哨站", ownerName: "Nicole.英", reserveName: "河湾哨站", rank: 1, score: 1400, level: 2, animals: 31, shield: 48, mine: false }
+        ] } });
+      } else options.fail({ errMsg: "unexpected request" });
+      return { abort() {} };
+    }
+  }, { now: () => now + 1 });
+  await unauthenticated.bootstrap();
+  assert(unauthenticated.authStatus === "offline" && unauthenticated.rows.length === 1, "world list should still load when wx.login fails in the simulator");
+  assert(publicCalls.some((url) => url.indexOf("/v1/leaderboard?") >= 0), "unauthenticated bootstrap must request the public world leaderboard");
 
   console.log("cloud service check ok");
 }

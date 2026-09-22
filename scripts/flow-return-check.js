@@ -83,9 +83,7 @@ function primeFriendRank(game) {
 }
 
 function tapSettlementDone(game, expectedScreen) {
-  if (game.settlementModal && game.settlementModal.silent) {
-    game.settlementModal.autoFinishAt = 0;
-    game.drawSettlementModal();
+  if (!game.settlementModal || game.settlementModal.silent) {
     if (game.screen !== expectedScreen || game.settlementModal) {
       throw new Error(`silent sandbox settlement should auto-finish on ${expectedScreen}`);
     }
@@ -118,20 +116,40 @@ patrolGame.openPatrolTaskModal(patrolGame.reserveActionOptions().find((item) => 
 if (patrolGame.pendingTaskOriginScreen !== "action") {
   throw new Error("patrol task should remember action screen as origin");
 }
-patrolGame.submitCommand();
-if (patrolGame.screen !== "home") {
-  throw new Error("patrol settlement should return to the home sandbox");
+// This case covers the reward-transfer branch. A random failed patrol has no
+// recovered goods and correctly remains on the sandbox after acknowledgement.
+const originalRandom = Math.random;
+try {
+  Math.random = () => 0.05;
+  patrolGame.submitCommand();
+} finally {
+  Math.random = originalRandom;
 }
-if (!patrolGame.settlementModal || patrolGame.settlementModal.returnScreen !== "home") {
+const firstPatrolTransferReady = patrolGame.screen === "role"
+  && patrolGame.patrolTaskModal
+  && patrolGame.patrolTaskModal.label === "立即移交";
+if (patrolGame.screen !== "home" && !firstPatrolTransferReady) {
   throw new Error("patrol settlement should return to the home sandbox");
 }
 if (!patrolGame.mapConsequencePulse) {
   throw new Error("every action resolution must expose sandbox causality first");
 }
-if (patrolGame.settlementModal.silent || patrolGame.settlementModal.autoFinishAt
-  || !(patrolGame.settlementModal.revealAt > Date.now())
-  || !(patrolGame.settlementModal.animalRevealAt > patrolGame.settlementModal.revealAt)) {
-  throw new Error("patrol must show an explicit result after map feedback and wait for acknowledgement");
+if (!(patrolGame.mapConsequencePulse.expiresAt > patrolGame.mapConsequencePulse.startedAt + 2000)) {
+  throw new Error("sandbox causality should have time to show environment, numbers and animal response in order");
+}
+if (patrolGame.settlementModal) {
+  if (patrolGame.settlementModal.returnScreen !== "home") {
+    throw new Error("patrol settlement should return to the home sandbox");
+  }
+  if (patrolGame.settlementModal.silent) {
+    throw new Error("mid-grade patrol must drop the waiting settlement flow");
+  } else if (patrolGame.settlementModal.autoFinishAt
+    || !(patrolGame.settlementModal.revealAt > Date.now())
+    || !(patrolGame.settlementModal.animalRevealAt > patrolGame.settlementModal.revealAt)) {
+    throw new Error("high or warning-grade patrol must wait for acknowledgement after map feedback");
+  }
+} else if (patrolGame.activeTaskLock) {
+  throw new Error("unpresented patrol must release the task lock immediately");
 }
 if (!(patrolGame.mapConsequencePulse.expiresAt > patrolGame.mapConsequencePulse.startedAt + 2000)) {
   throw new Error("sandbox causality should have time to show environment, numbers and animal response in order");
@@ -147,6 +165,15 @@ if (!patrolGame.patrolTaskModal || patrolGame.patrolTaskModal.id !== "salvage" |
   throw new Error("first patrol settlement should auto-collect recovery and open the direct transfer confirmation");
 }
 patrolGame.patrolTaskModal = null;
+
+const noTransferGame = makeGame("action");
+noTransferGame.state.world.reserve.inventory = { researchSample: 10 };
+noTransferGame.openPatrolTaskModal(noTransferGame.reserveActionOptions().find(item => item.id === "houndScout"));
+noTransferGame.submitCommand();
+tapSettlementDone(noTransferGame, "home");
+if (noTransferGame.state.ui.firstPatrolRecovery || noTransferGame.patrolTaskModal) {
+  throw new Error("without newly collected inventory, settlement must not launch another transfer task");
+}
 
 const materialPatrolScreen = makeGame("role");
 materialPatrolScreen.openPatrolOperationScreen("houndScout");
@@ -200,19 +227,21 @@ if (materialGame.pendingTaskOriginScreen !== "role") {
 }
 materialGame.scrollY = 288;
 materialGame.submitCommand();
-if (materialGame.screen !== "home") {
-  throw new Error("material purchase should reveal the sandbox consequence before returning to materials");
+if (materialGame.screen !== "role") {
+  throw new Error("material purchase should stay on the materials page after restocking");
 }
-if (!materialGame.settlementModal || materialGame.settlementModal.returnScreen !== "role") {
-  throw new Error("material purchase settlement should remember the materials page as return screen");
+if (materialGame.settlementModal) {
+  throw new Error("inline material purchase must not leave a waiting settlement");
 }
-if (!materialGame.mapConsequencePulse) {
-  throw new Error("material purchase should create a visible sandbox consequence pulse");
+if (materialGame.activeTaskLock) {
+  throw new Error("unpresented material purchase must release the task lock immediately");
 }
 if (!materialGame.materialChangeNotice) {
   throw new Error("material purchase should still expose exact inventory and fund changes");
 }
-tapSettlementDone(materialGame, "role");
+if (materialGame.interstitialAds && materialGame.interstitialAds.showing) {
+  throw new Error("inline material purchase must not freeze taps behind an interstitial");
+}
 
 const crossScreenSettlement = makeGame("home");
 crossScreenSettlement.settlementModal = {

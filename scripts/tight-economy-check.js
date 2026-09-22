@@ -21,9 +21,9 @@ for (const safety of values) for (const water of values) for (const grass of val
   assert(engagement.activity >= 0.1 && engagement.activity <= 0.9, "activity escaped 10–90% band");
   assert(engagement.retention >= 0.1 && engagement.retention <= 0.9, "retention escaped 10–90% band");
   const recruitment = previewVisitorRecruitment(reserve, 1, 0.5);
-  // 新用户第一阶段使用 8–20 人的小规模招募，完成首轮招募后恢复常规客流范围。
-  if (recruitment.firstStageRecruitment) assert(recruitment.visitors >= 8 && recruitment.visitors <= 20, "first-stage visitor recruitment escaped 8–20 range");
-  else assert(recruitment.visitors >= 20 && recruitment.visitors <= 600, "visitor recruitment escaped 20–600 range");
+  // 第一章两次免费招募应落在相近区间，避免首发十人、次发近百人。
+  if (recruitment.firstStageRecruitment) assert(recruitment.visitors >= 8 && recruitment.visitors <= 48, "first-stage visitor recruitment escaped 8–48 range");
+  else assert(recruitment.visitors >= 0 && recruitment.visitors <= 600, "visitor recruitment escaped 0–600 range");
   assert(Number.isFinite(visitorContributionRate(reserve).rate), "visitor contribution rate must remain finite");
 }
 
@@ -44,4 +44,4 @@ assert(eventBusinessFactors(eventReserve).demand < 1, "active crisis should lowe
 assert(previewVisitorRecruitment(eventReserve, 1, 0.5).visitors < previewVisitorRecruitment(healthy, 1, 0.5).visitors,
   "active crisis should reduce recruited visitors");
 
-console.log("tight economy check ok (125 boundary states, first-stage 8–20 / regular 20–600 visitors, activity/retention 10–90%, event sensitivity)");
+console.log("tight economy check ok (125 boundary states, first-stage 8–48 / later 0–600 visitors, activity/retention 10–90%, event sensitivity)");

@@ -1,5 +1,6 @@
 const { createInitialWorld } = require("../js/world");
 const { simulateDay } = require("../js/simulator");
+const { buildReserveView } = require("../js/reserveView");
 
 const allowedTypes = new Set(["question", "event", "crisis", "recovery", "season"]);
 const allowedKinds = new Set(["question", "exclamation", "recovery", "season"]);
@@ -24,8 +25,8 @@ function makeState() {
 
 function checkMarkers(markers, label, options = {}) {
   const min = options.allowEmpty ? 0 : 1;
-  if (!Array.isArray(markers) || markers.length < min || markers.length > 3) {
-    throw new Error(`${label} should have ${min}-3 map markers`);
+  if (!Array.isArray(markers) || markers.length < min || markers.length > 2) {
+    throw new Error(`${label} should have ${min}-2 map markers`);
   }
   markers.forEach((marker) => {
     if (!allowedTypes.has(marker.type)) throw new Error(`${label} invalid marker type ${marker.type}`);
@@ -53,7 +54,15 @@ if (initial.reserveView.mapMarkers.length || initial.mapEvents.length) {
 }
 
 const result = simulateDay("驱赶偷猎者，检查河岸直线脚印", makeState());
-checkMarkers(result.world.reserveView.mapMarkers, "simulated reserveView");
-checkMarkers(result.world.mapEvents.slice(-3), "simulated world map events");
+checkMarkers(result.world.reserveView.mapMarkers, "simulated reserveView", { allowEmpty: true });
+checkMarkers(result.world.mapEvents.slice(-3), "simulated world map events", { allowEmpty: true });
+
+const hot = makeState();
+hot.world.reserve.poacherPressure = 72;
+const hotView = buildReserveView(hot.world.reserve, hot.world.reserve, { day: 2, action: "houndScout", weather: "小雨", season: "雨季" });
+checkMarkers(hotView.mapMarkers, "high poacher reserveView");
+if (!hotView.mapMarkers.some((marker) => marker.recommendAction === "antiPoacher")) {
+  throw new Error("high poacher pressure must keep a real anti-poacher map marker");
+}
 
 console.log("map marker check ok");

@@ -8,8 +8,8 @@ const DEFAULT_REMOTE_CONFIG = Object.freeze({
   version: 1,
   minimumClientVersion: "0.3.1",
   maintenance: false,
-  features: Object.freeze({
-    worldLeaderboard: false,
+    features: Object.freeze({
+    worldLeaderboard: true,
     socialTrade: false,
     reciprocalTrade: false,
     telemetry: false,
@@ -24,7 +24,10 @@ const DEFAULT_REMOTE_CONFIG = Object.freeze({
     artAtlas: Object.freeze({ url: "", version: "" }),
     premiumUiAtlas: Object.freeze({ url: "", version: "" }),
     wildernessMaterialAtlas: Object.freeze({ url: "", version: "" }),
-    animalPortraitAtlas: Object.freeze({ url: "", version: "" })
+    animalPortraitAtlas: Object.freeze({ url: "", version: "" }),
+    animalMapSprites: Object.freeze({ url: "", version: "" }),
+    facilities: Object.freeze({ url: "", version: "" }),
+    collectionItems: Object.freeze({ url: "", version: "" })
   }),
   messages: Object.freeze({ maintenance: "保护区正在维护，请稍后回来。" })
 });
@@ -43,6 +46,9 @@ function safeConfig(input = {}) {
   const premiumUiAtlas = assets.premiumUiAtlas && typeof assets.premiumUiAtlas === "object" ? assets.premiumUiAtlas : {};
   const wildernessMaterialAtlas = assets.wildernessMaterialAtlas && typeof assets.wildernessMaterialAtlas === "object" ? assets.wildernessMaterialAtlas : {};
   const animalPortraitAtlas = assets.animalPortraitAtlas && typeof assets.animalPortraitAtlas === "object" ? assets.animalPortraitAtlas : {};
+  const animalMapSprites = assets.animalMapSprites && typeof assets.animalMapSprites === "object" ? assets.animalMapSprites : {};
+  const facilities = assets.facilities && typeof assets.facilities === "object" ? assets.facilities : {};
+  const collectionItems = assets.collectionItems && typeof assets.collectionItems === "object" ? assets.collectionItems : {};
   const rawArtUrl = String(artAtlas.url || "").trim();
   const safeArtUrl = /^https:\/\/wild\.hubao\.tv\/[a-zA-Z0-9/_.,-]+\.(?:png|jpg|jpeg|webp)(?:\?[a-zA-Z0-9=&_.-]+)?$/.test(rawArtUrl) ? rawArtUrl : "";
   const rawPremiumUiUrl = String(premiumUiAtlas.url || "").trim();
@@ -51,6 +57,11 @@ function safeConfig(input = {}) {
   const safeWildernessMaterialUrl = /^https:\/\/wild\.hubao\.tv\/[a-zA-Z0-9/_.,-]+\.(?:png|jpg|jpeg|webp)(?:\?[a-zA-Z0-9=&_.-]+)?$/.test(rawWildernessMaterialUrl) ? rawWildernessMaterialUrl : "";
   const rawAnimalPortraitUrl = String(animalPortraitAtlas.url || "").trim();
   const safeAnimalPortraitUrl = /^https:\/\/wild\.hubao\.tv\/[a-zA-Z0-9/_.,-]+\.(?:png|jpg|jpeg|webp)(?:\?[a-zA-Z0-9=&_.-]+)?$/.test(rawAnimalPortraitUrl) ? rawAnimalPortraitUrl : "";
+  const hostedAsset = (input = {}) => {
+    const rawUrl = String(input.url || "").trim();
+    const url = /^https:\/\/wild\.hubao\.tv\/[a-zA-Z0-9/_.,-]+\.(?:png|jpg|jpeg|webp)(?:\?[a-zA-Z0-9=&_.-]+)?$/.test(rawUrl) ? rawUrl : "";
+    return { url, version: String(input.version || "").replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 48) };
+  };
   return {
     version: Math.max(1, Math.round(clampNumber(input.version, 1, 999999, 1))),
     minimumClientVersion: String(input.minimumClientVersion || "0.3.1").slice(0, 24),
@@ -83,7 +94,10 @@ function safeConfig(input = {}) {
       animalPortraitAtlas: {
         url: safeAnimalPortraitUrl,
         version: String(animalPortraitAtlas.version || "").replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 48)
-      }
+      },
+      animalMapSprites: hostedAsset(animalMapSprites),
+      facilities: hostedAsset(facilities),
+      collectionItems: hostedAsset(collectionItems)
     },
     messages: {
       maintenance: String(messages.maintenance || DEFAULT_REMOTE_CONFIG.messages.maintenance).slice(0, 80)
@@ -188,6 +202,9 @@ function leaderboardRow(entry = {}, index = 0) {
     simulated: false,
     source: "cloud",
     registered: entry.registered !== false,
+    friend: entry.friend === true,
+    friendMatchKey: /^[a-f0-9]{64}$/.test(entry.friendMatchKey || "") ? entry.friendMatchKey : "",
+    worldPlayerId: String(entry.worldPlayerId || entry.id || "").replace(/^cloud_/, "").slice(0, 32),
     mine: entry.mine === true,
     updatedAt: Math.max(0, Number(entry.updatedAt) || 0)
   };
@@ -244,6 +261,8 @@ class CloudServiceController {
     this.lastScoreSignature = "";
     this.lastScoreSyncAt = 0;
     this.lastLeaderboardAt = 0;
+    this.leaderboardAuthed = false;
+    this.sessionMatchKeyAttempted = false;
     this.syncPromise = null;
     this.loginPromise = null;
     this.configPromise = null;
@@ -283,7 +302,10 @@ class CloudServiceController {
     const saved = this.readStorage(SESSION_STORAGE_KEY) || {};
     const token = typeof saved.token === "string" ? saved.token : "";
     const expiresAt = Math.max(0, Number(saved.expiresAt) || 0);
-    return token && expiresAt > this.now() + 60000 ? { token, expiresAt } : { token: "", expiresAt: 0 };
+    const friendMatchKey = /^[a-f0-9]{64}$/.test(String(saved.friendMatchKey || "")) ? String(saved.friendMatchKey) : "";
+    return token && expiresAt > this.now() + 60000
+      ? { token, expiresAt, publicId: String(saved.publicId || ""), friendMatchKey }
+      : { token: "", expiresAt: 0, publicId: "", friendMatchKey: "" };
   }
 
   readCachedConfig() {
@@ -382,6 +404,11 @@ class CloudServiceController {
   login(force = false) {
     if (!this.supported || typeof this.runtime.login !== "function") return Promise.resolve(false);
     if (!force && this.session.token && this.session.expiresAt > this.now() + 60000) {
+      const hasMatchKey = /^[a-f0-9]{64}$/.test(this.session.friendMatchKey || "");
+      if (!hasMatchKey && !this.sessionMatchKeyAttempted) {
+        this.sessionMatchKeyAttempted = true;
+        return this.login(true);
+      }
       this.authStatus = "authenticated";
       return Promise.resolve(true);
     }
@@ -396,7 +423,14 @@ class CloudServiceController {
     }).then((code) => this.request("/v1/auth/wechat", { method: "POST", body: { code } })).then((response) => {
       const data = response.data || {};
       if (!data.token) throw new Error("AUTH_TOKEN_MISSING");
-      this.session = { token: String(data.token), expiresAt: this.now() + Math.max(60, Number(data.expiresIn) || 0) * 1000 };
+      const friendMatchKey = /^[a-f0-9]{64}$/.test(String(data.friendMatchKey || "")) ? String(data.friendMatchKey) : "";
+      this.session = {
+        token: String(data.token),
+        publicId: String(data.publicId || ""),
+        friendMatchKey,
+        expiresAt: this.now() + Math.max(60, Number(data.expiresIn) || 0) * 1000
+      };
+      this.sessionMatchKeyAttempted = true;
       this.writeStorage(SESSION_STORAGE_KEY, this.session);
       this.authStatus = "authenticated";
       this.status = "online";
@@ -413,7 +447,9 @@ class CloudServiceController {
   }
 
   clearSession() {
-    this.session = { token: "", expiresAt: 0 };
+    this.session = { token: "", expiresAt: 0, publicId: "", friendMatchKey: "" };
+    this.sessionMatchKeyAttempted = false;
+    this.leaderboardAuthed = false;
     this.writeStorage(SESSION_STORAGE_KEY, this.session);
     this.authStatus = "idle";
   }
@@ -450,12 +486,17 @@ class CloudServiceController {
   refreshLeaderboard(force = false) {
     if (!this.feature("worldLeaderboard")) return Promise.resolve([]);
     const now = this.now();
-    if (!force && this.lastLeaderboardAt && now - this.lastLeaderboardAt < this.leaderboardRefreshMs) return Promise.resolve(this.rows);
+    const authed = !!this.session.token;
+    if (!force && this.lastLeaderboardAt && now - this.lastLeaderboardAt < this.leaderboardRefreshMs
+      && !(authed && !this.leaderboardAuthed)) {
+      return Promise.resolve(this.rows);
+    }
     if (this.leaderboardPromise) return this.leaderboardPromise;
-    this.leaderboardPromise = this.request("/v1/leaderboard?limit=100", { auth: true }).then((response) => {
+    this.leaderboardPromise = this.request("/v1/leaderboard?limit=100", { auth: authed }).then((response) => {
       const list = Array.isArray(response.data.leaderboard) ? response.data.leaderboard : [];
       this.rows = list.map(leaderboardRow).filter((row) => !row.mine).slice(0, 100);
       this.lastLeaderboardAt = now;
+      this.leaderboardAuthed = authed;
       this.status = "online";
       this.notify();
       return this.rows;
@@ -505,8 +546,10 @@ class CloudServiceController {
       this.friendStatus = "ready";
       this.status = "online";
       this.lastError = "";
-      this.notify();
-      return this.friendRows;
+      return this.refreshLeaderboard(true).then(() => {
+        this.notify();
+        return this.friendRows;
+      });
     }).catch((error) => {
       this.friendStatus = /auth deny/i.test(error.message) ? "denied" : "offline";
       this.lastError = error.message;
@@ -594,7 +637,7 @@ class CloudServiceController {
     if (!this.supported || !this.feature("worldLeaderboard")) return false;
     const before = this.lastScoreSignature;
     this.login().then((loggedIn) => {
-      if (!loggedIn) return false;
+      if (!loggedIn) return this.feature("worldLeaderboard") ? this.refreshLeaderboard(force) : [];
       return this.syncScore(reserve, force, true, valuation).then(() => this.refreshLeaderboard(force));
     });
     const record = rankRecord(reserve, valuation);
@@ -615,10 +658,9 @@ class CloudServiceController {
   bootstrap(reserve = {}, valuation) {
     if (!this.supported) return Promise.resolve(false);
     return Promise.all([this.refreshConfig(true), this.login()]).then((results) => {
-      if (results[1] && this.feature("worldLeaderboard")) {
-        return this.syncScore(reserve, true, true, valuation).then(() => this.refreshLeaderboard(true));
-      }
-      return [];
+      if (!this.feature("worldLeaderboard")) return [];
+      if (results[1]) return this.syncScore(reserve, true, true, valuation).then(() => this.refreshLeaderboard(true));
+      return this.refreshLeaderboard(true);
     }).then(() => {
       this.track("game.boot", { configVersion: this.config().version });
       return true;

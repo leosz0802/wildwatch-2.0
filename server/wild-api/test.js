@@ -65,7 +65,10 @@ async function main() {
       body: JSON.stringify({ code: "wechat_user_one" })
     });
     assert.equal(response.status, 200);
-    const userOneToken = (await response.json()).token;
+    const userOneAuth = await response.json();
+    const userOneToken = userOneAuth.token;
+    assert.equal(userOneAuth.friendMatchKey, crypto.createHash("sha256").update("wild-friend-v1:openid-user-one").digest("hex"));
+    assert.match(String(userOneAuth.publicId || ""), /^[a-zA-Z0-9_-]{1,20}$/);
     response = await fetch(`${base}/v1/auth/wechat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -138,6 +141,11 @@ async function main() {
       });
       assert.equal(response.status, 200);
     }
+    response = await fetch(`${base}/v1/leaderboard`, { headers: { authorization: `Bearer ${userOneToken}` } });
+    const authedBeforeImport = await response.json();
+    const userTwoMatchKey = crypto.createHash("sha256").update("wild-friend-v1:openid-user-two").digest("hex");
+    const userTwoWorldRow = authedBeforeImport.leaderboard.find((entry) => entry.friendMatchKey === userTwoMatchKey);
+    assert(userTwoWorldRow && userTwoWorldRow.friend !== true, "logged-in world ranking should carry opaque match keys before relation import");
     response = await fetch(`${base}/v1/leaderboard`);
     const userOneIdentity = serverGeneratedIdentity(verifyToken(secret, userOneToken).sub);
     const legacyProfile = (await response.json()).leaderboard.find((entry) => entry.displayName === userOneIdentity.title);
@@ -214,7 +222,16 @@ async function main() {
     assert.equal(imported.friends[0].displayName, userTwoIdentity.title);
     assert.equal(imported.friends[0].reserveName, userTwoIdentity.reserveName);
     assert.equal(imported.friends[0].registered, true);
+    assert.equal(imported.friends[0].friendMatchKey, crypto.createHash("sha256").update("wild-friend-v1:openid-user-two").digest("hex"));
     assert.equal(imported.friends.find((friend) => !friend.registered).displayName, "微信同玩好友", "an unregistered relation friend should receive a privacy-safe pending exchange seat");
+    response = await fetch(`${base}/v1/leaderboard`, { headers: { authorization: `Bearer ${userOneToken}` } });
+    const worldAfterFriendImport = await response.json();
+    const linkedWorldFriend = worldAfterFriendImport.leaderboard.find((entry) => entry.id === imported.friends[0].id);
+    assert(linkedWorldFriend && linkedWorldFriend.friend === true, "a linked WeChat friend in the world top list must be marked for the current viewer");
+    assert.equal(linkedWorldFriend.friendMatchKey, crypto.createHash("sha256").update("wild-friend-v1:openid-user-two").digest("hex"));
+    const publicWorld = await (await fetch(`${base}/v1/leaderboard`)).json();
+    assert(publicWorld.leaderboard.every(entry => !entry.friendMatchKey), "anonymous requests must never receive friend match keys");
+    assert(worldAfterFriendImport.leaderboard.filter((entry) => entry.friend === true).length === 1, "world friend markers must only identify the viewer's linked accounts");
 
     const clientTradeId = "client-trade-real-1";
     const tradeBody = { targetId: imported.friends[0].id, scope: "friends", itemId: "resin_tinder", itemLabel: "伪造高价值素材", valuePoints: 20, clientTradeId };

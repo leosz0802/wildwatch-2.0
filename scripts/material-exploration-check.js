@@ -25,7 +25,8 @@ global.wx = {
 const { Game } = require("../js/game");
 const { createCharacter } = require("../js/storage");
 const { simulateDay } = require("../js/simulator");
-const { previewMaterialExploration, resolveMaterialExploration } = require("../js/materialExploration");
+const { previewMaterialExploration, resolveMaterialExploration, EXPLORATION_GOODS, RESCUE_GOODS } = require("../js/materialExploration");
+const { maxObtainableQualityScore } = require("../js/wildernessKnowledge");
 const { normalizeLifeMemory } = require("../js/emotionSystem");
 
 function assert(condition, message) {
@@ -43,6 +44,13 @@ function setTrust(state, value) {
     animal.relation = Object.assign({}, animal.relation || {}, { trust: value });
   });
 }
+
+EXPLORATION_GOODS.concat(RESCUE_GOODS).forEach((item) => {
+  assert(item.minQuality <= maxObtainableQualityScore(item.minLevel),
+    `${item.id} needs ${item.minQuality} but a natural 6 at level ${item.minLevel} only reaches ${maxObtainableQualityScore(item.minLevel)}`);
+});
+const lastExploration = EXPLORATION_GOODS[EXPLORATION_GOODS.length - 1];
+assert(lastExploration.minQuality <= maxObtainableQualityScore(lastExploration.minLevel), "the last exploration good must be obtainable with a 6");
 
 const low = createCharacter(null, "保护区卫士");
 low.world.reserve.progression.level = 1;

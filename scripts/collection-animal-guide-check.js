@@ -58,4 +58,15 @@ assert.strictEqual(game.selectedTarget.id, deer.id, "沙盘焦点应指向对应
 assert(game.mapZoom >= 1.35, "定位后应自动放大沙盘");
 assert(game.collectionAnimalGuide && game.collectionAnimalGuide.animalId === deer.id, "定位后应保留短时高亮引导");
 
+game.state.world.collection.discovery.active = {
+  itemId: "c1_whistle",
+  caseId: "case_1",
+  status: "hinted",
+  animal: { id: deer.id, name: game.animalDisplayName(deer) }
+};
+normalizeCollectionState(game.state);
+game.openAnimalThought(deer);
+assert(game.infoDetailModal.collectionDiscovery, "点击动物时必须显示尚未完成的碎片发现");
+assert(/当前线索仍在推进/.test(game.infoDetailModal.footer), "未完成碎片必须明确提示下一步，而不是静默消失");
+
 console.log("collection animal guide check ok");

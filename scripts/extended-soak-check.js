@@ -119,9 +119,9 @@ function validateState(state, seedIndex, day, previousLevel) {
   const goals = state.world.goals || {};
   const visibleGoals = [((goals.active || {}).primary)].concat(((goals.active || {}).alternatives) || []).filter(Boolean);
   assert(goals.version === 3 && goals.daily && goals.daily.target >= 1, `${prefix} V3 daily goal is missing or impossible`);
-  assert((goals.daily.objectives || []).length === 4, `${prefix} daily objective set must stay at four`);
+  assert((goals.daily.objectives || []).length === 2, `${prefix} daily objective set must stay at visitor and ecology`);
   assert(visibleGoals.length >= 1 && visibleGoals.length <= 3, `${prefix} must expose one to three visible goals`);
-  visibleGoals.forEach((goal) => assert(goal.executable && actionExecutable(state, goal.recommendedAction), `${prefix} recommended goal ${goal.id} is not executable`));
+  visibleGoals.forEach((goal) => assert(goal.executable && (goal.allowBlocked || actionExecutable(state, goal.recommendedAction)), `${prefix} recommended goal ${goal.id} is not executable`));
   assert(new Set(visibleGoals.map((goal) => goal.id)).size === visibleGoals.length, `${prefix} visible goals contain duplicates`);
   assert(["雨季", "旱季"].includes((reserve.seasonState || {}).name), `${prefix} invalid season`);
   return level;

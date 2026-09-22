@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const { createCharacter } = require('../js/storage');
 const { reserveProgressionFor } = require('../js/simulator');
 const { normalizeChapterRescue, collectRescueItem, rescueAnimal } = require('../js/chapterRescueSystem');
+const { reconcileSpeciesPopulations } = require('../js/animalWorld');
+const { chapterTargets } = require('../js/chapterTargets');
 
 for (const reverse of [false, true]) {
   for (let stage = 1; stage <= 20; stage++) {
@@ -17,7 +19,22 @@ for (const reverse of [false, true]) {
       stageBestScore: 100, stageStart: { stage, level }
     };
     Object.assign(reserve.ecology, { water: 100, grass: 100, disease: 0 });
-    reserve.ecology.herbivores.deer = 10000;
+    reconcileSpeciesPopulations(reserve, { initializeUnlocked: true, removeLocked: false });
+    ['herbivores', 'predators', 'birds'].forEach((group) => {
+      Object.keys(reserve.ecology[group] || {}).forEach((speciesId) => {
+        reserve.ecology[group][speciesId] = 10000;
+      });
+    });
+    reserve.development.operations.totalVisitors = 10000;
+    reserve.development.operations.visitorLedger = { totalVisitors: 10000 };
+    const visitorBaseline = stage === 1 ? 0 : Math.max(0, 10000 - chapterTargets(stage).visitors);
+    reserve.progression.chapterStart = {
+      stage,
+      totalVisitors: visitorBaseline,
+      inheritedVisitors: 0,
+      visitorLedger: { totalVisitors: visitorBaseline, migratedVisitors: 0, recruitedVisitors: 0, facilityVisitors: 0 }
+    };
+    reserve.progression.stageStart = Object.assign({}, reserve.progression.stageStart || {}, reserve.progression.chapterStart);
     reserve.eventChain = { chapterLevel: level, step: 7, length: 7, completed: true };
     reserve.storyDiscoveries = { [`case_${level}`]: { evidence: 9 } };
     const targets = normalizeChapterRescue(reserve, stage, { fresh: true }).targets.slice();

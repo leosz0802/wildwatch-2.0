@@ -96,7 +96,7 @@ for (const width of [320, 375, 430]) {
   game.drawDevelopmentBuildingModalContent(ctx, game.infoDetailModal, 20, 122, width - 40, 280);
   const status = fits.find(row => row.text.includes('还需'));
   assert(status && !status.fit.truncated, `${width}: cooldown status must be fully visible`);
-  const row = game.infoDetailModal.renderedBuildingRows[2];
+  const row = game.infoDetailModal.renderedBuildingRows.find((item) => /还需/.test(item.text)) || game.infoDetailModal.renderedBuildingRows[0];
   assert(status.y + (status.fit.lineCount - 1) * status.fit.lineHeight < row.y + row.h - 4, `${width}: status text must stay within the card`);
 }
 console.log('building operation cooldown layout check ok: 320/375/430');

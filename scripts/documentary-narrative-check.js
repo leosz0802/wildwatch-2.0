@@ -59,7 +59,7 @@ function ecologyReserve() {
   return reserve;
 }
 
-const eventTypes = ["predation", "disease", "overgrazing", "territorial", "birth", "migration", "juvenile_loss", "competition", "symbiosis"];
+const eventTypes = ["predation", "disease", "overgrazing", "territorial", "birth", "migration", "juvenile_loss", "competition", "symbiosis", "weather"];
 let resolvedChoices = 0;
 eventTypes.forEach((type, typeIndex) => {
   const probe = ecologyReserve();
@@ -67,7 +67,7 @@ eventTypes.forEach((type, typeIndex) => {
   assert(event, `${type} did not produce an ecology event`);
   assertBeat(event.narrativeBeat, `ecology/${type}`);
   assert(event.dialogues.every((line) => line.text.length <= 22), `${type} contains an overlong animal speech`);
-  assert(event.choices.length === 2 && event.choices.every((choice) => choice.label.length >= 4 && choice.label.length <= 8), `${type} choice labels must stay within 4-8 characters`);
+  assert(event.choices.length === 1 && event.choices.every((choice) => choice.label.length >= 4 && choice.label.length <= 8), `${type} choice labels must stay within 4-8 characters`);
   event.choices.forEach((choice, choiceIndex) => {
     const reserve = ecologyReserve();
     const fresh = resolveEcologyNarrativeEvent(reserve, clone(reserve), { day: typeIndex * 4 + choiceIndex + 1, dayClosed: true, forceType: type });
@@ -78,7 +78,7 @@ eventTypes.forEach((type, typeIndex) => {
     resolvedChoices += 1;
   });
 });
-assert.strictEqual(resolvedChoices, 18, "all eighteen ecology choice outcomes must be covered");
+assert.strictEqual(resolvedChoices, 10, "all remaining ecology choice outcomes must be covered");
 
 const warningReserve = ecologyReserve();
 warningReserve.ecology.disease = 28;
@@ -90,7 +90,7 @@ applyEcologyNarrativeDecision(warningReserve, warning.id, warning.choices[0].id)
 warningReserve.ecology.disease = 28;
 let hardEvent = resolveEcologyNarrativeEvent(warningReserve, clone(warningReserve), { day: 3, dayClosed: true, random: () => 0 });
 assert(hardEvent && hardEvent.type === "juvenile_loss", "a warned life risk should remain possible");
-applyEcologyNarrativeDecision(warningReserve, hardEvent.id, "keep_distance");
+applyEcologyNarrativeDecision(warningReserve, hardEvent.id, "emergency_care");
 warningReserve.ecology.disease = 28;
 const bounded = resolveEcologyNarrativeEvent(warningReserve, clone(warningReserve), { day: 5, dayClosed: true, random: () => 0 });
 assert(bounded && bounded.type !== "juvenile_loss" && !Object.values(bounded.populationChanges || {}).some((value) => value < 0), "a seven-day cycle must not produce a second irreversible loss");
@@ -133,7 +133,8 @@ CHAPTERS.forEach((chapter) => {
 
 const gameSource = fs.readFileSync(path.join(__dirname, "../js/game.js"), "utf8");
 assert(gameSource.includes("这里没有无代价的善意，每一次守护你都要买单"), "the approved first opening line changed");
-assert(gameSource.includes("遵循自然，衡量利益，让你的保护区活下去"), "the approved second opening line changed");
+assert(gameSource.includes('"进入游戏"'), "the single-image prologue must keep the enter-game action");
+assert(!gameSource.includes("遵循自然，衡量利益，让你的保护区活下去"), "the retired second opening panel must stay off the first-login image");
 assert(!/我们诞生在中国|帝企鹅日记|March of the Penguins/.test(JSON.stringify(CHAPTERS)), "film titles or attributed source copy leaked into game narrative");
 
 console.log("documentary narrative check ok (20 chapters, 28 route beats, 9 dilemmas, 18 outcomes, deterministic copy and bounded permanence)");

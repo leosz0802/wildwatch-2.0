@@ -28,6 +28,39 @@ function buildFriendRankRecord(reserve = {}, valuation) {
   };
 }
 
+function parkSharedCanvasOverlay(canvas, options = {}) {
+  if (!canvas) return false;
+  // 微信只要 game.json 写了 openDataContext，启动就会把开放域 canvas
+  // 做成顶层原生层。默认经常是全屏，安卓上即使完全透明也会吞掉
+  // 「进入游戏」。主域只通过 drawImage 合成，原生层必须一直藏在屏外。
+  if (options.shrink !== false) {
+    try {
+      if (canvas.width !== 1) canvas.width = 1;
+      if (canvas.height !== 1) canvas.height = 1;
+    } catch (error) {}
+  }
+  try {
+    if (canvas.style) {
+      canvas.style.left = "-9999px";
+      canvas.style.top = "-9999px";
+      canvas.style.width = "1px";
+      canvas.style.height = "1px";
+    }
+  } catch (error) {}
+  return true;
+}
+
+function parkOpenDataOverlay(runtime, options = {}) {
+  if (!runtime || typeof runtime.getOpenDataContext !== "function") return null;
+  try {
+    const context = runtime.getOpenDataContext();
+    parkSharedCanvasOverlay(context && context.canvas, options);
+    return context;
+  } catch (error) {
+    return null;
+  }
+}
+
 class WechatFriendController {
   constructor(runtime, options = {}) {
     this.runtime = runtime || {};
@@ -39,26 +72,45 @@ class WechatFriendController {
     this.lastCloudSyncCheckAt = 0;
     this.cloudUploadStatus = "idle";
     this.cloudUploadError = "";
+    this.lastCloudErrorAt = 0;
     this.cloudSyncCheckIntervalMs = Math.max(250, Number(options.cloudSyncCheckIntervalMs) || 1000);
+    this.cloudErrorBackoffMs = Math.max(1000, Number(options.cloudErrorBackoffMs) || 3000);
     this.now = typeof options.now === "function" ? options.now : () => Date.now();
     this.lastLayoutSignature = "";
     this.surfaceMode = "";
-    this.lastSelfAvatarSignature = "";
     this.subscriptionStatus = "unknown";
     this.subscriptionResults = {};
     this.openDataContext = null;
     this.sharedCanvas = null;
+    this.pendingOpenDataPayload = null;
+    this.uploadStartedAt = 0;
+    this.friendMatchKey = "";
     if (typeof this.runtime.getOpenDataContext !== "function") return;
     try {
       this.openDataContext = this.runtime.getOpenDataContext();
       this.sharedCanvas = this.openDataContext && this.openDataContext.canvas;
-      // 好友榜只在开放数据域读取托管数据，不请求另一套同玩互动好友
-      // 资料及其解密链路，避免给排行榜增加不必要的授权门槛。
       this.status = this.openDataContext ? "ready" : "unsupported";
+      this.parkOverlay();
       this.readSystemMessageSubscriptions();
     } catch (error) {
       this.lastError = String((error && error.errMsg) || (error && error.message) || error || "");
     }
+  }
+
+  postHideMessage() {
+    if (!this.openDataContext || typeof this.openDataContext.postMessage !== "function") return false;
+    try {
+      this.openDataContext.postMessage({ type: "friend_rank_hide" });
+      this.surfaceMode = "";
+      return true;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  parkOverlay() {
+    this.postHideMessage();
+    return parkSharedCanvasOverlay(this.sharedCanvas, { shrink: true });
   }
 
   isSystemMessageSupported() {
@@ -126,29 +178,61 @@ class WechatFriendController {
   syncReserve(reserve = {}, force = false, valuation) {
     if (typeof this.runtime.setUserCloudStorage !== "function") return false;
     const now = this.now();
+    if (this.cloudUploadStatus === "uploading") return false;
+    if (this.cloudUploadStatus === "error" && this.lastCloudErrorAt && now - this.lastCloudErrorAt < this.cloudErrorBackoffMs) return false;
     if (!force && this.lastCloudSyncCheckAt && now - this.lastCloudSyncCheckAt < this.cloudSyncCheckIntervalMs) return false;
     this.lastCloudSyncCheckAt = now;
     const record = buildFriendRankRecord(reserve, valuation);
+    if (this.worldPlayerId) record.worldPlayerId = String(this.worldPlayerId).slice(0, 32);
+    if (/^[a-f0-9]{64}$/.test(this.friendMatchKey || "")) record.friendMatchKey = this.friendMatchKey;
     const signature = JSON.stringify(Object.assign({}, record, { updatedAt: 0 }));
     if (signature === this.lastCloudSignature) return false;
     this.lastCloudSignature = signature;
     this.cloudUploadStatus = "uploading";
+    this.uploadStartedAt = now;
     this.cloudUploadError = "";
-    const value = JSON.stringify(record);
-    const scoreValue = JSON.stringify({ wxgame: { score: record.valuation, update_time: Math.floor(record.updatedAt / 1000) } });
+    const score = Math.max(0, Math.round(Number(record.valuation) || 0));
     this.runtime.setUserCloudStorage({
-      KVDataList: [{ key: FRIEND_SCORE_KEY, value: scoreValue }, { key: FRIEND_RANK_KEY, value }],
+      KVDataList: [
+        { key: FRIEND_SCORE_KEY, value: JSON.stringify({ wxgame: { score, update_time: Math.floor(record.updatedAt / 1000) } }) },
+        { key: FRIEND_RANK_KEY, value: JSON.stringify(record) }
+      ],
       success: () => {
         this.cloudUploadStatus = "ready";
+        this.cloudUploadError = "";
+        this.flushPendingOpenData();
         this.notify();
       },
       fail: (error) => {
         this.lastCloudSignature = "";
+        this.lastCloudErrorAt = this.now();
         this.cloudUploadStatus = "error";
         this.cloudUploadError = String((error && error.errMsg) || "排行数据上传失败");
+        this.flushPendingOpenData();
         this.notify();
       }
     });
+    return true;
+  }
+
+  flushPendingOpenData() {
+    const payload = this.pendingOpenDataPayload;
+    if (!payload || !this.openDataContext || typeof this.openDataContext.postMessage !== "function") return false;
+    this.pendingOpenDataPayload = null;
+    this.openDataContext.postMessage(payload);
+    return true;
+  }
+
+  postRankMessage(payload) {
+    if (!this.openDataContext || typeof this.openDataContext.postMessage !== "function") return false;
+    const uploading = this.cloudUploadStatus === "uploading";
+    const waitedTooLong = this.uploadStartedAt && this.now() - this.uploadStartedAt > 2500;
+    if (uploading && !waitedTooLong) {
+      this.pendingOpenDataPayload = payload;
+      return true;
+    }
+    this.pendingOpenDataPayload = null;
+    this.openDataContext.postMessage(payload);
     return true;
   }
 
@@ -156,30 +240,41 @@ class WechatFriendController {
     if (!this.sharedCanvas) return;
     const pixelWidth = Math.max(1, Math.round(width * this.dpr));
     const pixelHeight = Math.max(1, Math.round(height * this.dpr));
-    if (this.sharedCanvas.width !== pixelWidth) this.sharedCanvas.width = pixelWidth;
-    if (this.sharedCanvas.height !== pixelHeight) this.sharedCanvas.height = pixelHeight;
+    try {
+      if (this.sharedCanvas.width !== pixelWidth) this.sharedCanvas.width = pixelWidth;
+      if (this.sharedCanvas.height !== pixelHeight) this.sharedCanvas.height = pixelHeight;
+    } catch (error) {
+      this.lastError = "";
+    }
+    parkSharedCanvasOverlay(this.sharedCanvas, { shrink: false });
   }
 
-  refresh(width, height) {
+  refresh(width, height, options = {}) {
     if (!this.openDataContext || typeof this.openDataContext.postMessage !== "function") return false;
     const w = Math.max(1, Math.round(width || 300));
     const h = Math.max(1, Math.round(height || 260));
     this.surfaceMode = "rank";
-    this.lastSelfAvatarSignature = "";
-    // Explicit refreshes must become the controller's real layout state. Without
-    // this, a fixed-size refresh can leave a short shared canvas stretched into
-    // the previous tall viewport until the next unrelated resize.
     this.lastLayoutSignature = `${w}x${h}@${this.dpr}`;
+    this.lastWorldRowsSignature = JSON.stringify(this.worldLeaderboardRows || []);
     this.resize(w, h);
-    this.openDataContext.postMessage({
+    const payload = {
       type: "friend_rank_show",
       width: w,
       height: h,
       pixelRatio: this.dpr,
       key: FRIEND_RANK_KEY,
-      scoreKey: FRIEND_SCORE_KEY
-    });
-    return true;
+      scoreKey: FRIEND_SCORE_KEY,
+      worldRowsJson: this.lastWorldRowsSignature
+    };
+    if (options.reload === true) payload.reload = true;
+    return this.postRankMessage(payload);
+  }
+
+  setWorldLeaderboardRows(rows = []) {
+    this.worldLeaderboardRows = Array.isArray(rows) ? rows : [];
+    if (this.surfaceMode !== "rank" || !this.lastLayoutSignature) return false;
+    const parts = /^(\d+)x(\d+)@/.exec(this.lastLayoutSignature || "");
+    return this.refresh(parts ? Number(parts[1]) : 300, parts ? Number(parts[2]) : 260);
   }
 
   pointer(phase, x, y) {
@@ -197,8 +292,8 @@ class WechatFriendController {
   draw(ctx, x, y, width, height) {
     if (!ctx || !this.sharedCanvas) return false;
     const layoutSignature = `${Math.round(width)}x${Math.round(height)}@${this.dpr}`;
-    if (this.surfaceMode !== "rank" || layoutSignature !== this.lastLayoutSignature) {
-      this.lastLayoutSignature = layoutSignature;
+    const worldRowsJson = JSON.stringify(this.worldLeaderboardRows || []);
+    if (this.surfaceMode !== "rank" || layoutSignature !== this.lastLayoutSignature || worldRowsJson !== this.lastWorldRowsSignature) {
       this.refresh(width, height);
     }
     try {
@@ -210,39 +305,31 @@ class WechatFriendController {
     }
   }
 
-  drawSelfAvatar(ctx, x, y, size, reserve = {}, valuation) {
-    if (!ctx || !this.sharedCanvas || !this.openDataContext || typeof this.openDataContext.postMessage !== "function") return false;
-    const avatarSize = Math.max(1, Math.round(Number(size) || 40));
-    const record = buildFriendRankRecord(reserve, valuation);
-    const signature = `${avatarSize}@${this.dpr}|${record.name}|${record.valuation}|${record.level}|${record.animals}`;
-    if (this.surfaceMode !== "self-avatar" || signature !== this.lastSelfAvatarSignature) {
-      this.surfaceMode = "self-avatar";
-      this.lastSelfAvatarSignature = signature;
-      // Force the normal friend list to restore itself when the user switches
-      // back from the compact self-avatar surface.
-      this.lastLayoutSignature = "";
-      this.resize(avatarSize, avatarSize);
-      this.openDataContext.postMessage({
-        type: "friend_self_avatar_show",
-        width: avatarSize,
-        height: avatarSize,
-        pixelRatio: this.dpr,
-        key: FRIEND_RANK_KEY,
-        scoreKey: FRIEND_SCORE_KEY,
-        reserveName: record.name,
-        valuation: record.valuation,
-        level: record.level,
-        animals: record.animals
-      });
+  drawWorldRows(ctx, x, y, width, height, rows, titleSize = 0, rowHeight = 44) {
+    if (!ctx || !this.sharedCanvas || !this.openDataContext) return false;
+    const payload = rows.map(row => {
+      const worldPlayerId = String(row.worldPlayerId || row.publicId || row.id || "").replace(/^cloud_/, "");
+      return {
+        id: row.id, publicId: worldPlayerId, worldPlayerId, friendMatchKey: row.friendMatchKey || "",
+        title: row.name, valuation: row.valuation, rank: row.rank,
+        level: row.level, animals: row.animals, profileComplete: row.profileComplete, mine: !!row.mine
+      };
+    });
+    const rowsJson = JSON.stringify(payload);
+    const safeRowHeight = Math.max(36, Math.round(Number(rowHeight) || 44));
+    const signature = `${width}x${height}@${this.dpr}|${titleSize}|${safeRowHeight}|${rowsJson}`;
+    if (this.surfaceMode !== "world" || this.lastWorldSignature !== signature) {
+      this.surfaceMode = "world";
+      this.lastWorldSignature = signature;
+      this.resize(width, height);
+      this.postRankMessage({ type: "world_rank_show", width, height,
+        pixelRatio: this.dpr, rowsJson, titleSize, rowHeight: safeRowHeight, key: FRIEND_RANK_KEY, scoreKey: FRIEND_SCORE_KEY });
     }
-    try {
-      ctx.drawImage(this.sharedCanvas, x, y, avatarSize, avatarSize);
-      return true;
-    } catch (error) {
-      this.lastError = String((error && error.message) || error || "");
-      return false;
-    }
+    try { ctx.drawImage(this.sharedCanvas, x, y, width, height); return true; }
+    catch (error) { return false; }
   }
+
+
 }
 
 module.exports = {
@@ -252,5 +339,7 @@ module.exports = {
   SYSTEM_MESSAGE_RANK,
   SYSTEM_MESSAGE_TYPES,
   buildFriendRankRecord,
+  parkSharedCanvasOverlay,
+  parkOpenDataOverlay,
   WechatFriendController
 };

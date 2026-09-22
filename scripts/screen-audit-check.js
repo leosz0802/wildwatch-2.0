@@ -681,6 +681,61 @@ viewports.forEach((viewport) => {
     || ecologyFullTextAudit.texts.some((item) => /任务生成器|完成结算|完整记录|返回后/.test(item.text))) {
     fail(`${viewport.name}/ecology-full-text`, "expanded ecology text still includes redundant implementation or navigation commentary");
   }
+  const { resolveEcologyNarrativeEvent } = require("../js/ecologyNarrativeSystem");
+  const seedEcologyUi = (g, type, extra = {}) => {
+    const reserve = g.state.world.reserve;
+    reserve.ecology = reserve.ecology || {};
+    reserve.ecology.herbivores = Object.assign({}, reserve.ecology.herbivores || {}, {
+      hare: 36,
+      deer: 18,
+      antelope: 24,
+      zebra: 22
+    });
+    reserve.seasonState = Object.assign({}, reserve.seasonState || {}, extra.weather ? { weather: extra.weather } : {});
+    reserve.ecologyNarrative = { pendingDecision: null, lastEvent: null, history: [], artifacts: {}, threads: {} };
+    resolveEcologyNarrativeEvent(reserve, JSON.parse(JSON.stringify(reserve)), Object.assign({
+      day: 2,
+      dayClosed: true,
+      forceType: type
+    }, extra));
+  };
+  [
+    { type: "competition", choiceId: "seasonal_zones", label: "competition" },
+    { type: "weather", choiceId: "open_shelter", extra: { weather: "寒雾" }, label: "cold-fog" }
+  ].forEach((scene) => {
+    runRenderAudit(game, viewport, "home", 0, (g) => {
+      seedEcologyUi(g, scene.type, scene.extra || {});
+      const realRender = g.render;
+      g.render = () => {};
+      g.openPendingEcologyDecision();
+      g.render = realRender;
+    });
+    const decision = game.infoDetailModal || {};
+    const dilemma = (decision.summaryItems || []).find((item) => item.tag === "两难");
+    if (decision.kind !== "ecologyNarrativeDecision" || (decision.choices || []).length !== 1
+      || (decision.summaryItems || []).length !== 2
+      || !(decision.summaryItems || []).some((item) => item.tag === "游客影响")
+      || !dilemma || dilemma.title.length > 12) {
+      fail(`${viewport.name}/ecology-${scene.label}-decision`, "ecology single-choice cards still overflow or drop visitor impact");
+    }
+    runRenderAudit(game, viewport, "home", 0, (g) => {
+      seedEcologyUi(g, scene.type, scene.extra || {});
+      const realRender = g.render;
+      g.render = () => {};
+      g.openPendingEcologyDecision();
+      const choice = (g.infoDetailModal.choices || []).find((item) => item.id === scene.choiceId);
+      if (choice) choice.action();
+      if (g.infoDetailModal) g.infoDetailModal.revealAt = 0;
+      g.render = realRender;
+    });
+    const outcome = game.infoDetailModal || {};
+    if (outcome.kind !== "ecologyNarrativeDecision" || outcome.phase !== "result"
+      || (outcome.summaryItems || []).length !== 2
+      || !(outcome.summaryItems || []).some((item) => item.tag === "游客影响")
+      || (outcome.summaryItems || []).some((item) => String(item.title || "").length > 12)) {
+      fail(`${viewport.name}/ecology-${scene.label}-outcome`, "ecology result still overflows or drops visitor impact");
+    }
+  });
   const letterHomeAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
     g.state.world.lifeMemory.animalLetters = [];
     g.state.world.lifeMemory.animalLetterDateKey = "";
@@ -718,20 +773,23 @@ viewports.forEach((viewport) => {
     fail(`${viewport.name}/choose`, "entry page should fit one screen without scrolling");
   }
   const prologueVisual = game.renderedPlayablePrologue || {};
-  if (!chooseAudit.texts.some((item) => item.text === "看清代价")
+  if (!chooseAudit.texts.some((item) => item.text === "进入游戏")
+    || !chooseAudit.texts.some((item) => /解救 1 只动物/.test(item.text))
+    || !chooseAudit.texts.some((item) => /招募 95 名游客/.test(item.text))
+    || !chooseAudit.texts.some((item) => /扩大到 180 只/.test(item.text))
     || !chooseAudit.texts.some((item) => /这里没有无代价的善意/.test(item.text))
     || prologueVisual.stage !== "fog" || prologueVisual.dynamicMap || !prologueVisual.staticUnderlay || prologueVisual.staticChapterArt
-    || !prologueVisual.cinematicArt || prologueVisual.beat !== "listen" || prologueVisual.soundCue !== "叮——"
-    || prologueVisual.comicPanels !== 2 || prologueVisual.panel !== 1
-    || !prologueVisual.panelOneReady || !prologueVisual.panelTwoReady
+    || !prologueVisual.cinematicArt || prologueVisual.beat !== "enter" || prologueVisual.soundCue !== "叮——"
+    || prologueVisual.comicPanels !== 1 || prologueVisual.panel !== 1
+    || !prologueVisual.panelOneReady || prologueVisual.panelTwoReady
     || !prologueVisual.dialogue || !prologueVisual.dialogue.layeredCloud
     || prologueVisual.dialogue.style !== "survival-manifesto" || prologueVisual.dialogue.cloud
     || prologueVisual.textPriority !== "primary" || !prologueVisual.backgroundMuted || !prologueVisual.businessSurvivalWorld
-    || prologueVisual.imageTransitionMode !== "fade-through-dark" || prologueVisual.transitionFlash !== false
+    || prologueVisual.imageTransitionMode !== "hold" || prologueVisual.transitionFlash !== false
     || !prologueVisual.geometryContinuous || !prologueVisual.lateLoadHold || !prologueVisual.avoidsDoubleExposure
-    || prologueVisual.fogOpacity < .7 || prologueVisual.imagesBeforePlay !== 2 || prologueVisual.operationsBeforePlay !== 2
+    || prologueVisual.fogOpacity < .7 || prologueVisual.imagesBeforePlay !== 1 || prologueVisual.operationsBeforePlay !== 1
     || !prologueVisual.dogBounds || prologueVisual.dogBounds.w < 88) {
-    fail(`${viewport.name}/choose`, "two-image prologue lost its art, layered dialogue, compact transition, or interaction rhythm");
+    fail(`${viewport.name}/choose`, "single-image prologue lost its art, enter-game button, layered dialogue, or interaction rhythm");
   }
   if (chooseAudit.texts.some((item) => /开始守护|从这些开始|合法回收 → 出售|开局一队狗/.test(item.text))) {
     fail(`${viewport.name}/choose`, "entry page still shows the old static start cards");
@@ -748,7 +806,7 @@ viewports.forEach((viewport) => {
     || missionPushAudit.texts.some((item) => item.text === "为什么")) {
     fail(`${viewport.name}/mission-push`, "目标中心没有保持唯一当前目标，或仍展示旧版重复说明");
   }
-  const expectedSpeciesCounts = { 1: 7, 2: 11, 3: 15, 4: 19, 5: 21, 6: 23, 7: 25 };
+  const expectedSpeciesCounts = { 1: 7, 2: 13, 3: 15, 4: 19, 5: 23, 6: 25, 7: 25 };
   const finalSpeciesLevel = 7;
   [1, 2, 3, 4, 5, 6, 7].forEach((level) => {
     const populationAudit = runRenderAudit(game, viewport, "animalworld", 0, (g) => {
@@ -838,18 +896,19 @@ viewports.forEach((viewport) => {
   }
   game.state.world.reserve.progression.level = 1;
   reconcileSpeciesPopulations(game.state.world.reserve, { initializeUnlocked: true, removeLocked: true });
-  const firstChoiceAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+  runRenderAudit(game, viewport, "home", 0, (g) => {
     g.state.world.reserve.progression.totalActions = 0;
     g.state.ui.onboarding = { version: 2, completed: false, seen: {} };
     g.openFirstOnboardingChoice();
   });
   const firstChoiceItems = (game.infoDetailModal && game.infoDetailModal.renderedInfoItems) || [];
+  const firstChoiceTitle = String(((game.infoDetailModal || {}).items || [])[0] && game.infoDetailModal.items[0].title || "");
   if (!game.infoDetailModal || game.infoDetailModal.kind !== "onboardingChoice"
-    || firstChoiceItems.length !== 2
+    || (game.infoDetailModal.choices || []).length !== 1
+    || firstChoiceItems.length !== 1
     || firstChoiceItems.some((entry) => !entry.layout || (entry.layout.title && entry.layout.title.truncated) || (entry.layout.body && entry.layout.body.truncated))
-    || !firstChoiceAudit.texts.some((item) => /水源 \d+→\d+~\d+/.test(item.text))
-    || !firstChoiceAudit.texts.some((item) => /偷猎 \d+→\d+~\d+/.test(item.text))) {
-    fail(`${viewport.name}/onboarding-choice`, "first choice does not show two complete numeric cost/result previews");
+    || !/偷猎 \d+→\d+~\d+/.test(firstChoiceTitle)) {
+    fail(`${viewport.name}/onboarding-choice`, "first choice does not show a complete numeric cost/result preview");
   }
   const reserveForTerrain = game.state.world.reserve || {};
   reserveForTerrain.migration = reserveForTerrain.migration || {};
@@ -983,9 +1042,13 @@ viewports.forEach((viewport) => {
   const threatTiles = game.renderedPatrolThreatTiles || [];
   const actionTiles = game.renderedPatrolActionTiles || [];
   if (threatBoard.h > 154 || threatBoard.metrics !== 1 || threatBoard.redundantSafetyBar !== false
-    || !threatBoard.readOnly || !threatBoard.purpose || !threatBoard.instruction
-    || threatTiles.length !== 1 || !threatTiles[0].readOnly || threatTiles[0].clickable !== false) {
-    fail(`${viewport.name}/action`, "巡护首屏没有收敛为一个只读优先问题和明确任务说明");
+    || !threatBoard.purpose || !threatBoard.instruction
+    || threatTiles.length !== 1) {
+    fail(`${viewport.name}/action`, "巡护首屏没有收敛为一个优先问题和明确任务说明");
+  }
+  const urgent = threatTiles[0] || {};
+  if (urgent.recommendedAction && urgent.type !== "stable" && urgent.clickable === false) {
+    fail(`${viewport.name}/action`, "当前最急风险必须可以点进对应巡护，不能是无效状态卡");
   }
   if (actionAudit.texts.some((item) => ["Safety", "Water", "Poacher", "Migration"].includes(item.text))) {
     fail(`${viewport.name}/action`, "威胁卡仍显示不参与决策的英文副标题");
@@ -1364,6 +1427,7 @@ viewports.forEach((viewport) => {
   });
   const initialAdSlot = game.renderedNativeTemplateAdSlot || {};
   if (!initialAdSlot.inline || initialAdSlot.reservedHeight < 120 || initialAdSlot.railWidth < 24
+    || initialAdSlot.visualStyle !== "field-bulletin-v2"
     || !initialAdSlot.slot || game.maxScroll() <= 0
     || initialAdSlot.visible !== initialAdSlot.fullyInsideViewport
     || nativeAdState.visible !== initialAdSlot.fullyInsideViewport) {
@@ -1618,8 +1682,11 @@ viewports.forEach((viewport) => {
     require("../js/collectionSystem").startInvestigation(g.state, "audit_dice", "animal");
     g.openCollectionDice("audit_dice", "animal");
   });
-  if (!collectionDiceAudit.texts.some((item) => item.text === "点击掷骰") || !collectionDiceAudit.buttons.some((button) => button.label === "掷骰决定结果")) {
-    fail(`${viewport.name}/collection-dice`, "骰子缺少明确的可点击提示或主操作按钮");
+  if (!collectionDiceAudit.texts.some((item) => /看准中心/.test(item.text)) || !collectionDiceAudit.buttons.some((button) => button.label === "发射")) {
+    fail(`${viewport.name}/collection-dice`, "射箭调查缺少明确的发射提示或底部发射按钮");
+  }
+  if (collectionDiceAudit.buttons.some((button) => button.label === "稍后继续" || /生成点数决定/.test(button.label))) {
+    fail(`${viewport.name}/collection-dice`, "点数调查底部不应再保留稍后继续或生成点数决定");
   }
   const collectionDiceFactors = (game.infoDetailModal && game.infoDetailModal.renderedDiceFactors) || [];
   if (collectionDiceFactors.length !== 4 || collectionDiceFactors.some((item) => item.labelSize < 9 || item.valueSize < 17)) {

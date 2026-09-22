@@ -32,9 +32,54 @@ const { Game } = require("../js/game");
 const { buildReserveView } = require("../js/reserveView");
 const { createInitialWorld } = require("../js/world");
 const { createCharacter } = require("../js/storage");
+const { CHAPTERS } = require("../js/animalWorld");
+const { normalizeChapterRescue } = require("../js/chapterRescueSystem");
 const game = new Game();
 game.stopLoop();
 game.render = () => {};
+// iOS/微信首次音频解锁异常不得截断全局触摸链。
+game.audio = {
+  attachState() {},
+  unlock() { throw new Error("simulated iOS audio unlock failure"); },
+  playEffect() {}
+};
+game.hitAreas = [];
+let audioFailureTapWorked = false;
+game.addHit(100, 100, 120, 52, () => { audioFailureTapWorked = true; }, "tap");
+touchHandlers.start({ touches: [{ clientX: 150, clientY: 120 }] });
+touchHandlers.end();
+assert(audioFailureTapWorked, "音频解锁异常时首页按钮仍必须响应");
+game.hitAreas = [];
+game.gesture = null;
+let changedTouchesTapWorked = false;
+game.addHit(90, 160, 150, 54, () => { changedTouchesTapWorked = true; }, "none");
+touchHandlers.end({ changedTouches: [{ clientX: 150, clientY: 185 }] });
+assert(changedTouchesTapWorked, "仅在 changedTouches 提供坐标时首页按钮仍必须响应");
+const originalAdvancePlayablePrologue = game.advancePlayablePrologue;
+let directPrologueEntryWorked = false;
+game.screen = "choose";
+game.renderedPlayablePrologue = {
+  actionEnabled: true,
+  actionBounds: { x: 96, y: 580, w: 183, h: 46, hidden: false }
+};
+game.advancePlayablePrologue = (force) => { directPrologueEntryWorked = force === true; return true; };
+touchHandlers.start({ touches: [{ clientX: 180, clientY: 603 }] });
+assert(directPrologueEntryWorked, "进入游戏按钮必须在 touchstart 走独立直达路径");
+directPrologueEntryWorked = false;
+game.screen = "choose";
+game.renderedPlayablePrologue = {
+  actionEnabled: true,
+  actionBounds: { x: 96, y: 580, w: 183, h: 46, hidden: false }
+};
+touchHandlers.start({ touches: [{ clientX: 48, clientY: 140 }] });
+assert(directPrologueEntryWorked, "按钮出现后点序章卡片也必须进入游戏");
+game.advancePlayablePrologue = originalAdvancePlayablePrologue;
+game.suppressNextTouchEndTap = false;
+game.justEnteredPlayableGame = false;
+game.enteringPlayableGame = false;
+game.gesture = null;
+game.screen = "home";
+game.renderedPlayablePrologue = null;
 game.renderedMapGroundMarkers = [];
 const rendered = game.drawGroundMapMarker(fakeContext(), {
   id: "poacher_trace",
@@ -166,11 +211,70 @@ game.drawActiveWorldEventOverlay(fakeContext(), {
 }, false);
 const visitorOverlay = game.renderedWorldEventOverlay;
 assert(visitorOverlay && visitorOverlay.visualKind === "visitor-conflict"
+  && visitorOverlay.markerStyle === "graphic"
   && visitorOverlay.features.some((feature) => feature.type === "visitor-zone")
   && visitorOverlay.features.some((feature) => feature.type === "visitor-ring")
   && visitorOverlay.features.some((feature) => feature.type === "visitor-crowd")
-  && visitorOverlay.features.some((feature) => feature.type === "warning-flag"),
-"游客/社会事件应绘制独立事件区、发光处理环、人群和警示旗");
+  && visitorOverlay.features.some((feature) => feature.type === "warning-flag")
+  && !visitorOverlay.features.some((feature) => feature.type === "event-balloon"),
+"游客/社会事件应只保留图形化事件区，不得再叠一个文字气球");
+assert(game.mapEventBalloonHit && !game.hitAreas.includes(game.mapEventBalloonHit),
+  "游客图形现场必须使用独立点击层，不能进入全局按钮命中队列");
+game.screen = "home";
+game.infoDetailModal = null;
+game.patrolTaskModal = null;
+game.chapterStoryModal = null;
+game.settlementModal = null;
+game.activeTaskLock = null;
+game.scrollY = 0;
+game.mapViewport = { x: 0, y: 0, w: 375, h: 667 };
+const visitorHit = game.mapEventBalloonHit;
+assert(visitorHit && visitorHit.w > 0 && visitorHit.h > 0, "游客图形现场必须可点击");
+const visitorTapX = visitorHit.x + visitorHit.w / 2;
+const visitorTapY = visitorHit.y + visitorHit.h / 2;
+touchHandlers.start({ touches: [{ clientX: visitorTapX, clientY: visitorTapY }] });
+assert(game.gesture && game.gesture.actionHit && !game.gesture.mapPan, "按下游客图形现场不得被当成拖地图");
+touchHandlers.end({ touches: [], changedTouches: [{ clientX: visitorTapX, clientY: visitorTapY }] });
+assert.equal(game.infoDetailModal && game.infoDetailModal.kind, "visitorIncidentDice", "点击游客图形现场必须直接进入射箭判定");
+game.infoDetailModal = null;
+
+const { REAL_NATURE_EVENT_DEFINITIONS } = require("../js/realNatureEventSystem");
+const realNatureType = Object.keys(REAL_NATURE_EVENT_DEFINITIONS)[0];
+const realNatureDef = REAL_NATURE_EVENT_DEFINITIONS[realNatureType];
+game.screen = "home";
+game.infoDetailModal = null;
+game.patrolTaskModal = null;
+game.chapterStoryModal = null;
+game.settlementModal = null;
+game.activeTaskLock = null;
+game.scrollY = 0;
+game.mapViewport = { x: 0, y: 0, w: 375, h: 667 };
+game.hitAreas = [];
+game.state.world.reserve.emergency.active = Object.assign({
+  id: "real_balloon_tap",
+  type: realNatureType,
+  recommendedAction: "realEvent",
+  progress: 0,
+  target: 3,
+  daysRemaining: 3
+}, realNatureDef);
+game.currentGoalView(true);
+game.drawActiveWorldEventOverlay(fakeContext(), {
+  x: 0, y: 0, w: 375, h: 667,
+  worldX: 0, worldY: 0, worldW: 375, worldH: 667, scale: 1
+}, false);
+const realBalloon = game.mapEventBalloonHit;
+assert(realBalloon && realBalloon.w > 0 && realBalloon.h > 0, "紧急事件气球必须有独立点击区域");
+let overlappingMapTap = 0;
+game.addHit(realBalloon.x, realBalloon.y, realBalloon.w, realBalloon.h, () => { overlappingMapTap += 1; }, "tap", "map");
+const balloonX = realBalloon.x + realBalloon.w / 2;
+const balloonY = realBalloon.y + Math.min(18, realBalloon.h / 2);
+touchHandlers.start({ touches: [{ clientX: balloonX, clientY: balloonY }] });
+assert(game.gesture && game.gesture.actionHit && !game.gesture.mapPan, "按下紧急气球不得被当成拖地图");
+touchHandlers.end({ touches: [], changedTouches: [{ clientX: balloonX, clientY: balloonY }] });
+assert.equal(overlappingMapTap, 0, "紧急气球必须压过脚下的地图标记点击");
+assert.equal(game.infoDetailModal && game.infoDetailModal.kind, "worldEventDetail", "点击紧急气球必须进入与当前目标相同的事件详情");
+
 game.state.world.reserve.emergency.active = previousActiveEmergency;
 const mergedGuidance = game.sandboxMapAttentionPlan({
   camera: { x: 0, y: 0, w: 375, h: 667, scale: 1 },
@@ -191,11 +295,12 @@ assert(game.openNextSandboxOpportunity(mergedGuidance.hidden) && openedMergedGui
   "更多线索必须能继续打开合并后的当前主任务");
 game.hitAreas = [];
 game.mapViewport = { x: 0, y: 0, w: 375, h: 667 };
+game.renderedMapVisitorCountChip = { visible: false, count: 0 };
 game.drawSandboxOpportunityAggregate(fakeContext(), attention.camera || { x: 0, y: 0, w: 375, h: 667 }, attention);
 assert(game.renderedMapOpportunityAggregate && game.renderedMapOpportunityAggregate.visible
   && game.renderedMapOpportunityAggregate.count === attention.hidden.length
-  && /每日事件/.test(game.renderedMapOpportunityAggregate.label)
-  && game.hitAreas.length === 1,
+  && /每日事件|解救|更多线索|探索沙盘/.test(game.renderedMapOpportunityAggregate.label)
+  && game.hitAreas.length >= 1,
 "聚合入口必须清晰显示待处理数量并保持可点击");
 
 game.state.world.reserve.mastery = Object.assign({}, game.state.world.reserve.mastery, { habitat: { xp: 40 } });
@@ -216,6 +321,7 @@ const stableView = buildReserveView(stableReserve, stableReserve, { action: "buy
 assert.strictEqual(stableView.mapMarkers.length, 0, "没有实际风险或变化时不得强制生成水滴/铃铛任务点");
 const riskyReserve = JSON.parse(JSON.stringify(stableReserve));
 riskyReserve.poacherPressure = 72;
+riskyReserve.progression = Object.assign({}, riskyReserve.progression, { stage: 2 });
 const riskyView = buildReserveView(stableReserve, riskyReserve, { action: "buySupplies", day: 1, regionId: "center" });
 assert(riskyView.mapMarkers.some((item) => item.recommendAction === "antiPoacher" && /脚印|偷猎/.test(item.label)), "真实偷猎风险应保留带用途的可操作任务点");
 
@@ -238,4 +344,51 @@ assert(ecologyAvatar && ecologyAvatar.animal.species === "野兔", "动物产出
 assert(ecologyDrop && ecologyDrop.visual === "animal-portrait-with-type-badge" && !ecologyDrop.genericOval,
   "生态产出不得继续使用无法辨认的空心椭圆占位图标");
 assert(ecologyDrop.label === "短耳兔的迁徙痕迹", "迁徙产出应使用简短、对象明确的说明");
+
+const chapter3 = new Game();
+chapter3.stopLoop();
+chapter3.render = () => {};
+chapter3.state = createCharacter(null, "第三章锁住动物地图");
+Object.assign(chapter3.state.world.reserve.progression, {
+  stage: 3,
+  displayChapter: 3,
+  level: CHAPTERS[2].level
+});
+normalizeChapterRescue(chapter3.state.world.reserve, 3, { fresh: true });
+const locked = (chapter3.chapterRescueState().targets || []).find((target) => target.status !== "rescued");
+assert(locked, "第三章必须有被锁住的章节动物");
+locked.map = { x: 0.38, y: 0.62 };
+chapter3.mapCameraFrame = { x: 0, y: 0, w: 375, h: 500, worldW: 900, worldH: 900, worldSize: 900, scale: 1.2 };
+chapter3.mapCamera = { cx: 0.52, cy: 0.48 };
+chapter3.mapZoom = 1.12;
+chapter3.focusRescueTargetOnMap(locked.speciesId);
+chapter3.applyFocusedRescueCamera(0, 0, 375, 500);
+const afterFocus = Object.assign({}, chapter3.mapCamera);
+chapter3.applyFocusedRescueCamera(0, 0, 375, 500);
+assert.strictEqual(chapter3.mapCamera.cx, afterFocus.cx, "解救定位只能对准一次，不能每帧重钉镜头");
+const frameBefore = chapter3.mapCameraInfo(0, 0, 375, 500);
+chapter3.drawChapterRescueMarkers(fakeContext(), frameBefore);
+const rescueBeforePan = (chapter3.renderedRescueMapMarkers || []).map((marker) => ({
+  id: marker.targetId, x: marker.x, y: marker.y, w: marker.w, worldX: marker.worldX, worldY: marker.worldY
+}));
+chapter3.panMapBy(120, 80);
+assert(
+  Math.abs(chapter3.mapCamera.cx - afterFocus.cx) > 0.001 || Math.abs(chapter3.mapCamera.cy - afterFocus.cy) > 0.001,
+  "第三章动物被锁住后，沙盘仍必须能拖动"
+);
+const frameAfter = chapter3.mapCameraInfo(0, 0, 375, 500);
+chapter3.drawChapterRescueMarkers(fakeContext(), frameAfter);
+rescueBeforePan.forEach((before) => {
+  const after = (chapter3.renderedRescueMapMarkers || []).find((marker) => marker.targetId === before.id);
+  assert(after, "困住的动物拖图后仍须留在沙盘上");
+  assert(Math.abs(after.worldX - 0.38) < 0.0001 && Math.abs(after.worldY - 0.62) < 0.0001, "困住的动物必须固定在出现时的沙盘坐标");
+  assert(Math.abs(after.x - before.x) > 1 || Math.abs(after.y - before.y) > 1, "困住的动物应随沙盘地形一起平移，不能钉在屏幕上");
+  const expected = chapter3.mapPoint(before.worldX, before.worldY, frameAfter);
+  assert(Math.abs((after.x + after.w / 2) - expected.x) < 1 && Math.abs((after.y + 36) - expected.y) < 1, "困住的动物屏幕位置必须跟着种植点走");
+});
+const afterPan = Object.assign({}, chapter3.mapCamera);
+chapter3.applyFocusedRescueCamera(0, 0, 375, 500);
+assert.strictEqual(chapter3.mapCamera.cx, afterPan.cx, "拖动后不得把镜头弹回笼子");
+assert.strictEqual(chapter3.mapCamera.cy, afterPan.cy, "拖动后不得把镜头弹回笼子");
+
 console.log("map marker affordance check ok");

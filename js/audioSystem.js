@@ -1,8 +1,9 @@
 const AUDIO_ASSETS = {
   music: "assets/audio/bgm-nature-loop.m4a",
   success: "assets/audio/sfx-success.m4a",
-  taskComplete: "assets/audio/task-complete.m4a",
-  warning: "assets/audio/sfx-warning.m4a",
+  // 完成提示复用成功音，避免上传包保留两份功能相同的短音效。
+  taskComplete: "assets/audio/sfx-success.m4a",
+  warning: "assets/audio/sfx-dice.m4a",
   dice: "assets/audio/sfx-dice.m4a"
 };
 

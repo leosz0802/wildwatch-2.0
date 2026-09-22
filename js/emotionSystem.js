@@ -1,4 +1,5 @@
 const { SPECIES_DB, getUnlockedSpecies, speciesPopulation } = require("./animalWorld");
+const { applyNamedSpeciesBirth } = require("./animalSourceLedger");
 const { seasonLifeModifiers } = require("./seasonSystem");
 const { relationshipModifierFor, lifeCycleModifiers } = require("./guardianPromises");
 
@@ -344,6 +345,7 @@ function advanceLifeMemory(beforeWorld, afterWorld, context = {}) {
       newborn.wildness = Math.max(86, relationshipAxes(friends[0]).wildness + 2);
       newborn.bond = newborn.security;
       newborn.lastEventDay = day;
+      applyNamedSpeciesBirth(reserve, species.id);
       state.individuals.push(newborn);
       events.push(makeEvent("birth", day, newborn, `${newborn.name}出生了`, `${friends[0].name}第一次把幼崽带到你巡过的路线上。保护区够安全，生命才会把明天交给这里。`, "joy"));
     }

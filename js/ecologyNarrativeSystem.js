@@ -1,5 +1,6 @@
 const { ECOLOGY_THRESHOLDS } = require("./balanceConfig");
 const { recordFundChange } = require("./fundLedger");
+const { recordIncrease } = require("./animalSourceLedger");
 const { applyNarrativeBusinessOutcome } = require("./eventEconomy");
 const {
   SPECIES_DB,
@@ -30,6 +31,14 @@ function setPopulation(reserve, speciesId, value) {
   reserve.ecology = reserve.ecology || {};
   reserve.ecology[group] = reserve.ecology[group] || {};
   reserve.ecology[group][speciesId] = Math.max(0, Math.round(Number(value) || 0));
+}
+
+function adjustPopulation(reserve, speciesId, delta, source) {
+  const before = speciesPopulation(reserve, speciesId);
+  setPopulation(reserve, speciesId, before + delta);
+  const actual = speciesPopulation(reserve, speciesId) - before;
+  if (actual > 0) recordIncrease(reserve, source, actual, { speciesId });
+  return actual;
 }
 
 function populationTotal(group = {}) {
@@ -88,7 +97,7 @@ function normalizeEvent(value = {}) {
     foreshadow: boundedText(value.foreshadow, 240),
     threadId: boundedText(value.threadId, 64),
     artifact: value.artifact ? normalizeArtifact(value.artifact) : null,
-    choices: (Array.isArray(value.choices) ? value.choices : []).slice(0, 2).map((choice) => ({
+    choices: (Array.isArray(value.choices) ? value.choices : []).slice(0, 1).map((choice) => ({
       id: boundedText(choice.id, 32), label: boundedText(choice.label, 20), cost: boundedText(choice.cost, 80), preview: boundedText(choice.preview, 180)
     })),
     resolvedChoiceId: boundedText(value.resolvedChoiceId, 32),
@@ -102,7 +111,7 @@ function normalizeEvent(value = {}) {
     dilemma: event.stakes,
     actionId: event.choices.map((choice) => choice.id).join("|"),
     threshold: { label: event.choices.map((choice) => choice.cost).join(" / ") },
-    immediateConsequence: event.outcome || "结果尚未发生；两种行动都会留下代价。",
+    immediateConsequence: event.outcome || "结果尚未发生；这次行动会留下代价。",
     delayedDebt: event.stakes,
     nextHook: ECOLOGY_NEXT_HOOKS[event.type] || event.foreshadow,
     permanence: event.type === "juvenile_loss" ? "life" : "memory"
@@ -134,7 +143,8 @@ const ECOLOGY_NEXT_HOOKS = {
   migration: "清晨再数一次留下与离开的脚印。",
   juvenile_loss: "天亮后，确认更轻的脚印去了哪里。",
   competition: "下一次取食时，确认较弱队伍是否缺席。",
-  symbiosis: "第三个物种出现时，再判断合作是否继续。"
+  symbiosis: "第三个物种出现时，再判断合作是否继续。",
+  weather: "下一阵异常风来时，确认谁先离开。"
 };
 
 const ECOLOGY_DECISION_DEBTS = {
@@ -155,7 +165,9 @@ const ECOLOGY_DECISION_DEBTS = {
   "competition:seasonal_zones": "新芽恢复，取食顺序开始由人类决定。",
   "competition:natural_shift": "竞争保持自然，较弱种群可能被逐出核心区。",
   "symbiosis:preserve_process": "互利继续，病原与误触风险也被一并保留。",
-  "symbiosis:sanitary_clear": "眼前风险下降，自然互利失去发生条件。"
+  "symbiosis:sanitary_clear": "眼前风险下降，自然互利失去发生条件。",
+  "weather:open_shelter": "阴凉和水点被打开，动物也会把这里记成下一次热压的集合点。",
+  "weather:ride_it_out": "保留自然承压，掉队和病征会在下一阵异常天气里被重新点名。"
 };
 
 function ecologyDecisionDebt(eventType = "", choiceId = "", fallback = "") {
@@ -268,6 +280,12 @@ function eventArtifact(type, eventId, day, actors = []) {
       reality: "清道、警戒、翻土或共享资源可让不同物种同时获益，但互利通常有条件，也可能在资源短缺时转为竞争。",
       story: `${names}没有彼此承诺，只在这一刻让对方的生存方式变得稍微容易。互助不是温顺，是长期选择留下的缝隙。`,
       easterEgg: "观察片边缘记录到一次中断：第三个物种出现后，原本稳定的互利关系立刻改变了距离。"
+    },
+    weather: {
+      name: "异常天气现场泥线标本", icon: "water",
+      reality: "热浪、暴雨、沙尘与寒雾会在短时间内改写饮水窗口、气味线和幼体跟随距离，不能只用单一气温读数解释伤亡。",
+      story: `${names}把这场异常天气写成一次必须改道的记忆。标本没有美化忍耐，只留下谁先停步、谁先回头。`,
+      easterEgg: "标本边缘有一层不属于当天风向的细沙，说明下一次异常可能从另一侧边界提前抵达。"
     }
   };
   return Object.assign({ id: `eco_artifact_${eventId}`, eventId, day, archived: false }, catalog[type] || catalog.predation);
@@ -537,9 +555,100 @@ function buildSymbiosisEvent(reserve, day, serial, candidate) {
   });
 }
 
+function weatherAnomalyKind(reserve = {}, context = {}) {
+  const emergency = ((reserve.emergency || {}).active || {}).type || "";
+  const pulse = String(((reserve.weatherPulse || {}).type) || "");
+  const weather = String(context.weather || (reserve.lastSeasonEffect || {}).weather || (reserve.seasonState || {}).weather || "");
+  if (emergency === "sandbox_wildfire" || emergency === "wildfire") return "wildfire";
+  if (emergency === "sandbox_flood" || emergency === "flash_flood") return "flash_flood";
+  if (["heatwave", "dust_storm", "cold_fog"].includes(emergency)) return emergency;
+  if (/heatwave|heat-haze|drought|wildfire/.test(pulse)) return "heatwave";
+  if (/dust/.test(pulse)) return "dust_storm";
+  if (/fog/.test(pulse)) return "cold_fog";
+  if (/storm-rain|flash-flood|sandbox_flood/.test(pulse) || /暴雨|大雨|阴雨/.test(weather)) return "flash_flood";
+  if (/热浪|干热/.test(weather)) return "heatwave";
+  if (/沙尘/.test(weather)) return "dust_storm";
+  if (/寒雾/.test(weather)) return "cold_fog";
+  return "";
+}
+
+function buildWeatherEvent(reserve, day, serial, kind = "") {
+  const eco = reserve.ecology || {};
+  const populated = Object.keys(SPECIES_DB).filter((id) => speciesPopulation(reserve, id) > 0)
+    .sort((a, b) => speciesPopulation(reserve, b) - speciesPopulation(reserve, a));
+  const speaker = namedSpecies(populated[0] || "deer");
+  const witnessId = populated.find((id) => ["crow", "eagle", "giraffe", "owl"].includes(id) && id !== speaker.id);
+  const witness = namedSpecies(witnessId || populated[1] || speaker.id);
+  const anomaly = kind || weatherAnomalyKind(reserve) || ((reserve.seasonState || {}).name === "旱季" ? "heatwave" : "flash_flood");
+  const copy = {
+    heatwave: {
+      title: `${speaker.species}被热浪挤向同一口井`,
+      scene: `中午还没过完，浅滩已经失去反光。${speaker.species}把幼体赶到高地阴影下，井边的队伍越排越密，草尖在脚底发烫。`,
+      cause: `热浪与旱季叠加；水源${clamp(eco.water)}、草场${clamp(eco.grass)}。蒸发把饮水窗口压缩到少数阴凉点。`,
+      stakes: "打开遮阴水点能降低眼前伤亡，也会让下一场热压仍然汇向同一人工点；放任自然则保留野性，却接受掉队。",
+      lines: ["井边发烫，幼崽先停。", "热气把气味压在地面。"]
+    },
+    dust_storm: {
+      title: `${speaker.species}在沙尘里找不到旧路口`,
+      scene: `北风把干土抬到眼高。${speaker.species}在旧路口绕了两圈，气味线被抹掉，队尾的回应越来越轻。`,
+      cause: `沙尘切断迁徙气味；草场${clamp(eco.grass)}。开阔地最先失联。`,
+      stakes: "标出避风通道能接回队伍，也会让它们学会等待人类路标；不干预则保留自主，却可能把幼体留在盲区。",
+      lines: ["风里全是土，路断了。", "旧路口还在，气味不在。"]
+    },
+    cold_fog: {
+      title: `${speaker.species}在寒雾里听不见队尾`,
+      scene: `河岸只剩下呼吸。${speaker.species}停在已知泥岸，雾把队形拆成几段声音，浅滩变成必须摸索的走廊。`,
+      cause: `寒雾切断视线与气味；疾病${clamp(eco.disease)}。潮湿让掉队和病征同时上升。`,
+      stakes: "点亮低光路标能接回队尾，也会让夜行路线记住灯光；完全黑暗则保留夜的秩序，却接受失联。",
+      lines: ["雾里只听见呼吸。", "队尾的声音被雾吃掉。"]
+    },
+    flash_flood: {
+      title: `${speaker.species}被暴雨逼上高地`,
+      scene: `上游先传来漂木相撞的声音。${speaker.species}把幼体推向高地，旧浅滩在一次呼吸里变成水道。`,
+      cause: `暴雨/山洪抬升水位至${clamp(eco.water)}，草场${clamp(eco.grass)}被冲刷。固定迁移线最先断开。`,
+      stakes: "疏导通道能保住低地，也会改写明年的河岸；只撤离则降低伤亡，被淹草场仍要偿还。",
+      lines: ["水来得比脚印快。", "高地还有一处能站。"]
+    },
+    wildfire: {
+      title: `${speaker.species}被烟线赶出核心草场`,
+      scene: `干草被点燃后，烟比火更先到达。${speaker.species}不再回头吃草，只把幼体推向还没变热的风口。`,
+      cause: `雷火与热压叠加；草场${clamp(eco.grass)}、水源${clamp(eco.water)}。核心区正在失去停留条件。`,
+      stakes: "开辟隔离带能截断火线，也会烧掉一条熟悉取食带；先救动物则降低伤亡，烧区仍要修复。",
+      lines: ["烟先到，草就没了。", "风口那边还能走。"]
+    }
+  }[anomaly] || {
+    title: `${speaker.species}改写了异常天气里的路线`,
+    scene: `天气突然变了。${speaker.species}没有等待指令，只按气味和幼体的脚步重新排队。`,
+    cause: `异常天气改写饮水与迁徙窗口；水源${clamp(eco.water)}、草场${clamp(eco.grass)}。`,
+    stakes: "主动避险能降低眼前损失，也会留下人为集合点；随季忍耐保留野性，却接受掉队。",
+    lines: ["今天的风不像昨天。", "先让幼崽找到退路。"]
+  };
+  const eventId = `eco_${day}_${serial}_weather_${anomaly}_${speaker.id}`;
+  const actors = [
+    Object.assign({}, speaker, { stance: "把幼体放在队伍内侧，把异常天气当成必须改道的记忆，而不是一次忍耐比赛。" }),
+    Object.assign({}, witness, { stance: "从更高处记录谁先停步、哪条路先消失，知道下一阵风可能从另一侧到来。" })
+  ];
+  return normalizeEvent({
+    id: eventId, type: "weather", day, title: copy.title,
+    scene: copy.scene, cause: copy.cause, stakes: copy.stakes, actors,
+    dialogues: [
+      { actorId: speaker.id, speaker: speaker.name, tone: "改道", text: copy.lines[0] },
+      { actorId: witness.id, speaker: witness.name, tone: "见证", text: copy.lines[1] }
+    ],
+    foreshadow: "标本边缘有一层来自另一侧边界的细沙。",
+    threadId: `thread_weather_${anomaly}_${speaker.id}`,
+    artifact: eventArtifact("weather", eventId, day, actors),
+    choices: [
+      { id: "open_shelter", label: "打开避险点", cost: "工具包×1", preview: "水源或安全短暂回升，动物会把这里记成下一次异常的集合点。" },
+      { id: "ride_it_out", label: "随季忍耐", cost: "接受掉队风险", preview: "生态记录+1，不把异常天气固化成固定设施。" }
+    ]
+  });
+}
+
 function selectEventType(reserve, context, random) {
   if (context.forceType) return context.forceType;
   const eco = reserve.ecology || {};
+  if (weatherAnomalyKind(reserve, context) && random() < 0.72) return "weather";
   const disease = clamp(eco.disease);
   const herbivores = populationTotal(eco.herbivores || {});
   const grass = clamp(eco.grass);
@@ -549,8 +658,8 @@ function selectEventType(reserve, context, random) {
   const symbiosis = relationCandidates(reserve, "symbiotic")[0];
   const migration = reserve.migration || {};
   if (Math.abs(Number(migration.delta) || 0) >= 3 && random() < 0.62) return "migration";
-  if (disease >= ECOLOGY_THRESHOLDS.warningDisease && random() < Math.min(0.9, 0.32 + disease / 160)) return "disease";
   if ((disease >= ECOLOGY_THRESHOLDS.earlyDisease || grass <= ECOLOGY_THRESHOLDS.criticalGrass) && random() < 0.28) return "juvenile_loss";
+  if (disease >= ECOLOGY_THRESHOLDS.earlyDisease && random() < Math.min(0.92, 0.42 + disease / 150)) return "disease";
   if ((grass <= ECOLOGY_THRESHOLDS.lowGrass || herbivores >= 300) && random() < 0.58) return "overgrazing";
   if (competition && (grass <= ECOLOGY_THRESHOLDS.earlyGrass || clamp(eco.water) <= 50) && random() < 0.36) return "competition";
   if (territorial && territorial.score >= 35 && random() < 0.34) return "territorial";
@@ -560,6 +669,23 @@ function selectEventType(reserve, context, random) {
   return "";
 }
 
+function ecologyNarrativeCadence(reserve = {}) {
+  const chapter = Math.max(1, Math.round(Number((reserve.progression || {}).stage) || 1));
+  return chapter >= 3 ? 2 : 2;
+}
+
+function lateChapterEventType(reserve = {}) {
+  if (weatherAnomalyKind(reserve)) return "weather";
+  const eco = reserve.ecology || {};
+  if (clamp(eco.disease) >= ECOLOGY_THRESHOLDS.earlyDisease) return "disease";
+  if (clamp(eco.grass) <= ECOLOGY_THRESHOLDS.earlyGrass || populationTotal(eco.herbivores || {}) >= 300) return "overgrazing";
+  if (Math.abs(Number((reserve.migration || {}).delta) || 0) >= 1) return "migration";
+  if (relationCandidates(reserve, "competition")[0]) return "competition";
+  if (territorialCandidates(reserve)[0]) return "territorial";
+  if (relationCandidates(reserve, "symbiotic")[0]) return "symbiosis";
+  return "birth";
+}
+
 function resolveEcologyNarrativeEvent(reserve = {}, beforeReserve = {}, context = {}) {
   const state = normalizeEcologyNarrative(reserve.ecologyNarrative || {});
   const day = Math.max(1, Math.round(Number(context.day) || 1));
@@ -567,12 +693,18 @@ function resolveEcologyNarrativeEvent(reserve = {}, beforeReserve = {}, context 
     reserve.ecologyNarrative = state;
     return null;
   }
-  if (!context.forceType && state.lastEvent && day - state.lastEvent.day < 2) {
+  if (!context.forceType && state.lastEvent && day - state.lastEvent.day < ecologyNarrativeCadence(reserve)) {
     reserve.ecologyNarrative = state;
     return null;
   }
   const random = typeof context.random === "function" ? context.random : Math.random;
   let type = selectEventType(reserve, context, random);
+  const chapter = Math.max(1, Math.round(Number((reserve.progression || {}).stage) || 1));
+  if (!type && chapter >= 3) type = lateChapterEventType(reserve);
+  if (!context.forceType && (type === "birth" || type === "symbiosis")) {
+    const fallback = lateChapterEventType(reserve);
+    type = fallback === "birth" || fallback === "symbiosis" ? "overgrazing" : fallback;
+  }
   if (!type) {
     reserve.ecologyNarrative = state;
     return null;
@@ -598,6 +730,7 @@ function resolveEcologyNarrativeEvent(reserve = {}, beforeReserve = {}, context 
   else if (type === "juvenile_loss") event = buildJuvenileLossEvent(reserve, beforeReserve, day, serial);
   else if (type === "competition") event = buildCompetitionEvent(reserve, day, serial, relationCandidates(reserve, "competition")[0]);
   else if (type === "symbiosis") event = buildSymbiosisEvent(reserve, day, serial, relationCandidates(reserve, "symbiotic")[0]);
+  else if (type === "weather") event = buildWeatherEvent(reserve, day, serial, weatherAnomalyKind(reserve, context));
   else event = buildPredationEvent(reserve, beforeReserve, day, serial, predatorPreyCandidates(reserve)[0]);
   if (!event) {
     reserve.ecologyNarrative = state;
@@ -638,7 +771,7 @@ function applyEcologyNarrativeDecision(reserve = {}, eventId = "", choiceId = ""
     const preyId = Object.keys(event.populationChanges || {})[0];
     if (choiceId === "rescue") {
       if (!consume("medicalKit", 1)) return { ok: false, reason: "medicalKit", required: "医疗包×1" };
-      setPopulation(reserve, preyId, speciesPopulation(reserve, preyId) + 1);
+      adjustPopulation(reserve, preyId, 1, "tasked");
       applyMetric("grass", -1, eco);
       applyMetric("stability", -2);
       outcome = "巡护员转移了受伤个体。它活了下来；捕食者的巢却在夜里更频繁地发出饥饿回应，这条债没有消失。";
@@ -681,7 +814,7 @@ function applyEcologyNarrativeDecision(reserve = {}, eventId = "", choiceId = ""
     if (choiceId === "quiet_guard") {
       if ((reserve.fund || 0) < 40) return { ok: false, reason: "fund", required: "保护基金40" };
       applyMetric("fund", -40); applyMetric("reputation", 1);
-      setPopulation(reserve, speciesId, speciesPopulation(reserve, speciesId) + 1);
+      adjustPopulation(reserve, speciesId, 1, "tasked");
       outcome = "巡护线退到育幼地外缘。幼体多活过了一段危险时间，亲代却把每一次灯光都记成需要绕开的东西。";
     } else {
       applyMetric("ecologyScore", 1);
@@ -701,7 +834,7 @@ function applyEcologyNarrativeDecision(reserve = {}, eventId = "", choiceId = ""
     const speciesId = (event.actors[0] || {}).id;
     if (choiceId === "emergency_care") {
       if (!consume("medicalKit", 1)) return { ok: false, reason: "medicalKit", required: "医疗包×1" };
-      if ((event.populationChanges || {})[speciesId] < 0) setPopulation(reserve, speciesId, speciesPopulation(reserve, speciesId) + 1);
+      if ((event.populationChanges || {})[speciesId] < 0) adjustPopulation(reserve, speciesId, 1, "tasked");
       applyMetric("water", -1, eco); applyMetric("disease", -1, eco); applyMetric("stability", -1);
       outcome = "巡护员在育幼地外缘完成一次救助。幼体恢复了微弱呼吸；亲代也把灯光和气味记成下一次必须先绕开的东西。";
     } else {
@@ -725,6 +858,15 @@ function applyEcologyNarrativeDecision(reserve = {}, eventId = "", choiceId = ""
     } else {
       applyMetric("disease", -2, eco); applyMetric("safety", 1);
       outcome = "卫生清理降低了眼前病原与误触风险，也带走了另一物种正在利用的条件。互助没有被背叛，只是失去了发生的现场。";
+    }
+  } else if (event.type === "weather") {
+    if (choiceId === "open_shelter") {
+      if (!consume("fieldKit", 1)) return { ok: false, reason: "fieldKit", required: "野外工具包×1" };
+      applyMetric("water", 3, eco); applyMetric("safety", 2); applyMetric("grass", 1, eco);
+      outcome = "避险点被打开。眼前伤亡下降；动物也把这里记成下一次热浪、暴雨或沙尘到来时的集合点。";
+    } else {
+      applyMetric("ecologyScore", 1); applyMetric("grass", -1, eco); applyMetric("safety", -1);
+      outcome = "巡护员没有改写天气。队伍按自己的记忆改道，掉队和病征被如实记下，没有被设施提前接走。";
     }
   }
   const selectedChoice = event.choices.find((choice) => choice.id === choiceId);
@@ -760,6 +902,7 @@ module.exports = {
   normalizeEcologyNarrative,
   resolveEcologyNarrativeEvent,
   applyEcologyNarrativeDecision,
+  ecologyNarrativeCadence,
   ecologyDecisionDebt,
   predatorPreyCandidates,
   territorialCandidates,

@@ -65,6 +65,9 @@ game.updateWorldLeaderboardBroadcast(rows);
 rows[9].animals += 1;
 game.updateWorldLeaderboardBroadcast(rows);
 const day13WorldLetters = game.state.world.reserve.league.broadcasts.filter((letter) => letter.day === 13);
-assert(day13WorldLetters.length <= 2, "世界榜每天最多两封信");
+assert.equal(day13WorldLetters.length, 1, "世界榜每天只保留一封最新 Top 10");
+assert.equal(game.state.world.reserve.league.broadcasts.length, 1, "跨日世界榜信不得在存档里堆积");
+assert.equal(game.allIncomingLetters().filter((letter) => letter.sourceKind === "leaderboard").length, 1, "收件箱只展示最近一封世界榜信");
+assert(/#10 保护区9/.test(day13WorldLetters[0].body) && /动物23只/.test(day13WorldLetters[0].body), "同日多次变化应覆盖成最新 Top 10");
 
 console.log("friend letter check ok");

@@ -31,7 +31,7 @@ const recruitmentBefore = reserve.fund;
 const contributionBeforeRecruitment = visitorContributionRate(reserve);
 const recruitment = consumeVisitorRecruitment(reserve, 1, () => 0.5);
 assert(recruitment.ok, "第一阶段招募必须可执行");
-assert(recruitment.visitors >= 8 && recruitment.visitors <= 20, "首次招募应控制在8–20名游客");
+assert(recruitment.visitors >= 8 && recruitment.visitors <= 48, "首次招募应遵循第一章8–48名动态客流区间");
 assert.strictEqual(recruitment.income, Math.round(recruitment.visitors * contributionBeforeRecruitment.rate), "首次招募收入应遵循当前游客消费贡献公式");
 assert.strictEqual(reserve.fund - recruitmentBefore, recruitment.income, "招募入账必须与实际收入一致");
 assert(reserve.fund > recruitmentBefore, "招募必须真实增加保护基金");

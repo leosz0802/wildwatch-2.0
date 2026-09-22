@@ -22,7 +22,7 @@ WILDERNESS_FIND_CATALOG.forEach((item) => {
 assert.strictEqual(new Set(WILDERNESS_FIND_CATALOG.map((item) => item.easterEgg)).size, WILDERNESS_FIND_CATALOG.length, "survival material foreshadows must not be copied templates");
 assert.strictEqual(new Set(WILDERNESS_FIND_CATALOG.map((item) => item.ecologicalCost)).size, WILDERNESS_FIND_CATALOG.length, "each gathering action needs its own ecological tradeoff");
 
-assert.strictEqual(knownCharacters.length, 25, "named-animal cast changed unexpectedly");
+assert.strictEqual(knownCharacters.length, 33, "named-animal cast should cover all 33 species");
 knownCharacters.forEach((animal) => {
   assert(animal.memory && animal.memory.length, `${animal.name} needs persistent memory`);
   assert(animal.trauma && animal.trauma.length >= 22, `${animal.name} needs a distinct trauma`);
@@ -46,4 +46,4 @@ game.stopLoop();
 const deerProfile = game.buildSpeciesProfileDetail("deer");
 assert(deerProfile && deerProfile.profile.namedDepth && deerProfile.depthPage === 0, "species detail must expose the named representative's stance, trauma and same-species split as a paged view");
 
-console.log("narrative depth check ok (45 collectibles, 12 survival materials, 25 named-animal memories and restrained voice)");
+console.log("narrative depth check ok (45 collectibles, 12 survival materials, 33 named-animal memories and restrained voice)");

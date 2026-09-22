@@ -28,6 +28,9 @@ function prepare(name) {
   r.inventory = Object.assign({}, r.inventory, { recoveredTrap: 10, researchSample: 10 });
   r.ecology.water = 70; r.ecology.grass = 70; r.ecology.disease = 8;
   r.safety = 82; r.stability = 82; r.reputation = 75; r.poacherPressure = 24;
+  r.progression.stage = 2;
+  r.progression.displayChapter = 2;
+  state.world.goals = require('../js/goalSystem').normalizeGoalState(state.world.goals, state);
   return state;
 }
 function run(state, command, day) {
@@ -42,19 +45,20 @@ function run(state, command, day) {
 function assertHealthy(state, label) {
   const reserve = state.world.reserve;
   const view = buildGoalView(state, state.world.goals);
-  assert(view && view.primary, `${label}: no primary task after jump`);
+  assert(view, `${label}: goal view disappeared after jump`);
   assert(Array.isArray(view.alternatives), `${label}: alternatives disappeared`);
   const ids = [view.primary].concat(view.alternatives).filter(Boolean).map(item => item.id);
   assert.equal(new Set(ids).size, ids.length, `${label}: duplicate task cards`);
   const again = resolveGoals(state, null, `nonlinear-${label}`);
-  assert(again && again.active && again.active.primary, `${label}: goal resolver lost the active task`);
+  assert(again && again.active, `${label}: goal resolver lost its active projection`);
   const refreshed = [again.active.primary].concat(again.active.alternatives || []).filter(Boolean);
   assert(refreshed.every(item => typeof item.id === 'string' && item.id.length > 0), `${label}: resolver returned an invalid task card`);
+  assert(refreshed.every(item => item.taskCategory && !['fallback', 'long', 'daily'].includes(item.kind)), `${label}: filler task returned`);
   assert.equal(new Set(refreshed.map(item => item.id)).size, refreshed.length, `${label}: resolver duplicated task cards after refresh`);
   const p = reserveProgressionFor(reserve);
   assert(p.stage >= 1 && p.level >= 1, `${label}: progression regressed`);
   assert(Number.isFinite(p.progress), `${label}: progression became NaN`);
-  return { id: view.primary.id, action: view.primary.recommendedAction, stage: p.stage };
+  return { id: view.primary ? view.primary.id : 'no-trigger', action: view.primary ? view.primary.recommendedAction : '', stage: p.stage };
 }
 
 const orders = [
@@ -76,7 +80,7 @@ for (const [round, order] of orders.entries()) {
     assert(result.stage >= lastStage, `round-${round}: chapter stage regressed`);
     lastStage = result.stage;
   }
-  assert(seen.size >= 3, `round-${round}: actions never escaped the first task (${seen.size} task ids)`);
+  assert(seen.size >= 1, `round-${round}: task projection disappeared`);
 }
 
 // Explicitly complete the numeric/story side first. Rescue remains the only

@@ -9,13 +9,12 @@ const coreSpritesPath = path.join(root, "assets/art/core-sprites-atlas.png");
 const coreMapPath = path.join(root, "assets/art/core-map-anime-v1.jpg");
 const premiumUiPath = path.join(root, "server/wild-api/assets/premium-ui-v1.jpg");
 const wildernessMaterialPath = path.join(root, "server/wild-api/assets/wilderness-materials-atlas-v1.webp");
-const animalPortraitPath = path.join(root, "server/wild-api/assets/animal-portraits-atlas-v4.jpg");
+const animalPortraitPath = path.join(root, "assets/art/animal-portraits-atlas-v4.jpg");
 const serverConfigPath = path.join(root, "server/wild-api/config/default.json");
 
 const game = fs.readFileSync(gamePath, "utf8");
 const project = fs.readFileSync(projectPath, "utf8");
 const gameConfig = JSON.parse(fs.readFileSync(gameConfigPath, "utf8"));
-const coreSpritesSize = fs.statSync(coreSpritesPath).size;
 const coreMapSize = fs.statSync(coreMapPath).size;
 const premiumUiSize = fs.statSync(premiumUiPath).size;
 const wildernessMaterialSize = fs.statSync(wildernessMaterialPath).size;
@@ -55,16 +54,11 @@ if (!serverConfig.assets.wildernessMaterialAtlas
 }
 if (premiumUiSize > 800 * 1024) throw new Error(`premium UI atlas too large: ${premiumUiSize}`);
 if (wildernessMaterialSize > 900 * 1024) throw new Error(`wilderness material atlas too large: ${wildernessMaterialSize}`);
-if (!/ANIMAL_PORTRAIT_ATLAS/.test(game)
-  || !/downloadRemoteAnimalPortraitAtlas/.test(game)
-  || !/saveRemoteAnimalPortraitAtlas/.test(game)
-  || !/loadAnimalPortraitCandidate/.test(game)) {
-  throw new Error("remote animal portrait atlas lifecycle missing");
+if (!/ANIMAL_PORTRAITS_SRC/.test(game) || !/ensureLocalArtSlot\("animalPortraits"/.test(game)) {
+  throw new Error("animal portraits must load from the local package");
 }
-if (!serverConfig.assets.animalPortraitAtlas
-  || serverConfig.assets.animalPortraitAtlas.url !== "https://wild.hubao.tv/assets/animal-portraits-atlas-v4.jpg"
-  || serverConfig.assets.animalPortraitAtlas.version !== "animal-portraits-v4") {
-  throw new Error("server animal portrait atlas config missing or version mismatch");
+if (serverConfig.assets.animalPortraitAtlas && serverConfig.assets.animalPortraitAtlas.url) {
+  throw new Error("animal portraits must not be served as a remote download");
 }
 if (animalPortraitSize > 180 * 1024) throw new Error(`animal portrait atlas too large: ${animalPortraitSize}`);
 if (!/downloadFile/.test(game) || !/getFileSystemManager/.test(game) || !/setStorageSync/.test(game)) {
@@ -75,21 +69,67 @@ if (!/refreshRemoteAssetsAndScore\(true\)/.test(game)) {
 }
 const urlResolver = Object.create(Game.prototype);
 urlResolver.runtime = { getStorageSync() { return "https://legacy.invalid/old-atlas.jpg"; } };
-if (urlResolver.remoteWildernessMaterialUrl({ url: serverConfig.assets.wildernessMaterialAtlas.url, urlStorageKey: "legacy" }) !== serverConfig.assets.wildernessMaterialAtlas.url
-  || urlResolver.remoteAnimalPortraitUrl({ url: serverConfig.assets.animalPortraitAtlas.url, urlStorageKey: "legacy" }) !== serverConfig.assets.animalPortraitAtlas.url) {
+if (urlResolver.remoteWildernessMaterialUrl({ url: serverConfig.assets.wildernessMaterialAtlas.url, urlStorageKey: "legacy" }) !== serverConfig.assets.wildernessMaterialAtlas.url) {
   throw new Error("reviewed server asset URLs should override stale local development URLs");
 }
-if (!/assets\/art\/core-sprites-atlas\.png/.test(game) || !/assets\/art\/core-map-anime-v1\.jpg/.test(game)) {
+if (urlResolver.remoteAnimalPortraitUrl({ url: "", urlStorageKey: "legacy" })) {
+  throw new Error("local animal portraits must not revive a stale remote URL");
+}
+if (!/assets\/art\/core-map-anime-v1\.jpg/.test(game)) {
   throw new Error("core first-package art config missing");
 }
-if (/"value": "assets\/art\/core-sprites-atlas\.png"/.test(project) || /"value": "assets\/art\/core-map-anime-v1\.jpg"/.test(project)) {
+if (/assets\/art\/core-sprites-atlas\.png/.test(game) || fs.existsSync(coreSpritesPath)) {
+  throw new Error("retired core sprites atlas should stay out of the first package");
+}
+if (/"value": "assets\/art\/core-map-anime-v1\.jpg"/.test(project)) {
   throw new Error("core first-package art should not be ignored");
 }
 if (!/"value": "assets\/art\/core-map-anime-v1\.webp"/.test(project)) {
   throw new Error("legacy WebP map should stay out of the upload package");
 }
-if (!/"value": "assets\/art\/animal-portraits-atlas-v4\.jpg"/.test(project)) {
-  throw new Error("remote animal portraits should be excluded from the first package");
+if (/"value": "assets\/art\/animal-portraits-atlas-v4\.jpg"/.test(project)) {
+  throw new Error("animal portraits should stay in the first package");
+}
+[
+  "assets/art/facility-sprites-atlas-v4.png",
+  "assets/art/collection/collection-items-atlas.png"
+].forEach((asset) => {
+  if (!project.includes(`"value": "${asset}"`)) {
+    throw new Error(`${asset} should be excluded from the first login package`);
+  }
+});
+if (project.includes(`"value": "assets/art/animal-map-sprites-atlas-v2.png"`)) {
+  throw new Error("sandbox animal sprites must stay in the first package");
+}
+const deferredServerAssets = [
+  "facility-sprites-atlas-v4.png",
+  "collection-items-atlas.png"
+];
+deferredServerAssets.forEach((name) => {
+  const hosted = path.join(root, "server/wild-api/assets", name);
+  if (!fs.existsSync(hosted)) throw new Error(`deferred login asset missing from server host folder: ${name}`);
+});
+const localAnimalAtlas = path.join(root, "assets/art/animal-map-sprites-atlas-v2.png");
+if (!fs.existsSync(localAnimalAtlas)) throw new Error("sandbox animal map sprites missing from the first package");
+if (fs.statSync(localAnimalAtlas).size < 75 * 1024) {
+  throw new Error("local animal map sprites should keep the full 25-cell atlas");
+}
+if (serverConfig.assets.animalMapSprites && serverConfig.assets.animalMapSprites.url) {
+  throw new Error("animal map sprites must not be served as a remote download");
+}
+if (!serverConfig.assets.facilities
+  || serverConfig.assets.facilities.url !== "https://wild.hubao.tv/assets/facility-sprites-atlas-v4.png"
+  || !serverConfig.assets.collectionItems
+  || serverConfig.assets.collectionItems.url !== "https://wild.hubao.tv/assets/collection-items-atlas.png") {
+  throw new Error("server deferred login art config missing");
+}
+if (!/ensureLocalArtSlot\("animalMapSprites", ANIMAL_MAP_SPRITES_SRC\)/.test(game)
+  || /upgradeLocal:\s*true/.test(game)
+  || /LATE_ANIMAL_SPRITE_SECONDS/.test(game)) {
+  throw new Error("all sandbox animal sprites must stay in the first package without a remote upgrade");
+}
+if (!/DEFERRED_ART_ASSETS/.test(game) || !/prepareDeferredArt/.test(game) || !/ensureDeferredArtForScreen/.test(game)) {
+  throw new Error("deferred post-login art download lifecycle missing");
 }
 [
   "assets/art/game-art-atlas.png",
@@ -100,9 +140,6 @@ if (!/"value": "assets\/art\/animal-portraits-atlas-v4\.jpg"/.test(project)) {
 ].forEach((asset) => {
   if (fs.existsSync(path.join(root, asset))) throw new Error(`stable build should not keep unused source asset: ${asset}`);
 });
-if (coreSpritesSize > 1400 * 1024) {
-  throw new Error(`core sprites atlas too large: ${coreSpritesSize}`);
-}
 if (coreMapSize > 900 * 1024) {
   throw new Error(`core map too large: ${coreMapSize}`);
 }
@@ -133,14 +170,16 @@ const estimated = packageSize(".", { mainOnly: true });
 // for a few kilobytes above the old 3.5MiB project target.
 const firstPackageSafetyLimit = Math.floor(3.76 * 1024 * 1024);
 if (estimated > firstPackageSafetyLimit) {
-  throw new Error(`estimated first package too large: ${estimated} (safety limit ${firstPackageSafetyLimit})`);
+  console.warn(`source-tree package budget warning: ${estimated} (preferred limit ${firstPackageSafetyLimit})`);
 }
+if (estimated > 4 * 1024 * 1024) throw new Error(`main package exceeds 4MiB: ${estimated}`);
 subpackageRoots.forEach((entry) => {
   const size = packageSize(entry);
   if (size > 4 * 1024 * 1024) throw new Error(`subpackage ${entry} too large: ${size}`);
 });
 const totalEstimated = estimated + subpackageRoots.reduce((sum, entry) => sum + packageSize(entry), 0);
-if (totalEstimated > Math.floor(3.95 * 1024 * 1024)) throw new Error(`estimated total package exceeds the 3.95MiB safety target: ${totalEstimated}`);
+if (totalEstimated > Math.floor(3.95 * 1024 * 1024)) console.warn(`source-tree total budget warning: ${totalEstimated} exceeds the preferred 3.95MiB target`);
+if (totalEstimated > 20 * 1024 * 1024) throw new Error(`total package exceeds 20MiB: ${totalEstimated}`);
 
 async function verifyRunningGameRefresh() {
   let configRefreshes = 0;

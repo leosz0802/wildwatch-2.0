@@ -92,16 +92,31 @@ const fundDetail = game.buildReserveMetricDetail("fund");
 if (!fundDetail.readOnly || fundDetail.action || fundDetail.actionLabel) throw new Error("fund detail should remain data-only");
 const waterDetail = game.buildReserveMetricDetail("water");
 const grassDetail = game.buildReserveMetricDetail("grass");
-if (!waterDetail.readOnly || !waterDetail.navigationOnly || waterDetail.actionLabel !== "去沙盘找任务") throw new Error("low water should expose navigation guidance");
-if (!grassDetail.readOnly || !grassDetail.navigationOnly || grassDetail.actionLabel !== "去沙盘找任务") throw new Error("low grass should expose navigation guidance");
+if (!waterDetail.readOnly || waterDetail.navigationOnly || waterDetail.actionLabel !== "修复饮水点") throw new Error("low water should expose a direct repair task");
+if (!grassDetail.readOnly || grassDetail.navigationOnly || grassDetail.actionLabel !== "恢复草场") throw new Error("low grass should expose a direct repair task");
 
 game.infoDetailModal = grassDetail;
 game.infoDetailModal.action();
-if (game.patrolTaskModal || !game.focusedReserveMetric || game.focusedReserveMetric.type !== "grass") {
-  throw new Error("grass detail should highlight a sandbox task without opening the operation directly");
+if (!game.patrolTaskModal || game.patrolTaskModal.id !== "habitat" || game.patrolTaskModal.metricFocus !== "grass") {
+  throw new Error("grass detail should open the focused repair operation directly");
 }
 if (game.screen !== "action") {
   throw new Error("threat detail action should stay on the current screen");
+}
+
+game.patrolTaskModal = null;
+game.hitAreas = [];
+game.scrollY = 0;
+reserve.poacherPressure = 62;
+reserve.ecology.water = 33;
+game.drawPatrolThreatBoard(game.ctx, 12, 88, game.width - 24, reserve);
+const urgent = (game.renderedPatrolThreatTiles || [])[0];
+if (!urgent || urgent.clickable !== true || urgent.recommendedAction !== "antiPoacher") {
+  throw new Error("high poacher pressure on the patrol board must be tappable");
+}
+game.handleTap(urgent.x + 40, urgent.y + 24);
+if (!game.patrolTaskModal || game.patrolTaskModal.id !== "antiPoacher") {
+  throw new Error("tapping 当前最急 must open the matching patrol, not a dead status card");
 }
 
 console.log("threat action check ok");

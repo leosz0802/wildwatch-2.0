@@ -7,6 +7,14 @@
   "packOptions": {
     "ignore": [
       {
+        "value": "project.config.json",
+        "type": "file"
+      },
+      {
+        "value": ".gitignore",
+        "type": "file"
+      },
+      {
         "value": "scripts",
         "type": "folder"
       },
@@ -67,15 +75,27 @@
         "type": "file"
       },
       {
-        "value": "assets/art/animal-portraits-atlas-v4.jpg",
+        "value": "assets/art/facility-sprites-atlas-v4.png",
+        "type": "file"
+      },
+      {
+        "value": "assets/art/collection/collection-items-atlas.png",
+        "type": "file"
+      },
+      {
+        "value": ".DS_Store",
+        "type": "file"
+      },
+      {
+        "value": "assets/.DS_Store",
+        "type": "file"
+      },
+      {
+        "value": "assets/art/.DS_Store",
         "type": "file"
       },
       {
         "value": "assets/art/core-map-anime-v1.webp",
-        "type": "file"
-      },
-      {
-        "value": "assets/audio/sfx-warning.m4a",
         "type": "file"
       },
       {

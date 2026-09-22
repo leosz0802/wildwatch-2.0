@@ -3,6 +3,8 @@ const { createCharacter, loadState } = require("../js/storage");
 const { simulateDay } = require("../js/simulator");
 const { supplyPurchaseForQuantity, supplyPurchaseById, supplyReplenishmentPlan, supplySaleEnabled, supplyPurchaseCatalog } = require("../js/actions");
 const { Game } = require("../js/game");
+const { supplyCapFor } = require("../js/balanceConfig");
+const { InterstitialAdController } = require("../js/adSystem");
 
 function withRandom(value, fn) {
   const previous = Math.random;
@@ -65,12 +67,31 @@ batchReserve.fund = 5000;
 Object.assign(batchReserve.supplies, { dogFood: 0, alarm: 0, tranquilizer: 1, fieldKit: 0, medicalKit: 0 });
 const plan = supplyReplenishmentPlan(batchReserve);
 assert.strictEqual(plan.items.length, 6, "一键补齐应覆盖全部六类短缺物资");
-assert(plan.cost > 0 && plan.amount === 16, "一键补齐应给出完整数量与成本");
+assert(plan.fillToCap && plan.cost > 0 && plan.cost <= batchReserve.fund, "基金足够时应按仓库上限补货");
+plan.items.forEach((item) => {
+  const stock = batchReserve.supplies[item.id] || 0;
+  assert.strictEqual(item.amount, supplyCapFor(item.id, batchReserve) - stock, `${item.itemLabel}应按上限计算缺口`);
+});
 const batchResult = withRandom(.99, () => simulateDay(plan.command, batchState));
 plan.items.forEach((item) => {
-  assert.strictEqual(batchResult.world.reserve.supplies[item.id], item.target, `${item.itemLabel}应精确补到安全线`);
+  assert.strictEqual(batchResult.world.reserve.supplies[item.id], supplyCapFor(item.id, batchResult.world.reserve), `${item.itemLabel}应精确补到仓库上限`);
 });
 assert.strictEqual(batchResult.world.reserve.lastPurchase.batch, true, "结算应保留批量采购标记");
+assert.strictEqual(supplyCapFor("fieldKit", batchResult.world.reserve), 6, "野外工具包最大库存应为6");
+
+const evenState = createCharacter(null, "平均补货测试");
+quietGoal(evenState);
+const evenReserve = evenState.world.reserve;
+evenReserve.fund = 450;
+Object.assign(evenReserve.supplies, { dogFood: 0, alarm: 0, tranquilizer: 0, fieldKit: 0, medicalKit: 0, evidenceTrap: 0 });
+const evenPlan = supplyReplenishmentPlan(evenReserve);
+assert(evenPlan.cost <= evenReserve.fund, "基金不足填满时必须按可负担数量采购");
+assert(evenPlan.items.length >= 4, "平均补货应尽量覆盖多种物资，而不是先填满其中一项");
+const evenCounts = evenPlan.items.map((item) => item.amount);
+assert(Math.max(...evenCounts) - Math.min(...evenCounts) <= 2, "六种物资应按上限缺口尽量平均补货");
+const evenResult = withRandom(.99, () => simulateDay(evenPlan.command, evenState));
+assert.ok(evenResult.world.reserve.fund < 450, "平均补货必须扣除保护基金");
+assert.ok(evenResult.world.reserve.supplies.fieldKit < 6 || evenResult.world.reserve.supplies.dogFood < supplyCapFor("dogFood", evenResult.world.reserve), "基金不足时不得假装已经补满仓库");
 
 const insufficientState = createCharacter(null, "原子结算测试");
 quietGoal(insufficientState);
@@ -151,6 +172,89 @@ guidedGame.useMaterialAction("buySupplies", "fieldKit", 1);
 assert.strictEqual(guidedGame.pendingTaskOriginScreen, "home", "任务引导采购必须记录沙盘返回位置");
 guidedGame.submitCommand();
 assert.strictEqual(guidedGame.settlementModal.returnScreen, "home", "任务引导采购结算后必须返回沙盘");
+
+const screenshotGame = new Game();
+screenshotGame.stopLoop();
+screenshotGame.render = () => {};
+screenshotGame.toast = () => {};
+screenshotGame.setScreen = (screen) => { screenshotGame.screen = screen; };
+screenshotGame.playSfx = () => {};
+screenshotGame.playSettlementSfx = () => {};
+screenshotGame.configureSettlementReveal = () => {};
+screenshotGame.setMapPatrolReplay = () => false;
+screenshotGame.setMapConsequencePulse = () => {};
+screenshotGame.maybeShowInterstitialForSettlement = () => Promise.resolve();
+screenshotGame.state = createCharacter(null, "高基金补给卡死测试");
+screenshotGame.state.world.reserve.fund = 94031;
+screenshotGame.state.world.reserve.progression = Object.assign({}, screenshotGame.state.world.reserve.progression, {
+  stage: 6,
+  displayChapter: 6,
+  level: 4
+});
+screenshotGame.state.world.reserve.guardianCycle = Object.assign({}, screenshotGame.state.world.reserve.guardianCycle || {}, { day: 9 });
+Object.assign(screenshotGame.state.world.reserve.supplies, {
+  dogFood: 11,
+  tranquilizer: 3,
+  alarm: 6,
+  fieldKit: 0,
+  medicalKit: 2,
+  evidenceTrap: 2
+});
+screenshotGame.screen = "role";
+screenshotGame.settlementModal = {
+  silent: false,
+  grade: "A",
+  presentationScreen: "home",
+  title: "过期结算"
+};
+screenshotGame.useMaterialAction("buySupplies", "all");
+assert.strictEqual(screenshotGame.patrolTaskModal.purchaseId, "all", "物资页一键补齐必须打开批量采购确认");
+assert.strictEqual(screenshotGame.confirmPatrolTask(screenshotGame.patrolTaskModal), true, "未展示在当前页的结算不得卡住补给采购");
+assert.strictEqual(screenshotGame.state.world.reserve.supplies.fieldKit, 6, "高基金时野外工具包必须能补到上限6");
+assert.strictEqual(screenshotGame.screen, "role", "物资页采购完成后应留在物资页看到库存变化");
+assert.ok(screenshotGame.state.world.reserve.fund < 94031, "采购必须扣除保护基金");
+
+const freezeGame = new Game();
+freezeGame.stopLoop();
+freezeGame.render = () => {};
+freezeGame.toast = () => {};
+freezeGame.setScreen = (screen) => { freezeGame.screen = screen; };
+freezeGame.playSfx = () => {};
+freezeGame.playSettlementSfx = () => {};
+freezeGame.configureSettlementReveal = () => {};
+freezeGame.setMapPatrolReplay = () => false;
+freezeGame.setMapConsequencePulse = () => {};
+let freezeTaps = 0;
+freezeGame.hitAreaAt = () => ({ onTap() { freezeTaps += 1; } });
+freezeGame.interstitialAds = new InterstitialAdController({
+  createInterstitialAd() {
+    return {
+      onClose() {},
+      onError() {},
+      show() { return Promise.resolve(); }
+    };
+  },
+  getStorageSync() { return null; },
+  setStorageSync() {}
+}, { now: () => Date.now(), config: { timeCooldownMs: 0, minActionCount: 0, firstGuardianDay: 1, guardianDayCooldown: 0, minActiveSeconds: 0 } });
+freezeGame.state = createCharacter(null, "补给插屏卡死测试");
+quietGoal(freezeGame.state);
+freezeGame.state.world.reserve.fund = 5000;
+freezeGame.state.world.reserve.progression = Object.assign({}, freezeGame.state.world.reserve.progression, { totalActions: 8 });
+Object.assign(freezeGame.state.world.reserve.supplies, {
+  dogFood: 0, alarm: 0, tranquilizer: 0, fieldKit: 0, medicalKit: 0, evidenceTrap: 0
+});
+freezeGame.screen = "role";
+withRandom(.99, () => {
+  freezeGame.useMaterialAction("buySupplies", "all");
+  assert.strictEqual(freezeGame.confirmPatrolTask(freezeGame.patrolTaskModal), true, "物资页就地采购必须能完成结算");
+});
+assert.strictEqual(freezeGame.screen, "role", "补充物资后应留在物资页");
+assert.strictEqual(freezeGame.patrolTaskModal, null, "补充物资后不得留下确认弹窗");
+assert.strictEqual(freezeGame.settlementModal, null, "补充物资后不得留下结算弹窗");
+assert.strictEqual(freezeGame.interstitialAds.showing, false, "物资页采购不得留下插屏锁");
+freezeGame.handleTap(24, 24);
+assert.strictEqual(freezeTaps, 1, "补充物资后任意按钮必须仍可点击");
 delete global.wx;
 
 console.log("supply purchase check ok");
