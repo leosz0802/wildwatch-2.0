@@ -1,14 +1,22 @@
 const { ECOLOGY_THRESHOLDS } = require("./balanceConfig");
 const { applyCoreMetric } = require("./realNatureEventSystem");
-
+const { livingAnimalTotal } = require("./chapterRescueSystem");
+const { chapterVisitorTotal } = require("./chapterTargets");
 const SANDBOX_TASK_CAP = 1;
+const DISASTER_KINDS = Object.freeze(["wildfire", "flood", "disease"]);
+const DISASTER_DRAIN_INTERVAL_MS = 60 * 1000;
+const DISASTER_DRAIN_RATE = 0.01;
+const DISASTER_TITLES = Object.freeze({
+  wildfire: "火灾预警",
+  flood: "水灾改道",
+  disease: "病虫害扩散"
+});
 const LATE_SANDBOX_TASK_CAP = 1;
 const SYSTEM_TASK_CROSS_KIND_GAP_MS = 12 * 1000;
 const EARLY_CHAPTER_SAME_KIND_GAP_MS = 2 * 60 * 1000 + SYSTEM_TASK_CROSS_KIND_GAP_MS;
 const SAME_KIND_GAP_MS = 3 * 60 * 1000 + SYSTEM_TASK_CROSS_KIND_GAP_MS;
 const EARLY_CHAPTER_GAP_LIMIT = 2;
 const IDLE_HIDE_MS = 30 * 1000;
-
 function sandboxTaskKind(item = {}) {
   const eventType = String(item.eventType || item.type || item.id || "");
   const visual = String(item.visualKind || "");
@@ -27,12 +35,10 @@ function sandboxTaskKind(item = {}) {
   if (/脚印|偷猎|poacher/.test(`${eventType} ${title}`)) return "poacher";
   return eventType || item.id || "task";
 }
-
 function isVisitorKind(item, eventType, title) {
   return item.type === "visitorIncident" || item.kind === "visitorIncident"
     || eventType.startsWith("visitor_") || /游客/.test(title);
 }
-
 function isUserInitiatedSandboxTask(item = {}) {
   if (!item || typeof item !== "object") return false;
   if (item.userInitiated === true || item.source === "user") return true;
@@ -44,7 +50,6 @@ function isUserInitiatedSandboxTask(item = {}) {
   if (type === "friendAidParcel") return true;
   return false;
 }
-
 function normalizeSandboxTaskRhythm(value = {}) {
   const lastClosedAt = {};
   const lastShownAt = {};
@@ -65,26 +70,21 @@ function normalizeSandboxTaskRhythm(value = {}) {
   });
   return { lastClosedAt, lastShownAt, visible };
 }
-
 function reserveSandboxChapter(reserve = {}) {
   return Math.max(1, Math.round(Number((reserve.progression || {}).stage || (reserve.progression || {}).displayChapter) || 1));
 }
-
 function sandboxTaskCap(reserve = {}) {
   return reserveSandboxChapter(reserve) >= 3 ? LATE_SANDBOX_TASK_CAP : SANDBOX_TASK_CAP;
 }
-
 function sameKindGapMs(reserve = {}) {
   const stage = reserveSandboxChapter(reserve);
   return stage <= EARLY_CHAPTER_GAP_LIMIT ? EARLY_CHAPTER_SAME_KIND_GAP_MS : SAME_KIND_GAP_MS;
 }
-
 function kindReady(rhythm, kind, now, gapMs = SAME_KIND_GAP_MS) {
   if (rhythm.visible[kind]) return true;
   const closed = rhythm.lastClosedAt[kind] || 0;
   return !closed || now - closed > gapMs;
 }
-
 function crossKindReady(rhythm, kind, now, gapMs = SYSTEM_TASK_CROSS_KIND_GAP_MS) {
   if (rhythm.visible[kind]) return true;
   let lastOther = 0;
@@ -100,11 +100,13 @@ function crossKindReady(rhythm, kind, now, gapMs = SYSTEM_TASK_CROSS_KIND_GAP_MS
   });
   return !lastOther || now - lastOther > gapMs;
 }
-
 function visibleSystemKinds(rhythm = {}) {
   return Object.keys(rhythm.visible || {});
 }
-
+function riverShallowsBuilt(reserve = {}) {
+  const node = (((reserve.development || {}).nodes || {}).river_shallows) || {};
+  return node.phase === "operational";
+}
 function proposeEcologyCrises(reserve = {}, context = {}) {
   const eco = reserve.ecology || {};
   const season = context.season || ((reserve.seasonState || {}).name) || "雨季";
@@ -132,15 +134,19 @@ function proposeEcologyCrises(reserve = {}, context = {}) {
       eventType: "sandbox_wildfire"
     });
   }
-  const flood = /flash-flood|storm-rain/.test(pulse)
+  const weatherFlood = /flash-flood|storm-rain/.test(pulse)
     || water >= (harsh ? 82 : 88)
     || (season === "雨季" && (water >= (harsh ? 66 : 72) || /暴雨|大雨|阴雨/.test(weather)));
-  if (flood) {
+  const riverOpen = riverShallowsBuilt(reserve);
+  if (weatherFlood || !riverOpen) {
+    const hazardOnly = !weatherFlood && !riverOpen;
     crises.push({
       id: "flood",
-      priority: 108,
-      label: "水灾改道",
-      body: "暴雨把浅滩抬成水道。射箭判定伤害：≥3 递减，1–2 递增，必有负向。",
+      priority: hazardOnly ? 107 : 108,
+      label: hazardOnly ? "水灾隐患" : "水灾改道",
+      body: hazardOnly
+        ? "浅滩还没建成，水灾隐患会反复出现。射箭能压低这一次，建成浅滩后才会停。"
+        : "暴雨把浅滩抬成水道。射箭判定伤害：≥3 递减，1–2 递增，必有负向。",
       action: "harshNature",
       recommendLabel: "射箭判定伤害",
       marker: "crisis",
@@ -181,12 +187,12 @@ function proposeEcologyCrises(reserve = {}, context = {}) {
   }
   return crises;
 }
-
 function applySandboxTaskCadence(reserve = {}, reasons = [], now = Date.now()) {
   const rhythm = normalizeSandboxTaskRhythm(reserve.sandboxTaskRhythm);
   const stamp = Math.max(1, Math.round(Number(now) || Date.now()));
   const gapMs = sameKindGapMs(reserve);
   Object.keys(rhythm.visible).forEach((kind) => {
+    if (DISASTER_KINDS.includes(kind)) return;
     const entry = rhythm.visible[kind];
     const anchor = Math.max(entry.touchedAt || 0, entry.shownAt || 0);
     if (anchor && stamp - anchor >= IDLE_HIDE_MS) {
@@ -203,9 +209,10 @@ function applySandboxTaskCadence(reserve = {}, reasons = [], now = Date.now()) {
   const rankedSystem = systemReasons.slice().sort((left, right) => (Number(right.priority) || 0) - (Number(left.priority) || 0));
   const openSystemKinds = visibleSystemKinds(rhythm);
   const keptSystem = [];
-  const acceptSystem = (reason) => {
+  const acceptSystem = (reason, ignoreCrossGap = false) => {
     const kind = sandboxTaskKind(reason);
-    if (!kindReady(rhythm, kind, stamp, gapMs) || !crossKindReady(rhythm, kind, stamp, SYSTEM_TASK_CROSS_KIND_GAP_MS)) return;
+    if (!kindReady(rhythm, kind, stamp, gapMs)) return;
+    if (!ignoreCrossGap && !crossKindReady(rhythm, kind, stamp, SYSTEM_TASK_CROSS_KIND_GAP_MS)) return;
     if (!rhythm.visible[kind]) {
       rhythm.visible[kind] = { id: reason.id || kind, shownAt: stamp, touchedAt: 0 };
       rhythm.lastShownAt[kind] = stamp;
@@ -214,7 +221,27 @@ function applySandboxTaskCadence(reserve = {}, reasons = [], now = Date.now()) {
   };
   if (openSystemKinds.length) {
     const current = rankedSystem.find((reason) => openSystemKinds.includes(sandboxTaskKind(reason)));
-    if (current) acceptSystem(current);
+    const currentPriority = current ? Number(current.priority) || 0 : 0;
+    // A standing flood hazard used to keep the only map slot forever, so a
+    // higher fire warning never reached the sandbox and could not be finished.
+    // The chapter's required real event is the same kind of blocker: while it
+    // is active it has to be able to take the slot, or the task bar and the
+    // map show different tasks and neither one can be finished.
+    const challenger = rankedSystem.find((reason) => {
+      const kind = sandboxTaskKind(reason);
+      if (openSystemKinds.includes(kind)) return false;
+      const requiredRealEvent = kind === "realNature";
+      if (!requiredRealEvent && !DISASTER_KINDS.includes(kind)) return false;
+      if ((Number(reason.priority) || 0) <= currentPriority) return false;
+      if (!kindReady(rhythm, kind, stamp, gapMs)) return false;
+      return requiredRealEvent || crossKindReady(rhythm, kind, stamp, SYSTEM_TASK_CROSS_KIND_GAP_MS);
+    });
+    if (challenger) {
+      openSystemKinds.forEach((kind) => {
+        delete rhythm.visible[kind];
+      });
+      acceptSystem(challenger, sandboxTaskKind(challenger) === "realNature");
+    } else if (current) acceptSystem(current);
   } else {
     const next = rankedSystem.find((reason) => (
       kindReady(rhythm, sandboxTaskKind(reason), stamp, gapMs)
@@ -234,7 +261,6 @@ function applySandboxTaskCadence(reserve = {}, reasons = [], now = Date.now()) {
   reserve.sandboxTaskRhythm = rhythm;
   return kept;
 }
-
 function touchSandboxTask(reserve = {}, item = {}, now = Date.now()) {
   const kind = sandboxTaskKind(item);
   const rhythm = normalizeSandboxTaskRhythm(reserve.sandboxTaskRhythm);
@@ -242,7 +268,6 @@ function touchSandboxTask(reserve = {}, item = {}, now = Date.now()) {
   reserve.sandboxTaskRhythm = rhythm;
   return kind;
 }
-
 function closeSandboxTaskKinds(reserve = {}, kinds = [], now = Date.now()) {
   const rhythm = normalizeSandboxTaskRhythm(reserve.sandboxTaskRhythm);
   const stamp = Math.max(1, Math.round(Number(now) || Date.now()));
@@ -253,7 +278,6 @@ function closeSandboxTaskKinds(reserve = {}, kinds = [], now = Date.now()) {
   reserve.sandboxTaskRhythm = rhythm;
   return rhythm;
 }
-
 function closeSandboxTasksForAction(reserve = {}, actionId = "", now = Date.now()) {
   const action = String(actionId || "");
   if (action === "harshNature") return closeSandboxTaskKinds(reserve, ["wildfire", "flood", "disease"], now);
@@ -264,7 +288,6 @@ function closeSandboxTasksForAction(reserve = {}, actionId = "", now = Date.now(
   if (action === "neighborExchange") return closeSandboxTaskKinds(reserve, ["neighbor", "exchange"], now);
   return reserve.sandboxTaskRhythm;
 }
-
 const HARSH_NATURE_ARCHERY_THRESHOLD = 3;
 const HARSH_NATURE_DAMAGE_BY_SCORE = Object.freeze({ 1: 8, 2: 6, 3: 4, 4: 3, 5: 2, 6: 1 });
 const HARSH_NATURE_PROFILES = Object.freeze({
@@ -290,7 +313,6 @@ const HARSH_NATURE_PROFILES = Object.freeze({
     metrics: Object.freeze(["disease", "animals"])
   })
 });
-
 function harshNatureKind(item = {}) {
   if (!item || typeof item !== "object") return "";
   if (item.presentation === "resource-flow") return "";
@@ -309,24 +331,28 @@ function harshNatureKind(item = {}) {
     const hinted = sandboxTaskKind(item);
     return hinted === "flood" || hinted === "disease" ? hinted : "wildfire";
   }
-  if (/sandbox_flood/.test(eventType) || visual === "flash-flood" || /水灾改道/.test(title)) return "flood";
+  if (/sandbox_flood/.test(eventType) || visual === "flash-flood" || /水灾改道|水灾隐患/.test(title)) return "flood";
   if (/sandbox_disease/.test(eventType) || visual === "disease-zone" || /病虫害扩散/.test(title)) return "disease";
   return "";
 }
-
 function isHarshNatureEvent(item = {}) {
   return !!harshNatureKind(item);
 }
-
 function harshNatureProfile(kind = "wildfire") {
   return HARSH_NATURE_PROFILES[kind] || HARSH_NATURE_PROFILES.wildfire;
 }
-
 function harshNatureDamageForScore(score = 1) {
   const roll = Math.max(1, Math.min(6, Math.round(Number(score) || 1)));
   return HARSH_NATURE_DAMAGE_BY_SCORE[roll];
 }
-
+function harshNaturePopulationScale(reserve = {}) {
+  const chapter = reserveSandboxChapter(reserve);
+  return Math.max(1, 1 + Math.floor((chapter - 1) / 3));
+}
+function harshNatureMeterScale(reserve = {}) {
+  const chapter = reserveSandboxChapter(reserve);
+  return Math.max(1, 1 + Math.floor((chapter - 1) / 4));
+}
 function applyEcologyShift(reserve, key, delta, label) {
   const ecology = reserve.ecology || (reserve.ecology = {});
   const before = Math.max(0, Math.round(Number(ecology[key]) || 0));
@@ -334,29 +360,31 @@ function applyEcologyShift(reserve, key, delta, label) {
   ecology[key] = after;
   return { metric: key, label, unit: "", before, after, delta: after - before };
 }
-
 function applyHarshNatureChange(reserve, metric, delta) {
   if (metric === "grass") return applyEcologyShift(reserve, "grass", delta, "草场");
   if (metric === "disease") return applyEcologyShift(reserve, "disease", delta, "病虫害");
   if (metric === "water") return applyEcologyShift(reserve, "water", delta, "水源");
   return applyCoreMetric(reserve, metric, delta, metric === "animals" ? { outflow: "died" } : {});
 }
-
 function applyHarshNatureOutcome(reserve = {}, kind = "wildfire", roll = HARSH_NATURE_ARCHERY_THRESHOLD) {
   const score = Math.max(1, Math.min(6, Math.round(Number(roll) || 1)));
   const damage = harshNatureDamageForScore(score);
   const profile = harshNatureProfile(kind);
   const reduced = score >= HARSH_NATURE_ARCHERY_THRESHOLD;
-  const animalHit = -Math.max(1, Math.round(damage * 0.75));
-  const visitorHit = -Math.max(4, damage * 4);
+  const meterScale = harshNatureMeterScale(reserve);
+  const meterDamage = Math.max(1, Math.round(damage * meterScale));
+  const populationScale = harshNaturePopulationScale(reserve);
+  const animalHit = -Math.max(1, Math.round(damage * 0.5)) * populationScale;
+  const visitorHit = -Math.max(1, Math.round(damage * 0.75)) * populationScale;
+  const fireGrass = -Math.max(1, Math.round(damage * 0.5 * meterScale));
   const planned = {
-    wildfire: { grass: -damage, animals: animalHit },
+    wildfire: { grass: fireGrass, animals: animalHit },
     flood: { animals: animalHit, visitors: visitorHit },
-    disease: { disease: damage, animals: animalHit }
-  }[profile.kind] || { grass: -damage, animals: animalHit };
+    disease: { disease: meterDamage, animals: animalHit }
+  }[profile.kind] || { grass: fireGrass, animals: animalHit };
   const changes = Object.entries(planned).map(([metric, delta]) => applyHarshNatureChange(reserve, metric, delta));
   if (!changes.some((item) => item && item.delta !== 0)) {
-    changes[0] = applyEcologyShift(reserve, "grass", -Math.max(1, damage), "草场");
+    changes[0] = applyEcologyShift(reserve, "grass", -Math.max(1, meterDamage), "草场");
   }
   const pulse = reserve.weatherPulse || null;
   if (pulse && (
@@ -381,10 +409,105 @@ function applyHarshNatureOutcome(reserve = {}, kind = "wildfire", roll = HARSH_N
       : `射箭 ${score} 点，伤害加重，${profile.title}冲击扩大。`
   };
 }
-
+function isDisasterEmergency(active = {}) {
+  if (!active || typeof active !== "object") return false;
+  const type = String(active.type || active.eventType || "");
+  const title = `${active.title || ""} ${active.id || ""} ${active.visualKind || ""} ${active.summary || ""} ${active.impact || ""}`;
+  if (/visitor_|neighbor_/.test(type) || /游客现场|邻区/.test(title)) return false;
+  if (/wildfire|flash_flood|disease_outbreak|heatwave|sandbox_wildfire|sandbox_flood|sandbox_disease/.test(type)) return true;
+  if (/火灾|水灾|山火|洪水|山洪|火警|病虫害|疫病|干旱|热浪/.test(title)) return true;
+  if (type.startsWith("real_nature_") && /山火|火灾|火点|火季|热浪|干旱|洪水|水质|污染|疾病|疫情|野火/.test(`${type} ${title}`)) return true;
+  return false;
+}
+function disasterKindFromEmergency(active = {}) {
+  const text = `${active.type || ""} ${active.title || ""} ${active.visualKind || ""}`;
+  if (/flood|flash_flood|水灾|山洪|水质|污染/.test(text)) return "flood";
+  if (/disease|病/.test(text)) return "disease";
+  return "wildfire";
+}
+function untreatedDisasterKinds(reserve = {}) {
+  const kinds = [];
+  const rhythm = normalizeSandboxTaskRhythm(reserve.sandboxTaskRhythm);
+  DISASTER_KINDS.forEach((kind) => {
+    if (rhythm.visible[kind]) kinds.push(kind);
+  });
+  const active = ((reserve.emergency || {}).active) || null;
+  if (active && isDisasterEmergency(active)) {
+    const kind = disasterKindFromEmergency(active);
+    if (!kinds.includes(kind)) kinds.push(kind);
+  }
+  return kinds;
+}
+function hasUntreatedDisaster(reserve = {}) {
+  return untreatedDisasterKinds(reserve).length > 0;
+}
+function normalizeDisasterDrain(value = {}) {
+  return {
+    lastTickAt: Math.max(0, Math.round(Number(value.lastTickAt) || 0)),
+    pausedAt: Math.max(0, Math.round(Number(value.pausedAt) || 0))
+  };
+}
+function disasterLossAmount(total) {
+  const count = Math.max(0, Math.round(Number(total) || 0));
+  if (count <= 0) return 0;
+  return Math.max(1, Math.round(count * DISASTER_DRAIN_RATE));
+}
+function tickUntreatedDisasters(reserve = {}, now = Date.now(), options = {}) {
+  const stamp = Math.max(1, Math.round(Number(now) || Date.now()));
+  const drain = reserve.disasterDrain && typeof reserve.disasterDrain === "object"
+    ? reserve.disasterDrain
+    : (reserve.disasterDrain = { lastTickAt: 0, pausedAt: 0 });
+  drain.lastTickAt = Math.max(0, Math.round(Number(drain.lastTickAt) || 0));
+  drain.pausedAt = Math.max(0, Math.round(Number(drain.pausedAt) || 0));
+  const foreground = options.foreground !== false;
+  if (!foreground) {
+    drain.pausedAt = stamp;
+    return null;
+  }
+  if (drain.pausedAt) {
+    drain.lastTickAt = stamp;
+    drain.pausedAt = 0;
+    return null;
+  }
+  const kinds = untreatedDisasterKinds(reserve);
+  if (!kinds.length) {
+    drain.lastTickAt = 0;
+    return null;
+  }
+  if (!drain.lastTickAt) {
+    drain.lastTickAt = stamp;
+    return null;
+  }
+  if (stamp - drain.lastTickAt < DISASTER_DRAIN_INTERVAL_MS) {
+    return null;
+  }
+  drain.lastTickAt = stamp;
+  const animalsBefore = Math.max(0, Math.round(Number(livingAnimalTotal(reserve)) || 0));
+  const visitorsBefore = Math.max(0, Math.round(Number(chapterVisitorTotal(reserve)) || 0));
+  const animalHit = -disasterLossAmount(animalsBefore);
+  const visitorHit = -disasterLossAmount(visitorsBefore);
+  const changes = [];
+  if (visitorHit) changes.push(applyCoreMetric(reserve, "visitors", visitorHit));
+  if (animalHit) changes.push(applyCoreMetric(reserve, "animals", animalHit, { outflow: "died" }));
+  if (!changes.some((item) => item && item.delta)) return null;
+  const kind = kinds[0];
+  const title = DISASTER_TITLES[kind] || "灾害持续";
+  return {
+    kind,
+    kinds,
+    title,
+    changes,
+    body: `${title}仍未处理，游客和动物继续流失。`,
+    animalsBefore,
+    visitorsBefore
+  };
+}
 module.exports = {
   SANDBOX_TASK_CAP,
   LATE_SANDBOX_TASK_CAP,
+  DISASTER_KINDS,
+  DISASTER_DRAIN_INTERVAL_MS,
+  DISASTER_DRAIN_RATE,
   SYSTEM_TASK_CROSS_KIND_GAP_MS,
   sandboxTaskCap,
   EARLY_CHAPTER_SAME_KIND_GAP_MS,
@@ -406,5 +529,12 @@ module.exports = {
   isHarshNatureEvent,
   harshNatureProfile,
   harshNatureDamageForScore,
-  applyHarshNatureOutcome
+  harshNaturePopulationScale,
+  harshNatureMeterScale,
+  applyHarshNatureOutcome,
+  isDisasterEmergency,
+  untreatedDisasterKinds,
+  hasUntreatedDisaster,
+  normalizeDisasterDrain,
+  tickUntreatedDisasters
 };

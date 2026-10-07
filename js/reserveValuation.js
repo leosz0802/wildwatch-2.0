@@ -1,9 +1,4 @@
 "use strict";
-
-// Protection-zone valuation V1. Level represents the operating foundation;
-// the live animal population represents the ecological asset it can sustain.
-// Population uses diminishing bands so a crowded low-level reserve cannot
-// overwhelm progression, while every additional animal still has value.
 const LEVEL_BASE_VALUE = Object.freeze({
   1: 1800,
   2: 3600,
@@ -13,11 +8,9 @@ const LEVEL_BASE_VALUE = Object.freeze({
   6: 11400,
   7: 13500
 });
-
 function clampInt(value, min, max) {
   return Math.max(min, Math.min(max, Math.round(Number(value) || 0)));
 }
-
 function reserveValuationBreakdown(level, animalTotal) {
   const normalizedLevel = clampInt(level, 1, 7);
   const animals = clampInt(animalTotal, 0, 99999);
@@ -40,9 +33,7 @@ function reserveValuationBreakdown(level, animalTotal) {
     ])
   };
 }
-
 function calculateReserveValuation(level, animalTotal) {
   return reserveValuationBreakdown(level, animalTotal).total;
 }
-
 module.exports = { LEVEL_BASE_VALUE, reserveValuationBreakdown, calculateReserveValuation };

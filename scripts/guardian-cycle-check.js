@@ -40,8 +40,8 @@ assert(/季末/.test(seasonBeat(12)), "每季第12天必须提供季末总结");
 
 const collectionDay = state();
 collectionDay.world.reserve.guardianCycle.day = 6;
-const collectionProgress = recordSevenDayProgress(collectionDay.world.reserve, "collectionInvestigation");
-assert(collectionProgress.completed, "第6日应由真实收藏调查完成，而不是旧物资探索动作");
+const collectionProgress = recordSevenDayProgress(collectionDay.world.reserve, "facilityUse");
+assert(collectionProgress.completed, "第6日应由巡护站使用完成，而不是现场勘验");
 assert.strictEqual(collectionDay.world.reserve.guardianCycle.sevenDay.completed[6], true);
 
 console.log("guardian cycle check ok");

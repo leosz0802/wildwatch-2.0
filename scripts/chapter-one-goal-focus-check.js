@@ -8,7 +8,7 @@ const { CHAPTERS } = require('../js/animalWorld');
 function isForcedTrapEvidenceCard(item) {
   const blob = `${item.id || ''} ${item.title || ''} ${item.body || ''} ${item.description || ''}`;
   return /storyEvidence|rareRecovered|story:collection/.test(item.id || '')
-    || /找到案件主证据|陷阱证据|回收珍稀物品/.test(blob);
+    || /找到案件主证据|隐踪器|回收珍稀物品/.test(blob);
 }
 
 function visibleIds(state) {
@@ -73,7 +73,7 @@ for (let chapter = 1; chapter <= CHAPTERS.length; chapter += 1) {
   state.world.reserve.progression.level = CHAPTERS[chapter - 1].level;
   state.world.goals = resolveGoals(state, normalizeGoalState(state.world.goals, state), 'trap-evidence');
   const chapterCards = visibleIds(state);
-  assert.ok(chapterCards.every((item) => !isForcedTrapEvidenceCard(item)), `第${chapter}章不得出现强制案件证据/陷阱证据卡片`);
+  assert.ok(chapterCards.every((item) => !isForcedTrapEvidenceCard(item)), `第${chapter}章不得出现强制案件证据/隐踪器卡片`);
 }
 
 const hinted = JSON.parse(JSON.stringify(opening));
@@ -83,7 +83,7 @@ hinted.world.collection = Object.assign({}, hinted.world.collection, {
       id: 'discovery_snare',
       itemId: 'c1_snare',
       caseId: 'case_1',
-      title: '废弃陷阱',
+      title: '废弃机关',
       status: 'hinted',
       actionId: 'habitat',
       actionLabel: '修复水源和草场'

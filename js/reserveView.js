@@ -1,28 +1,24 @@
 const { fundHealth, ECOLOGY_THRESHOLDS, levelOf } = require("./balanceConfig");
 const { criticalPatrolRisk, PATROL_ACTIONS } = require("./patrolTriggerPolicy");
-const { isVisitorArcheryEvent, isNeighborExchangeEvent } = require("./worldEventSystem");
+const { isVisitorArcheryEvent, isNeighborExchangeEvent, hasVisitorTrouble } = require("./worldEventSystem");
 const { proposeEcologyCrises, applySandboxTaskCadence } = require("./sandboxTaskCadence");
-
+const { rareAnimalMapMarker, normalizeRareAnimalState } = require("./rareAnimalSystem");
 function clamp(value) {
   return Math.max(0, Math.min(100, Math.round(value || 0)));
 }
-
 function totalOf(group) {
   return Object.keys(group || {}).reduce((sum, key) => sum + ((group && group[key]) || 0), 0);
 }
-
 function toneFor(value, goodAt = 70, warnAt = 45, inverse = false) {
   const score = inverse ? 100 - (value || 0) : value || 0;
   if (score >= goodAt) return "good";
   if (score >= warnAt) return "warn";
   return "bad";
 }
-
 function signed(value) {
   const num = Math.round(value || 0);
   return num > 0 ? `+${num}` : `${num}`;
 }
-
 function metric(id, label, value, beforeValue, tone, body, action) {
   const numeric = typeof value === "number";
   const beforeNumeric = typeof beforeValue === "number";
@@ -36,7 +32,6 @@ function metric(id, label, value, beforeValue, tone, body, action) {
     action
   };
 }
-
 function actionLabel(action) {
   return {
     houndScout: "派猎犬侦察",
@@ -52,7 +47,6 @@ function actionLabel(action) {
     harshNature: "射箭判定伤害"
   }[action] || "巡护";
 }
-
 function animalStatusFor(reserve, context = {}) {
   const eco = reserve.ecology || {};
   const migration = reserve.migration || {};
@@ -77,7 +71,6 @@ function animalStatusFor(reserve, context = {}) {
   }
   return { value: "安定", tone: "good", reason: "水草和边界暂时稳定，动物愿意继续观察这里", action: "houndScout" };
 }
-
 function primaryReasons(before = {}, reserve = {}, context = {}) {
   const beforeEco = before.ecology || {};
   const eco = reserve.ecology || {};
@@ -95,7 +88,6 @@ function primaryReasons(before = {}, reserve = {}, context = {}) {
   const action = context.action || "";
   const emergency = reserve.emergency && reserve.emergency.active;
   const visitorToday = ((((reserve.development || {}).operations || {}).today) || {});
-
   if (emergency) {
     const visitorEvent = isVisitorArcheryEvent(emergency.type);
     const exchangeEvent = isNeighborExchangeEvent(emergency.type);
@@ -129,7 +121,7 @@ function primaryReasons(before = {}, reserve = {}, context = {}) {
   }
   if ((reserve.poacherPressure || 0) > 58 || poacherDelta > 5) reasons.push({ id: "poacher", priority: 100, label: "陌生脚印升级", body: "偷猎压力正在挤压动物路线", action: "antiPoacher", marker: "crisis", regionId: "river" });
   const visitorEmergency = !!(emergency && isVisitorArcheryEvent(emergency.type));
-  if (!visitorEmergency && visitorToday.trouble && visitorToday.trouble !== "尚无明显麻烦" && !/已回到观察线|现场恢复|已处理/.test(visitorToday.trouble)) {
+  if (!visitorEmergency && hasVisitorTrouble(visitorToday)) {
     reasons.push({
       id: "visitor_trouble",
       priority: 90,
@@ -169,8 +161,6 @@ function primaryReasons(before = {}, reserve = {}, context = {}) {
   if (migrationDelta > 0) reasons.push({ id: "migration_in", priority: 48, label: "动物回流", body: (reserve.migration && reserve.migration.reason) || "动物开始靠近核心区", action: "habitat", marker: "recovery", regionId: "meadow", presentation: "resource-flow", metric: "migration", metricLabel: "迁徙", delta: migrationDelta - beforeMigrationDelta, value: migrationDelta, flowKind: "production", beneficial: true });
   const critical = criticalPatrolRisk(reserve);
   return reasons.map(reason => {
-    // A recovery notification or a moderate metric fluctuation is information,
-    // not a second patrol assignment. Real event narratives keep their action.
     if (reason.eventType || reason.id === "reserve_network") return reason;
     if (reason.id === "disease") reason.action = "intervention";
     if (PATROL_ACTIONS.includes(reason.action)
@@ -180,7 +170,6 @@ function primaryReasons(before = {}, reserve = {}, context = {}) {
     return reason;
   }).sort((a, b) => b.priority - a.priority);
 }
-
 function weatherEffects(weather, season, dynamics = {}) {
   const effects = [];
   if (weather === "小雨") effects.push("小雨补水，但气味更散，猎犬追踪略难");
@@ -192,7 +181,6 @@ function weatherEffects(weather, season, dynamics = {}) {
   effects.push(season === "雨季" ? "水文调查会出现改道河汊藏品" : "调查会出现盐地、旧井和干河床藏品");
   return effects.slice(0, 3);
 }
-
 function buildReserveView(beforeReserve, reserve, context = {}) {
   const before = beforeReserve || reserve || {};
   const current = reserve || {};
@@ -228,7 +216,6 @@ function buildReserveView(beforeReserve, reserve, context = {}) {
   };
   const action = topReason.action || context.action || "houndScout";
   const fundBand = fundHealth(levelOf(current));
-
   const states = [
     {
       id: "fund",
@@ -263,7 +250,6 @@ function buildReserveView(beforeReserve, reserve, context = {}) {
       id: "grass",
       label: "草场",
       value: grass,
-      // 草场不是越高越好：70 以上代表过剩承载，动物取食、踩踏和季节会把它拉回目标区。
       status: grass >= 70 ? "偏高" : grass >= 45 ? "紧平衡" : "吃紧",
       tone: grass >= 70 ? "warn" : toneFor(grass, 66, 45),
       delta: grass - beforeGrass,
@@ -279,7 +265,6 @@ function buildReserveView(beforeReserve, reserve, context = {}) {
       ]
     }
   ];
-
   const todayImpact = {
     title: `${context.weather || "天气未知"} · ${context.season || "夏季"}`,
     effects: weatherEffects(context.weather, context.season, current.seasonDynamics || {})
@@ -307,10 +292,6 @@ function buildReserveView(beforeReserve, reserve, context = {}) {
       action: animal.action
     }
   ];
-  // Only real, actionable changes become map task points. The previous forced
-  // lake marker and generic "stable" marker produced unexplained water/signal
-  // icons even when there was nothing to handle, which looked like broken
-  // pickups. Stable information stays in the status panel and animal dialogue.
   const markerReasons = applySandboxTaskCadence(
     current,
     reasons.filter((reason) => reason.id !== "stable"),
@@ -356,6 +337,15 @@ function buildReserveView(beforeReserve, reserve, context = {}) {
     unhandled: reason.marker === "recovery" ? "继续保持，明天动物会更愿意靠近。" : `不处理：明天可能升级，${reason.body}。`,
     intensity: reason.marker === "crisis" ? 3 : reason.marker === "recovery" ? 1 : 2
   }));
+  const rareMarker = rareAnimalMapMarker(current, context);
+  if (rareMarker) {
+    mapMarkers.push(Object.assign({
+      presentation: "rare-animal",
+      dialogue: "",
+      readOnly: false,
+      responseOptions: []
+    }, rareMarker));
+  }
   const settlement = {
     statLine: buildStatLine(states, topReason),
     animalLine: `${animal.value === animalBefore.value
@@ -364,7 +354,6 @@ function buildReserveView(beforeReserve, reserve, context = {}) {
     tomorrowRiskLine: buildTomorrowRiskLine(reasons, current),
     reasons: reasons.slice(0, 4).map((reason) => ({ label: reason.label, body: reason.body, action: reason.action }))
   };
-
   return {
     version: "reserve-view-v2-core3",
     states,
@@ -381,21 +370,18 @@ function buildReserveView(beforeReserve, reserve, context = {}) {
       grass: eco.grass || 0,
       disease: eco.disease || 0,
       poacherPressure: current.poacherPressure || 0,
-      migrationDelta: (current.migration && current.migration.delta) || 0
+      migrationDelta: (current.migration && current.migration.delta) || 0,
+      rareAnimal: normalizeRareAnimalState(current)
     }
   };
 }
-
 function markerDialogueFor(reason = {}, animal = {}) {
   const action = actionLabel(reason.action);
-  // 系统状态点不能借用命名动物的身份说话。真正的动物对白只由
-  // 沙盘动物实体产生；地图事件由巡护员说明，恢复数值保持静默。
   if (reason.marker === "recovery") return "";
   if (reason.marker === "crisis") return `巡护员：${reason.label}，快${action}`;
   if (reason.marker === "event") return `巡护员：${reason.label}，建议${action}`;
   return `巡护员：${reason.label}，先查线索`;
 }
-
 function buildStatLine(states, reason) {
   const changed = states
     .filter((state) => state.id !== "animal" && state.delta)
@@ -404,7 +390,6 @@ function buildStatLine(states, reason) {
   if (!changed.length) return `数值稳定：${reason.label || "保护区保持观望"}`;
   return `${changed.map((state) => `${state.label} ${signed(state.delta)}`).join("，")}；原因：${reason.label || changed[0].reason}`;
 }
-
 function buildTomorrowRiskLine(reasons, reserve) {
   const risk = reasons.find((item) => item.marker !== "recovery") || reasons[0] || {};
   if ((reserve.migration && reserve.migration.delta) < 0) return "明日风险：迁移线继续变薄，先稳住水源和草场。";
@@ -413,7 +398,6 @@ function buildTomorrowRiskLine(reasons, reserve) {
   if (risk.marker === "recovery") return "明日机会：恢复点会吸引动物回流，可以继续听动物确认路线。";
   return `明日风险：${risk.label || "暗线仍在发酵"}，建议${actionLabel(risk.action)}。`;
 }
-
 function buildActionSystem(reserve, context = {}) {
   const poacher = reserve.poacherPressure || 0;
   const eco = reserve.ecology || {};
@@ -429,7 +413,7 @@ function buildActionSystem(reserve, context = {}) {
     : (eco.water || 0) < ECOLOGY_THRESHOLDS.lowWater || (eco.grass || 0) < ECOLOGY_THRESHOLDS.lowGrass
       ? ((supplies.fieldKit || 0) > 0 ? "用工具包修复水源和草场" : "先采购野外工具包")
       : (eco.disease || 0) >= ECOLOGY_THRESHOLDS.warningDisease
-        ? ((supplies.tranquilizer || 0) > 0 ? "执行生态干预" : "先采购麻醉弹")
+        ? ((supplies.tranquilizer || 0) > 0 ? "执行生态干预" : "先采购阻滞弹")
         : "水草稳定，可听动物寻找下一条线索";
   return {
     fund: reserve.fund || 0,
@@ -441,7 +425,6 @@ function buildActionSystem(reserve, context = {}) {
     eventLogic: "移交回收物获得基金，基金购买补给；巡护行动改变水源和草场，水草再影响动物健康与迁徙。"
   };
 }
-
 module.exports = {
   buildReserveView,
   actionLabel

@@ -90,9 +90,13 @@ if (!thought.animal || !thought.prose || !thought.actionLabel || !/执行/.test(
 if (!/线索：偷猎/.test(thought.footer)) {
   throw new Error(`animal clue should translate current threat into footer guidance, got: ${thought.footer}`);
 }
+const alarmBeforeClue = game.state.world.reserve.supplies.alarm || 0;
 thought.action();
-if (!game.patrolTaskModal || game.patrolTaskModal.id !== "antiPoacher") {
-  throw new Error("sandbox animal clue action should open recommended patrol task");
+if (game.patrolTaskModal) {
+  throw new Error("sandbox animal clue action should settle 驱赶偷猎 immediately");
+}
+if ((game.state.world.reserve.supplies.alarm || 0) >= alarmBeforeClue && !game.settlementModal) {
+  throw new Error("sandbox animal clue action should start recommended patrol settlement");
 }
 
 const state = wardenState();

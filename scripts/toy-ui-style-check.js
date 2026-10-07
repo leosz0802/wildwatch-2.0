@@ -58,7 +58,7 @@ if (badgeSource.includes("iy + 4") || badgeSource.includes('"rgba(18,61,52,.18)"
 if (source.includes("const iconR = 30") || source.includes("this.roundRect(ctx, x + 9, y + 10, 32, 32")) fail("material cards restored a second icon backing plate");
 
 const iconFiles = fs.readdirSync(iconDir).filter((file) => /\.(png|webp)$/.test(file)).sort();
-if (iconFiles.length !== 23) fail(`expected 23 active UI icons, got ${iconFiles.length}`);
+if (iconFiles.length !== 25) fail(`expected 25 active UI icons, got ${iconFiles.length}`);
 
 let totalBytes = 0;
 iconFiles.forEach((file) => {

@@ -35,6 +35,9 @@ const {
   sendFriendAidRequest,
   openFriendAidParcel,
   applyFriendAidOnSpecial,
+  settlePendingFriendAid,
+  friendAidStatus,
+  FRIEND_AID_FALLBACK_MS,
   namedAlly,
   friendAidMarkers
 } = require("../js/friendAidSystem");
@@ -164,9 +167,27 @@ assert(namedBoard.selectFriendExchangeWant(otherWant.id));
 assert.equal(namedBoard.infoDetailModal.selectedWantId, otherWant.id);
 const friendLedgers = freezeLedgers(namedBoard.state.world.reserve);
 assert(namedBoard.confirmFriendAidRequest());
-assert.equal(namedBoard.state.world.reserve.friendAid.incoming.itemId, otherWant.id, "发出的求援必须是玩家点选的缺口");
-assert.equal(namedBoard.state.world.reserve.friendAid.incoming.friendName, "林岚");
-assertLedgersUntouched(namedBoard.state.world.reserve, friendLedgers, "好友点名求援不得改写游客或动物账本");
+assert.equal(namedBoard.state.world.reserve.friendAid.request.status, "pending", "好友榜点名求援应先进入等待确认");
+assert.equal(namedBoard.state.world.reserve.friendAid.request.fallbackAt - namedBoard.state.world.reserve.friendAid.request.createdAt, FRIEND_AID_FALLBACK_MS, "好友无回应窗口必须是24小时");
+assert.equal(namedBoard.state.world.reserve.friendAid.request.wantId, otherWant.id, "发出的求援必须保留玩家点选的缺口");
+const pendingRequestId = namedBoard.state.world.reserve.friendAid.request.id;
+const originalStage = Number(namedBoard.state.world.reserve.progression.stage) || 1;
+const animalLedgerBeforeChapterSwitch = animalSourceSummary(namedBoard.state.world.reserve);
+namedBoard.state.world.reserve.progression = Object.assign({}, namedBoard.state.world.reserve.progression, { stage: 8, displayChapter: 8 });
+const crossChapterAid = friendAidStatus(namedBoard.state.world.reserve, Date.now());
+assert.equal(crossChapterAid.request.id, pendingRequestId, "好友请求必须跨章节保留同一条请求");
+assert.equal(crossChapterAid.request.status, "pending", "章节变化不能清掉等待中的好友请求");
+const crossChapterAnimals = animalSourceSummary(namedBoard.state.world.reserve);
+namedBoard.state.world.reserve.progression.stage = originalStage;
+const comparableBefore = Object.assign({}, animalLedgerBeforeChapterSwitch);
+const comparableAfter = Object.assign({}, crossChapterAnimals);
+delete comparableBefore.chapter;
+delete comparableAfter.chapter;
+assert.deepEqual(comparableAfter, comparableBefore, "跨章节保留请求不得改写动物来源账本");
+const fallbackAid = settlePendingFriendAid(namedBoard.state.world.reserve, namedBoard.friendAidAllies(), Date.now(), { forceFallback: true });
+assert(fallbackAid.ok && fallbackAid.fallback, "好友未回应时必须允许巡护员兜底");
+assert.equal(namedBoard.state.world.reserve.friendAid.incoming.itemId, otherWant.id, "兜底仍应交付玩家点选的缺口");
+assert(/阿澈/.test(namedBoard.state.world.reserve.friendAid.incoming.friendName), "兜底收件人应标明巡护员");
 
 assert.strictEqual(friendAidMarkers({ wildernessKnowledge: { tradeStock: {} } }).length, 0, "没有可交换素材时沙盘不显示求援");
 

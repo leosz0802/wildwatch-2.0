@@ -39,6 +39,31 @@ for (const type of realTypes.concat(["poacher_ring", "neighbor_animal_dispute"])
   assert(game.renderedWorldEventOverlay.features.length > 0, `${type} overlay should expose visual features`);
   assert(game.renderedWorldEventOverlay.markerStyle === "balloon"
     && game.renderedWorldEventOverlay.features.some((feature) => feature.type === "event-balloon"), `${type} must use the compact balloon task marker`);
+  assert(game.renderedWorldEventOverlay.grounded && game.renderedWorldEventOverlay.hitCoversRegion, `${type} must sit on a clearing and expose the halo as a hit`);
+  const regionHit = game.renderedWorldEventOverlay.regionHit;
+  const halo = game.renderedWorldEventOverlay.features.find((feature) => feature.type === "risk-zone")
+    || game.renderedWorldEventOverlay.features.find((feature) => feature.x != null);
+  assert(regionHit && regionHit.w >= 90 && regionHit.h >= 70, `${type} region hit must cover the halo, not just the balloon`);
+  assert(halo && regionHit.x <= halo.x && regionHit.x + regionHit.w >= halo.x && regionHit.y <= halo.y && regionHit.y + regionHit.h >= halo.y, `${type} halo must stay inside the tappable region`);
+  assert(game.mapEventBalloonHit && game.mapEventBalloonHit.w >= regionHit.w - 1 && game.mapEventBalloonHit.h >= regionHit.h - 1, `${type} map hit must use the whole region`);
+  (game.mapEventGraphicHits || []).forEach((hit) => {
+    assert(hit.w <= 180 && hit.h <= 150, `${type} task hit must stay on the mark or the balloon, not the gap between them`);
+  });
+}
+
+game.mapViewport = { x: 0, y: 0, w: 375, h: 600 };
+game.scrollY = 0;
+game.mapTaskPromptRects = [];
+world.reserve.emergency.active = Object.assign({ id: "neighbor_gap", type: "neighbor_animal_dispute" }, worldEventDefinition("neighbor_animal_dispute"), { progress: 0, target: 3, daysRemaining: 3 });
+game.drawActiveWorldEventOverlay(game.ctx, { scale: 1 }, false);
+const gapHits = game.mapEventGraphicHits || [];
+assert(gapHits.length >= 2, "邻区事件必须分别点中地面标记和气泡");
+const covers = (x, y) => gapHits.some((hit) => x >= hit.x && x <= hit.x + hit.w && y >= hit.y && y <= hit.y + hit.h);
+const mark = gapHits[0];
+const bubble = gapHits[1];
+if (Math.abs((mark.y + mark.h / 2) - (bubble.y + bubble.h / 2)) > 80) {
+  const gapY = (mark.y + mark.h + bubble.y) / 2;
+  assert(!covers(mark.x + mark.w / 2, gapY), "地面标记和气泡之间的动物不能被任务点选区盖住");
 }
 
 for (const type of ["visitor_conflict", "visitor_litter", "visitor_queue"]) {

@@ -17,25 +17,30 @@ saveState(fresh);
 let loaded = loadState();
 RESCUE_ITEM_CATALOG.forEach((item, index) => assert.strictEqual(rescueItemCount(loaded.world.reserve, item.id), index + 1));
 reconcileSpeciesPopulations(loaded.world.reserve, { removeLocked: true, initializeUnlocked: true });
-assert(!loaded.world.reserve.ecology.herbivores[target.speciesId], 'reconciliation must not auto-release captive species');
+assert.strictEqual(loaded.world.reserve.ecology.herbivores[target.speciesId], 1, 'reconciliation must keep one trapped animal and must not restore the free herd');
 assert(rescueAnimal(loaded.world.reserve, target.speciesId).ok);
 saveState(loaded);
 loaded = loadState();
 assert.strictEqual(loaded.world.reserve.chapterRescue.animals[target.speciesId].status, 'rescued');
 assert(!rescueAnimal(loaded.world.reserve, target.speciesId).ok, 'rescue must not repeat after restart');
 
-// Reproduce the older build's erroneous completed flags, then load twice.
+// Chapter 1 has one rescue target. A v1 save can still mark that animal rescued
+// without a completion time; loading must put it back in captivity. The real
+// completion above already survived its own restart.
 const broken = JSON.parse(JSON.stringify(loaded));
 broken.world.reserve.chapterRescue.version = 1;
+broken.world.reserve.chapterRescue.completedTargets = {};
 broken.world.reserve.progression.totalActions = 40;
-const otherId = broken.world.reserve.chapterRescue.captive.find((id) => id !== target.speciesId);
-broken.world.reserve.chapterRescue.animals[otherId].status = 'rescued';
-delete broken.world.reserve.chapterRescue.animals[otherId].rescuedAt;
+const otherId = target.speciesId;
+Object.values(broken.world.reserve.chapterRescue.animals).forEach((record) => {
+  if (!record || record.speciesId !== otherId) return;
+  record.status = 'rescued';
+  delete record.rescuedAt;
+});
 const inventoryBefore = JSON.stringify(broken.world.reserve.inventory);
 stored = broken;
 loaded = loadState();
 assert.strictEqual(loaded.world.reserve.chapterRescue.animals[otherId].status, 'captive');
-assert.strictEqual(loaded.world.reserve.chapterRescue.animals[target.speciesId].status, 'rescued');
 assert.strictEqual(JSON.stringify(loaded.world.reserve.inventory), inventoryBefore);
 saveState(loaded);
 assert.strictEqual(loadState().world.reserve.chapterRescue.animals[otherId].status, 'captive');
@@ -59,7 +64,7 @@ assert(!game.infoDetailModal, 'item collection cannot interrupt another task');
 game.activeTaskLock = null;
 normalizeChapterRescue(loaded.world.reserve, 1);
 game.openChapterRescueTask(otherId);
-assert.strictEqual(game.infoDetailModal.kind, 'chapterRescueTask');
+assert(['materialExploration', 'chapterRescueTask'].includes(game.infoDetailModal.kind), 'rescue must open archery or the confirm card');
 assert.strictEqual(game.activeTaskLock.animalId, otherId);
 console.log('chapter rescue restart check ok: new/legacy/v1 saves, six inventories, real completion, chapter change, task exclusion');
 
@@ -105,6 +110,10 @@ integration.settlementModal = null;
 integration.activeTaskLock = null;
 integration.openChapterRescueTask(first.speciesId);
 assert(integration.infoDetailModal.rescueReady);
+// The layout mock provides a canvas so Game can boot. Rescue confirmation in
+// this headless run must still finish, the same as a run with no canvas.
+integration.canvas = null;
+integration.ctx = null;
 integration.infoDetailModal.action();
 assert.strictEqual(integration.infoDetailModal, null, '解救确认后应直接回到沙盘');
 assert.strictEqual(integration.screen, 'home', '解救确认后应进入沙盘');

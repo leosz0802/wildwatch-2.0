@@ -69,6 +69,54 @@ async function main() {
   assert(canvas.style.top === "-9999px" && canvas.style.left === "-9999px" && canvas.style.width === "1px",
     "rank buffer resize must keep the native open-data overlay offscreen");
   assert(Object.values(message).every((value) => ["string", "number", "boolean"].includes(typeof value)), "open data messages must contain primitive values only");
+  let reentrantController = null;
+  let reentrantPosts = 0;
+  const reentrantCanvas = { width: 1, height: 1 };
+  reentrantController = new WechatFriendController({
+    getOpenDataContext() {
+      return {
+        canvas: reentrantCanvas,
+        postMessage(payload) {
+          if (payload.type === "friend_rank_show") reentrantPosts += 1;
+          // Simulate an Android open-data bridge that synchronously causes the
+          // main domain to publish the same leaderboard frame again.
+          if (payload.type === "friend_rank_show") {
+            reentrantController.setWorldLeaderboardRows([]);
+          }
+        }
+      };
+    }
+  }, { dpr: 2 });
+  let reentrantError = null;
+  try { reentrantController.refresh(300, 236); } catch (error) { reentrantError = error; }
+  assert(!reentrantError, "reentrant open-data publish must not overflow the native stack");
+  assert(reentrantPosts === 1, "identical reentrant leaderboard frames must be collapsed");
+  let androidController = null;
+  let androidPosts = 0;
+  let androidDepth = 0;
+  let androidMaxDepth = 0;
+  androidController = new WechatFriendController({
+    getSystemInfoSync() { return { platform: "android", system: "Android 14" }; },
+    getOpenDataContext() {
+      return {
+        canvas: { width: 1, height: 1 },
+        postMessage(payload) {
+          androidPosts += 1;
+          androidDepth += 1;
+          androidMaxDepth = Math.max(androidMaxDepth, androidDepth);
+          if (payload.type === "friend_rank_show" && androidPosts === 1) androidController.setWorldLeaderboardRows([]);
+          androidDepth -= 1;
+        }
+      };
+    }
+  }, { dpr: 2 });
+  androidController.refresh(300, 236);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert(androidMaxDepth === 1 && androidPosts === 2, "Android open-data messages must leave the native postMessage call frame before reentrant redraws");
+  const androidPointerPosts = androidPosts;
+  assert(androidController.pointer("start", 80, 64), "Android ranking touch should be consumed safely");
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert(androidPosts === androidPointerPosts + 1, "Android ranking touches should be forwarded asynchronously without re-entering the native bridge");
   const drawContext = { drawImage() {} };
   controller.draw(drawContext, 0, 0, 300, 420);
   assert(canvas.width === 600 && canvas.height === 840 && messages[messages.length - 1].height === 420, "a tall rank viewport should own a matching shared-canvas size");
@@ -87,6 +135,13 @@ async function main() {
   controller.parkOverlay();
   assert(canvas.width === 1 && canvas.height === 1 && canvas.style.left === "-9999px", "leaving the rank surface must shrink the native open-data overlay back to 1px");
   assert(messages[messages.length - 1].type === "friend_rank_hide", "leaving the rank surface must clear the open-data residual frame");
+  controller.refresh(300, 236);
+  assert(canvas.width > 1 && canvas.height > 1, "a later rank refresh may enlarge the parked open-data buffer");
+  controller.parkOverlay();
+  assert(canvas.width === 1 && canvas.height === 1 && canvas.style.left === "-9999px", "an oversized leftover overlay must shrink again even if already marked parked");
+  controller.pendingResize = { pixelWidth: 600, pixelHeight: 840 };
+  controller.setWorldLeaderboardRows([{ id: "cloud_self", name: "本人" }]);
+  assert(canvas.width === 1 && canvas.height === 1 && !controller.pendingResize, "cloud rank updates must not revive a parked sandbox overlay");
 
   let pendingUpload = null;
   const raceMessages = [];
@@ -103,6 +158,24 @@ async function main() {
   assert(raceController.refresh(300, 236) && raceMessages.length === beforeRace, "friend canvas must wait until hosted KV write finishes");
   pendingUpload.success({});
   assert(raceMessages[raceMessages.length - 1].type === "friend_rank_show", "friend canvas should load only after the KV write callback");
+
+  let leftoverUpload = null;
+  const leftoverMessages = [];
+  const leftoverCanvas = { width: 1, height: 1, style: {} };
+  const leftoverController = new WechatFriendController({
+    getOpenDataContext() {
+      return { canvas: leftoverCanvas, postMessage(message) { leftoverMessages.push(message); } };
+    },
+    getSetting(options) { options.success({ authSetting: {} }); },
+    setUserCloudStorage(options) { leftoverUpload = options; }
+  }, { dpr: 2, now: () => 30000 });
+  leftoverController.syncReserve(reserve, true, 64044);
+  leftoverController.refresh(300, 420);
+  leftoverController.parkOverlay();
+  leftoverUpload.success({});
+  assert(leftoverCanvas.width === 1 && leftoverCanvas.height === 1, "a parked sandbox overlay must stay 1px after a late cloud-rank callback");
+  assert(leftoverMessages[leftoverMessages.length - 1].type === "friend_rank_hide", "late KV success must not revive a friend-rank native overlay on the sandbox");
+  assert(!leftoverController.pendingOpenDataPayload, "parked overlays must drop pending rank-show payloads");
 
   const readonlyMessages = [];
   const readonlyCanvas = {};
@@ -121,8 +194,44 @@ async function main() {
   const readonlyShow = readonlyMessages.find((item) => item.type === "friend_rank_show");
   assert(readonlyShow && readonlyShow.width === 300 && readonlyShow.height === 236, "read-only shared canvas should still receive open-data layout messages");
 
+  let sizeDepth = 0;
+  let sizePosts = 0;
+  const sizeCanvas = { height: 1, style: {}, _width: 1 };
+  Object.defineProperty(sizeCanvas, "width", {
+    get() { return this._width; },
+    set(value) {
+      this._width = value;
+      sizeDepth += 1;
+      if (sizeDepth > 8) throw new Error("shared canvas resize reentered");
+      sizeController.parkOverlay();
+      sizeController.draw({ drawImage() {} }, 0, 0, 280, 200);
+      sizeDepth -= 1;
+    }
+  });
+  let sizeController = null;
+  sizeController = new WechatFriendController({
+    getSystemInfoSync() { return { platform: "devtools", system: "devtools" }; },
+    getOpenDataContext() {
+      return {
+        canvas: sizeCanvas,
+        postMessage() { sizePosts += 1; }
+      };
+    }
+  }, { dpr: 1 });
+  let sizeError = null;
+  try { sizeController.refresh(280, 200); } catch (error) { sizeError = error; }
+  assert(!sizeError, "resizing the shared canvas during a paint must not overflow the stack");
+  assert(sizeDepth === 0 && sizePosts <= 2, "a reentrant canvas resize must collapse instead of repainting forever");
+
   const friendSource = fs.readFileSync(path.join(__dirname, "../js/wechatFriendSystem.js"), "utf8");
   assert(!/getRelationFriendList|scope\.interactedUserInfo|scope\.WxFriendInteraction/.test(friendSource), "friend ranking must not request the separate interacted-user friend-list permission");
+  assert(friendSource.includes("isSharedCanvasOversized"), "parked leftover open-data canvases must still be shrinkable");
+  assert(friendSource.includes("pendingOpenDataPayload = null"), "parking must drop a pending rank-show left by cloud upload");
+  assert(/queuedOpenDataMessage = null/.test(openDataSource), "hiding friend rank must drop a queued show that would redraw over the sandbox");
+  const gameSource = fs.readFileSync(path.join(__dirname, "../js/game.js"), "utf8");
+  assert(gameSource.includes("isSharedCanvasOversized"), "home idle park must shrink an oversized leftover open-data overlay");
+  assert(gameSource.includes("friends.surfaceMode === \"rank\""), "world ranking must shrink a leftover friend-rank native overlay");
+  assert(gameSource.includes("houndPatrolPrimary"), "world friend detail must register the hound patrol button as a primary hit");
   assert(changes > 0, "authorization state changes should notify the UI");
   console.log("wechat friend authorize check ok");
 }

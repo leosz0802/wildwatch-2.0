@@ -2,6 +2,7 @@ const assert = require('assert');
 const { Game } = require('../js/game');
 const { createCharacter, saveState, loadState } = require('../js/storage');
 const { applyGoalProgress, normalizeGoalState } = require('../js/goalSystem');
+const { normalizeChapterRescue } = require('../js/chapterRescueSystem');
 const storage = new Map();
 global.wx = {
   getStorageSync: key => storage.get(key),
@@ -11,6 +12,8 @@ function makeGame() {
   const g = Object.create(Game.prototype);
   g.state = createCharacter(null, '每日事项测试');
   g.state.world.reserve.progression.stage = 2;
+  g.state.world.reserve.progression.displayChapter = 2;
+  normalizeChapterRescue(g.state.world.reserve, 2, { fresh: true });
   g.state.world.goals = normalizeGoalState(g.state.world.goals, g.state);
   g.render = g.toast = () => {};
   g.ensureDailyReserveReport = g.ensureDailyFriendLetters = () => {};
@@ -25,7 +28,8 @@ const camera = { x: 0, y: 0, w: 375, h: 600 };
 const plan = { aggregateVisible: false, hidden: [] };
 const g = makeGame();
 g.drawSandboxOpportunityAggregate({}, camera, plan);
-assert.equal(g.renderedMapOpportunityAggregate.mode, 'dailyEvents', '每日记录已移出主任务卡，应保留独立清单入口');
+assert.equal(g.renderedMapOpportunityAggregate.mode, 'rescue', '待解救动物存在时主入口必须优先解救，避免误弹每日任务');
+assert.match(g.renderedMapOpportunityAggregate.label, /^解救/, '待解救入口文案必须明确指向动物');
 assert(g.openDailyEvents(), '今日每日仍可从任务入口打开清单');
 assert.equal(g.infoDetailModal.kind, 'dailyEvents');
 assert.equal(g.infoDetailModal.checklist.total, 2, '每日任务只展示游客和水草两项');
@@ -44,7 +48,7 @@ assert.equal(g.dailyEventChecklist().remaining, 0);
 assert(g.state.world.goals.daily.fullClaimed, '全部每日任务应领取额外奖励');
   assert((g.state.world.reserve.lastTaskReward || {}).fund >= 16, '两项任务奖励应累计进入保护基金');
 g.drawSandboxOpportunityAggregate({}, camera, plan);
-assert.equal(g.renderedMapOpportunityAggregate.mode, 'clues');
+assert.equal(g.renderedMapOpportunityAggregate.mode, 'rescue');
 const pendingChapterRescue = g.chapterRescueState().targets.find(target => target.status !== 'rescued');
 assert(pendingChapterRescue
   ? g.renderedMapOpportunityAggregate.label.includes(`解救${pendingChapterRescue.speciesName}`)
@@ -82,7 +86,7 @@ assert.equal(g.dailyEventChecklist().remaining, 2, '下一自然日恢复两项�
   mail.drawMapVisitorCountChip({}, camera);
   assert(!mail.renderedMapVisitorCountChip.visible, '未读邮件仍在也不能超过5秒常驻');
   mail.drawSandboxOpportunityAggregate({}, camera, plan);
-  assert.equal(mail.renderedMapOpportunityAggregate.mode, 'dailyEvents');
+  assert.equal(mail.renderedMapOpportunityAggregate.mode, 'rescue');
 
   // 邮箱满50封，加入一封且总数不变也要提醒。
   reserve.development.operations.letters = Array.from({ length: 50 }, (_, i) => ({ id: `v${i}`, day: i + 1, title: '游客来信', body: '记录', readAt: 0 }));
@@ -121,7 +125,7 @@ assert.equal(g.dailyEventChecklist().remaining, 2, '下一自然日恢复两项�
   mail.dailyEventChecklist();
   mail.state.world.goals.daily.objectives.forEach(item => { item.progress = item.target; item.complete = true; });
   mail.drawSandboxOpportunityAggregate({}, camera, plan);
-  assert.equal(mail.renderedMapOpportunityAggregate.mode, 'clues', '已完成每日事项后，邮件过期应恢复更多线索');
+  assert.equal(mail.renderedMapOpportunityAggregate.mode, 'rescue', '已完成每日事项后，邮件过期应恢复待解救入口');
 
   storage.clear();
   const animal = makeGame();
@@ -140,7 +144,7 @@ assert.equal(g.dailyEventChecklist().remaining, 2, '下一自然日恢复两项�
   const primary = chapter1.currentGoalView().primary || {};
   assert(!chapter1.isTodaysDailyGoal(primary), '每日记录不得再占用第一章当前任务卡');
   chapter1.drawSandboxOpportunityAggregate({}, camera, plan);
-  assert.equal(chapter1.renderedMapOpportunityAggregate.mode, 'dailyEvents', '第一章每日记录应保留独立清单入口');
+  assert.equal(chapter1.renderedMapOpportunityAggregate.mode, 'rescue', '第一章有待解救动物时入口应优先解救');
   const seenKey = chapter1.missionPushKey();
   chapter1.markMissionPushSeen(seenKey);
   const beforeRecruit = JSON.parse(JSON.stringify(chapter1.state));

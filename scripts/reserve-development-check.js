@@ -43,12 +43,31 @@ const {
   selectRiverShallowsPlan,
   buildRiverShallowsPlan,
   completeRiverShallowsConstruction,
-  settleReserveDevelopmentDay
+  settleReserveDevelopmentDay,
+  livingReserveStoryReward,
+  developmentVisitorScale,
+  developmentVisitorCapacityScale,
+  capLateChapterStoryVisitors
 } = require("../js/reserveDevelopment");
 const { Game } = require("../js/game");
+const { livingAnimalTotal } = require("../js/chapterRescueSystem");
+const { chapterVisitorTotal } = require("../js/chapterTargets");
+const { BUILDING_MAX_LEVEL, buildingLevelChapter, upgradeProgressionGate } = require("../js/progressionGates");
 
 const reserve = createReserveState();
 const initialFund = reserve.fund;
+const temporarySupplyCosts = Object.fromEntries(
+  Object.values(RESERVE_DEVELOPMENT_CHOICES)
+    .flat()
+    .filter((choice) => choice.kind === "temporary")
+    .map((choice) => [choice.id, Object.keys((choice.cost || {}).supplies || {})[0]])
+);
+assert.deepStrictEqual(temporarySupplyCosts, {
+  night_water_patrol: "fieldKit",
+  meadow_field_patrol: "fieldKit",
+  border_night_watch: "alarm",
+  forest_listening_patrol: "evidenceTrap"
+}, "临时经营行动应按场景分摊工具包、警报器和诱迹机关消耗");
 const available = riverShallowsView(reserve, 1);
 assert.strictEqual(available.phase, "available", "新保护区应显示可选择的河岸浅滩节点");
 assert.strictEqual(available.availability.length, 4, "浅滩首版应提供动物、游客、经济与非建设四种选择");
@@ -74,6 +93,30 @@ assert(firstSettlement.grossIncome > firstSettlement.income && firstSettlement.u
 assert.strictEqual(reserve.fund, fundBeforeSettlement + firstSettlement.income, "游客收入应进入保护基金");
 assert.strictEqual(settleReserveDevelopmentDay(reserve, 2), null, "同一保护区日不得重复结算游客收入");
 assert.strictEqual(reserve.development.nodes.river_shallows.visitorLedger.totalVisitors, firstSettlement.visitors, "游客人数应写入累计账本");
+assert.strictEqual(operating.attendanceReason, "鹿在饮水", "水源够时步道按满额接待");
+assert.strictEqual(operating.attendanceReduced, false);
+assert.strictEqual(firstSettlement.facilityAttendance[0].reason, "鹿在饮水");
+assert.strictEqual(reserve.development.operations.visitorLedger.facilityVisitors, firstSettlement.visitors, "步道到访仍记入本章到访");
+
+const quietReserve = createReserveState();
+const animalsBeforeQuiet = livingAnimalTotal(quietReserve);
+assert(buildRiverShallowsPlan(quietReserve, "visitor_boardwalk", 1).ok);
+quietReserve.ecology.water = 30;
+const quietView = riverShallowsView(quietReserve, 2);
+const fullView = riverShallowsView(reserve, 2);
+assert.strictEqual(quietView.attendanceReason, "鹿离开了浅滩");
+assert.strictEqual(quietView.attendanceReduced, true);
+assert(quietView.visitors < fullView.visitors, "鹿离开后当晚到访减少");
+assert(quietView.visitors >= Math.floor(fullView.visitors / 2) - 1, "减少幅度是减半，不是清空");
+const quietAnimals = livingAnimalTotal(quietReserve);
+const quietFund = quietReserve.fund;
+const quietChapter = chapterVisitorTotal(quietReserve);
+const quietSettlement = settleReserveDevelopmentDay(quietReserve, 2);
+assert.strictEqual(livingAnimalTotal(quietReserve), quietAnimals, "到访减半不得改动物数量");
+assert.strictEqual(livingAnimalTotal(quietReserve), animalsBeforeQuiet, "建设游客步道不得改动物数量");
+assert.strictEqual(quietReserve.fund, quietFund + quietSettlement.income, "减半后基金仍只加上当晚净收入");
+assert.strictEqual(chapterVisitorTotal(quietReserve), quietChapter + quietSettlement.visitors, "减半后的人数仍整笔记入本章游客");
+assert.strictEqual(quietSettlement.byNode[0].upkeep, firstSettlement.byNode[0].upkeep, "动物离开后维护照扣");
 
 const restored = normalizeReserve(JSON.parse(JSON.stringify(reserve)), createReserveState());
 const restoredView = riverShallowsView(restored, 2);
@@ -188,7 +231,9 @@ assert(game.openRiverShallowsChoiceConfirm("community_waterpoint"), "点击建�
 assert.strictEqual(game.infoDetailModal.kind, "livingReserveChoiceConfirm", "建设详情必须使用独立确认层");
 game.hitAreas = [];
 game.drawInfoDetailModal();
-assert.strictEqual(game.infoDetailModal.renderedChoiceConfirmRows.length, 5, "二次确认应解释方式、等级条件、变化、长期影响和资源");
+assert.strictEqual(game.infoDetailModal.renderedChoiceConfirmRows.length, 3, "二次确认只保留立即变化、等级条件和需要资源");
+assert.deepStrictEqual(game.infoDetailModal.renderedChoiceConfirmRows.map((row) => row.label), ["立即变化", "等级条件", "需要资源"], "建设方式和长期影响说明已从确认页移除");
+assert.strictEqual(game.infoDetailModal.footer || "", "", "确认页不再显示返回不扣资源");
 assert(game.infoDetailModal.renderedChoiceConfirmRows.every((row) => row.text.length <= 44), "二次确认文案应保持精简，避免长段落挤压卡片");
 assert.strictEqual(uiBuildReserve.fund, uiBuildFund, "阅读二次确认详情仍不得扣费");
 game.confirmRiverShallowsPlan("community_waterpoint");
@@ -343,6 +388,22 @@ buildingReserve.development.operations.today.tourismScore = 12;
 buildingReserve.fund = 1000;
 const secondUpgrade = require("../js/reserveDevelopment").upgradeDevelopmentBuilding(buildingReserve, "river_shallows", 1);
 assert(secondUpgrade.ok && secondUpgrade.node.buildingLevel === 2, "达到两项等级后才能进入下一阶升级");
+assert.strictEqual(BUILDING_MAX_LEVEL, 9, "游客建筑最高仍是9级");
+assert.strictEqual(buildingLevelChapter(5), 5, "1–5级仍按第1–5章解锁");
+assert.strictEqual(buildingLevelChapter(6), 7, "6级应放到第7章");
+assert.strictEqual(buildingLevelChapter(7), 9, "7级应放到第9章");
+assert.strictEqual(buildingLevelChapter(8), 10, "8级应放到第10章");
+assert.strictEqual(buildingLevelChapter(9), 11, "9级应放到第11章");
+const blockedLate = upgradeProgressionGate({
+  progression: { stage: 6, displayChapter: 6, level: 6 },
+  development: { operations: { today: { tourismScore: 43 } } }
+}, 6);
+assert(!blockedLate.available && blockedLate.chapterRequired === 7, "第6章即使游客评分满档也不能升到6级");
+const readyLate = upgradeProgressionGate({
+  progression: { stage: 7, displayChapter: 7, level: 7 },
+  development: { operations: { today: { tourismScore: 32 } } }
+}, 6);
+assert(readyLate.available && readyLate.chapterRequired === 7, "第7章且游客等级达标后应能升到6级");
 assert(secondUpgrade.changes.some((item) => item.key === "water" && item.delta > 0), "经营路线升级应放大对栖息地的影响");
 const visitorReserve = createReserveState();
 const animalReserve = createReserveState();
@@ -364,6 +425,20 @@ assert(storyDone.businessChange.fundDelta > 0 && storyDone.businessChange.operat
 assert.strictEqual(buildingReserve.development.operations.today.visitors, storyDone.businessChange.visitors, "建筑运营游客应即时进入今日到访");
 assert.strictEqual(buildingReserve.development.operations.today.recruitedVisitors, 0, "建筑运营不得记成主动招募");
 assert.strictEqual(buildingReserve.development.operations.visitorLedger.taskVisitors, storyDone.businessChange.visitors, "建筑运营应记入本章任务游客");
+assert.equal(storyDone.businessChange.route, "economy", "社区共管水点运营应按经营站位结算");
+assert.match(storyDone.businessChange.memory, /经营收入/, "经营站位运营记录不得再写成游客体验");
+
+const animalStoryReserve = createReserveState();
+animalStoryReserve.wildernessKnowledge = animalStoryReserve.wildernessKnowledge || {};
+animalStoryReserve.wildernessKnowledge.tradeStock = Object.assign({}, animalStoryReserve.wildernessKnowledge.tradeStock || {}, { reed_cord: 1, pinecone_humidity: 1 });
+assert(buildReserveDevelopmentPlan(animalStoryReserve, "river_shallows", "reed_refuge", 1).ok, "动物站位运营测试应先建成芦苇庇护区");
+const waterBeforeStory = animalStoryReserve.ecology.water;
+const animalStoryDone = require("../js/reserveDevelopment").completeDevelopmentBuildingStory(animalStoryReserve, "river_shallows", 1);
+assert(animalStoryDone.ok && animalStoryDone.businessChange.route === "animal", "芦苇庇护区运营必须按动物站位结算");
+assert.equal(animalStoryDone.businessChange.ecologyLabel, "水源");
+assert.ok(animalStoryDone.businessChange.ecologyDelta > 0, "动物站位运营应改善对应栖息指标");
+assert.equal(animalStoryReserve.ecology.water, waterBeforeStory + animalStoryDone.businessChange.ecologyDelta, "动物站位运营必须把栖息变化写入现场数据");
+assert.match(animalStoryDone.businessChange.memory, /水源改善|动物更愿停留/, "动物站位运营记录必须对应动物与栖息");
 const buildingSnap = require("../js/reserveDevelopment").reserveOperationsSnapshot(buildingReserve, 2);
 assert(buildingSnap.buildingVisitors > 0 && buildingSnap.buildingIncome > 0 && buildingSnap.buildingMaintenance > 0, "建筑经营应同时暴露游客增量、收入和维护消耗");
 game.state.world.reserve = buildingReserve;
@@ -371,15 +446,75 @@ game.openDevelopmentBuildingStory("river_shallows");
 assert.strictEqual(game.infoDetailModal.kind, "developmentBuildingStory", "建筑剧情必须使用独立弹窗");
 game.hitAreas = [];
 game.drawInfoDetailModal();
-assert(game.infoDetailModal.renderedBuildingRows.length === 2, "建筑运营弹窗应只保留运营内容和游客收益两张卡");
-assert(game.infoDetailModal.renderedBuildingRows.some(row => /游客/.test(row.text)) && game.infoDetailModal.renderedBuildingRows.some(row => /可运营|恢复|守护日/.test(row.text)), "建筑运营必须清楚说明游客收益和可执行状态");
+assert(game.infoDetailModal.renderedBuildingRows.length === 2, "建筑运营弹窗应只保留运营内容和站位收益两张卡");
+assert(game.infoDetailModal.renderedBuildingRows.some(row => /经营收入|协作到访|基金/.test(row.text)) && game.infoDetailModal.renderedBuildingRows.some(row => /可运营|恢复|守护日/.test(row.text)), "经营友好建筑运营必须清楚说明经营收益和可执行状态");
 assert(game.infoDetailModal.kicker.includes("调节水线") && game.infoDetailModal.task.taskMode === "facilityOperation", "建筑弹窗应显示专属运营方式，不得回落到巡护任务模板");
+const operationFooterHits = game.hitAreas.filter((hit) => hit.hud && !game.isFullScreenBackdropHit(hit) && hit.y > game.height * .7 && hit.w > 100);
+assert(operationFooterHits.length >= 2, "建筑运营弹窗必须保留底部两个可点击按钮");
+assert(operationFooterHits.every((hit) => typeof hit.onTap === "function"), "建筑运营弹窗底部两个按钮必须注册点击回调");
+operationFooterHits.slice().sort((a, b) => a.x - b.x).forEach((hit) => {
+  assert.strictEqual(game.hitAreaAt(hit.x + hit.w / 2, hit.y + Math.min(hit.h - 1, 18)), hit,
+    "建筑运营底部按钮的实际触摸坐标必须命中自身");
+});
+operationFooterHits.slice().sort((a, b) => a.x - b.x)[0].onTap();
+assert.strictEqual(game.infoDetailModal, null, "建筑运营弹窗的稍后处理按钮必须可关闭");
+assert(game.openMaterialExploration(), "整理线索弹窗应能打开");
+game.hitAreas = [];
+game.drawInfoDetailModal();
+const explorationFooterHits = game.hitAreas.filter((hit) => hit.hud && !game.isFullScreenBackdropHit(hit) && hit.y > game.height * .7 && hit.w > 100);
+assert(explorationFooterHits.length >= 2, "整理线索弹窗必须保留底部两个可点击按钮");
+assert(explorationFooterHits.every((hit) => typeof hit.onTap === "function"), "整理线索弹窗底部两个按钮必须注册点击回调");
+explorationFooterHits.slice().sort((a, b) => a.x - b.x).forEach((hit) => {
+  assert.strictEqual(game.hitAreaAt(hit.x + hit.w / 2, hit.y + Math.min(hit.h - 1, 18)), hit,
+    "整理线索底部按钮的实际触摸坐标必须命中自身");
+});
+explorationFooterHits.slice().sort((a, b) => a.x - b.x)[0].onTap();
+assert.strictEqual(game.infoDetailModal, null, "整理线索弹窗的关闭按钮必须可点击");
+game.state.world.reserve = personalReserve;
+game.openDevelopmentBuildingStory("border_pass");
+game.hitAreas = [];
+game.drawInfoDetailModal();
+assert(game.hitAreas.some((hit) => hit.hud && !hit.modalAction && hit.w <= 72 && hit.h <= 72), "边界通行弹窗应显示可关闭的右上角按钮");
+const borderFooterHits = game.hitAreas.filter((hit) => hit.modalAction && hit.y > game.height * .7 && hit.w > 100);
+assert(borderFooterHits.length >= 2, "边界通行弹窗必须保留两个底部操作按钮");
+assert(borderFooterHits.every((hit) => game.hitAreaAt(hit.x + hit.w / 2, hit.y + hit.h / 2) === hit), "边界通行按钮必须优先命中自身");
+borderFooterHits.slice().sort((a, b) => a.x - b.x)[0].onTap();
+assert.strictEqual(game.infoDetailModal, null, "边界通行的稍后处理按钮必须可点击");
 game.openDevelopmentBuildingUpgrade("river_shallows");
 assert.strictEqual(game.infoDetailModal.kind, "developmentBuildingUpgrade", "建筑升级必须使用独立弹窗");
 
 const facilityOperations = RESERVE_DEVELOPMENT_NODES.map((config) => require("../js/reserveDevelopment").developmentBuildingStoryTask(buildingReserve, config.id, 1));
 assert.strictEqual(new Set(facilityOperations.map((task) => task.operation)).size, 4, "四个建筑必须拥有四种不同的运营任务");
 assert(facilityOperations.every((task) => task.taskMode === "facilityOperation" && !/巡护|守护/.test(task.operation)), "建筑运营任务不得复用巡护或守护流程");
+
+assert.equal(developmentVisitorScale(9), 2.76, "第9章游客倍率不再按章节线性放大");
+assert.ok(developmentVisitorScale(10) < 10, "第10章起游客倍率必须低于线性章节倍数");
+assert.ok(developmentVisitorScale(14) < 6, "第14章游客倍率不得再按14倍放大");
+assert.ok(developmentVisitorCapacityScale(14) < developmentVisitorScale(14), "每日接待容量要比单次运营压得更低");
+assert.equal(capLateChapterStoryVisitors(294, 9), 294, "第9章运营游客不得被后期封顶误伤");
+assert.ok(capLateChapterStoryVisitors(294, 14) <= 96, "第14章单次运营游客必须封在本章目标的5%以内");
+
+function waterlineReward(chapter, level = 8) {
+  const reserve = createReserveState();
+  reserve.progression = Object.assign({}, reserve.progression, { stage: chapter, displayChapter: chapter });
+  return livingReserveStoryReward({ level }, "visitor", "river_shallows", reserve);
+}
+const earlyWaterline = waterlineReward(4, 3);
+const chapterNine = waterlineReward(9, 8);
+const chapterTen = waterlineReward(10, 8);
+const chapterFourteen = waterlineReward(14, 8);
+assert.ok(earlyWaterline.visitors < 40, "前中期调节水线应保持小额游客");
+assert.equal(chapterNine.visitors, 22, "第9章8级调节水线改为低倍率游客");
+assert.ok(chapterTen.visitors < 40, "第10章调节水线必须明显低于线性放大");
+assert.ok(chapterFourteen.visitors <= 40, "第14章调节水线不得再给294游客");
+assert.ok(chapterFourteen.visitors < 40 && chapterNine.visitors < 40, "中后期单次运营游客都应压在低倍率");
+
+const lateCapacity = createReserveState();
+lateCapacity.progression = { stage: 14, displayChapter: 14, level: 7 };
+assert(buildReserveDevelopmentPlan(lateCapacity, "river_shallows", "visitor_boardwalk", 1).ok);
+lateCapacity.development.nodes.river_shallows.buildingLevel = 8;
+const lateBuilding = require("../js/reserveDevelopment").developmentBuildingView(lateCapacity, "river_shallows", 1);
+assert.ok(lateBuilding.visitorCapacity < 8 * 5 * 1.65 * 14 * 0.35, "第14章每日接待容量必须从线性章节倍数里压下来");
 
 delete global.wx;
 console.log(`reserve development check ok (${RESERVE_DEVELOPMENT_NODES.length} living nodes, visitors, ledger, animal routes, responsive modal)`);

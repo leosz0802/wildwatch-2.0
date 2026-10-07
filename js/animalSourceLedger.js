@@ -1,7 +1,4 @@
-// Chapter animal totals are cross-chapter stock. This ledger records this
-// chapter's flows only. Retention is derived and must never be added back.
 const { SPECIES_DB, speciesPopulationGroup } = require("./animalWorld");
-
 const INFLOW_ALIASES = Object.freeze({
   rescued: "rescued",
   immigrated: "immigrated",
@@ -11,11 +8,14 @@ const INFLOW_ALIASES = Object.freeze({
   comforted: "comforted",
   advertised: "advertised",
   shared: "shared",
-  tasked: "tasked"
+  tasked: "tasked",
+  rareAuction: "rareAuction"
 });
 const OUTFLOW_ALIASES = Object.freeze({
   emigrated: "emigrated",
-  died: "died"
+  died: "died",
+  rareMigrated: "rareMigrated",
+  rareStolen: "rareStolen"
 });
 const OUTFLOW_FOR_SOURCE = Object.freeze({
   returned: "emigrated",
@@ -23,18 +23,116 @@ const OUTFLOW_FOR_SOURCE = Object.freeze({
   emigrated: "emigrated",
   died: "died"
 });
-const INFLOW_KEYS = ["immigrated", "rescued", "breeding", "comforted", "advertised", "shared", "tasked"];
+const INFLOW_KEYS = ["immigrated", "rescued", "breeding", "comforted", "advertised", "shared", "tasked", "rareAuction"];
+const OUTFLOW_KEYS = ["emigrated", "died", "rareMigrated", "rareStolen"];
 const EARLY_CHAPTER_BREEDING_CAP = 3;
-
 function chapterKey(reserve = {}) {
-  return Math.max(1, Number((reserve.progression || {}).stage) || 1);
+  const progression = reserve.progression || {};
+  return Math.max(1, Math.round(Number(progression.displayChapter || progression.stage || 1)));
 }
-
+function addLivingAnimals(reserve, amount, source = "tasked") {
+  const wanted = Math.max(0, Math.round(Number(amount) || 0));
+  const before = livingStock(reserve);
+  if (!wanted || !reserve) return { added: 0, before, after: before, speciesId: "" };
+  const { chapterCaptiveSpeciesSet } = require("./chapterRescueSystem");
+  const { getChapterSandboxSpecies } = require("./animalWorld");
+  const ecology = reserve.ecology || (reserve.ecology = {});
+  ["predators", "herbivores", "birds"].forEach((group) => { ecology[group] = ecology[group] || {}; });
+  const chapter = chapterKey(reserve);
+  const captive = chapterCaptiveSpeciesSet(reserve);
+  const ids = new Set();
+  getChapterSandboxSpecies(chapter).forEach((species) => {
+    const id = species && species.id ? species.id : species;
+    if (id) ids.add(id);
+  });
+  Object.keys(SPECIES_DB).forEach((id) => {
+    const species = SPECIES_DB[id] || {};
+    if (species.unlockChapter && species.unlockChapter > chapter) return;
+    ids.add(id);
+  });
+  const candidates = [];
+  ids.forEach((id) => {
+    if (!id || captive.has(id)) return;
+    const group = speciesPopulationGroup(id);
+    const current = Math.max(0, Math.round(Number((ecology[group] || {})[id]) || 0));
+    const maxPop = Math.max(1, Math.round(Number((SPECIES_DB[id] || {}).maxPop) || 999));
+    candidates.push({ id, group, current, maxPop });
+  });
+  const living = candidates.filter((item) => item.current > 0)
+    .sort((a, b) => (b.current - a.current) || a.id.localeCompare(b.id));
+  const withRoom = living.filter((item) => item.current < item.maxPop);
+  let targets = withRoom.length ? withRoom : living;
+  if (!targets.length) {
+    targets = candidates.sort((a, b) => a.id.localeCompare(b.id));
+  }
+  if (!targets.length) return { added: 0, before, after: before, speciesId: "", reason: "no_candidates" };
+  let added = 0;
+  let left = wanted;
+  targets.forEach((target) => {
+    if (left <= 0) return;
+    const room = Math.max(0, target.maxPop - target.current);
+    const take = room ? Math.min(left, room) : 0;
+    if (!take) return;
+    ecology[target.group][target.id] = target.current + take;
+    target.current += take;
+    added += take;
+    left -= take;
+  });
+  if (left > 0) {
+    const overflow = living[0] || targets[0];
+    ecology[overflow.group][overflow.id] = overflow.current + left;
+    overflow.current += left;
+    added += left;
+    left = 0;
+  }
+  if (added > 0) recordIncrease(reserve, source, added);
+  return {
+    added,
+    before,
+    after: livingStock(reserve),
+    speciesId: (living[0] || targets[0]).id
+  };
+}
+function removeLivingAnimals(reserve, amount, source = "emigrated", options = {}) {
+  const wanted = Math.max(0, Math.round(Number(amount) || 0));
+  const before = livingStock(reserve);
+  const floor = Math.max(0, Math.round(Number(options.floor) || 0));
+  const take = Math.min(wanted, Math.max(0, before - floor));
+  if (!take || !reserve) return { removed: 0, before, after: before, speciesId: "" };
+  const { chapterCaptiveSpeciesSet } = require("./chapterRescueSystem");
+  const ecology = reserve.ecology || (reserve.ecology = {});
+  ["predators", "herbivores", "birds"].forEach((group) => { ecology[group] = ecology[group] || {}; });
+  const living = [];
+  const captive = chapterCaptiveSpeciesSet(reserve);
+  ["herbivores", "predators", "birds"].forEach((group) => {
+    Object.keys(ecology[group] || {}).forEach((id) => {
+      if (captive.has(id)) return;
+      const current = Math.max(0, Math.round(Number(ecology[group][id]) || 0));
+      if (current > 0) living.push({ id, group, current });
+    });
+  });
+  living.sort((a, b) => (b.current - a.current) || a.id.localeCompare(b.id));
+  let left = take;
+  living.forEach((item) => {
+    if (left <= 0) return;
+    const cut = Math.min(item.current, left);
+    ecology[item.group][item.id] = item.current - cut;
+    item.current -= cut;
+    left -= cut;
+  });
+  const removed = take - left;
+  if (removed > 0) recordDecrease(reserve, source, removed);
+  return {
+    removed,
+    before,
+    after: livingStock(reserve),
+    speciesId: (living[0] || {}).id || ""
+  };
+}
 function populationSnapshot(reserve = {}) {
   const ecology = reserve.ecology || {};
   return Object.assign({}, ecology.herbivores, ecology.predators, ecology.birds);
 }
-
 function livingStock(reserve = {}) {
   try {
     return Math.max(0, Math.round(Number(require("./chapterRescueSystem").livingAnimalTotal(reserve)) || 0));
@@ -43,12 +141,10 @@ function livingStock(reserve = {}) {
     return Object.keys(snap).reduce((sum, id) => sum + Math.max(0, Math.round(Number(snap[id]) || 0)), 0);
   }
 }
-
 function currentLedgerDay(reserve = {}) {
   const cycle = reserve.guardianCycle || {};
   return Math.max(1, Math.round(Number(cycle.day || reserve.seasonDay || 1)));
 }
-
 function emptyTotals() {
   return {
     opening: 0,
@@ -59,8 +155,11 @@ function emptyTotals() {
     advertised: 0,
     shared: 0,
     tasked: 0,
+    rareAuction: 0,
     emigrated: 0,
     died: 0,
+    rareMigrated: 0,
+    rareStolen: 0,
     species: {},
     birthQuotaDay: 0,
     birthQuota: {},
@@ -68,18 +167,15 @@ function emptyTotals() {
     openingSet: false
   };
 }
-
 function numberOf(value) {
   return Math.max(0, Math.round(Number(value) || 0));
 }
-
 function ledgerRoot(reserve = {}) {
   const ledger = reserve.animalSourceLedger || (reserve.animalSourceLedger = { version: 2, chapters: {} });
   ledger.version = 2;
   ledger.chapters = ledger.chapters || {};
   return ledger;
 }
-
 function migrateChapter(entry, reserve) {
   if (!entry || typeof entry !== "object") return emptyTotals();
   if (numberOf(entry.returned) && !numberOf(entry.immigrated)) entry.immigrated = numberOf(entry.returned);
@@ -88,12 +184,12 @@ function migrateChapter(entry, reserve) {
   entry.birthQuota = entry.birthQuota && typeof entry.birthQuota === "object" ? entry.birthQuota : {};
   entry.birthQuotaTotal = numberOf(entry.birthQuotaTotal);
   entry.birthQuotaDay = numberOf(entry.birthQuotaDay);
-  INFLOW_KEYS.concat(["opening", "emigrated", "died"]).forEach((key) => {
+  INFLOW_KEYS.concat(["opening"], OUTFLOW_KEYS).forEach((key) => {
     entry[key] = numberOf(entry[key]);
   });
   if (!entry.openingSet) {
     const inflows = INFLOW_KEYS.reduce((sum, key) => sum + numberOf(entry[key]), 0);
-    const outflows = numberOf(entry.emigrated) + numberOf(entry.died);
+    const outflows = OUTFLOW_KEYS.reduce((sum, key) => sum + numberOf(entry[key]), 0);
     if (inflows || outflows) {
       entry.opening = Math.max(0, livingStock(reserve) - inflows + outflows);
       entry.openingSet = true;
@@ -101,14 +197,12 @@ function migrateChapter(entry, reserve) {
   }
   return entry;
 }
-
 function chapterEntry(reserve = {}) {
   const chapter = chapterKey(reserve);
   const ledger = ledgerRoot(reserve);
   const current = ledger.chapters[chapter] || (ledger.chapters[chapter] = emptyTotals());
   return migrateChapter(current, reserve);
 }
-
 function snapshotOpeningIfNeeded(reserve, pendingDelta = 0) {
   const entry = chapterEntry(reserve);
   if (entry.openingSet) return entry;
@@ -116,13 +210,20 @@ function snapshotOpeningIfNeeded(reserve, pendingDelta = 0) {
   entry.openingSet = true;
   return entry;
 }
-
+function beginChapterSourceLedger(reserve = {}, stage) {
+  const chapter = Math.max(1, Math.round(Number(stage) || chapterKey(reserve)));
+  const ledger = ledgerRoot(reserve);
+  const entry = emptyTotals();
+  entry.opening = livingStock(reserve);
+  entry.openingSet = true;
+  ledger.chapters[chapter] = entry;
+  return entry;
+}
 function addSpeciesBreeding(entry, speciesId, amount) {
   if (!speciesId || !amount) return;
   const row = entry.species[speciesId] || (entry.species[speciesId] = { breeding: 0 });
   row.breeding = numberOf(row.breeding) + amount;
 }
-
 function recordIncrease(reserve, source, count, options = {}) {
   const key = INFLOW_ALIASES[source];
   if (!key) throw new Error("Unknown animal source");
@@ -131,9 +232,12 @@ function recordIncrease(reserve, source, count, options = {}) {
   const entry = snapshotOpeningIfNeeded(reserve, amount);
   entry[key] = numberOf(entry[key]) + amount;
   if (key === "breeding") addSpeciesBreeding(entry, options.speciesId, amount);
+  if (key === "rareAuction" && options.speciesId) {
+    const row = entry.species[options.speciesId] || (entry.species[options.speciesId] = {});
+    row.rareAuction = numberOf(row.rareAuction) + amount;
+  }
   return amount;
 }
-
 function recordDecrease(reserve, source, count, options = {}) {
   const key = OUTFLOW_ALIASES[source] || OUTFLOW_ALIASES[OUTFLOW_FOR_SOURCE[source]];
   if (!key) throw new Error("Unknown animal source");
@@ -147,24 +251,16 @@ function recordDecrease(reserve, source, count, options = {}) {
   }
   return amount;
 }
-
 function trackPopulationChange(reserve, source, action) {
   snapshotOpeningIfNeeded(reserve, 0);
-  const before = populationSnapshot(reserve);
+  const before = livingStock(reserve);
   const result = action();
-  const after = populationSnapshot(reserve);
-  let increase = 0;
-  let decrease = 0;
-  Object.keys(Object.assign({}, before, after)).forEach((id) => {
-    const delta = Math.round(Number(after[id]) || 0) - Math.round(Number(before[id]) || 0);
-    if (delta > 0) increase += delta;
-    else if (delta < 0) decrease += -delta;
-  });
-  if (increase) recordIncrease(reserve, source, increase);
-  if (decrease) recordDecrease(reserve, OUTFLOW_FOR_SOURCE[source] || "emigrated", decrease);
+  const after = livingStock(reserve);
+  const delta = after - before;
+  if (delta > 0) recordIncrease(reserve, source, delta);
+  if (delta < 0) recordDecrease(reserve, OUTFLOW_FOR_SOURCE[source] || "emigrated", -delta);
   return result;
 }
-
 function breedingBlocked(reserve = {}, species = {}, pop = 0) {
   const ecology = reserve.ecology || {};
   const water = Number(ecology.water) || 0;
@@ -177,7 +273,6 @@ function breedingBlocked(reserve = {}, species = {}, pop = 0) {
   if (water < 45 || grass < 45) return "habitat";
   return "";
 }
-
 function claimDailyBreedingSlot(reserve, speciesId) {
   const entry = chapterEntry(reserve);
   const day = currentLedgerDay(reserve);
@@ -194,7 +289,6 @@ function claimDailyBreedingSlot(reserve, speciesId) {
   entry.birthQuotaTotal = numberOf(entry.birthQuotaTotal) + 1;
   return true;
 }
-
 function applyBreedingIncrease(reserve, speciesId, requested = 1) {
   if (!reserve || !speciesId) return 0;
   const species = SPECIES_DB[speciesId];
@@ -212,11 +306,9 @@ function applyBreedingIncrease(reserve, speciesId, requested = 1) {
   recordIncrease(reserve, "breeding", amount, { speciesId });
   return amount;
 }
-
 function applyNamedSpeciesBirth(reserve, speciesId) {
   return applyBreedingIncrease(reserve, speciesId, 1);
 }
-
 function animalSourceSummary(reserve = {}) {
   const chapter = chapterKey(reserve);
   const raw = ((reserve.animalSourceLedger || {}).chapters || {})[chapter] || {};
@@ -230,12 +322,16 @@ function animalSourceSummary(reserve = {}) {
   const emigrated = numberOf(raw.emigrated);
   const died = numberOf(raw.died);
   const ending = livingStock(reserve);
-  const inflows = immigrated + rescued + breeding + comforted + advertised + shared + tasked;
+  const rareAuction = numberOf(raw.rareAuction);
+  const rareMigrated = numberOf(raw.rareMigrated);
+  const rareStolen = numberOf(raw.rareStolen);
+  const inflows = immigrated + rescued + breeding + comforted + advertised + shared + tasked + rareAuction;
   const opening = raw.openingSet
     ? numberOf(raw.opening)
     : (inflows || emigrated || died ? Math.max(0, ending - inflows + emigrated + died) : ending);
-  const retainedBase = opening + immigrated + rescued;
-  const retained = Math.max(0, retainedBase - emigrated - died);
+  const retainedBase = opening + immigrated + rescued + rareAuction;
+  const retained = Math.max(0, retainedBase - emigrated - died - rareMigrated - rareStolen);
+  const expectedEnding = retained + breeding + comforted + advertised + shared + tasked;
   return {
     chapter,
     opening,
@@ -246,9 +342,14 @@ function animalSourceSummary(reserve = {}) {
     advertised,
     shared,
     tasked,
+    rareAuction,
     emigrated,
     died,
+    rareMigrated,
+    rareStolen,
     ending,
+    expectedEnding,
+    closureDelta: ending - expectedEnding,
     retained,
     retainedBase,
     retainedRate: retainedBase > 0 ? retained / retainedBase : 1,
@@ -257,18 +358,16 @@ function animalSourceSummary(reserve = {}) {
     growth: breeding
   };
 }
-
 function animalSourceFlowDelta(beforeReserve = {}, afterReserve = {}) {
   const before = animalSourceSummary(beforeReserve);
   const after = animalSourceSummary(afterReserve);
-  const keys = ["immigrated", "rescued", "breeding", "comforted", "advertised", "shared", "tasked", "emigrated", "died"];
+  const keys = ["immigrated", "rescued", "breeding", "comforted", "advertised", "shared", "tasked", "rareAuction", "emigrated", "died", "rareMigrated", "rareStolen"];
   const delta = {};
   keys.forEach((key) => {
     delta[key] = numberOf(after[key]) - numberOf(before[key]);
   });
   return delta;
 }
-
 function animalSourceFlowLabel(delta = {}) {
   const signed = (value) => (value > 0 ? `+${value}` : `${value}`);
   const parts = [];
@@ -279,13 +378,16 @@ function animalSourceFlowLabel(delta = {}) {
   if (delta.advertised) parts.push(`幸运${signed(delta.advertised)}`);
   if (delta.shared) parts.push(`分享${signed(delta.shared)}`);
   if (delta.tasked) parts.push(`任务${signed(delta.tasked)}`);
+  if (delta.rareAuction) parts.push(`珍稀竞拍${signed(delta.rareAuction)}`);
   if (delta.emigrated) parts.push(`迁出-${Math.abs(delta.emigrated)}`);
   if (delta.died) parts.push(`死亡-${Math.abs(delta.died)}`);
+  if (delta.rareMigrated) parts.push(`珍稀迁徙-${Math.abs(delta.rareMigrated)}`);
+  if (delta.rareStolen) parts.push(`珍稀盗猎-${Math.abs(delta.rareStolen)}`);
   return parts.slice(0, 2).join(" · ");
 }
-
 module.exports = {
   populationSnapshot,
+  beginChapterSourceLedger,
   recordIncrease,
   recordDecrease,
   trackPopulationChange,
@@ -295,6 +397,8 @@ module.exports = {
   applyBreedingIncrease,
   applyNamedSpeciesBirth,
   breedingBlocked,
+  addLivingAnimals,
+  removeLivingAnimals,
   livingStock,
   EARLY_CHAPTER_BREEDING_CAP
 };

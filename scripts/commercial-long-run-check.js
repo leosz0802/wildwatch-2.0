@@ -74,7 +74,9 @@ function restockVisibleGoalSupplies(state) {
     if (!purchase || purchase.amount < 1 || (reserve.fund || 0) < purchase.cost) return;
     reserve.fund = Math.max(0, Math.round(Number(reserve.fund) || 0) - purchase.cost);
     reserve.supplies = reserve.supplies || {};
-    reserve.supplies[requirement.id] = Math.max(0, Math.round(Number(reserve.supplies[requirement.id]) || 0)) + purchase.amount;
+    const cap = supplyCapFor(requirement.id, reserve);
+    const before = Math.max(0, Math.round(Number(reserve.supplies[requirement.id]) || 0));
+    reserve.supplies[requirement.id] = Math.min(cap, before + purchase.amount);
   });
   return state;
 }
@@ -142,7 +144,7 @@ const purchaseCommand = {
   dogFood: "采购狗粮包",
   alarm: "采购警报器",
   fieldKit: "采购野外工具包",
-  tranquilizer: "采购麻醉弹",
+  tranquilizer: "采购阻滞弹",
   medicalKit: "采购医疗包"
 };
 
@@ -297,7 +299,7 @@ function validateState(state, label, previousStage) {
   Object.keys(reserve.supplies || {}).forEach((key) => {
     finite(reserve.supplies[key], `${label}.supplies.${key}`);
     assert(reserve.supplies[key] >= 0, `${label}.supplies.${key}为负数`);
-    assert(reserve.supplies[key] <= (BALANCE_V2.supplyCaps[key] || 999), `${label}.supplies.${key}超过上限`);
+    assert(reserve.supplies[key] <= supplyCapFor(key, reserve), `${label}.supplies.${key}超过上限`);
   });
   [reserve.inventory, reserve.pendingRecovered].forEach((group, groupIndex) => Object.keys(group || {}).forEach((key) => {
     if (key === "rescueItems" && group[key] && typeof group[key] === "object") {

@@ -11,6 +11,13 @@ reserve.progression = Object.assign({}, reserve.progression, {
   totalMeaningfulActions: 40
 });
 reserve.progression.objectives = [{ id: "chapterStory", label: "阶段剧情", current: 4, target: 7, complete: false }];
+reserve.chapterTheme = {
+  version: 1,
+  chapter: 1,
+  step: 3,
+  completed: true,
+  completedTaskIds: ["observe-footprints", "first-patrol-line", "first-protection"]
+};
 reserve.eventChain = {
   id: "seven_day_guardian",
   branch: "ledger",

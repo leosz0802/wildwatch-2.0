@@ -24,8 +24,9 @@ async function main() {
     request(options) {
       calls.push(options);
       if (options.url === `${CLOUD_BASE_URL}/v1/config`) {
-        if ((options.header || {})["if-none-match"] === '"config-v2"') options.success({ statusCode: 304, data: {}, header: { etag: '"config-v2"' } });
-        else options.success({ statusCode: 200, data: { ok: true, config: {
+        assert(options.enableCache === false, "config refresh must disable native HTTP cache so WeChat DETECT does not treat 304 as an error");
+        assert(!(options.header || {})["if-none-match"], "config refresh must not send If-None-Match");
+        options.success({ statusCode: 200, data: { ok: true, config: {
           version: 3,
           features: { worldLeaderboard: true, socialTrade: true, reciprocalTrade: true, telemetry: true, cloudSave: false, remoteBalance: true },
           balance: { emergencySupplyDailyLimit: 2, eventUploadSampleRate: 1 }
@@ -114,7 +115,8 @@ async function main() {
   now += 61000;
   await controller.refreshConfig(true);
   const configCalls = calls.filter((call) => call.url.endsWith("/v1/config"));
-  assert(configCalls.length === 2 && configCalls[1].header["if-none-match"] === '"config-v2"', "subsequent config requests should use If-None-Match");
+  assert(configCalls.length === 2, "forced config refresh after the local TTL should request again");
+  assert(configCalls.every((call) => call.enableCache === false && !(call.header || {})["if-none-match"]), "config refresh must keep returning 200 instead of a DETECT-flagged 304");
 
   const sanitized = safeConfig({
     version: -2,
@@ -123,7 +125,11 @@ async function main() {
     balance: { emergencySupplyDailyLimit: 100, eventUploadSampleRate: -4 },
     messages: { maintenance: "x".repeat(200) }
   });
-  assert(sanitized.version === 1 && sanitized.maintenance === false && sanitized.features.worldLeaderboard === false && sanitized.features.reciprocalTrade === false, "remote config types must not be coerced into privileged flags");
+  assert(sanitized.version === 1 && sanitized.maintenance === false && sanitized.features.worldLeaderboard === false && sanitized.features.reciprocalTrade === false && sanitized.features.friendContracts === false && sanitized.features.worldPatrols === false, "remote config types must not be coerced into privileged flags");
+  const enabledRoutes = safeConfig({ features: { socialTrade: true, worldLeaderboard: true, friendContracts: true, worldPatrols: true } });
+  assert(enabledRoutes.features.friendContracts === true && enabledRoutes.features.worldPatrols === true, "friend contracts and world patrols stay off until the server config explicitly enables them");
+  const legacyRoutes = safeConfig({ features: { socialTrade: true, worldLeaderboard: true } });
+  assert(legacyRoutes.features.friendContracts === false && legacyRoutes.features.worldPatrols === false, "an older server config must not imply the new contract and patrol routes");
   assert(sanitized.balance.emergencySupplyDailyLimit === 5 && sanitized.balance.eventUploadSampleRate === 0 && sanitized.messages.maintenance.length === 80, "remote numbers and copy must remain bounded");
   assert(rankRecord({ base: { name: "  ", rating: 10000001 } }).score === 1800, "legacy rating must not leak into the new valuation");
   assert(rankRecord({ base: { name: "苔原哨站", rating: 1216 } }, 6232).score === 1800, "callers must not override the level-and-animal valuation");
@@ -171,6 +177,120 @@ async function main() {
   await unauthenticated.bootstrap();
   assert(unauthenticated.authStatus === "offline" && unauthenticated.rows.length === 1, "world list should still load when wx.login fails in the simulator");
   assert(publicCalls.some((url) => url.indexOf("/v1/leaderboard?") >= 0), "unauthenticated bootstrap must request the public world leaderboard");
+
+  const beforeOptionalRoutes = calls.length;
+  await controller.refreshFriendContractMailbox(true);
+  await controller.refreshWorldHoundPatrolHistory(true);
+  assert(!calls.slice(beforeOptionalRoutes).some((call) => /friend-contracts|world-patrols/.test(call.url)), "friend contracts and world patrols must not be requested until the server config enables them");
+
+  let patrolCalls = 0;
+  const staged = new CloudServiceController({
+    getStorageSync() { return null; },
+    setStorageSync() {},
+    login(options) { options.success({ code: "wechat_code_123456" }); },
+    request(options) {
+      if (options.url === `${CLOUD_BASE_URL}/v1/config`) {
+        options.success({ statusCode: 200, data: { ok: true, config: {
+          version: 4,
+          features: { worldLeaderboard: true, socialTrade: true, friendContracts: true, worldPatrols: true }
+        } } });
+      } else if (options.url === `${CLOUD_BASE_URL}/v1/auth/wechat`) {
+        options.success({ statusCode: 200, data: { ok: true, token: "signed-session-token", publicId: "pubid0123456789abcd", expiresIn: 3600 } });
+      } else if (/friend-contracts|world-patrols/.test(options.url)) {
+        patrolCalls += 1;
+        options.success({ statusCode: 404, data: {} });
+      } else options.fail({ errMsg: "unexpected request" });
+      return { abort() {} };
+    }
+  }, { now: () => now + 2 });
+  await staged.refreshConfig(true);
+  await staged.login();
+  await staged.refreshFriendContractMailbox(true);
+  await staged.refreshFriendContractMailbox(true);
+  await staged.refreshWorldHoundPatrolHistory(true);
+  await staged.refreshWorldHoundPatrolHistory(true);
+  assert(patrolCalls === 2 && staged.friendContractMailboxStatus === "unavailable" && staged.worldHoundPatrolMailboxStatus === "unavailable", "a 404 from an undeployed contract or patrol route should be remembered and not requested again");
+
+  const backoffNow = now + 3;
+  const backoff = new CloudServiceController({
+    getStorageSync() { return null; },
+    setStorageSync() {},
+    login(options) { options.fail({ errMsg: "should not login while session is valid" }); },
+    request() { return { abort() {} }; }
+  }, { now: () => backoffNow });
+  backoff.session = {
+    token: "keep-me",
+    publicId: "pubid0123456789abcd",
+    friendMatchKey: "ab".repeat(32),
+    expiresAt: backoffNow + 120000
+  };
+  backoff.networkBackoffUntil = backoffNow + 60000;
+  assert(await backoff.login() === true, "a still-valid session must not be blocked by network backoff");
+
+  const patrolStartCalls = [];
+  const patrolReady = new CloudServiceController({
+    getStorageSync() { return null; },
+    setStorageSync() {},
+    login(options) { options.success({ code: "wechat_code_123456" }); },
+    request(options) {
+      patrolStartCalls.push(options);
+      if (options.url === `${CLOUD_BASE_URL}/v1/config`) {
+        options.success({ statusCode: 200, data: { ok: true, config: {
+          version: 4,
+          features: { worldLeaderboard: true, socialTrade: true }
+        } } });
+      } else if (options.url === `${CLOUD_BASE_URL}/v1/auth/wechat`) {
+        options.success({ statusCode: 200, data: { ok: true, token: "signed-session-token", publicId: "pubid0123456789abcd", friendMatchKey: "ab".repeat(32), expiresIn: 3600 } });
+      } else if (options.url === `${CLOUD_BASE_URL}/v1/world-patrols`) {
+        options.success({ statusCode: 200, data: { ok: true, patrol: { patrolId: "p1", settleAt: backoffNow + 300000 } } });
+      } else options.fail({ errMsg: "unexpected request" });
+      return { abort() {} };
+    }
+  }, { now: () => backoffNow + 4 });
+  await patrolReady.refreshConfig(true);
+  assert(patrolReady.feature("worldPatrols") === false, "cached or legacy config may omit worldPatrols");
+  await patrolReady.login();
+  const started = await patrolReady.startWorldHoundPatrol("targetid0123456789", 100, "hound_1", { actorChapter: 7 });
+  assert(started && started.patrolId === "p1", "leaderboard-ready clients should POST patrols even if worldPatrols is still cached false");
+  assert(patrolReady.feature("worldPatrols") === true, "a successful patrol should locally enable worldPatrols");
+  assert(patrolStartCalls.some((call) => call.url === `${CLOUD_BASE_URL}/v1/world-patrols` && call.method === "POST"), "world patrol start must actually POST /v1/world-patrols");
+
+  let missingPatrolPosts = 0;
+  const missing = new CloudServiceController({
+    getStorageSync() { return null; },
+    setStorageSync() {},
+    login(options) { options.success({ code: "wechat_code_123456" }); },
+    request(options) {
+      if (options.url === `${CLOUD_BASE_URL}/v1/config`) {
+        options.success({ statusCode: 200, data: { ok: true, config: {
+          version: 4,
+          features: { worldLeaderboard: true }
+        } } });
+      } else if (options.url === `${CLOUD_BASE_URL}/v1/auth/wechat`) {
+        options.success({ statusCode: 200, data: { ok: true, token: "signed-session-token", publicId: "pubid0123456789abcd", friendMatchKey: "ab".repeat(32), expiresIn: 3600 } });
+      } else if (options.url === `${CLOUD_BASE_URL}/v1/world-patrols`) {
+        missingPatrolPosts += 1;
+        options.success({ statusCode: 404, data: {} });
+      } else options.fail({ errMsg: "unexpected request" });
+      return { abort() {} };
+    }
+  }, { now: () => backoffNow + 5 });
+  await missing.refreshConfig(true);
+  await missing.login();
+  let missingError = "";
+  try {
+    await missing.startWorldHoundPatrol("targetid0123456789", 100, "hound_missing");
+  } catch (error) {
+    missingError = String(error && error.message || "");
+  }
+  assert(missingPatrolPosts === 1 && /HTTP_404|NOT_FOUND/.test(missingError), "first undeployed patrol POST should surface the 404");
+  missingError = "";
+  try {
+    await missing.startWorldHoundPatrol("targetid0123456789", 100, "hound_missing_2");
+  } catch (error) {
+    missingError = String(error && error.message || "");
+  }
+  assert(missingPatrolPosts === 1 && missingError === "WORLD_PATROLS_UNAVAILABLE", "a remembered 404 must not POST world patrols again");
 
   console.log("cloud service check ok");
 }

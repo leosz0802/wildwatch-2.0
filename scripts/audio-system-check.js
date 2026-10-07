@@ -35,8 +35,10 @@ const audio = new AudioSystem(runtime, state);
 assert(audio.isAvailable(), "InnerAudioContext 可用时声音系统必须启用");
 assert(!audio.playEffect("success"), "用户首次交互前不得自动播放音效");
 audio.unlock();
-assert(contexts.some((context) => context.src === AUDIO_ASSETS.music && context.loop && context.plays === 1), "首次交互后应启动低音量自然氛围循环");
-assert(MUSIC_PROFILE.volume <= 0.10, "自然氛围不得压过玩法音效");
+assert(!AUDIO_ASSETS.music, "背景循环音频已移除，不得再引用");
+assert(contexts.length === 0, "首次交互不得创建背景音播放器");
+assert(audio.playMusic() === false, "背景循环音频已移除，不得再播放");
+assert(MUSIC_PROFILE.volume <= 0.10, "残留音量配置不得压过玩法音效");
 assert(audio.playEffect("success"), "用户交互后成功音应可播放");
 assert(contexts.some((context) => context.src === AUDIO_ASSETS.success && context.plays === 1), "成功音资源必须实际进入播放上下文");
 assert(!AUDIO_ASSETS.confirm && !EFFECT_PROFILES.confirm, "按钮不得再保留第二套确认音");
@@ -80,7 +82,7 @@ assert(gameSource.includes("drawAudioToggle"), "阶段栏必须提供声音开�
 assert(/toggleAudio\(\), "none"/.test(gameSource), "声音开关关闭前不得额外播放点击音");
 assert(gameSource.includes('this.playSfx("dice")'), "六面骰必须接入独立结果音效");
 assert(!gameSource.includes('this.playSfx("confirm")') && /if \(name === "tap"\) return false;/.test(gameSource), "普通按钮不得重新接入已移除的按键音");
-assert(/playMusic|pauseMusic/.test(`${gameSource}\n${fs.readFileSync(path.join(root, "js/audioSystem.js"), "utf8")}`), "自然氛围必须支持前后台暂停与恢复");
-assert(fs.existsSync(path.join(root, AUDIO_ASSETS.music)), "自然氛围循环资源缺失");
+assert(!fs.existsSync(path.join(root, "assets/audio/bgm-nature-loop.m4a")), "背景循环音频文件必须删除");
+assert(!/bgm-nature-loop/.test(fs.readFileSync(path.join(root, "js/audioSystem.js"), "utf8")), "声音系统不得再引用背景循环音频");
 
-console.log(`audio system check ok (nature loop + packed operation sounds, ${(totalBytes / 1024).toFixed(1)}KiB)`);
+console.log(`audio system check ok (operation sounds only, ${(totalBytes / 1024).toFixed(1)}KiB)`);

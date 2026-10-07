@@ -3,8 +3,10 @@ const fs = require("fs");
 const { createInitialWorld, createReserveState } = require("../js/world");
 const {
   DAILY_FREE_RECRUITS,
+  AD_RECRUIT_GRANT,
   DAILY_AD_WATCH_CAP,
   PLAYTIME_RECRUIT_RESTORE_SECONDS,
+  visitorRealDateKey,
   visitorRecruitmentStatus,
   visitorRecruitmentFactors,
   visitorMigrationRatio,
@@ -46,16 +48,23 @@ assert.strictEqual(third.ok, false, "default free recruits must stop after two a
 assert.strictEqual(visitorRecruitmentStatus(reserve, 1, dayOne).totalAvailable, 0);
 assert.strictEqual(consumeVisitorRecruitment(reserve, 1, 0.5, dayOne).ok, false, "free quota must stop direct recruitment");
 
-const firstAdReward = grantVisitorRecruitmentAd(reserve, 1, dayOne);
+let grantAt = dayOne;
+const firstAdReward = grantVisitorRecruitmentAd(reserve, 1, grantAt);
 assert(firstAdReward.ok && firstAdReward.granted === 2, "广告完播后必须一次补充2次招募机会");
-assert.strictEqual(visitorRecruitmentStatus(reserve, 1, dayOne).totalAvailable, 2, "广告完播后可用机会数必须恢复为2");
-consumeVisitorRecruitment(reserve, 1, 0.5, dayOne);
-consumeVisitorRecruitment(reserve, 1, 0.5, dayOne);
+assert.strictEqual(visitorRecruitmentStatus(reserve, 1, grantAt).totalAvailable, 2, "广告完播后可用机会数必须恢复为2");
+consumeVisitorRecruitment(reserve, 1, 0.5, grantAt);
+consumeVisitorRecruitment(reserve, 1, 0.5, grantAt);
+const duplicateAdReward = grantVisitorRecruitmentAd(reserve, 1, grantAt + 1000);
+assert.strictEqual(duplicateAdReward.ok, true);
+assert.strictEqual(duplicateAdReward.granted, 0);
+assert.strictEqual(duplicateAdReward.reason, "already_granted", "同一次完播的第二次结算不得再扣当日广告次数");
+assert.strictEqual(visitorRecruitmentStatus(reserve, 1, grantAt + 1000).adWatchedToday, AD_RECRUIT_GRANT);
 for (let index = 1; index < DAILY_AD_WATCH_CAP / 2; index += 1) {
-  const reward = grantVisitorRecruitmentAd(reserve, 1, dayOne);
-  assert(reward.ok, `ad grant ${index + 1} should be available`);
-  consumeVisitorRecruitment(reserve, 1, 0.5, dayOne);
-  consumeVisitorRecruitment(reserve, 1, 0.5, dayOne);
+  grantAt += 20000;
+  const reward = grantVisitorRecruitmentAd(reserve, 1, grantAt);
+  assert(reward.ok && reward.granted === 2, `ad grant ${index + 1} should be available`);
+  consumeVisitorRecruitment(reserve, 1, 0.5, grantAt);
+  consumeVisitorRecruitment(reserve, 1, 0.5, grantAt);
 }
 status = visitorRecruitmentStatus(reserve, 1, dayOne);
 assert.strictEqual(status.adWatchedToday, DAILY_AD_WATCH_CAP);
@@ -65,6 +74,112 @@ assert.strictEqual(grantVisitorRecruitmentAd(reserve, 1, dayOne).ok, false, "dai
 const sameRealDate = visitorRecruitmentStatus(reserve, 2, dayOne);
 assert.strictEqual(sameRealDate.freeRemaining, 0, "游戏内守护日变化不能重置真实日期招募次数");
 assert.strictEqual(sameRealDate.adWatchedToday, DAILY_AD_WATCH_CAP, "同一真实日广告次数不能被游戏日刷新");
+
+const stuck = createInitialWorld().reserve;
+stuck.development.operations.recruitment = {
+  version: 3,
+  day: 1,
+  dateKey: visitorRealDateKey(dayOne),
+  freeRemaining: 0,
+  adCredits: 0,
+  adWatchedToday: DAILY_AD_WATCH_CAP,
+  totalRecruited: 40,
+  publishCount: 4,
+  lastResult: null,
+  playtimeRestoreStarted: true,
+  restoreAnchorSeconds: 0
+};
+const recovered = visitorRecruitmentStatus(stuck, 1, dayOne);
+assert.strictEqual(recovered.adWatchedToday, DAILY_AD_WATCH_CAP - AD_RECRUIT_GRANT * 2, "已记满的安卓存档要退回两次真实观看");
+assert.strictEqual(recovered.canWatchAd, true, "退回后看广告招募按钮必须回来");
+assert.strictEqual(visitorRecruitmentStatus(stuck, 1, dayOne).adWatchedToday, recovered.adWatchedToday, "次数修正只做一次");
+
+const stuckAgain = createInitialWorld().reserve;
+stuckAgain.development.operations.recruitment = {
+  version: 4,
+  day: 1,
+  dateKey: visitorRealDateKey(dayOne),
+  freeRemaining: 0,
+  adCredits: 0,
+  adWatchedToday: DAILY_AD_WATCH_CAP,
+  totalRecruited: 40,
+  publishCount: 4,
+  lastResult: null,
+  playtimeRestoreStarted: true,
+  restoreAnchorSeconds: 0
+};
+const recoveredAgain = visitorRecruitmentStatus(stuckAgain, 1, dayOne);
+assert.strictEqual(recoveredAgain.adWatchedToday, DAILY_AD_WATCH_CAP - AD_RECRUIT_GRANT * 2, "第8章之后再次被记满的存档也要退回两次真实观看");
+assert.strictEqual(recoveredAgain.canWatchAd, true, "退回后看广告招募入口必须重新出现");
+assert.strictEqual(visitorRecruitmentStatus(stuckAgain, 1, dayOne).adWatchedToday, recoveredAgain.adWatchedToday, "同一次记满只能退回一次");
+
+const honestCap = createInitialWorld().reserve;
+honestCap.development.operations.recruitment = {
+  version: 5,
+  day: 1,
+  dateKey: visitorRealDateKey(dayOne),
+  freeRemaining: 0,
+  adCredits: 0,
+  adWatchedToday: DAILY_AD_WATCH_CAP,
+  totalRecruited: 40,
+  publishCount: DAILY_FREE_RECRUITS + DAILY_AD_WATCH_CAP,
+  lastResult: null,
+  playtimeRestoreStarted: true,
+  restoreAnchorSeconds: 0
+};
+assert.strictEqual(visitorRecruitmentStatus(honestCap, 1, dayOne).adWatchedToday, DAILY_AD_WATCH_CAP, "四次真实观看记满后不能再退回");
+assert.strictEqual(visitorRecruitmentStatus(honestCap, 1, dayOne).adCredits, 0, "已经发布完的广告次数不能再补发");
+assert.strictEqual(visitorRecruitmentStatus(honestCap, 1, dayOne).canWatchAd, false);
+
+const laterChapter = createInitialWorld().reserve;
+laterChapter.progression.stage = 5;
+laterChapter.progression.displayChapter = 5;
+laterChapter.development.operations.recruitment = {
+  version: 6,
+  day: 1,
+  dateKey: visitorRealDateKey(dayOne),
+  freeRemaining: 0,
+  adCredits: 0,
+  adWatchedToday: DAILY_AD_WATCH_CAP,
+  totalRecruited: 80,
+  publishCount: DAILY_FREE_RECRUITS + DAILY_AD_WATCH_CAP,
+  lastResult: null,
+  playtimeRestoreStarted: true,
+  restoreAnchorSeconds: 0
+};
+const chapterFive = visitorRecruitmentStatus(laterChapter, 1, dayOne);
+assert.strictEqual(chapterFive.freeRemaining, 0, "第5章不额外补免费次数");
+assert.strictEqual(chapterFive.adWatchedToday, 0, "第5章起当天已经用完的广告次数按章清零");
+assert.strictEqual(chapterFive.canWatchAd, true, "第5章同一个按钮必须回到看广告招募");
+assert.strictEqual(grantVisitorRecruitmentAd(laterChapter, 1, dayOne).ok, true);
+assert.strictEqual(consumeVisitorRecruitment(laterChapter, 1, 0.5, dayOne).ok, true);
+assert.strictEqual(consumeVisitorRecruitment(laterChapter, 1, 0.5, dayOne).ok, true);
+laterChapter.progression.stage = 6;
+laterChapter.progression.displayChapter = 6;
+const chapterSix = visitorRecruitmentStatus(laterChapter, 1, dayOne);
+assert.strictEqual(chapterSix.adWatchedToday, 0, "进入下一章后广告招募次数与前3章一样重新可用");
+assert.strictEqual(chapterSix.canWatchAd, true);
+
+const eatenGrant = createInitialWorld().reserve;
+eatenGrant.development.operations.recruitment = {
+  version: 5,
+  day: 1,
+  dateKey: visitorRealDateKey(dayOne),
+  freeRemaining: 0,
+  adCredits: 0,
+  adWatchedToday: DAILY_AD_WATCH_CAP,
+  totalRecruited: 40,
+  publishCount: DAILY_FREE_RECRUITS,
+  lastResult: null,
+  playtimeRestoreStarted: true,
+  restoreAnchorSeconds: 0
+};
+const restoredGrant = visitorRecruitmentStatus(eatenGrant, 1, dayOne);
+assert.strictEqual(restoredGrant.adWatchedToday, DAILY_AD_WATCH_CAP, "补发未使用的次数时不能把观看次数清零");
+assert.strictEqual(restoredGrant.adCredits, DAILY_AD_WATCH_CAP, "看完广告却没有发布的次数要回到可发布");
+assert.strictEqual(restoredGrant.totalAvailable, DAILY_AD_WATCH_CAP, "补发后招募弹窗必须显示可发布次数");
+assert.strictEqual(restoredGrant.canRecruit, true, "补发后主按钮必须是发布招募");
+assert.strictEqual(visitorRecruitmentStatus(eatenGrant, 1, dayOne).adCredits, restoredGrant.adCredits, "未发布次数只补一次");
 
 const nextDay = visitorRecruitmentStatus(reserve, 2, dayTwo);
 assert.strictEqual(nextDay.freeRemaining, DAILY_FREE_RECRUITS, "free quota resets at a new real calendar day");
@@ -86,6 +201,8 @@ assert(gameSource.includes('if (modal && modal.kind === "visitorRecruitment" && 
 assert((gameSource.match(/consumeVisitorRecruitment\(/g) || []).length === 1, "游戏内只能有一处真正消耗招募次数");
 assert(!gameSource.includes('? "继续招募"'), "招募结果页不得显示连续招募按钮");
 assert(gameSource.includes("看广告招募"), "免费发布次数耗尽后必须切换为广告招募入口");
+assert(gameSource.includes("this.visitorAdShowing"), "关片手势不得在同一次完播上再开一条招募广告");
+assert(gameSource.includes("this.visitorRecruitmentPublishLockedUntil"), "关片手势不得把刚发的招募次数立刻发布掉");
 assert(gameSource.includes("游玩${PLAYTIME_RECRUIT_RESTORE_MINUTES}分钟") || gameSource.includes("游玩6分钟"), "次数用完后必须提示按游戏时长恢复");
 assert(!gameSource.includes("查看广告-招募"), "广告招募入口不得再使用生硬的查看广告-招募文案");
 assert(!gameSource.includes('免费 ${status.freeRemaining} · 广告次数 ${status.adCredits}'), "招募弹窗不应再显示冗余的免费/广告计数");
@@ -95,13 +212,9 @@ assert(gameSource.includes('kind: "visitorLetterInbox"'), "游客来信需要独
 assert(gameSource.includes('showsAllHistory: !modal.unreadOnly'), "游客收件箱必须保留并展示多封历史来信");
 assert(gameSource.includes("动物迁移动态"), "日报迁入迁出必须标明是动物迁移");
 assert(gameSource.includes("到访"), "章节游客构成必须单列到访");
-assert(
-  gameSource.includes("上一章只把结束时游客总数的${Math.round(chapterVisitorCarryoverRatio() * 100)}%带入")
-    || gameSource.includes("上一章只把结束时游客总数的10%带入"),
-  "章节说明必须写清只有10%继承"
-);
-assert(gameSource.includes("主动招募显示几人，本章游客就增加几人"), "招募人数必须整笔计入本章");
-assert(gameSource.includes("会计入本章迁入或到访"), "事件和建筑客流必须按本章重新计算");
+assert(!gameSource.includes("%带入") && !gameSource.includes("游客目标的 15%") && !gameSource.includes("1%—3%"), "玩家说明不得写出系统百分比规则");
+assert(gameSource.includes("点招募加几人就加几人"), "招募人数必须整笔计入本章");
+assert(gameSource.includes("会计入迁入或到访"), "事件和建筑客流必须按本章重新计算");
 
 const balanced = { safety: 50, poacherPressure: 20, ecology: { water: 50, grass: 50, disease: 12, predators: {}, herbivores: {}, birds: {} } };
 assert.strictEqual(Math.round(visitorMigrationRatio(balanced) * 100), 40, "水源草场安全各50时迁入占比应对齐4:6");
@@ -109,7 +222,7 @@ const lush = Object.assign({}, balanced, { ecology: Object.assign({}, balanced.e
 const safer = Object.assign({}, balanced, { safety: 90 });
 assert(visitorMigrationRatio(lush) > visitorMigrationRatio(balanced) + 0.04, "提升水草必须提高迁入占比");
 assert(visitorMigrationRatio(safer) > visitorMigrationRatio(balanced) + 0.04, "提升安全必须提高迁入占比");
-assert.notEqual(survivalImpact(lush)[2].lines[1], survivalImpact(balanced)[2].lines[1], "生存影响文案必须随水草改变迁入占比");
+assert.notEqual(survivalImpact(lush)[0].lines[1], survivalImpact(balanced)[0].lines[1], "生存影响文案必须随水草改变迁入占比");
 
 const opening = createInitialWorld().reserve;
 const openingRatio = Math.round(visitorMigrationRatio(opening) * 100);
@@ -139,6 +252,8 @@ assert(recruited.visitorWaterUse >= 1, "主动招募必须扣水");
 assert.strictEqual(watered.reserve.ecology.water, waterBefore - recruited.visitorWaterUse);
 assert.strictEqual(visitorWaterUseForCount(240), 2);
 assert.strictEqual(visitorWaterUseForCount(900), 8);
+assert.strictEqual(visitorWaterUseForCount(240, { ecology: { water: 24 } }), 0, "水源崩溃时招募不得再扣水");
+assert.strictEqual(visitorWaterUseForCount(240, { ecology: { water: 30 } }), 1, "水源危急时招募最多扣1点");
 const flow = watered.reserve.development.operations.visitorLedger;
 assert.strictEqual(flow.recruitedVisitors, recruited.visitors, "招募显示几人就必须全部计入本章招募");
 assert.strictEqual(flow.migratedVisitors, 0, "招募不得记成迁入");

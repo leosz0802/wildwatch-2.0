@@ -130,9 +130,9 @@ assert(game.gesture && game.gesture.actionHit && !game.gesture.mapPan && !game.g
 touchHandlers.end();
 assert(game.infoDetailModal && /侦察/.test(game.infoDetailModal.actionLabel || ""), "真机轻触侦察按钮必须打开任务详情");
 
-// A swipe beginning on a tappable map marker must promote to a pan once the
-// movement is clearly intentional; otherwise the marker hit area swallows the
-// gesture and the map appears frozen.
+// A gesture beginning on a tappable map marker remains owned by that marker.
+// This keeps the stable click path intact; map panning starts from open map
+// space, so a task tap cannot re-enter another action while moving.
 game.infoDetailModal = null;
 game.hitAreas = [];
 game.mapCameraFrame = { x: 0, y: 0, w: 375, h: 667, worldW: 900, worldH: 900, worldSize: 900, scale: 1.2 };
@@ -142,7 +142,7 @@ const beforeSwipeCamera = Object.assign({}, game.mapCamera);
 touchHandlers.start({ touches: [{ clientX: 170, clientY: 300 }] });
 touchHandlers.move({ touches: [{ clientX: 170, clientY: 390 }] });
 touchHandlers.end();
-assert(Math.abs(game.mapCamera.cy - beforeSwipeCamera.cy) > 0.001, "从地图任务点开始的明确上滑/下滑必须推动沙盘");
+assert(Math.abs(game.mapCamera.cy - beforeSwipeCamera.cy) < 0.001, "任务点手势不得抢占点击链推动沙盘");
 
 game.mapViewport = { x: 0, y: 0, w: 375, h: 667 };
 game.renderedAnimalFocusMarkers = [];
@@ -371,6 +371,9 @@ chapter3.drawChapterRescueMarkers(fakeContext(), frameBefore);
 const rescueBeforePan = (chapter3.renderedRescueMapMarkers || []).map((marker) => ({
   id: marker.targetId, x: marker.x, y: marker.y, w: marker.w, worldX: marker.worldX, worldY: marker.worldY
 }));
+const planted = rescueBeforePan.find((marker) => marker.id === locked.targetId);
+assert(planted && Math.abs(planted.worldX - 0.38) < 0.0001 && Math.abs(planted.worldY - 0.62) < 0.0001,
+  "被指定种植的困住动物必须停在出现时的沙盘坐标");
 chapter3.panMapBy(120, 80);
 assert(
   Math.abs(chapter3.mapCamera.cx - afterFocus.cx) > 0.001 || Math.abs(chapter3.mapCamera.cy - afterFocus.cy) > 0.001,
@@ -381,7 +384,7 @@ chapter3.drawChapterRescueMarkers(fakeContext(), frameAfter);
 rescueBeforePan.forEach((before) => {
   const after = (chapter3.renderedRescueMapMarkers || []).find((marker) => marker.targetId === before.id);
   assert(after, "困住的动物拖图后仍须留在沙盘上");
-  assert(Math.abs(after.worldX - 0.38) < 0.0001 && Math.abs(after.worldY - 0.62) < 0.0001, "困住的动物必须固定在出现时的沙盘坐标");
+  assert(Math.abs(after.worldX - before.worldX) < 0.0001 && Math.abs(after.worldY - before.worldY) < 0.0001, "困住的动物必须固定在出现时的沙盘坐标");
   assert(Math.abs(after.x - before.x) > 1 || Math.abs(after.y - before.y) > 1, "困住的动物应随沙盘地形一起平移，不能钉在屏幕上");
   const expected = chapter3.mapPoint(before.worldX, before.worldY, frameAfter);
   assert(Math.abs((after.x + after.w / 2) - expected.x) < 1 && Math.abs((after.y + 36) - expected.y) < 1, "困住的动物屏幕位置必须跟着种植点走");

@@ -2,7 +2,6 @@ const { facilityByCaseId, normalizeFacilityConstruction } = require("./reserveFa
 const { awardMastery } = require("./guardianCycle");
 const { addPendingRecovered } = require("./resourceLedger");
 const { localDateKey } = require("./firstReturnHook");
-
 const CASES = [
   { id: "case_1", chapter: 1, title: "水边无人认领的脚印", short: "水边脚印", icon: "trail", color: "#817869", actions: ["houndScout", "antiPoacher", "exploreMaterials"], species: ["鹿", "乌鸦"], intro: "旧巡护员究竟离开了，还是沿着一条危险路线继续走了下去？" },
   { id: "case_2", chapter: 2, title: "消失的水路", short: "消失水路", icon: "water", color: "#78969a", actions: ["habitat", "exploreMaterials", "intervention"], species: ["鹿", "大象", "河马"], intro: "水没有凭空消失。一条被改动的旧水路同时牵动动物与社区。" },
@@ -11,7 +10,6 @@ const CASES = [
   { id: "case_5", chapter: 5, title: "谁拥有这片森林", short: "森林归属", icon: "reserve_prosperity", color: "#98763f", actions: ["intervention", "habitat", "antiPoacher", "houndScout"], species: ["大象", "狮子", "水貂"], intro: "保护区成为旗舰之后，安全、开放与共同守护之间仍需要选择。" },
   { id: "hidden", chapter: 1, title: "森林写给守护者", short: "隐藏档案", icon: "eye", color: "#9c98a6", actions: ["houndScout", "habitat", "exploreMaterials", "intervention"], species: ["鹿", "猎犬"], hidden: true, intro: "有些东西不属于案件，只属于动物记得你的那些时刻。" }
 ];
-
 const RAW_ITEMS = {
   case_1: [
     ["c1_whistle", "旧巡护员铜哨", "signal", "铜哨内侧刻着已经磨平的巡线编号。"],
@@ -71,7 +69,6 @@ const RAW_ITEMS = {
     ["h_names", "动物名字册", "reserve_prosperity", "名字册写满命名朋友，也写下离开、归来与被记住的一生。", { namedMemories: 8 }]
   ]
 };
-
 const COLLECTION_REALITY_BY_ICON = Object.freeze({
   signal: "金属氧化、刻痕深浅与附着物只能帮助判断使用环境和相对先后；单件信号器材不能独立证明持有者身份。",
   eye: "纸张纤维、墨迹洇散和折痕可用于比对受潮、保存与书写顺序；文字内容仍需与现场和其他记录交叉核验。",
@@ -91,7 +88,6 @@ const COLLECTION_REALITY_BY_ICON = Object.freeze({
   eye: "影像能保存光线、坐标关系与某个瞬间，曝光、裁切和缺失元数据也会制造误读，不能替代连续观察。",
   reserve_prosperity: "群体影像和档案能确认个体曾经共同出现，却无法说明它们为何留下、后来去了哪里，或是否信任拍摄者。"
 });
-
 const COLLECTION_EASTER_EGGS = Object.freeze({
   case_1: [
     "哨口残留的红土不属于旧营地，却与第三章运输线旁的土样相同。",
@@ -151,7 +147,6 @@ const COLLECTION_EASTER_EGGS = Object.freeze({
     "名字册最后留出一整页空白，提醒守护者不要只记录留下的生命。"
   ]
 });
-
 const ITEMS = [];
 Object.keys(RAW_ITEMS).forEach((caseId) => RAW_ITEMS[caseId].forEach((row, index) => ITEMS.push({
   id: row[0], name: row[1], icon: row[2], story: row[3], condition: row[4] || {}, caseId,
@@ -159,10 +154,6 @@ Object.keys(RAW_ITEMS).forEach((caseId) => RAW_ITEMS[caseId].forEach((row, index
   easterEgg: ((COLLECTION_EASTER_EGGS[caseId] || [])[index]) || "它与另一段尚未完成的保护区记录存在细微对应。",
   slot: index + 1, rarity: row[4] && row[4].finale ? "案件终章" : index === 6 || caseId === "hidden" ? "珍藏" : "调查物"
 })));
-
-// 剧情发现不再把物件当成随机奖池。每个案件都有一条稳定的发现顺序，
-// 动物负责提出疑问，匹配的守护行动负责把痕迹定位到沙盘，玩家再亲手收录。
-// 前三件是主证据，接着两件生态记录、两件动物记忆，最后一件由案件结局生成。
 const DISCOVERY_SEQUENCES = {
   case_1: ["c1_footprint", "c1_cloth", "c1_roster", "c1_whistle", "c1_badge", "c1_letter", "c1_map", "c1_lamp"],
   case_2: ["c2_gauge", "c2_key", "c2_mudline", "c2_salt", "c2_seed", "c2_pump", "c2_wellpass", "c2_bottle"],
@@ -171,7 +162,6 @@ const DISCOVERY_SEQUENCES = {
   case_5: ["c5_ticket", "c5_pact", "c5_knot", "c5_film", "c5_letter", "c5_portrait", "c5_rings", "c5_archive"],
   hidden: ["h_first_photo", "h_hound_tag", "h_return_letter", "h_day100", "h_names"]
 };
-
 const DISCOVERY_ACTIONS = {
   case_1: ["habitat", "houndScout", "houndScout", "habitat", "antiPoacher", "habitat", "intervention"],
   case_2: ["habitat", "houndScout", "habitat", "intervention", "habitat", "houndScout", "intervention"],
@@ -180,7 +170,6 @@ const DISCOVERY_ACTIONS = {
   case_5: ["houndScout", "intervention", "antiPoacher", "houndScout", "intervention", "habitat", "intervention"],
   hidden: ["houndScout", "houndScout", "habitat", "intervention", "habitat"]
 };
-
 const DISCOVERY_REGIONS = {
   case_1: ["river", "river", "center", "river", "center", "center", "meadow", "center"],
   case_2: ["river", "river", "river", "meadow", "river", "river", "center", "river"],
@@ -189,7 +178,6 @@ const DISCOVERY_REGIONS = {
   case_5: ["center", "center", "meadow", "center", "center", "meadow", "center", "center"],
   hidden: ["meadow", "center", "center", "meadow", "center"]
 };
-
 const DISCOVERY_ACTION_LABELS = {
   houndScout: "派猎犬循迹",
   antiPoacher: "驱赶并搜查",
@@ -197,7 +185,6 @@ const DISCOVERY_ACTION_LABELS = {
   intervention: "进行生态勘验",
   exploreMaterials: "跟随动物探索"
 };
-
 Object.keys(DISCOVERY_SEQUENCES).forEach((caseId) => {
   DISCOVERY_SEQUENCES[caseId].forEach((id, index) => {
     const item = ITEMS.find((entry) => entry.id === id);
@@ -210,17 +197,14 @@ Object.keys(DISCOVERY_SEQUENCES).forEach((caseId) => {
     item.discoveryActionLabel = isFinale ? "决定案件结局" : (DISCOVERY_ACTION_LABELS[item.discoveryAction] || "继续守护");
   });
 });
-
 const METHODS = [
   { id: "animal", name: "动物引路", icon: "eye", cost: "关系修正", description: "由本案最信任你的命名朋友带路；信任55/80提供+1/+2。" },
   { id: "field", name: "现场勘验", icon: "eye", cost: "固定 +2", description: "沿现场痕迹仔细勘验，固定+2，风险最低，但没有动物关系加成。" },
   { id: "risky", name: "冒险追踪", icon: "trail", cost: "可能扩大风险", description: "固定+1；骰面1–2会降低安全并提高偷猎，5–6补全额外解释。" }
 ];
-
 const MAX_COLLECTION_LEADS = 5;
 const NEW_USER_CLUE_GRACE_MS = 5 * 60 * 1000;
 const CLUE_COOLDOWN_MS = 30 * 1000;
-
 const ENDINGS = {
   case_1: [
     { id: "publish_truth", name: "公开旧巡护员真相", route: "community", effects: { reputation: 5, fund: 100, poacherPressure: 2 }, flag: "old_warden_public", outcome: "失踪不再被解释为抛弃，社区也开始主动补充旧线索。" },
@@ -248,24 +232,20 @@ const ENDINGS = {
     { id: "adaptive_commons", name: "采用动态共同治理", route: "ecology", effects: { water: 4, grass: 4, stability: 5, fund: -120 }, flag: "forest_commons", outcome: "规则随季节和动物变化，管理更难，却给生命留下调整空间。" }
   ]
 };
-
 const clamp = (value, min = 0, max = 100) => Math.max(min, Math.min(max, Number(value) || 0));
 const caseById = (id) => CASES.find((item) => item.id === id) || null;
 const collectionItemById = (id) => ITEMS.find((item) => item.id === id) || null;
 const itemsForCase = (caseId) => ITEMS.filter((item) => item.caseId === caseId);
 const collectionDay = (state) => Math.max(1, Math.round((((((state || {}).world || {}).reserve || {}).guardianCycle || {}).day) || (((state || {}).world || {}).day) || 1));
-
 function emptyCase(id, old = {}) {
   return { id, itemIds: Array.from(new Set(old.itemIds || [])), interpretation: Math.max(0, old.interpretation || 0), ending: old.ending ? Object.assign({}, old.ending) : null };
 }
-
 function collectionFacilityStage(found, ending) {
   if (ending || found >= 8) return 3;
   if (found >= 6) return 2;
   if (found >= 3) return 1;
   return 0;
 }
-
 function syncCollectionFacility(state, caseId) {
   const facility = facilityByCaseId(caseId);
   const collection = ((state || {}).world || {}).collection || {};
@@ -278,8 +258,6 @@ function syncCollectionFacility(state, caseId) {
   const site = construction.sites[facility.id];
   const before = site.collectionStage || 0;
   site.collectionStage = Math.max(before, stage);
-  // 收藏案件只解锁设施和施工资格；主体建设与路线专精必须由玩家亲手
-  // 投入基金完成。两套进度合并会让建设界面、路线选择和成就反馈消失。
   if (stage > before) {
     collection.lastWorldChange = {
       day: (((reserve.guardianCycle || {}).day) || state.world.day || 1),
@@ -291,7 +269,6 @@ function syncCollectionFacility(state, caseId) {
   }
   return { facilityId: facility.id, found, stage, changed: stage > before };
 }
-
 function normalizeCollectionState(state) {
   if (!state || !state.world) return state;
   const old = state.world.collection || {};
@@ -390,8 +367,6 @@ function normalizeCollectionState(state) {
     const leadValid = state.world.collection.leads.some((lead) => lead.id === inv.pending.leadId);
     const methodValid = METHODS.some((method) => method.id === inv.pending.methodId);
     if (!leadValid || !methodValid) {
-      // 调查机会是在进入掷骰前扣除的。旧存档若引用了已经消失的
-      // 线索或方法，必须返还一次机会，否则玩家会被锁在无效流程里。
       inv.pending = null;
       inv.charges = clamp(inv.charges + 1, 0, 3);
     } else {
@@ -405,7 +380,6 @@ function normalizeCollectionState(state) {
   }
   return state;
 }
-
 function relationForLead(state, caseDef) {
   const named = ((((state.world || {}).lifeMemory || {}).individuals) || []).filter((animal) => caseDef.species.includes(animal.species) && ["active", "independent"].includes(animal.status)).map((animal) => {
     const security = clamp(animal.security == null ? (animal.bond || 40) : animal.security);
@@ -420,7 +394,6 @@ function relationForLead(state, caseDef) {
   const best = animals.sort((a, b) => (((b.relation || {}).trust) || 0) - (((a.relation || {}).trust) || 0))[0] || null;
   return best ? { id: best.id, name: best.shortName || best.name || best.species, species: best.species, trust: clamp((best.relation || {}).trust), security: clamp((best.relation || {}).trust), wildness: 70 } : { id: "forest", name: "附近动物", species: "动物", trust: 40, security: 40, wildness: 70 };
 }
-
 function itemEligible(item, state) {
   const condition = item.condition || {};
   const world = state.world || {};
@@ -443,7 +416,6 @@ function itemEligible(item, state) {
   if (condition.season && world.season !== condition.season && ((reserve.seasonState || {}).name) !== condition.season) return false;
   return !condition.finale;
 }
-
 function collectionDiscoveryActivation(item, state) {
   if (!item) return { active: false, storyReady: false, metricReady: false, conditionReady: false, statusText: "没有待激活发现" };
   const reserve = (((state || {}).world || {}).reserve) || {};
@@ -489,27 +461,22 @@ function collectionDiscoveryActivation(item, state) {
   const active = storyReady && orderReady && metricReady && conditionReady;
   return { active, storyReady, orderReady, metricReady, conditionReady, requiredStep, storyStep, storyText, orderText, metricText, conditionText, statusText: !storyReady ? storyText : !orderReady ? orderText : !metricReady ? metricText : !conditionReady ? conditionText : "剧情与保护区数值已激活" };
 }
-
 function incompleteItems(caseId, state, includeRare = true) {
   const owned = state.world.collection.items;
   return itemsForCase(caseId).filter((item) => !item.condition.finale && !owned[item.id] && (includeRare || item.slot <= 6) && itemEligible(item, state));
 }
-
 function caseAccessible(caseDef, state) {
   const level = clamp((((state.world.reserve || {}).progression || {}).level) || 1, 1, 5);
   if (!caseDef.hidden) return caseDef.chapter <= level && incompleteItems(caseDef.id, state).length > 0;
   return incompleteItems(caseDef.id, state).length > 0;
 }
-
 function meaningfulCount(state) {
   const reserve = ((state || {}).world || {}).reserve || {};
   return Math.max((((reserve.strategy || {}).totalMeaningfulActions) || 0), (((reserve.progression || {}).totalMeaningfulActions) || 0));
 }
-
 function discoveryStatusLabel(status) {
   return ({ hidden: "未察觉", hinted: "有迹可循", located: "现场发现", archived: "已收录" })[status] || "未察觉";
 }
-
 function nextStoryCandidate(state, preferredCaseId = null, animal = null) {
   const collection = state.world.collection;
   const level = clamp(((((state.world.reserve || {}).progression || {}).level) || 1), 1, 5);
@@ -530,7 +497,6 @@ function nextStoryCandidate(state, preferredCaseId = null, animal = null) {
   }
   return null;
 }
-
 function storyAnimalSnapshot(state, item, animal = null) {
   const related = relationForLead(state, caseById(item.caseId));
   if (!animal) return related;
@@ -544,7 +510,6 @@ function storyAnimalSnapshot(state, item, animal = null) {
     wildness: clamp(animal.wildness == null ? related.wildness : animal.wildness)
   };
 }
-
 function beginStoryDiscovery(state, animal, context = {}, random = Math.random) {
   normalizeCollectionState(state);
   const collection = state.world.collection;
@@ -584,7 +549,6 @@ function beginStoryDiscovery(state, animal, context = {}, random = Math.random) 
   collection.history.push({ type: "story_hint", itemId: item.id, caseId: item.caseId, day, title: record.title });
   return { state, discovery: record, created: true, item, caseDef };
 }
-
 function advanceStoryDiscovery(state, context = {}) {
   normalizeCollectionState(state);
   const collection = state.world.collection;
@@ -605,7 +569,6 @@ function advanceStoryDiscovery(state, context = {}) {
   collection.history.push({ type: "story_located", itemId: item.id, caseId: item.caseId, day, title: `现场发现：${item.name}` });
   return { state, discovery: active, advanced: true, item };
 }
-
 function collectStoryDiscovery(state, itemId = null) {
   normalizeCollectionState(state);
   const collection = state.world.collection;
@@ -633,9 +596,6 @@ function collectStoryDiscovery(state, itemId = null) {
   story.totalArchived += 1;
   story.active = null;
   const reserve = state.world.reserve || {};
-  // 亲手把动物指出的现场物件收入档案，是一次真实推进剧情的有效互动。
-  // 它不占晨/午/暮行动，但应计入章节的“有效操作”，否则收藏与主线仍是
-  // 两套互不相干的系统。
   reserve.progression = Object.assign({}, reserve.progression || {}, {
     totalMeaningfulActions: Math.max(0, Number((reserve.progression || {}).totalMeaningfulActions) || 0) + 1
   });
@@ -666,7 +626,6 @@ function collectStoryDiscovery(state, itemId = null) {
     && !collection.cases[item.caseId].ending;
   return { ok: true, state, item, entry, endingReady, reserveImpact, facilityMilestone: entry.facilityMilestone || null };
 }
-
 function storyDiscoverySummary(state) {
   normalizeCollectionState(state);
   const collection = state.world.collection;
@@ -679,7 +638,6 @@ function storyDiscoverySummary(state) {
     states: collection.discovery.states
   };
 }
-
 function updateCollectionAfterAction(beforeState, afterState, context = {}, random = Math.random) {
   normalizeCollectionState(beforeState);
   normalizeCollectionState(afterState);
@@ -701,7 +659,6 @@ function updateCollectionAfterAction(beforeState, afterState, context = {}, rand
   const storyUpdate = advanceStoryDiscovery(afterState, context);
   return { state: afterState, lead: null, chargeGained, discovery: storyUpdate.discovery, discoveryAdvanced: storyUpdate.advanced, discoveryItem: storyUpdate.item || null };
 }
-
 function offerAnimalCollectionLead(state, animal, context = {}, random = Math.random) {
   normalizeCollectionState(state);
   const collection = state.world.collection;
@@ -767,7 +724,6 @@ function offerAnimalCollectionLead(state, animal, context = {}, random = Math.ra
     reason: storyResult.created ? (sourceMode === "care" ? "安抚后，动物带你发现一处异常" : "动物提醒你留意一处异常") : storyResult.reason
   };
 }
-
 function startInvestigation(state, leadId, methodId) {
   normalizeCollectionState(state);
   const collection = state.world.collection;
@@ -781,7 +737,6 @@ function startInvestigation(state, leadId, methodId) {
   inv.pending = { leadId, methodId, startedDay: collectionDay(state), itemId: lead.itemId || "" };
   return { ok: true, state, pending: inv.pending };
 }
-
 function methodModifiers(state, lead, method) {
   const animal = lead.animal || {};
   const security = clamp(animal.security == null ? (animal.trust || 0) : animal.security);
@@ -791,7 +746,6 @@ function methodModifiers(state, lead, method) {
     relation: method.id === "animal" ? (security >= 80 && wildness >= 65 ? 2 : security >= 55 && wildness >= 55 ? 1 : 0) : 0
   };
 }
-
 function recordItem(state, item, lead, method, roll, total, extraInterpretation = false) {
   const collection = state.world.collection;
   const day = collectionDay(state);
@@ -805,7 +759,6 @@ function recordItem(state, item, lead, method, roll, total, extraInterpretation 
   if (facilityMilestone && facilityMilestone.changed) entry.facilityMilestone = facilityMilestone;
   return entry;
 }
-
 function resolveInvestigation(state, forcedRoll = null, random = Math.random) {
   normalizeCollectionState(state);
   const collection = state.world.collection;
@@ -829,9 +782,6 @@ function resolveInvestigation(state, forcedRoll = null, random = Math.random) {
     riskChanges.safety = reserve.safety - beforeSafety;
     riskChanges.poacherPressure = reserve.poacherPressure - beforePoacher;
   }
-  // The landscape belongs to the clue, not to the day it is finally rolled.
-  // A rain-channel lead therefore cannot turn into a dry-riverbed object after
-  // the season changes while the player is away.
   const eligibilityState = lead.season ? Object.assign({}, state, {
     world: Object.assign({}, state.world, {
       season: lead.season,
@@ -866,7 +816,6 @@ function resolveInvestigation(state, forcedRoll = null, random = Math.random) {
   if (item.caseId === "hidden" && caseState.itemIds.length >= 5) collection.worldFlags.forest_remembers = true;
   return { ok: true, success: true, state, lead, item, entry, roll, total, modifiers, guaranteed, riskChanges, extraInterpretation, endingReady };
 }
-
 function applyEffect(reserve, key, amount) {
   if (key === "eye") {
     return { key: "record", before: 0, after: 0, delta: 0, note: "调查记录已归档" };
@@ -901,7 +850,6 @@ function applyEffect(reserve, key, amount) {
   else reserve[key] = after;
   return { key, before, after, delta: after - before };
 }
-
 function submitCaseEnding(state, caseId, choiceId) {
   normalizeCollectionState(state);
   const collection = state.world.collection;
@@ -943,7 +891,6 @@ function submitCaseEnding(state, caseId, choiceId) {
   }
   return { ok: true, state, caseDef, choice, finale, itemEntry, changes, routeDelta: 4, animal: lead.animal, masteryGain };
 }
-
 function collectionProgressChapter(state) {
   const reserve = (((state || {}).world || {}).reserve) || {};
   const level = clamp(((reserve.progression || {}).level) || 1, 1, 7);
@@ -952,7 +899,6 @@ function collectionProgressChapter(state) {
   const displayChapter = Math.max(1, Math.round(Number((reserve.progression || {}).displayChapter || (reserve.progression || {}).stage || 0)));
   return Math.max(level, chainChapter, displayChapter);
 }
-
 function nextCollectionDiceItem(state) {
   normalizeCollectionState(state);
   const owned = state.world.collection.items;
@@ -975,7 +921,6 @@ function nextCollectionDiceItem(state) {
   const hidden = itemsForCase("hidden").find((item) => !owned[item.id] && itemEligible(item, state));
   return hidden || null;
 }
-
 function ensureCollectionDiceLead(state, animal = null) {
   normalizeCollectionState(state);
   const item = nextCollectionDiceItem(state);
@@ -1002,7 +947,6 @@ function ensureCollectionDiceLead(state, animal = null) {
   collection.leads = (collection.leads || []).concat(lead).slice(0, MAX_COLLECTION_LEADS);
   return lead;
 }
-
 function grantNextCollectionFromExchange(state, context = {}) {
   normalizeCollectionState(state);
   if (state.world.collection.discovery.active) return { ok: false, reason: "busy" };
@@ -1017,7 +961,6 @@ function grantNextCollectionFromExchange(state, context = {}) {
   state.world.collection.leads = (state.world.collection.leads || []).filter((lead) => lead.itemId !== item.id);
   return { ok: true, item, entry };
 }
-
 function collectionSummary(state) {
   normalizeCollectionState(state);
   const collection = state.world.collection;
@@ -1031,7 +974,6 @@ function collectionSummary(state) {
   });
   return { collected: Object.keys(collection.items).length, total: ITEMS.length, percent: Math.round(Object.keys(collection.items).length / ITEMS.length * 100), latest: collection.lastDiscovery, folders, leads: collection.leads.length + (collection.discovery.active ? 1 : 0), charges: collection.investigation.charges, chargeProgress: collection.investigation.chargeProgress, activeDiscovery: storyDiscoverySummary(state).active, legacyCount: collection.legacyArchive.count || 0, forestRemembers: !!collection.worldFlags.forest_remembers };
 }
-
 module.exports = {
   CASES, CATALOG: ITEMS, ITEMS, METHODS, ENDINGS,
   caseById, collectionItemById, itemsForCase, itemEligible, collectionDiscoveryActivation,

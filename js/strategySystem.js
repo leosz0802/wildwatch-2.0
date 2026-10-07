@@ -1,7 +1,6 @@
 const { BALANCE_V2 } = require("./balanceConfig");
 const { eventCategory } = require("./eventEconomy");
 const { addPendingRecovered, consumeProjectPreparation } = require("./resourceLedger");
-
 const STRATEGY_ROUTES = {
   balanced: {
     id: "balanced",
@@ -44,18 +43,15 @@ const STRATEGY_ROUTES = {
     benefit: "行动更容易获得声誉和稳定；代价只在明确的策略选项中结算。"
   }
 };
-
 const STRATEGY_ROUTE_IDS = ["enforcement", "ecology", "research", "community"];
 const MAX_ROUTE_SCORE = 30;
 const STRATEGY_CHAPTER_TARGETS = {
-  // 第一阶段由阶段状态覆盖为一次轻策略；后续第1章延伸阶段保留原节奏。
   1: { total: 3, major: 1 },
   2: { total: 4, major: 1 },
   3: { total: 5, major: 2 },
   4: { total: 5, major: 2 },
   5: { total: 4, major: 1 }
 };
-
 const LEGACY_MAJOR_DILEMMAS = [
   {
     id: "water_access",
@@ -215,7 +211,6 @@ const LEGACY_MAJOR_DILEMMAS = [
     ]
   }
 ];
-
 function choice(id, label, route, effects, consequenceLabel, modifiers, outcome, risk = "safe") {
   return {
     id,
@@ -232,7 +227,6 @@ function choice(id, label, route, effects, consequenceLabel, modifiers, outcome,
     outcome
   };
 }
-
 const THIRD_MAJOR_CHOICES = {
   water_access: choice("rotating_water", "轮换开放水线", "ecology", { water: 6, fund: -120, migrationDelta: 2, poacherPressure: 1 }, "轮换水线", { water: 1, fund: -10 }, "水线按动物活动轮换开放，恢复速度适中，也需要持续维护。", "balanced"),
   informant_or_blockade: choice("controlled_sting", "布置可控诱捕", "research", { fund: -120, poacherPressure: -8, enforcement: 4 }, "可控诱捕", { enforcement: 1 }, "你没有立刻收网，而是用有限线索锁定更完整的运输链。", "balanced"),
@@ -241,7 +235,6 @@ const THIRD_MAJOR_CHOICES = {
   community_boundary: choice("seasonal_corridor", "划定季节通道", "ecology", { fund: -140, water: 3, migrationDelta: 4, reputation: 3, poacherPressure: 2 }, "季节通道", { migrationDelta: 1, fund: -12 }, "动物与社区按季节错峰使用边界，冲突缓解但巡查更复杂。", "balanced"),
   evidence_destination: choice("independent_archive", "建立独立档案", "community", { fund: -90, reputation: 5, enforcement: 3 }, "公共监督档案", { fund: -10, reputation: 1 }, "保护区保留证物副本并接受公共监督，效率较慢但信任更稳。", "balanced")
 };
-
 function failureEffectsFor(effects) {
   const failed = {};
   Object.keys(effects || {}).forEach((key) => {
@@ -253,7 +246,6 @@ function failureEffectsFor(effects) {
   failed.stability = (failed.stability || 0) - 3;
   return failed;
 }
-
 const LEGACY_MAJOR_CHOICE_ORDER = {
   water_access: ["hide_springs", "open_water", "rotating_water"],
   informant_or_blockade: ["pay_informant", "hard_blockade", "controlled_sting"],
@@ -262,7 +254,6 @@ const LEGACY_MAJOR_CHOICE_ORDER = {
   community_boundary: ["compensate", "build_fence", "seasonal_corridor"],
   evidence_destination: ["research_chain", "joint_taskforce", "independent_archive"]
 };
-
 const ENHANCED_MAJOR_DILEMMAS = LEGACY_MAJOR_DILEMMAS.map((item) => {
   const order = LEGACY_MAJOR_CHOICE_ORDER[item.id] || [];
   const choices = item.choices.concat(THIRD_MAJOR_CHOICES[item.id]).sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id)).map((entry, index) => {
@@ -278,7 +269,6 @@ const ENHANCED_MAJOR_DILEMMAS = LEGACY_MAJOR_DILEMMAS.map((item) => {
   });
   return Object.assign({}, item, { tier: "major", maxOccurrences: 5, maxOccurrencesPerChapter: 1, minChapterRepeatGap: 2, choices });
 });
-
 const TACTICAL_DILEMMAS = [
   {
     id: "patrol_split", title: "今晚只有一支巡护队", story: "河岸出现脚印，草场同时传来幼兽叫声。你只能先处理一边。", minChapter: 1, minActions: 3,
@@ -302,9 +292,6 @@ const TACTICAL_DILEMMAS = [
     ]
   },
   {
-    // 第一章四次抉择必须对所有路线都可达。过去这里要求先形成执法
-    // 路线，而雨季又锁住水泵事件，非执法玩家会永久停在 3/4。
-    // 缺口是通用保护区事件；路线差异应由选项体现，而非触发前硬锁。
     id: "fence_gap", title: "防护网出现一处缺口", story: "缺口也是动物通道。立即封死更安全，保留通道则需要持续监控。", minChapter: 1, minActions: 5,
     choices: [
       choice("seal_gap", "立即封死", "enforcement", { safety: 5, migrationDelta: -2, fund: -45 }, "封闭缺口", { safety: 1, migrationDelta: -1 }, "边界更安全，但动物失去一条熟悉通道。"),
@@ -405,7 +392,6 @@ const TACTICAL_DILEMMAS = [
 ].map((item) => Object.assign({ tier: "tactical", maxOccurrences: 5, maxOccurrencesPerChapter: 1 }, item, {
   choices: (item.choices || []).slice(0, 1)
 }));
-
 function majorDecision(id, title, story, minChapter, minActions, parentId, options = {}) {
   return {
     id, title, story, minChapter, minActions, tier: "major", maxOccurrences: 1,
@@ -415,7 +401,6 @@ function majorDecision(id, title, story, minChapter, minActions, parentId, optio
     choices: options.choices
   };
 }
-
 const ADDITIONAL_MAJOR_DILEMMAS = [
   majorDecision("water_governance", "谁来管理长期水线", "临时水线已经稳定，但管理权会决定下一季谁先得到水。", 2, 14, "water_access", { choices: [
     choice("water_committee", "成立社区水委会", "community", { reputation: 7, fund: -180, water: 3 }, "水委会", { reputation: 1, fund: -16 }, "社区参与提高，协调成本长期存在。"),
@@ -455,7 +440,6 @@ const ADDITIONAL_MAJOR_DILEMMAS = [
     consequence: Object.assign({}, entry.consequence, { remainingActions: index === 1 ? 8 : index === 2 ? 6 : 5 })
   }))
 }));
-
 const STRATEGY_BALANCE_WEIGHTS = {
   fund: 0.02,
   safety: 1,
@@ -470,11 +454,9 @@ const STRATEGY_BALANCE_WEIGHTS = {
   disease: -1,
   migrationDelta: 1
 };
-
 function strategicEffectValue(effects) {
   return Object.keys(effects || {}).reduce((sum, key) => sum + (STRATEGY_BALANCE_WEIGHTS[key] || 0) * effects[key], 0);
 }
-
 function strategicChoiceExpectedValue(entry) {
   const consequence = entry.consequence || {};
   const ongoing = strategicEffectValue(consequence.modifiers) * (consequence.remainingActions || 0) * 0.5;
@@ -483,7 +465,6 @@ function strategicChoiceExpectedValue(entry) {
   const failureValue = strategicEffectValue(entry.failureEffects || failureEffectsFor(entry.effects)) + ongoing;
   return Math.round(((successValue / 3) + (failureValue * 2 / 3)) * 10) / 10;
 }
-
 const STRATEGIC_DILEMMAS = TACTICAL_DILEMMAS.filter((item) => item.id !== "feed_shortage").concat(ENHANCED_MAJOR_DILEMMAS, ADDITIONAL_MAJOR_DILEMMAS).map((item) => {
   const natural = ["water_access", "water_pump", "injured_herd", "disease_trace", "disease_response", "disease_corridor", "dry_season_queue"].includes(item.id);
   const neighbor = ["water_governance", "evidence_destination"].includes(item.id);
@@ -502,11 +483,9 @@ const STRATEGIC_DILEMMAS = TACTICAL_DILEMMAS.filter((item) => item.id !== "feed_
     }))
   });
 });
-
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value));
 }
-
 function normalizeStrategyState(saved) {
   const base = saved || {};
   const routeScores = {};
@@ -565,28 +544,22 @@ function normalizeStrategyState(saved) {
     lastRhythm: Object.assign({ repeatCount: 0, penalty: 0, varietyBonus: false, meaningful: true }, base.lastRhythm || {})
   };
 }
-
 function dominantRouteFor(scores) {
   const entries = Object.keys(scores || {}).map((id) => ({ id, score: scores[id] || 0 })).sort((a, b) => b.score - a.score);
   if (!entries.length || entries[0].score < 4) return "balanced";
   if (entries[1] && entries[0].score === entries[1].score) return "balanced";
   return entries[0].id;
 }
-
 function strategyRoute(reserve) {
   const state = normalizeStrategyState(reserve && reserve.strategy);
   return STRATEGY_ROUTES[state.dominantRoute] || STRATEGY_ROUTES.balanced;
 }
-
 function addMetric(reserve, key, amount) {
   if (!amount) return;
   if (key === "clue") {
-    // 线索已退出玩家资源层；保留旧事件字段，但不再改变存档或成功率。
     return;
   }
   if (key === "fund") {
-    // 基金只允许通过“回收物入库后移交”获得。旧策略中的拨款先变成待收样本；
-    // 旧预算成本改为消耗现有巡护补给，避免隐藏扣款。
     if (amount > 0) {
       addPendingRecovered(reserve, "researchSample", Math.max(1, Math.ceil(amount / 100)));
       return;
@@ -609,11 +582,9 @@ function addMetric(reserve, key, amount) {
   const max = key === "clue" ? 6 : key === "fund" ? Number.MAX_SAFE_INTEGER : 100;
   reserve[key] = clamp(Math.round((reserve[key] || 0) + amount), 0, max);
 }
-
 function applyModifiers(reserve, modifiers) {
   Object.keys(modifiers || {}).forEach((key) => addMetric(reserve, key, modifiers[key]));
 }
-
 function recordStrategicAction(reserve, action) {
   const state = normalizeStrategyState(reserve.strategy);
   const previous = state.recentActions.slice();
@@ -625,10 +596,9 @@ function recordStrategicAction(reserve, action) {
   state.recentActions = previous.concat(action).slice(-5);
   const lastThree = state.recentActions.slice(-3);
   const varietyBonus = lastThree.length === 3 && new Set(lastThree).size === 3;
-
   const actionRoutes = {
     antiPoacher: { enforcement: 2 },
-    houndScout: { research: 1, enforcement: 1 },
+    houndScout: { research: 1 },
     habitat: { ecology: 2 },
     intervention: { ecology: 1, research: 1 },
     exploreMaterials: { research: 1, community: 1 },
@@ -645,7 +615,6 @@ function recordStrategicAction(reserve, action) {
     });
   }
   state.dominantRoute = dominantRouteFor(state.routeScores);
-
   if (penalty > 0) {
     if (action === "houndScout" || action === "antiPoacher") addMetric(reserve, "poacherPressure", penalty * 2);
     if (action === "houndScout") addMetric(reserve, "clue", -penalty);
@@ -654,13 +623,11 @@ function recordStrategicAction(reserve, action) {
       addMetric(reserve, "grass", -penalty * 2);
     }
     if (action === "intervention") addMetric(reserve, "grass", -penalty * 2);
-    // 重复行动已经通过收益衰减结算，不能再暗扣补给或草场。
   }
   if (varietyBonus) {
     addMetric(reserve, "fund", 20);
     addMetric(reserve, "reputation", 2);
   }
-
   const route = STRATEGY_ROUTES[state.dominantRoute] || STRATEGY_ROUTES.balanced;
   if (meaningful && route.id === "enforcement") {
     if (action === "houndScout" || action === "antiPoacher") addMetric(reserve, "poacherPressure", -2);
@@ -670,10 +637,6 @@ function recordStrategicAction(reserve, action) {
     if (action === "habitat" || action === "intervention") {
       if (((reserve.ecology || {}).water || 0) < 75) addMetric(reserve, "water", 2);
       addMetric(reserve, "grass", 2);
-      // “生态韧性”的配置说明包含降低疾病，但旧被动只修水草，导致
-      // 生态路线在疾病阶段反而需要比其他路线多做一轮干预。把恢复栖息地
-      // 带来的环境减压和直接干预的疾病控制显式结算，保持路线语义一致，
-      // 同时只给 1/2 点的小幅收益，避免形成固定最优解。
       addMetric(reserve, "disease", action === "intervention" ? -2 : -1);
     }
     if (action === "habitat") {
@@ -689,8 +652,6 @@ function recordStrategicAction(reserve, action) {
       if ((reserve.safety || 0) < 60) addMetric(reserve, "safety", 1);
     }
     if (action === "salvage") addPendingRecovered(reserve, "researchSample", 1);
-    // 科研路线的核心产出来自现场记录。每两次有效侦察/探索形成一件
-    // 可移交样本；健康基金以上不再享受低存量拨款加成，避免无限造钱。
     if ((action === "houndScout" || action === "exploreMaterials")
       && state.totalMeaningfulActions % 2 === 0) {
       addPendingRecovered(reserve, "researchSample", 1);
@@ -698,7 +659,6 @@ function recordStrategicAction(reserve, action) {
   } else if (meaningful && route.id === "community") {
     addMetric(reserve, "reputation", 2);
     addMetric(reserve, "stability", 1);
-    // 社区路线的采购会同步补充沿线联络点，以持续报告压低边界风险。
     if (action === "buySupplies") addMetric(reserve, "poacherPressure", -3);
     if (action === "intervention") {
       addMetric(reserve, "disease", -3);
@@ -708,14 +668,12 @@ function recordStrategicAction(reserve, action) {
       if ((reserve.safety || 0) < 60) addMetric(reserve, "safety", 2);
     }
   }
-
   const consequenceEffects = [];
   state.consequences = state.consequences.map((item) => {
     applyModifiers(reserve, item.modifiers || {});
     consequenceEffects.push(item.label);
     return Object.assign({}, item, { remainingActions: Math.max(0, (item.remainingActions || 0) - 1) });
   }).filter((item) => item.remainingActions > 0);
-
   state.lastRhythm = {
     action,
     repeatCount,
@@ -739,15 +697,12 @@ function recordStrategicAction(reserve, action) {
   });
   return state.lastRhythm;
 }
-
 function strategicDilemmaById(id) {
   return STRATEGIC_DILEMMAS.find((item) => item.id === id) || null;
 }
-
 function dilemmaOccurrenceCount(state, id, chapter = null) {
   return (state.choiceHistory || []).filter((item) => item.dilemmaId === id && (chapter == null || item.chapter === chapter)).length;
 }
-
 function maybePrepareStrategicDilemma(reserve, context = {}, random = Math.random) {
   const state = normalizeStrategyState(reserve.strategy);
   if (state.pendingDilemma) {
@@ -761,13 +716,11 @@ function maybePrepareStrategicDilemma(reserve, context = {}, random = Math.rando
   const animalTrust = Math.max(0, Math.min(100, context.animalTrust == null ? (reserve.reputation || 50) : context.animalTrust));
   const seasonName = ((reserve.seasonState || {}).name) || context.season || "雨季";
   const chapterRecords = (state.choiceHistory || []).filter((record) => record.chapter === chapter);
-  const chapterTarget = ((reserve.progression || {}).stage === 1)
+  const chapterTarget = ((reserve.progression || {}).stage === 1 && chapter <= 1)
     ? { total: 1, major: 0 }
     : (STRATEGY_CHAPTER_TARGETS[chapter] || STRATEGY_CHAPTER_TARGETS[5]);
-  const storedChapterChoices = Number.isFinite((reserve.progression || {}).chapterStrategicChoices) ? reserve.progression.chapterStrategicChoices : 0;
-  const storedChapterMajorChoices = Number.isFinite((reserve.progression || {}).chapterMajorStrategicChoices) ? reserve.progression.chapterMajorStrategicChoices : 0;
-  const chapterChoiceCount = Math.max(storedChapterChoices, chapterRecords.length);
-  const chapterMajorChoiceCount = Math.max(storedChapterMajorChoices, chapterRecords.filter((record) => record.tier === "major").length);
+  const chapterChoiceCount = chapterRecords.length;
+  const chapterMajorChoiceCount = chapterRecords.filter((record) => record.tier === "major").length;
   if (totalActions - state.lastDilemmaAction < 2) {
     reserve.strategy = state;
     return null;
@@ -802,7 +755,15 @@ function maybePrepareStrategicDilemma(reserve, context = {}, random = Math.rando
     reserve.strategy = state;
     return null;
   }
-  const weightedCandidates = candidates.map((item) => {
+  const scoreEntries = Object.entries(state.routeScores || {}).sort((a, b) => (b[1] || 0) - (a[1] || 0));
+  const leadingRoute = scoreEntries.length && (scoreEntries[0][1] || 0) >= ((scoreEntries[1] && scoreEntries[1][1]) || 0) + 4
+    ? scoreEntries[0][0]
+    : "";
+  const alignedCandidates = leadingRoute
+    ? candidates.filter((item) => (item.choices || []).some((choice) => choice.route === leadingRoute))
+    : [];
+  const offered = alignedCandidates.length ? alignedCandidates : candidates;
+  const weightedCandidates = offered.map((item) => {
     const lastChapter = lastChapterFor(item.id);
     const weight = lastChapter < 0 ? 1.4 : lastChapter === chapter - 1 ? 0.35 : 1;
     return { item, weight };
@@ -839,7 +800,6 @@ function maybePrepareStrategicDilemma(reserve, context = {}, random = Math.rando
   reserve.strategy = state;
   return state.pendingDilemma;
 }
-
 function metricSnapshot(reserve) {
   const ecology = reserve.ecology || {};
   const supplies = reserve.supplies || {};
@@ -859,7 +819,6 @@ function metricSnapshot(reserve) {
     ,supplyTotal: Object.keys(supplies).reduce((sum, key) => sum + (supplies[key] || 0), 0)
   };
 }
-
 const METRIC_LABELS = {
   fund: "基金",
   safety: "动物安全感",
@@ -876,7 +835,6 @@ const METRIC_LABELS = {
   ,researchSamples: "待收研究样本"
   ,supplyTotal: "巡护补给"
 };
-
 function effectPreview(choice) {
   return Object.keys(choice.effects || {}).filter((key) => key !== "clue").map((key) => {
     const value = choice.effects[key];
@@ -887,12 +845,10 @@ function effectPreview(choice) {
     return `${METRIC_LABELS[key] || key} ${value > 0 ? "+" : ""}${value}`;
   }).join(" / ");
 }
-
 function isPositiveEffect(key, value) {
   if (key === "poacherPressure" || key === "disease") return value < 0;
   return value > 0;
 }
-
 function adjustedEffectsFor(reserve, dilemma, choice, effects) {
   const state = normalizeStrategyState(reserve.strategy);
   const currentRoute = state.dominantRoute || "balanced";
@@ -910,7 +866,6 @@ function adjustedEffectsFor(reserve, dilemma, choice, effects) {
   });
   return { effects: adjusted, routeAligned, chainAligned, multiplier };
 }
-
 function strategicResourceShortfall(reserve, effects) {
   return {
     fund: 0,
@@ -920,7 +875,6 @@ function strategicResourceShortfall(reserve, effects) {
     poacherPenalty: 0
   };
 }
-
 function effectsWithShortfallPenalty(reserve, effects) {
   const adjusted = Object.assign({}, effects || {});
   const shortfall = strategicResourceShortfall(reserve, adjusted);
@@ -929,7 +883,6 @@ function effectsWithShortfallPenalty(reserve, effects) {
   if (shortfall.poacherPenalty) adjusted.poacherPressure = (adjusted.poacherPressure || 0) + shortfall.poacherPenalty;
   return { effects: adjusted, shortfall };
 }
-
 function strategicDicePreview(reserve, dilemma, choice) {
   const adjusted = adjustedEffectsFor(reserve, dilemma, choice, choice.effects || {});
   const routeModifier = adjusted.routeAligned || adjusted.chainAligned ? 1 : 0;
@@ -945,7 +898,6 @@ function strategicDicePreview(reserve, dilemma, choice) {
     maxTotal: 6 + routeModifier + resourceModifier
   };
 }
-
 function selectStrategicChoice(reserve, dilemmaId, choiceId) {
   const state = normalizeStrategyState(reserve.strategy);
   const dilemma = strategicDilemmaById(dilemmaId || (state.pendingDilemma && state.pendingDilemma.id));
@@ -955,14 +907,12 @@ function selectStrategicChoice(reserve, dilemmaId, choiceId) {
   reserve.strategy = state;
   return state.pendingSelection;
 }
-
 function setPendingStrategicRoll(reserve, rollState) {
   const state = normalizeStrategyState(reserve.strategy);
   state.pendingRoll = rollState ? Object.assign({}, rollState) : null;
   reserve.strategy = state;
   return state.pendingRoll;
 }
-
 function applyStrategicChoice(reserve, dilemmaId, choiceId, diceResult = null) {
   const state = normalizeStrategyState(reserve.strategy);
   const dilemma = strategicDilemmaById(dilemmaId || (state.pendingDilemma && state.pendingDilemma.id));
@@ -1018,8 +968,6 @@ function applyStrategicChoice(reserve, dilemmaId, choiceId, diceResult = null) {
   state.lastChoiceAction = state.lastDilemmaAction;
   if (dilemma.tier === "major") state.lastMajorAction = state.lastDilemmaAction;
   else state.lastTacticalAction = state.lastDilemmaAction;
-  // 第一阶段的轻策略在第4次行动后才展示，但不应让后续章节整体多出一拍等待。
-  // 将节奏锚点回拨一格，保留“第4次出现”的体验，同时维持原有章节 cadence。
   if (dilemma.id === "patrol_split" && ((reserve.progression || {}).stage === 1)) {
     state.lastTacticalAction = Math.max(0, state.lastTacticalAction - 1);
   }
@@ -1060,7 +1008,6 @@ function applyStrategicChoice(reserve, dilemmaId, choiceId, diceResult = null) {
     dice: choice.dice ? { roll: diceResult.roll, total: diceTotal, threshold: dice.threshold, success: diceSuccess, routeModifier: dice.routeModifier, resourceModifier: dice.resourceModifier } : null
   };
 }
-
 module.exports = {
   STRATEGY_ROUTES,
   STRATEGIC_DILEMMAS,

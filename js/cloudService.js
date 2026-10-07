@@ -1,9 +1,10 @@
 const CLOUD_BASE_URL = "https://wild.hubao.tv";
+const NETWORK_RETRY_BASE_MS = 15000;
+const NETWORK_RETRY_MAX_MS = 120000;
 const SESSION_STORAGE_KEY = "wild_guard_cloud_session_v1";
 const CONFIG_STORAGE_KEY = "wild_guard_remote_config_v1";
 const INSTALL_STORAGE_KEY = "wild_guard_install_id_v1";
 const { calculateReserveValuation } = require("./reserveValuation");
-
 const DEFAULT_REMOTE_CONFIG = Object.freeze({
   version: 1,
   minimumClientVersion: "0.3.1",
@@ -12,6 +13,8 @@ const DEFAULT_REMOTE_CONFIG = Object.freeze({
     worldLeaderboard: true,
     socialTrade: false,
     reciprocalTrade: false,
+    friendContracts: false,
+    worldPatrols: false,
     telemetry: false,
     cloudSave: false,
     remoteBalance: false
@@ -31,12 +34,10 @@ const DEFAULT_REMOTE_CONFIG = Object.freeze({
   }),
   messages: Object.freeze({ maintenance: "保护区正在维护，请稍后回来。" })
 });
-
 function clampNumber(value, min, max, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.max(min, Math.min(max, number)) : fallback;
 }
-
 function safeConfig(input = {}) {
   const features = input.features && typeof input.features === "object" ? input.features : {};
   const balance = input.balance && typeof input.balance === "object" ? input.balance : {};
@@ -70,6 +71,8 @@ function safeConfig(input = {}) {
       worldLeaderboard: features.worldLeaderboard === true,
       socialTrade: features.socialTrade === true,
       reciprocalTrade: features.reciprocalTrade === true,
+      friendContracts: features.friendContracts === true,
+      worldPatrols: features.worldPatrols === true,
       telemetry: features.telemetry === true,
       cloudSave: features.cloudSave === true,
       remoteBalance: features.remoteBalance === true
@@ -104,23 +107,19 @@ function safeConfig(input = {}) {
     }
   };
 }
-
 function normalizeReserveRankName(value) {
   const text = String(value || "").trim().replace(/保护区$/, "");
   return text.slice(0, 20) || "未命名哨站";
 }
-
 function normalizeLeaderboardOwnerName(value) {
   return String(value || "").trim().replace(/^卫士\s*[·・•.\-_:：]?\s*/, "").trim().slice(0, 20);
 }
-
 function leaderboardOwnerName(entry = {}, index = 0) {
   const explicit = normalizeLeaderboardOwnerName(entry.ownerName);
   if (explicit) return explicit;
   const publicId = String(entry.id || "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 4).toUpperCase();
   return publicId || `远方玩家${index + 1}`;
 }
-
 function leaderboardIdentity(entry = {}, index = 0) {
   const raw = String(entry.displayName || entry.reserveName || "远方哨站").trim().slice(0, 40);
   const delimiter = raw.indexOf("的");
@@ -130,26 +129,22 @@ function leaderboardIdentity(entry = {}, index = 0) {
   const reserveName = normalizeReserveRankName(entry.reserveName || parsedReserve);
   return { ownerName, reserveName, title: `${ownerName}的${reserveName}` };
 }
-
 function sumAnimals(group) {
   return Object.keys(group || {}).reduce((sum, key) => sum + (Number(group[key]) || 0), 0);
 }
-
 function reserveAnimalTotal({ ecology = {}, base = {} } = {}) {
   return sumAnimals(ecology.predators) + sumAnimals(ecology.herbivores) + sumAnimals(ecology.birds)
     || sumAnimals(base.protectedAnimals) || Number(base.animals) || 0;
 }
-
 function rankRecord(reserve = {}, valuation) {
   const base = reserve.base || {};
   const progression = reserve.progression || {};
   const level = Math.max(1, Math.min(7, Math.round(Number(progression.level) || 1)));
   const animals = Math.max(0, Math.min(99999, Math.round(reserveAnimalTotal(reserve))));
-  // Ignore legacy/caller-supplied valuation. Every ranking surface must derive
-  // the same score from the two visible, auditable inputs.
   const marketValue = calculateReserveValuation(level, animals);
   const reserveName = normalizeReserveRankName(base.name || "我的保护区");
   const ownerName = normalizeLeaderboardOwnerName(base.ownerName || reserve.ownerName);
+  const operations = (((reserve.development || {}).operations || {}).today || {});
   return {
     score: Math.max(0, Math.min(10000000, Math.round(Number(marketValue) || 0))),
     displayName: ownerName ? `${ownerName}的${reserveName}`.slice(0, 40) : reserveName,
@@ -159,10 +154,12 @@ function rankRecord(reserve = {}, valuation) {
     level,
     animals,
     shield: Math.max(0, Math.min(100, Math.round(Number(base.shield) || 0))),
+    safety: Math.max(0, Math.min(100, Math.round(Number(reserve.safety) || 0))),
+    visitors: Math.max(0, Math.min(999999, Math.round(Number(operations.visitors || 0) + Number(operations.recruitedVisitors || 0)))),
+    fund: Math.max(0, Math.min(100000000, Math.round(Number(reserve.fund) || 0))),
     style: String(base.style || progression.title || "综合守护").trim().slice(0, 20) || "综合守护"
   };
 }
-
 function stableHash(value) {
   let hash = 2166136261;
   const text = String(value || "world");
@@ -172,7 +169,6 @@ function stableHash(value) {
   }
   return hash >>> 0;
 }
-
 function leaderboardRow(entry = {}, index = 0) {
   const rating = Math.max(0, Math.round(Number(entry.score) || 0));
   const pendingFriend = entry.registered === false && String(entry.displayName || "") === "微信同玩好友";
@@ -194,6 +190,8 @@ function leaderboardRow(entry = {}, index = 0) {
     rating,
     level: hasProfile ? Math.max(1, Math.min(7, Math.round(Number(entry.level)))) : 1,
     shield: hasProfile ? Math.max(0, Math.min(100, Math.round(Number(entry.shield)))) : 24 + (seed % 49),
+    safety: hasProfile ? Math.max(0, Math.min(100, Math.round(Number(entry.safety) || 0))) : 50,
+    visitors: hasProfile ? Math.max(0, Math.min(999999, Math.round(Number(entry.visitors) || 0))) : 0,
     animals: hasProfile ? Math.max(0, Math.min(99999, Math.round(Number(entry.animals)))) : 26 + (Math.floor(seed / 7) % 39),
     material: 80 + (Math.floor(seed / 13) % 151),
     style: String(entry.style || styles[seed % styles.length]).slice(0, 20),
@@ -205,11 +203,13 @@ function leaderboardRow(entry = {}, index = 0) {
     friend: entry.friend === true,
     friendMatchKey: /^[a-f0-9]{64}$/.test(entry.friendMatchKey || "") ? entry.friendMatchKey : "",
     worldPlayerId: String(entry.worldPlayerId || entry.id || "").replace(/^cloud_/, "").slice(0, 32),
+    avatarUrl: /^https:\/\//.test(String(entry.avatarUrl || ""))
+      ? String(entry.avatarUrl).slice(0, 1024)
+      : "",
     mine: entry.mine === true,
     updatedAt: Math.max(0, Number(entry.updatedAt) || 0)
   };
 }
-
 function tradeMailboxRow(entry = {}, direction = "sent") {
   const itemLabel = String(entry.itemLabel || entry.label || "生存素材").slice(0, 24);
   return {
@@ -232,7 +232,6 @@ function tradeMailboxRow(entry = {}, direction = "sent") {
     claimed: entry.claimed === true || Number(entry.claimedAt) > 0
   };
 }
-
 function mergeTradeMailboxRows(current = [], incoming = [], direction = "sent") {
   const rows = {};
   (current || []).concat(incoming || []).forEach((entry) => {
@@ -242,7 +241,30 @@ function mergeTradeMailboxRows(current = [], incoming = [], direction = "sent") 
   });
   return Object.keys(rows).map((id) => rows[id]).sort((a, b) => b.createdAt - a.createdAt).slice(0, 50);
 }
-
+function friendContractMailboxRow(entry = {}, direction = "sent") {
+  const contractId = String(entry.contractId || entry.id || "").slice(0, 80);
+  return {
+    contractId,
+    clientContractId: String(entry.clientContractId || "").slice(0, 80),
+    direction: entry.direction === "received" || direction === "received" ? "received" : "sent",
+    partnerId: String(entry.partnerId || "").slice(0, 32),
+    partnerName: String(entry.partnerName || "好友").slice(0, 24),
+    objectiveId: String(entry.objectiveId || "").slice(0, 40),
+    status: ["pending", "completed", "expired"].includes(entry.status) ? entry.status : "pending",
+    createdAt: Math.max(0, Number(entry.createdAt) || 0),
+    expiresAt: Math.max(0, Number(entry.expiresAt) || 0),
+    completedAt: Math.max(0, Number(entry.completedAt) || 0)
+  };
+}
+function mergeFriendContractRows(current = [], incoming = [], direction = "sent") {
+  const rows = {};
+  (current || []).concat(incoming || []).forEach((entry) => {
+    const row = friendContractMailboxRow(entry, direction);
+    if (!row.contractId) return;
+    rows[row.contractId] = Object.assign({}, rows[row.contractId] || {}, row);
+  });
+  return Object.keys(rows).map((id) => rows[id]).sort((a, b) => b.createdAt - a.createdAt).slice(0, 100);
+}
 class CloudServiceController {
   constructor(runtime, options = {}) {
     this.runtime = runtime || {};
@@ -278,26 +300,32 @@ class CloudServiceController {
     this.friendPendingCount = 0;
     this.tradeMailbox = { sent: [], received: [] };
     this.tradeMailboxStatus = "idle";
+    this.friendContractMailbox = { sent: [], received: [] };
+    this.friendContractMailboxStatus = "idle";
+    this.friendContractMailboxPromise = null;
+    this.worldHoundPatrolMailbox = { sent: [], received: [] };
+    this.worldHoundPatrolMailboxStatus = "idle";
+    this.worldHoundPatrolMailboxPromise = null;
+    this.networkFailureCount = 0;
+    this.networkRetryAt = 0;
+    this.unavailableRoutes = {};
     this.myRank = 0;
     this.myScore = 0;
     this.session = this.readSession();
     this.remoteConfig = this.readCachedConfig();
+    if (this.supported && this.remoteConfig.updatedAt) this.configStatus = "cached";
     this.installId = this.readInstallId();
     if (this.session.token && this.session.expiresAt > this.now() + 60000) this.authStatus = "authenticated";
   }
-
   notify() {
     try { this.onChange(this.status); } catch (error) { /* cloud UI callbacks never block play */ }
   }
-
   readStorage(key) {
     try { return this.runtime.getStorageSync ? this.runtime.getStorageSync(key) : null; } catch (error) { return null; }
   }
-
   writeStorage(key, value) {
     try { if (this.runtime.setStorageSync) this.runtime.setStorageSync(key, value); } catch (error) { /* keep memory fallback */ }
   }
-
   readSession() {
     const saved = this.readStorage(SESSION_STORAGE_KEY) || {};
     const token = typeof saved.token === "string" ? saved.token : "";
@@ -307,7 +335,6 @@ class CloudServiceController {
       ? { token, expiresAt, publicId: String(saved.publicId || ""), friendMatchKey }
       : { token: "", expiresAt: 0, publicId: "", friendMatchKey: "" };
   }
-
   readCachedConfig() {
     const cached = this.readStorage(CONFIG_STORAGE_KEY) || {};
     return {
@@ -316,7 +343,6 @@ class CloudServiceController {
       updatedAt: Math.max(0, Number(cached.updatedAt) || 0)
     };
   }
-
   readInstallId() {
     const saved = String(this.readStorage(INSTALL_STORAGE_KEY) || "");
     if (/^[a-zA-Z0-9_-]{12,80}$/.test(saved)) return saved;
@@ -324,17 +350,63 @@ class CloudServiceController {
     this.writeStorage(INSTALL_STORAGE_KEY, generated);
     return generated;
   }
-
   config() {
     return this.remoteConfig.value;
   }
-
   feature(name) {
     return !!((this.config().features || {})[name]);
   }
-
+  unavailableRouteKey(path = "") {
+    const key = String(path || "").split("?")[0];
+    if (key === "/v1/friend-contracts" || key.startsWith("/v1/friend-contracts/")) return "/v1/friend-contracts";
+    if (key === "/v1/world-patrols" || key.startsWith("/v1/world-patrols/")) return "/v1/world-patrols";
+    return "";
+  }
+  routeUnavailable(path = "") {
+    const key = this.unavailableRouteKey(path);
+    return !!(key && this.unavailableRoutes && this.unavailableRoutes[key]);
+  }
+  noteUnavailableRoute(path = "", statusCode = 0, code = "") {
+    if (Number(statusCode) !== 404) return false;
+    const reason = String(code || "");
+    if (reason && reason !== "NOT_FOUND") return false;
+    const key = this.unavailableRouteKey(path);
+    if (!key) return false;
+    this.unavailableRoutes[key] = true;
+    return true;
+  }
+  isTransientNetworkError(error) {
+    if (!error) return false;
+    const statusCode = Number(error.statusCode) || 0;
+    if (statusCode && statusCode !== 408 && statusCode !== 429 && statusCode < 500) return false;
+    return !statusCode || statusCode === 408 || statusCode === 429 || statusCode >= 500;
+  }
+  markNetworkFailure(error) {
+    if (!this.isTransientNetworkError(error)) return;
+    this.networkFailureCount = Math.min(8, this.networkFailureCount + 1);
+    const delay = Math.min(
+      NETWORK_RETRY_MAX_MS,
+      NETWORK_RETRY_BASE_MS * Math.pow(2, Math.max(0, this.networkFailureCount - 1))
+    );
+    this.networkRetryAt = this.now() + delay;
+  }
+  clearNetworkFailure() {
+    this.networkFailureCount = 0;
+    this.networkRetryAt = 0;
+  }
+  networkBackoffError() {
+    const error = new Error("NETWORK_BACKOFF");
+    error.networkBackoff = true;
+    return error;
+  }
+  networkBackoffActive() {
+    return this.networkRetryAt > this.now();
+  }
   request(path, options = {}) {
     if (!this.supported) return Promise.reject(new Error("REQUEST_UNSUPPORTED"));
+    if (this.networkRetryAt > this.now() && options.bypassNetworkBackoff !== true) {
+      return Promise.reject(this.networkBackoffError());
+    }
     const headers = Object.assign({ accept: "application/json" }, options.headers || {});
     if (options.body !== undefined) headers["content-type"] = "application/json";
     if (options.auth && this.session.token) headers.authorization = `Bearer ${this.session.token}`;
@@ -352,32 +424,42 @@ class CloudServiceController {
           header: headers,
           data: options.body,
           timeout: this.requestTimeout,
+          enableCache: false,
           success: (response = {}) => {
             const statusCode = Number(response.statusCode) || 0;
             const result = { statusCode, data: response.data || {}, headers: response.header || {} };
-            if ((statusCode >= 200 && statusCode < 300) || statusCode === 304) finish(resolve, result);
+            if ((statusCode >= 200 && statusCode < 300) || statusCode === 304) {
+              this.clearNetworkFailure();
+              finish(resolve, result);
+            }
             else {
               const error = new Error(String((result.data && result.data.code) || `HTTP_${statusCode}`));
               error.statusCode = statusCode;
               error.data = result.data;
+              this.noteUnavailableRoute(path, statusCode, result.data && result.data.code);
+              this.markNetworkFailure(error);
               finish(reject, error);
             }
           },
-          fail: (error) => finish(reject, new Error(String((error && error.errMsg) || "NETWORK_FAILED")))
+          fail: (error) => {
+            const failure = new Error(String((error && error.errMsg) || "NETWORK_FAILED"));
+            this.markNetworkFailure(failure);
+            finish(reject, failure);
+          }
         });
       } catch (error) {
+        this.markNetworkFailure(error);
         finish(reject, error);
       }
     });
   }
-
   refreshConfig(force = false) {
     if (!this.supported) return Promise.resolve(this.config());
     if (this.configPromise) return this.configPromise;
+    if (this.networkBackoffActive()) return Promise.resolve(this.config());
     if (!force && this.remoteConfig.updatedAt && this.now() - this.remoteConfig.updatedAt < 60000) return Promise.resolve(this.config());
     this.configStatus = "loading";
-    const headers = this.remoteConfig.etag ? { "if-none-match": this.remoteConfig.etag } : {};
-    this.configPromise = this.request("/v1/config", { headers }).then((response) => {
+    this.configPromise = this.request("/v1/config").then((response) => {
       if (response.statusCode !== 304) {
         const value = safeConfig((response.data || {}).config || {});
         const etag = String(response.headers.etag || response.headers.ETag || "");
@@ -400,10 +482,17 @@ class CloudServiceController {
     }).finally(() => { this.configPromise = null; });
     return this.configPromise;
   }
-
+  sessionReady() {
+    return !!(this.session && this.session.token && Number(this.session.expiresAt || 0) > this.now() + 60000);
+  }
+  worldPatrolsCallable() {
+    if (!this.feature("worldLeaderboard")) return false;
+    if (this.routeUnavailable("/v1/world-patrols")) return false;
+    return true;
+  }
   login(force = false) {
     if (!this.supported || typeof this.runtime.login !== "function") return Promise.resolve(false);
-    if (!force && this.session.token && this.session.expiresAt > this.now() + 60000) {
+    if (!force && this.sessionReady()) {
       const hasMatchKey = /^[a-f0-9]{64}$/.test(this.session.friendMatchKey || "");
       if (!hasMatchKey && !this.sessionMatchKeyAttempted) {
         this.sessionMatchKeyAttempted = true;
@@ -412,6 +501,7 @@ class CloudServiceController {
       this.authStatus = "authenticated";
       return Promise.resolve(true);
     }
+    if (this.networkBackoffActive()) return Promise.resolve(false);
     if (this.loginPromise) return this.loginPromise;
     this.authStatus = "logging_in";
     this.loginPromise = new Promise((resolve, reject) => {
@@ -445,7 +535,6 @@ class CloudServiceController {
     }).finally(() => { this.loginPromise = null; });
     return this.loginPromise;
   }
-
   clearSession() {
     this.session = { token: "", expiresAt: 0, publicId: "", friendMatchKey: "" };
     this.sessionMatchKeyAttempted = false;
@@ -453,11 +542,11 @@ class CloudServiceController {
     this.writeStorage(SESSION_STORAGE_KEY, this.session);
     this.authStatus = "idle";
   }
-
   syncScore(reserve = {}, force = false, retry = true, valuation) {
     if (!this.feature("worldLeaderboard") || !this.session.token) return Promise.resolve(false);
+    if (this.networkBackoffActive()) return Promise.resolve(false);
     const record = rankRecord(reserve, valuation);
-    const signature = `${record.displayName}|${record.score}|${record.level}|${record.animals}|${record.shield}|${record.style}`;
+    const signature = `${record.displayName}|${record.score}|${record.level}|${record.animals}|${record.shield}|${record.safety}|${record.visitors}|${record.fund}|${record.style}`;
     const now = this.now();
     if (!force && (signature === this.lastScoreSignature || now - this.lastScoreSyncAt < this.scoreSyncIntervalMs)) return Promise.resolve(false);
     if (this.syncPromise) return this.syncPromise;
@@ -482,9 +571,9 @@ class CloudServiceController {
     }).finally(() => { this.syncPromise = null; });
     return this.syncPromise;
   }
-
   refreshLeaderboard(force = false) {
     if (!this.feature("worldLeaderboard")) return Promise.resolve([]);
+    if (this.networkBackoffActive()) return Promise.resolve(this.rows);
     const now = this.now();
     const authed = !!this.session.token;
     if (!force && this.lastLeaderboardAt && now - this.lastLeaderboardAt < this.leaderboardRefreshMs
@@ -508,7 +597,6 @@ class CloudServiceController {
     }).finally(() => { this.leaderboardPromise = null; });
     return this.leaderboardPromise;
   }
-
   relationFriendData() {
     if (typeof this.runtime.getRelationFriendList !== "function") return Promise.reject(new Error("RELATION_FRIEND_UNSUPPORTED"));
     const requestList = () => new Promise((resolve, reject) => {
@@ -528,9 +616,9 @@ class CloudServiceController {
       });
     }).then(requestList);
   }
-
   refreshRelationFriends(force = false) {
     if (!this.feature("socialTrade")) return Promise.resolve([]);
+    if (this.networkBackoffActive()) return Promise.resolve(this.friendRows);
     if (!force && this.friendStatus === "ready") return Promise.resolve(this.friendRows);
     if (this.friendPromise) return this.friendPromise;
     this.friendStatus = "loading";
@@ -558,9 +646,9 @@ class CloudServiceController {
     }).finally(() => { this.friendPromise = null; });
     return this.friendPromise;
   }
-
   exchangeMaterial(payload = {}, retry = true) {
     if (!this.feature("socialTrade")) return Promise.reject(new Error("SOCIAL_TRADE_DISABLED"));
+    if (this.networkBackoffActive()) return Promise.reject(this.networkBackoffError());
     if (this.tradePromise) return this.tradePromise;
     this.tradePromise = this.login().then((ok) => {
       if (!ok) throw new Error("AUTH_REQUIRED");
@@ -582,9 +670,9 @@ class CloudServiceController {
     }).finally(() => { this.tradePromise = null; });
     return this.tradePromise;
   }
-
   claimTradeInbox(retry = true) {
     if (!this.feature("socialTrade")) return Promise.resolve([]);
+    if (this.networkBackoffActive()) return Promise.resolve([]);
     return this.login().then((ok) => {
       if (!ok) return [];
       return this.request("/v1/trades/inbox/claim", { method: "POST", auth: true, body: {} }).then((response) => {
@@ -605,9 +693,9 @@ class CloudServiceController {
       return [];
     });
   }
-
   refreshTradeMailbox(force = false) {
     if (!this.feature("socialTrade")) return Promise.resolve(this.tradeMailbox);
+    if (this.networkBackoffActive()) return Promise.resolve(this.tradeMailbox);
     if (!force && this.tradeMailboxStatus === "ready") return Promise.resolve(this.tradeMailbox);
     if (this.tradeMailboxPromise) return this.tradeMailboxPromise;
     this.tradeMailboxStatus = "loading";
@@ -632,20 +720,150 @@ class CloudServiceController {
     }).finally(() => { this.tradeMailboxPromise = null; });
     return this.tradeMailboxPromise;
   }
-
+  startFriendContract(payload = {}, retry = true) {
+    if (!this.feature("socialTrade") || !this.feature("friendContracts")) return Promise.reject(new Error("FRIEND_CONTRACTS_UNAVAILABLE"));
+    if (this.routeUnavailable("/v1/friend-contracts")) return Promise.reject(new Error("FRIEND_CONTRACTS_UNAVAILABLE"));
+    if (this.networkBackoffActive()) return Promise.reject(this.networkBackoffError());
+    return this.login().then((ok) => {
+      if (!ok) throw new Error("AUTH_REQUIRED");
+      return this.request("/v1/friend-contracts", { method: "POST", auth: true, body: payload });
+    }).then((response) => {
+      const contract = response.data.contract || null;
+      if (contract) this.friendContractMailbox.sent = mergeFriendContractRows(this.friendContractMailbox.sent, [contract]);
+      this.notify();
+      return contract;
+    }).catch((error) => {
+      if (retry && error.statusCode === 401) {
+        this.clearSession();
+        return this.startFriendContract(payload, false);
+      }
+      throw error;
+    });
+  }
+  completeFriendContract(contractId = "", retry = true) {
+    if (!this.feature("socialTrade") || !this.feature("friendContracts")) return Promise.reject(new Error("FRIEND_CONTRACTS_UNAVAILABLE"));
+    if (this.routeUnavailable("/v1/friend-contracts")) return Promise.reject(new Error("FRIEND_CONTRACTS_UNAVAILABLE"));
+    if (this.networkBackoffActive()) return Promise.reject(this.networkBackoffError());
+    const id = String(contractId || "");
+    return this.login().then((ok) => {
+      if (!ok) throw new Error("AUTH_REQUIRED");
+      return this.request(`/v1/friend-contracts/${encodeURIComponent(id)}/complete`, { method: "POST", auth: true, body: {} });
+    }).then((response) => {
+      const contract = response.data.contract || null;
+      if (contract) this.friendContractMailbox.received = mergeFriendContractRows(this.friendContractMailbox.received, [contract]);
+      this.notify();
+      return contract;
+    }).catch((error) => {
+      if (retry && error.statusCode === 401) {
+        this.clearSession();
+        return this.completeFriendContract(contractId, false);
+      }
+      throw error;
+    });
+  }
+  refreshFriendContractMailbox(force = false) {
+    if (!this.feature("socialTrade") || !this.feature("friendContracts")) return Promise.resolve(this.friendContractMailbox);
+    if (this.routeUnavailable("/v1/friend-contracts")) return Promise.resolve(this.friendContractMailbox);
+    if (this.networkBackoffActive()) return Promise.resolve(this.friendContractMailbox);
+    if (!force && this.friendContractMailboxStatus === "ready") return Promise.resolve(this.friendContractMailbox);
+    if (this.friendContractMailboxPromise) return this.friendContractMailboxPromise;
+    this.friendContractMailboxStatus = "loading";
+    this.friendContractMailboxPromise = this.login().then((ok) => {
+      if (!ok) throw new Error("AUTH_REQUIRED");
+      return this.request("/v1/friend-contracts?limit=50", { auth: true });
+    }).then((response) => {
+      this.friendContractMailbox = {
+        sent: mergeFriendContractRows([], response.data.sent, "sent"),
+        received: mergeFriendContractRows([], response.data.received, "received")
+      };
+      this.friendContractMailboxStatus = "ready";
+      this.lastError = "";
+      this.notify();
+      return this.friendContractMailbox;
+    }).catch((error) => {
+      if (this.routeUnavailable("/v1/friend-contracts") || Number(error && error.statusCode) === 404) {
+        this.friendContractMailboxStatus = "unavailable";
+        return this.friendContractMailbox;
+      }
+      this.friendContractMailboxStatus = "offline";
+      this.lastError = error.message;
+      return this.friendContractMailbox;
+    }).finally(() => { this.friendContractMailboxPromise = null; });
+    return this.friendContractMailboxPromise;
+  }
+  startWorldHoundPatrol(targetId = "", cost = 100, clientPatrolId = "", floors = {}, retry = true) {
+    if (!this.worldPatrolsCallable()) return Promise.reject(new Error("WORLD_PATROLS_UNAVAILABLE"));
+    if (this.unavailableRoutes) delete this.unavailableRoutes["/v1/world-patrols"];
+    if (this.networkBackoffActive()) return Promise.reject(this.networkBackoffError());
+    return this.login().then((ok) => {
+      if (!ok) throw new Error("AUTH_REQUIRED");
+      return this.request("/v1/world-patrols", {
+        method: "POST", auth: true,
+        body: {
+          targetId: String(targetId || "").replace(/^cloud_/, "").slice(0, 20),
+          cost: Math.round(Number(cost) || 0),
+          clientPatrolId: String(clientPatrolId || ""),
+          actorChapter: Math.max(1, Math.min(20, Math.round(Number(floors.actorChapter) || 1))),
+          floors
+        }
+      });
+    }).then((response) => {
+      if (this.remoteConfig && this.remoteConfig.value) {
+        const features = Object.assign({}, this.remoteConfig.value.features || {}, { worldPatrols: true });
+        this.remoteConfig.value = Object.assign({}, this.remoteConfig.value, { features });
+      }
+      this.notify();
+      return response.data.patrol || null;
+    }).catch((error) => {
+      if (retry && error.statusCode === 401) { this.clearSession(); return this.startWorldHoundPatrol(targetId, cost, clientPatrolId, floors, false); }
+      throw error;
+    });
+  }
+  refreshWorldHoundPatrolHistory(force = false) {
+    if (!this.feature("worldLeaderboard") || !this.feature("worldPatrols")) return Promise.resolve(this.worldHoundPatrolMailbox || { sent: [], received: [] });
+    if (this.routeUnavailable("/v1/world-patrols")) return Promise.resolve(this.worldHoundPatrolMailbox || { sent: [], received: [] });
+    if (this.networkBackoffActive()) return Promise.resolve(this.worldHoundPatrolMailbox || { sent: [], received: [] });
+    if (!force && this.worldHoundPatrolMailboxStatus === "ready") return Promise.resolve(this.worldHoundPatrolMailbox);
+    if (this.worldHoundPatrolMailboxPromise) return this.worldHoundPatrolMailboxPromise;
+    this.worldHoundPatrolMailboxStatus = "loading";
+    this.worldHoundPatrolMailboxPromise = this.login().then((ok) => {
+      if (!ok) throw new Error("AUTH_REQUIRED");
+      return this.request("/v1/world-patrols?limit=20", { auth: true });
+    }).then((response) => {
+      const data = response.data || {};
+      this.worldHoundPatrolMailbox = {
+        sent: Array.isArray(data.sent) ? data.sent : [],
+        received: Array.isArray(data.received) ? data.received : []
+      };
+      this.worldHoundPatrolMailboxStatus = "ready";
+      this.lastError = "";
+      this.notify();
+      return this.worldHoundPatrolMailbox;
+    }).catch((error) => {
+      if (this.routeUnavailable("/v1/world-patrols") || Number(error && error.statusCode) === 404) {
+        this.worldHoundPatrolMailboxStatus = "unavailable";
+        return this.worldHoundPatrolMailbox || { sent: [], received: [] };
+      }
+      this.worldHoundPatrolMailboxStatus = "offline";
+      this.lastError = error.message;
+      return this.worldHoundPatrolMailbox || { sent: [], received: [] };
+    }).finally(() => { this.worldHoundPatrolMailboxPromise = null; });
+    return this.worldHoundPatrolMailboxPromise;
+  }
   syncReserve(reserve = {}, force = false, valuation) {
     if (!this.supported || !this.feature("worldLeaderboard")) return false;
+    if (this.networkBackoffActive()) return false;
     const before = this.lastScoreSignature;
     this.login().then((loggedIn) => {
       if (!loggedIn) return this.feature("worldLeaderboard") ? this.refreshLeaderboard(force) : [];
       return this.syncScore(reserve, force, true, valuation).then(() => this.refreshLeaderboard(force));
     });
     const record = rankRecord(reserve, valuation);
-    return force || before !== `${record.displayName}|${record.score}|${record.level}|${record.animals}|${record.shield}|${record.style}`;
+    return force || before !== `${record.displayName}|${record.score}|${record.level}|${record.animals}|${record.shield}|${record.safety}|${record.visitors}|${record.fund}|${record.style}`;
   }
-
   track(event, properties = {}) {
     if (!this.feature("telemetry")) return Promise.resolve(false);
+    if (this.networkBackoffActive()) return Promise.resolve(false);
     const sampleRate = this.config().balance.eventUploadSampleRate;
     if (this.random() > sampleRate) return Promise.resolve(false);
     return this.request("/v1/events", {
@@ -654,10 +872,13 @@ class CloudServiceController {
       body: { event: String(event || "").slice(0, 64), installId: this.installId, properties }
     }).then(() => true).catch(() => false);
   }
-
   bootstrap(reserve = {}, valuation) {
     if (!this.supported) return Promise.resolve(false);
-    return Promise.all([this.refreshConfig(true), this.login()]).then((results) => {
+    const hasCachedConfig = !!(this.remoteConfig && this.remoteConfig.updatedAt);
+    const configReady = hasCachedConfig
+      ? (this.refreshConfig(true), Promise.resolve(this.config()))
+      : this.refreshConfig(true);
+    return Promise.all([configReady, this.login()]).then((results) => {
       if (!this.feature("worldLeaderboard")) return [];
       if (results[1]) return this.syncScore(reserve, true, true, valuation).then(() => this.refreshLeaderboard(true));
       return this.refreshLeaderboard(true);
@@ -667,7 +888,6 @@ class CloudServiceController {
     });
   }
 }
-
 module.exports = {
   CLOUD_BASE_URL,
   DEFAULT_REMOTE_CONFIG,

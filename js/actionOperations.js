@@ -56,7 +56,6 @@ const ACTION_OPERATION_CONFIG = {
     }
   }
 };
-
 const EFFECT_LABELS = {
   poacherPressure: "偷猎",
   stability: "稳定",
@@ -68,15 +67,12 @@ const EFFECT_LABELS = {
   grass: "草场",
   disease: "疾病"
 };
-
 function operationConfig(actionId) {
   return ACTION_OPERATION_CONFIG[actionId] || null;
 }
-
 function operationPairKey(nodeIds) {
   return (nodeIds || []).slice(0, 2).sort().join("+");
 }
-
 function operationRouteProfile(actionId, nodeIds) {
   const config = operationConfig(actionId);
   if (!config || !config.profiles || (nodeIds || []).length !== 2) return null;
@@ -84,13 +80,11 @@ function operationRouteProfile(actionId, nodeIds) {
   const profile = config.profiles[pairKey];
   return profile ? Object.assign({ pairKey }, profile) : null;
 }
-
 function operationProfiles(actionId) {
   const config = operationConfig(actionId);
   if (!config || !config.profiles) return [];
   return Object.keys(config.profiles).map((pairKey) => Object.assign({ pairKey, nodeIds: pairKey.split("+") }, config.profiles[pairKey]));
 }
-
 function normalizeOperationPlan(actionId, nodeIds) {
   const config = operationConfig(actionId);
   if (!config) return null;
@@ -102,23 +96,19 @@ function normalizeOperationPlan(actionId, nodeIds) {
   if (selected.length !== 2) return null;
   return { actionId, nodeIds: selected };
 }
-
 function encodeOperationPlan(plan) {
   const normalized = plan && normalizeOperationPlan(plan.actionId, plan.nodeIds);
   return normalized ? `[路线:${normalized.nodeIds.join(">")}]` : "";
 }
-
 function parseOperationPlan(command, actionId) {
   const match = String(command || "").match(/\[路线:([a-z]+)>([a-z]+)\]/i);
   return match ? normalizeOperationPlan(actionId, [match[1], match[2]]) : null;
 }
-
 function scaledDelta(value, order) {
   if (!value) return 0;
   if (order === 0) return value;
   return Math.sign(value) * Math.max(1, Math.round(Math.abs(value) * 0.6));
 }
-
 function operationPlanPreview(actionId, nodeIds) {
   const normalized = normalizeOperationPlan(actionId, nodeIds);
   const config = operationConfig(actionId);
@@ -140,12 +130,10 @@ function operationPlanPreview(actionId, nodeIds) {
   const deltaText = deltas.map((item) => `${item.label}${item.delta > 0 ? "+" : ""}${item.delta}`).join(" · ");
   return { actionId, nodeIds: normalized.nodeIds.slice(), profile, deltas, deltaText };
 }
-
 function readMetric(reserve, key) {
   if (["water", "grass", "disease"].includes(key)) return ((reserve.ecology || {})[key]) || 0;
   return reserve[key] || 0;
 }
-
 function writeMetric(reserve, key, value) {
   if (["water", "grass", "disease"].includes(key)) {
     reserve.ecology = reserve.ecology || {};
@@ -155,7 +143,6 @@ function writeMetric(reserve, key, value) {
   if (key === "fund") reserve[key] = Math.max(0, Math.round(value));
   else reserve[key] = Math.max(0, Math.min(100, Math.round(value)));
 }
-
 function applyOperationPlan(reserve, actionId, plan) {
   const normalized = plan && normalizeOperationPlan(actionId, plan.nodeIds);
   const config = operationConfig(actionId);
@@ -198,7 +185,6 @@ function applyOperationPlan(reserve, actionId, plan) {
   reserve.lastActionOperation = outcome;
   return outcome;
 }
-
 module.exports = {
   ACTION_OPERATION_CONFIG,
   operationConfig,

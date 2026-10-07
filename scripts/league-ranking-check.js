@@ -57,8 +57,8 @@ if (shareCount !== 0 || screenCount !== 1 || lastScreen !== "league" || game.lea
 
 game.leagueScope = "world";
 game.activateGuardianBeat("collectionInvestigation");
-if (screenCount !== 2 || lastScreen !== "survival" || !game.survivalArchiveOpen || game.leagueScope !== "world") {
-  throw new Error("collection investigation should enter the Survival archive without mutating the leaderboard scope");
+if (screenCount !== 2 || lastScreen !== "home" || game.leagueScope !== "world") {
+  throw new Error("station tasks should leave the leaderboard for the sandbox without mutating its scope");
 }
 
 game.openReserveNetwork("world");
@@ -242,16 +242,24 @@ worldRowGame.leaguePlayerTitle = () => "远方玩家的河湾哨站";
 worldRowGame.leagueRowValue = () => 13140;
 worldRowGame.truncateTextToWidth = (_ctx, value) => value;
 worldRowGame.openLeaguePlayerDetail = () => {};
-const compactWorldLayout = worldRowGame.drawLeagueRankingRow({}, { id: "world_friend", level: 4, animals: 395, shield: 60, profileComplete: true, friend: true }, 1, 18, 100, 339, 42);
+const compactWorldLayout = worldRowGame.drawLeagueRankingRow({}, { id: "world_friend", friendMatchKey: "ab".repeat(32), level: 4, animals: 395, shield: 60, profileComplete: true, friend: true }, 1, 18, 100, 339, 42);
 if (compactWorldLayout.layout !== "friend-list" || compactWorldLayout.rowH > 42 || !worldRowCalls.some((call) => call[0] === "text" && call[2] === "13140")
-  || !worldRowCalls.some((call) => call[0] === "text" && String(call[2]).includes("微信好友"))) {
+  || !worldRowCalls.some((call) => call[0] === "text" && String(call[2]).includes("微信好友"))
+  || !compactWorldLayout.nicknamePlate || compactWorldLayout.nicknamePlate.friendMatchKey !== "ab".repeat(32)
+  || !(compactWorldLayout.nicknamePlate.avatarSize >= 16)) {
   throw new Error("world leaderboard rows should use the compact friend-list layout and retain friend identity");
 }
-game.openLeaguePlayerDetail(worldTarget, worldTarget.rank);
-if (!game.infoDetailModal || game.infoDetailModal.title !== "leo.liu的苔原哨站" || !/真实玩家/.test(game.infoDetailModal.kicker) || game.infoDetailModal.player !== worldTarget) {
-  throw new Error("clicking a real world player should open the full player and reserve detail");
+if (!game.serverFriendCodename("云岭·6474的湖岸哨站") || !game.serverFriendCodename("云岭6474的湖岸哨站")
+  || game.leaguePlayerPublicTitle({ friend: true, name: "云岭·6474的湖岸哨站", owner: "云岭·6474", reserveName: "湖岸哨站" }) !== "微信好友") {
+  throw new Error("world friend rows must hide server-generated codes before the WeChat nickname overlay");
 }
-const incompleteTarget = Object.assign({}, worldTarget, { animals: 31, shield: 48, profileComplete: false });
+game.openLeaguePlayerDetail(worldTarget, worldTarget.rank);
+if (!game.infoDetailModal || game.infoDetailModal.title !== "leo.liu的苔原哨站" || !/微信好友保护区市值榜/.test(game.infoDetailModal.kicker)
+  || !game.infoDetailModal.friendProfile || game.infoDetailModal.player !== worldTarget
+  || game.infoDetailModal.items.map((item) => item.tag).join(",") !== "市值,等级,动物") {
+  throw new Error("clicking a linked world friend should open the same three-metric profile as the friend ranking");
+}
+const incompleteTarget = Object.assign({}, worldTarget, { friend: false, friendMatchKey: "", animals: 31, shield: 48, profileComplete: false });
 game.openLeaguePlayerDetail(incompleteTarget, incompleteTarget.rank);
 const incompleteCopy = JSON.stringify(game.infoDetailModal.items);
 if (!/动物数据待同步/.test(incompleteCopy) || /31 只动物/.test(incompleteCopy) || /真实玩家完整数据/.test(incompleteCopy)) {
@@ -268,21 +276,23 @@ const raidSources = animalSourceSummary(game.state.world.reserve);
 game.selectedRivalId = "cloud_real_world_1";
 const originalRandom = Math.random;
 Math.random = () => 0;
-game.raidRival();
+if (game.raidRival() !== false) {
+  throw new Error("border patrol gameplay must stay removed");
+}
 Math.random = originalRandom;
-if (animalSourceSummary(game.state.world.reserve).immigrated <= raidSources.immigrated) {
-  throw new Error("border patrol animal arrivals must write immigration, not breeding remainder");
+if (animalSourceSummary(game.state.world.reserve).immigrated !== raidSources.immigrated) {
+  throw new Error("removed border patrol must not add animals");
 }
 if (animalSourceSummary(game.state.world.reserve).breeding !== raidSources.breeding) {
-  throw new Error("border patrol must not pollute breeding remainder");
+  throw new Error("removed border patrol must not pollute breeding remainder");
 }
 if (chapterVisitorTotal(game.state.world.reserve) !== raidVisitors) {
-  throw new Error("border patrol must not rewrite chapter visitors");
+  throw new Error("removed border patrol must not rewrite chapter visitors");
 }
 
 const afterWorldRivals = ((game.state.world.reserve.league || {}).rivals || []).filter((row) => row.scope === "world").length;
-if (afterWorldRivals <= beforeWorldRivals) {
-  throw new Error("raiding a world ranking target should persist that target in league rivals");
+if (afterWorldRivals !== beforeWorldRivals) {
+  throw new Error("removed border patrol must not persist a raid target");
 }
 if (game.leagueRankOfMine("world") < 1) {
   throw new Error("world rank should still be available after raid");
@@ -319,21 +329,22 @@ game.state.world.reserve.supplies.dogFood = 5;
 game.state.world.reserve.supplies.alarm = 5;
 game.state.world.reserve.inventory.recoveredTrap = 3;
 Math.random = () => 0;
-game.raidRival();
+if (game.raidRival() !== false) {
+  throw new Error("friend border patrol gameplay must stay removed");
+}
 Math.random = originalRandom;
-if ((game.state.world.reserve.social || {}).actorScope !== "friends" || (game.state.world.reserve.social || {}).actor !== "好友的河湾保护区") {
-  throw new Error("border patrol should keep the current friend as its target");
+if ((game.state.world.reserve.social || {}).action === "边界巡查") {
+  throw new Error("removed border patrol must not write a friend raid report");
 }
 const beforeCoop = (game.state.world.reserve.social || {}).coop || 0;
 const tradeEntries = [];
 game.openAutoExchangeModal = (source, scope) => { tradeEntries.push({ itemId: "", scope, source, target: game.selectedRival() }); return true; };
 game.collaborateWithRival();
 if (tradeEntries.length !== 1 || tradeEntries[0].scope !== "friends" || tradeEntries[0].source !== "league" || tradeEntries[0].target.id !== "friend_real_1" || ((game.state.world.reserve.social || {}).coop || 0) !== beforeCoop) {
-  throw new Error("friend exchange should open the same auto exchange as sandbox for the current friend");
+  throw new Error("friend exchange helper may still open sandbox exchange, but the league battle UI is gone");
 }
-game.upgradeShield();
-if ((game.state.world.reserve.social || {}).action !== "加固" || (game.state.world.reserve.social || {}).actor !== "好友的河湾保护区") {
-  throw new Error("fortify should keep the current friend as its target");
+if (game.upgradeShield() !== false || (game.state.world.reserve.social || {}).action === "加固") {
+  throw new Error("fortify gameplay must stay removed");
 }
 
 game.leagueScope = "world";

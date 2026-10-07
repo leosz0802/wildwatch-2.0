@@ -53,6 +53,39 @@
         ]
       },
       {
+        "level": 1,
+        "files": [
+          "js/animalInteractionStories.js",
+          "js/animalSourceLedger.js",
+          "js/chapterRescueSystem.js",
+          "js/chapterSpecialSystem.js",
+          "js/chapterTargets.js",
+          "js/endlessGuardMode.js",
+          "js/eventEconomy.js",
+          "js/firstReturnHook.js",
+          "js/friendAidSystem.js",
+          "js/fundLedger.js",
+          "js/ledgerConsistency.js",
+          "js/patrolTriggerPolicy.js",
+          "js/progressionGates.js",
+          "js/rareAnimalSystem.js",
+          "js/realNatureEventCatalog.js",
+          "js/realNatureEventCatalogAdditional.js",
+          "js/realNatureEventSystem.js",
+          "js/reserveDevelopment.js",
+          "js/reserveEventCatalog.js",
+          "js/sandboxTaskCadence.js",
+          "js/sellFundCap.js",
+          "js/speciesStoryLetters.js",
+          "js/survivalImpact.js",
+          "js/taskCompletionFeedback.js",
+          "js/visitorReception.js",
+          "js/visitorRecruitment.js",
+          "js/wechatGameClub.js",
+          "js/worldLeaderboardBroadcast.js"
+        ]
+      },
+      {
         "level": 2,
         "files": [
           "js/actionOperations.js",
@@ -71,6 +104,7 @@
           "js/adSystem.js",
           "js/audioSystem.js",
           "js/runtime.js",
+          "js/wechatFavorite.js",
           "js/wechatFriendSystem.js",
           "open-data/index.js"
         ]

@@ -95,12 +95,12 @@ const commerce = game.settlementDisplayChanges({ commerce: { count: 2 }, fundBef
 if (!commerce.primary || commerce.primary.label !== "保护基金" || commerce.primary.delta !== 230) {
   throw new Error("sale settlement should promote the exact fund change");
 }
-const exploration = game.settlementDisplayChanges({ materialExploration: { reward: { id: "trap", label: "陷阱证据", amount: 2 } }, fundBefore: 1000, fundAfter: 1000, stats: [] });
-if (!exploration.primary || exploration.primary.label !== "陷阱证据" || exploration.primary.customValue !== "×2") {
+const exploration = game.settlementDisplayChanges({ materialExploration: { reward: { id: "trap", label: "隐踪器", amount: 2 } }, fundBefore: 1000, fundAfter: 1000, stats: [] });
+if (!exploration.primary || exploration.primary.label !== "隐踪器" || exploration.primary.customValue !== "×2") {
   throw new Error("exploration settlement should name the concrete collected item");
 }
-const recovery = game.settlementDisplayChanges({ recoveredGoodsGain: { items: [{ id: "antler", label: "A级鹿角", amount: 1 }] }, fundBefore: 1000, fundAfter: 1000, stats: [] });
-if (!recovery.primary || recovery.primary.label !== "A级鹿角" || recovery.primary.customValue !== "×1") {
+const recovery = game.settlementDisplayChanges({ recoveredGoodsGain: { items: [{ id: "antler", label: "A级岩角", amount: 1 }] }, fundBefore: 1000, fundAfter: 1000, stats: [] });
+if (!recovery.primary || recovery.primary.label !== "A级岩角" || recovery.primary.customValue !== "×1") {
   throw new Error("recovery settlement should promote the exact recovered item");
 }
 

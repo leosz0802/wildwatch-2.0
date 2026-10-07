@@ -139,7 +139,8 @@ for (const phase of ['approach', 'result']) {
   assert.equal(game.infoDetailModal.kind, 'dailyEvents', 'opening daily list must not jump into a pending rescue');
   game.infoDetailModal = null;
   assert(game.resumeActiveTask());
-  assert.equal(game.infoDetailModal.kind, 'chapterRescueTask');
+  assert.equal(game.infoDetailModal.kind, 'materialExploration');
+  assert.equal(game.infoDetailModal.explorationMode, 'archery');
   assert.equal(game.activeTaskLock.targetId, rescue.targetId);
   assert.equal(JSON.stringify(reserve.inventory), before, 'resuming must not consume rescue materials');
   game.dismissInfoDetailModal();

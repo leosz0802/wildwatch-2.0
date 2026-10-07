@@ -29,7 +29,16 @@ wet.ecology.disease = 12;
 const floodView = buildReserveView(wet, wet, { day: 2, season: "雨季", weather: "暴雨", now: 1_000 });
 assert(floodView.mapMarkers.some((item) => sandboxTaskKind(item) === "flood"), "雨季暴雨必须能刷出水患");
 
+function finishRiverShallows(reserve) {
+  reserve.development = reserve.development || {};
+  reserve.development.nodes = Object.assign({}, reserve.development.nodes, {
+    river_shallows: { id: "river_shallows", phase: "operational", planId: "reed_refuge", buildingLevel: 1 }
+  });
+  return reserve;
+}
+
 const sick = createReserveState();
+finishRiverShallows(sick);
 sick.ecology.disease = 28;
 const diseaseView = buildReserveView(sick, sick, { day: 3, season: "雨季", weather: "阴", now: 1_000 });
 assert(diseaseView.mapMarkers.some((item) => sandboxTaskKind(item) === "disease"), "疾病升高后必须能刷出病味扩散");
@@ -49,9 +58,22 @@ const mildFlood = buildReserveView(mildWet, mildWet, { day: 3, season: "雨季",
 assert(mildFlood.mapMarkers.some((item) => sandboxTaskKind(item) === "flood"), "雨季水位偏高时也应刷出水患");
 
 const mildSick = createReserveState();
+finishRiverShallows(mildSick);
 mildSick.ecology.disease = 20;
 const mildDisease = buildReserveView(mildSick, mildSick, { day: 4, season: "雨季", weather: "阴", now: 3_000 });
 assert(mildDisease.mapMarkers.some((item) => sandboxTaskKind(item) === "disease"), "疾病刚进入预警前也应刷出病味扩散");
+
+const openBank = createReserveState();
+openBank.seasonState = { name: "旱季", weather: "阴", day: 2, cycleDay: 2 };
+openBank.ecology.grass = 70;
+openBank.ecology.water = 55;
+openBank.ecology.disease = 8;
+openBank.poacherPressure = 0;
+const hazard = buildReserveView(openBank, openBank, { day: 2, season: "旱季", weather: "阴", now: 4_000 });
+assert(hazard.mapMarkers.some((item) => item.label === "水灾隐患"), "浅滩未建成时水灾隐患必须出现");
+finishRiverShallows(openBank);
+const settledBank = buildReserveView(openBank, openBank, { day: 2, season: "旱季", weather: "阴", now: 5_000 });
+assert(!settledBank.mapMarkers.some((item) => item.label === "水灾隐患" || item.eventType === "sandbox_flood"), "浅滩建成后，没有暴雨时水灾隐患必须停止");
 
 const crowded = createReserveState();
 crowded.poacherPressure = 72;
@@ -85,10 +107,23 @@ assert(afterGap.mapMarkers.some((item) => sandboxTaskKind(item) === "disease") |
   const tooSoon = applySandboxTaskCadence(sequential, [flood], 1_000 + SYSTEM_TASK_CROSS_KIND_GAP_MS);
   assert.strictEqual(tooSoon.filter((item) => sandboxTaskKind(item) === "flood").length, 0, "火警仍在时跨类任务也不能插入");
   closeSandboxTaskKinds(sequential, ["wildfire"], 8_000);
+  const floodHeld = createReserveState();
+  applySandboxTaskCadence(floodHeld, [flood], 1_000);
+  const fireTakesSlot = applySandboxTaskCadence(floodHeld, [fire, flood], 1_000 + SYSTEM_TASK_CROSS_KIND_GAP_MS + 1);
+  assert.strictEqual(fireTakesSlot.filter((item) => sandboxTaskKind(item) === "wildfire").length, 1, "水灾占着地图时，更高优先级的火灾预警必须能出现");
+  assert.strictEqual(fireTakesSlot.filter((item) => sandboxTaskKind(item) === "flood").length, 0, "火灾出现后地图上只保留这一条灾害");
   const stillGap = applySandboxTaskCadence(sequential, [flood], 8_000 + SYSTEM_TASK_CROSS_KIND_GAP_MS);
   assert.strictEqual(stillGap.length, 0, "结束后仍需额外间隔才推下一个系统任务");
   const ready = applySandboxTaskCadence(sequential, [flood], 8_001 + SYSTEM_TASK_CROSS_KIND_GAP_MS);
   assert.strictEqual(ready.some((item) => sandboxTaskKind(item) === "flood"), true, "间隔过后才能推下一个系统任务");
+  const realHeld = createReserveState();
+  applySandboxTaskCadence(realHeld, [flood], 2_000);
+  const realEvent = { id: "real_nature_climate-02", priority: 120, eventType: "real_nature_climate-02", category: "realNature", label: "强热带气旋奇多" };
+  const realTakesSlot = applySandboxTaskCadence(realHeld, [realEvent, flood], 2_001);
+  assert.strictEqual(realTakesSlot.filter((item) => sandboxTaskKind(item) === "realNature").length, 1, "本章真实事件必须能从水灾隐患手里拿回地图任务");
+  assert.strictEqual(realTakesSlot.filter((item) => sandboxTaskKind(item) === "flood").length, 0, "真实事件出现后地图上只保留这一条任务");
+  const floodCannotReturn = applySandboxTaskCadence(realHeld, [realEvent, flood], 2_002);
+  assert.strictEqual(floodCannotReturn.filter((item) => sandboxTaskKind(item) === "flood").length, 0, "真实事件未完成时水灾不能把地图任务抢回去");
 }
 
 const late = createReserveState();
@@ -105,7 +140,7 @@ const idle = createReserveState();
 idle.ecology.disease = 30;
 const first = applySandboxTaskCadence(idle, [{ id: "disease", priority: 96, label: "病味扩散" }], 10_000);
 assert.strictEqual(first.length, 1);
-const hidden = applySandboxTaskCadence(idle, [{ id: "disease", priority: 96, label: "病味扩散" }], 10_000 + IDLE_HIDE_MS);
-assert.strictEqual(hidden.length, 0, "不操作30秒后同任务应先消失");
+const stillVisible = applySandboxTaskCadence(idle, [{ id: "disease", priority: 96, label: "病味扩散" }], 10_000 + IDLE_HIDE_MS);
+assert.strictEqual(stillVisible.length, 1, "不处理的火灾/水灾/病害不得在30秒后自动消失");
 
 console.log("sandbox task cadence check ok");

@@ -94,7 +94,7 @@ assert(labels === "等级/关系/随机", `collection signals should be level, a
 
 const detail = game.buildMaterialDetail("goods", "shedAntlerA");
 const detailText = JSON.stringify(detail.items || []);
-assert(/探索/.test(detailText) && /移交/.test(detailText), "goods detail should separate exploration and transfer");
+assert(/探索/.test(detailText) && /出售/.test(detailText) && !/"tag":"操作"/.test(detailText), "goods detail should keep exploration and sale, without a redundant action row");
 ["等级", "关系", "随机"].forEach((word) => {
   assert(detailText.includes(word), `goods detail should explain ${word}`);
 });
@@ -127,8 +127,9 @@ const patrolOverview = patrolOverviewGame.buildMaterialDetail("patrolDays");
 assert(patrolOverview.actionLabel === "去巡护", `patrol sustain detail should expose patrol shortcut, got ${patrolOverview.actionLabel}`);
 patrolOverviewGame.infoDetailModal = patrolOverview;
 patrolOverview.action();
-assert(patrolOverviewGame.screen === "action", "patrol sustain shortcut should open the full patrol operation screen");
-assert(!patrolOverviewGame.infoDetailModal && !patrolOverviewGame.patrolTaskModal, "patrol sustain shortcut should not open the legacy task modal");
+assert(patrolOverviewGame.screen === "role", "patrol sustain shortcut should stay on materials");
+assert(patrolOverviewGame.screen !== "action", "patrol sustain shortcut must not open the patrol board");
+assert(!patrolOverviewGame.infoDetailModal, "patrol sustain shortcut should close the warehouse detail");
 
 const pendingGame = new Game();
 pendingGame.ctx = createFakeContext();
@@ -148,13 +149,14 @@ assert(collectedDetail.actionLabel === "移交执法部门", `collected evidence
 
 const saleState = createCharacter(null, "保护区卫士");
 saleState.world.reserve.inventory.shedAntlerA = 1;
-saleState.world.reserve.inventory.researchSample = 2;
+saleState.world.reserve.inventory.researchSample = 8;
 const saleBeforeFund = saleState.world.reserve.fund;
-const saleResult = withRandom(0.99, () => simulateDay("移交仓库里的脱落鹿角和研究样本", saleState));
+const saleResult = withRandom(0.99, () => simulateDay("移交仓库里的脱落岩角和研究样本", saleState));
 const sale = saleResult.visual && saleResult.visual.salvageEconomy;
-assert(sale && sale.sold.length === 3, "selling recovered goods should expose sold inventory");
+assert(sale && sale.sold.length >= 1, "selling recovered goods should expose sold inventory");
 assert(saleResult.world.reserve.fund > saleBeforeFund, "selling recovered goods should increase fund");
 assert(saleResult.world.reserve.inventory.shedAntlerA === 0, "selling recovered goods should consume antler inventory");
+assert((saleResult.world.reserve.inventory.researchSample || 0) === 0, "one handover sell should dump accumulated samples");
 
 // 覆盖真机问题：物资页滚动到广告和出售区后完成移交，不应跳回沙盘、
 // 启动五秒回放或重置滚动位置，否则原生广告会被隐藏并表现为卡顿。

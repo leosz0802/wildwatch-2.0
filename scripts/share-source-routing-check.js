@@ -24,7 +24,38 @@ const visitorEvent = {
 const visitorPostcard = game.buildForestPostcard(visitorEvent);
 assert.equal(visitorPostcard.rewardType, 'visitors', 'visitor-originated postcard must be typed as visitors');
 const visitorDetail = game.buildForestPostcardDetail(visitorEvent);
-assert.match(visitorDetail.items.find((item) => item.tag === '分享奖励').title, /游客/, 'visitor postcard detail must preview a visitor reward');
+const visitorShareRow = visitorDetail.items.find((item) => String(item.title || '').startsWith('获得游客'));
+const animalShareRow = visitorDetail.items.find((item) => String(item.title || '').startsWith('获得动物'));
+assert.match(visitorShareRow.title, /获得游客 · \+\d+人/, 'visitor postcard detail must preview the visitor increase');
+assert.match(animalShareRow.title, /获得动物 · \+\d+只/, 'share board must preview the animal increase');
+const { recordShareSent } = require('../js/shareSystem');
+recordShareSent(game.state, { shareId: 'route_animals_1', rewardType: 'animals', kind: 'birth' });
+recordShareSent(game.state, { shareId: 'route_animals_2', rewardType: 'animals', kind: 'birth' });
+const exhaustedAnimalDetail = game.buildForestPostcardDetail(visitorEvent);
+assert.equal(exhaustedAnimalDetail.items.some((item) => String(item.title || '').startsWith('获得动物')), false, 'used-up 获得动物 text must leave the share board');
+const visitorLeft = exhaustedAnimalDetail.items.find((item) => String(item.title || '').startsWith('获得游客'));
+assert.match(visitorLeft.title, /获得游客 · \+\d+人/, 'a remaining visitor share must show the real increase');
+recordShareSent(game.state, { shareId: 'route_visitors_1', rewardType: 'visitors', kind: 'daily' });
+recordShareSent(game.state, { shareId: 'route_visitors_2', rewardType: 'visitors', kind: 'daily' });
+const exhaustedBoth = game.buildForestPostcardDetail(visitorEvent);
+assert.equal(exhaustedBoth.items.some((item) => /获得动物|获得游客/.test(String(item.title || ''))), false, 'used-up visitor and animal rewards must both leave the share board');
+const exhaustedProgress = game.buildChapterProgressDetail();
+assert.equal((exhaustedProgress.metricDetails.animals.items || []).some((item) => item.tag === '分享任务'), false, 'used-up animal share task is not baked into the animal card');
+game.render = () => {};
+game.openCoreMetricDetail('animals');
+game.openCoreMetricDetail('visitors');
+assert.equal(game.infoDetailModal.kind, 'visitorMetricDetail', 'visitor total dropdown is the visitor card');
+assert.equal(game.infoDetailModal.items.some((item) => item.tag === '分享任务'), false, 'used-up visitor share task is removed from the visitor dropdown');
+game.openCoreMetricDetail('animals');
+assert.equal(game.infoDetailModal.kind, 'animalMetricDetail', 'animal total dropdown is the animal card');
+assert.equal(game.infoDetailModal.items.some((item) => item.tag === '分享任务'), false, 'used-up animal share task is removed from the animal dropdown');
+const freshGame = setupGame('分享任务还在');
+freshGame.openCoreMetricDetail('animals');
+const freshShareTask = freshGame.infoDetailModal.items.find((item) => item.tag === '分享任务');
+assert.match(freshShareTask.title, /获得动物 · \+\d+只/, 'an available animal share shows the increase on the total card');
+freshGame.openCoreMetricDetail('visitors');
+const freshVisitorTask = freshGame.infoDetailModal.items.find((item) => item.tag === '分享任务');
+assert.match(freshVisitorTask.title, /获得游客 · \+\d+人/, 'an available visitor share shows the increase on the total card');
 
 const animalEvent = {
   id: 'animal_event_1',
@@ -163,6 +194,63 @@ assert.equal(returnShare.settlePendingShareReward('return').reason, 'not_hidden'
 returnShare.notePendingShareHidden(Date.now() - 800);
 const returned = returnShare.settlePendingShareReward('return');
 assert.equal(returned.reward.rewardType, 'visitors', 'returning from a completed WeChat share must grant the visitor reward');
+assert.equal(returned.reward.after - returned.reward.before, returned.reward.amount, 'visitor share must change the live visitor total by the granted amount');
+
+const panelReturn = setupGame('分享面板未切后台');
+panelReturn.shareVisitorLetter(visitorLetter);
+panelReturn.pendingSharePostcard.createdAt = Date.now() - 1500;
+const panelGranted = panelReturn.settlePendingShareReward('return');
+assert.equal(panelGranted.reward && panelGranted.reward.rewardType, 'visitors', 'returning from the share sheet must grant even when WeChat did not hide the game');
+assert.equal(panelGranted.reward.after - panelGranted.reward.before, panelGranted.reward.amount, 'the granted visitor amount must be the live increase');
+
+const twice = setupGame('连续两次分享都增加动物');
+twice.shareForestPostcard(null, { rewardType: 'animals', sourceKind: 'animal', kind: 'birth' });
+twice.pendingSharePostcard.createdAt = Date.now() - 1500;
+const firstAnimalShare = twice.settlePendingShareReward('return');
+twice.shareForestPostcard(null, { rewardType: 'animals', sourceKind: 'animal', kind: 'birth' });
+twice.pendingSharePostcard.createdAt = Date.now() - 1500;
+const secondAnimalShare = twice.settlePendingShareReward('return');
+assert.equal(firstAnimalShare.reward && firstAnimalShare.reward.rewardType, 'animals', 'the first animal share must add animals');
+assert.equal(firstAnimalShare.reward.after - firstAnimalShare.reward.before, firstAnimalShare.reward.amount, 'the first animal share must match the displayed increase');
+assert.ok(secondAnimalShare.reward && secondAnimalShare.reward.amount > 0, 'the second animal share in the same chapter must also add animals');
+assert.equal(secondAnimalShare.reward.after - firstAnimalShare.reward.after, secondAnimalShare.reward.amount, 'the second animal share must stack on the first');
+
+const aged = setupGame('回到游戏后发放并去掉分享任务');
+aged.shareMetricReward('animals');
+assert.equal((aged.state.ui.shareRewards || []).length, 0, 'tapping the animal share task must not grant before the share finishes');
+assert.equal(aged.state.ui.pendingShareReward.postcard.rewardType, 'animals', 'the animal share must stay pending across a reload');
+assert.equal(aged.settleAgedShareReward(Date.now()), null, 'a share that just opened must not grant immediately');
+aged.pendingSharePostcard.createdAt = Date.now() - 1000;
+const agedAnimal = aged.settleAgedShareReward(Date.now());
+assert.equal(agedAnimal.reward.rewardType, 'animals', 'an animal share must add animals after the player returns');
+assert.equal(agedAnimal.reward.after - agedAnimal.reward.before, agedAnimal.reward.amount, 'the animal increase must match the granted amount');
+aged.shareMetricReward('animals');
+aged.pendingSharePostcard.createdAt = Date.now() - 1000;
+const agedAnimalAgain = aged.settleAgedShareReward(Date.now());
+assert.ok(agedAnimalAgain.reward && agedAnimalAgain.reward.amount > 0, 'the second animal share must also add animals');
+aged.openCoreMetricDetail('animals');
+assert.equal(aged.infoDetailModal.items.some((item) => item.tag === '分享任务'), false, 'closing and reopening the animal card must drop the share task after two uses');
+
+const agedVisitors = setupGame('游客分享回游戏后入账');
+agedVisitors.shareMetricReward('visitors');
+agedVisitors.pendingSharePostcard.createdAt = Date.now() - 1000;
+const agedVisitor = agedVisitors.settleAgedShareReward(Date.now());
+agedVisitors.shareMetricReward('visitors');
+agedVisitors.pendingSharePostcard.createdAt = Date.now() - 1000;
+const agedVisitorAgain = agedVisitors.settleAgedShareReward(Date.now());
+assert.equal(agedVisitor.reward.rewardType, 'visitors', 'a visitor share must add visitors after the player returns');
+assert.equal(agedVisitorAgain.reward.after - agedVisitor.reward.after, agedVisitorAgain.reward.amount, 'the second visitor share must add on top of the first');
+agedVisitors.openCoreMetricDetail('visitors');
+assert.equal(agedVisitors.infoDetailModal.items.some((item) => item.tag === '分享任务'), false, 'closing and reopening the visitor card must drop the share task after two uses');
+
+const reloaded = setupGame('分享后重载仍发放');
+reloaded.shareMetricReward('visitors');
+const savedPending = reloaded.state.ui.pendingShareReward;
+reloaded.pendingSharePostcard = null;
+savedPending.createdAt = Date.now() - 1500;
+reloaded.state.ui.pendingShareReward = savedPending;
+const resumed = reloaded.settleAgedShareReward(Date.now());
+assert.equal(resumed.reward.rewardType, 'visitors', 'a reloaded game must still grant the pending visitor share');
 
 const picker = setupGame('主动分享随机选择');
 assert.equal(pickActiveShareRewardType(picker.state, () => 0.1), 'animals', 'unused mail share can pick animals');

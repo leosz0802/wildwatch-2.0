@@ -200,7 +200,6 @@ const animals = [
     startLocation: "南部林缘草甸"
   }
 ];
-
 module.exports = {
   animals
 };

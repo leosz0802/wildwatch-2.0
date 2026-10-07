@@ -41,7 +41,6 @@ function getRuntime() {
     }
   };
 }
-
 module.exports = {
   getRuntime
 };

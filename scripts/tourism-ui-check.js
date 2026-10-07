@@ -33,11 +33,11 @@ const rate = visitorContributionRate(reserve).rate;
 const result = consumeVisitorRecruitment(reserve, 1, .5);
 assert(result.ok && result.income === Math.round(result.visitors * rate));
 assert.strictEqual(reserve.fund - fundBefore, result.income, "recruitment must deposit exactly the computed contribution");
-for (let star = 1; star <= 9; star++) {
+for (let star = 1; star <= TOURISM_THRESHOLDS.length; star++) {
   const threshold = TOURISM_THRESHOLDS[star - 1];
   const current = tourismProgression(threshold);
   assert.strictEqual(current.stars, star);
-  assert.strictEqual(current.progress, star === 9 ? 100 : 0);
+  assert.strictEqual(current.progress, star === TOURISM_THRESHOLDS.length ? 100 : 0);
   assert.strictEqual(current.path.filter((step) => step.current).length, 1);
   if (star > 1) assert.strictEqual(tourismProgression(threshold - .01).stars, star - 1);
 }
@@ -96,8 +96,9 @@ for (const [width, height] of [[320, 568], [375, 667], [430, 932]]) {
   game.hitAreas = [];
   game.drawInfoDetailModal();
   const path = game.infoDetailModal.renderedTourismPath;
-  assert.strictEqual(path.length, 9, "all nine ranks must be visible");
-  assert(path[8].y + path[8].h < height - 90, "last rank must stay above footer/buttons");
+  assert.strictEqual(path.length, TOURISM_THRESHOLDS.length, "all tourism ranks must be visible");
+  const lastRank = path[path.length - 1];
+  assert(lastRank.y + lastRank.h < height - 90, "last rank must stay above footer/buttons");
   capture("tourism-path", width);
   game.infoDetailModal = null;
   game.openReserveProsperityDetail();

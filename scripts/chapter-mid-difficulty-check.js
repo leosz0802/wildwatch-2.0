@@ -6,12 +6,13 @@ const { chapterTargets, chapterVisitorDailyAttrition } = require("../js/chapterT
 const { lateChapterRealNatureChance, neighborEventChance } = require("../js/worldEventSystem");
 const { sandboxTaskCap, proposeEcologyCrises } = require("../js/sandboxTaskCadence");
 
-assert.deepEqual(chapterTargets(1), { species: 7, animals: 180, visitors: 95, expectedMinutes: 4 });
-assert.deepEqual(chapterTargets(2), { species: 7, animals: 220, visitors: 145, expectedMinutes: 9 });
+assert.deepEqual(chapterTargets(1), { species: 7, animals: 70, visitors: 114, expectedMinutes: 4 });
+assert.deepEqual(chapterTargets(2), { species: 7, animals: 84, visitors: 174, expectedMinutes: 9 });
+assert.ok(chapterTargets(2).animals > chapterTargets(1).animals, "chapter 2 animal gate must rise above chapter 1");
 
 const earlyAnimals = chapterTargets(2).animals;
 const earlyVisitors = chapterTargets(2).visitors;
-for (let chapter = 3; chapter <= 20; chapter += 1) {
+for (let chapter = 3; chapter <= 11; chapter += 1) {
   const current = chapterTargets(chapter);
   const previous = chapterTargets(chapter - 1);
   assert.ok(current.animals > previous.animals, `chapter ${chapter} animal gate must rise`);
@@ -41,6 +42,10 @@ mid.seasonState = { name: "旱季", weather: "阴" };
 mid.poacherPressure = 40;
 assert.equal(sandboxTaskCap(mid), 1);
 assert.ok(chapterVisitorDailyAttrition(mid, { tourism: { retention: 55 } }) >= 4, "chapter 3+ must leak visitors each settlement day");
+const quietVisits = chapterVisitorDailyAttrition(mid, { tourism: { retention: 55 }, visitors: 12 });
+const busyVisits = chapterVisitorDailyAttrition(mid, { tourism: { retention: 55 }, visitors: 180 });
+assert.ok(busyVisits > quietVisits, "a heavy visit day must lose more visitors than a quiet day");
+assert.ok(busyVisits >= Math.round(180 * 0.25), "heavy visit loss must match a meaningful share of that day's arrivals");
 const crises = proposeEcologyCrises(mid, { season: "旱季", weather: "阴" });
 assert.ok(crises.some((item) => item.id === "wildfire"), "chapter 3+ dry grass must surface fire");
 assert.ok(crises.some((item) => item.id === "poacher"), "chapter 3+ poacher pressure must surface a harsh border task");

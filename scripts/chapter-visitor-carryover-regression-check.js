@@ -8,8 +8,11 @@ const {
   chapterVisitorCarryover,
   chapterVisitorTotal,
   chapterVisitorBreakdown,
-  applyChapterVisitorDelta
+  applyChapterVisitorDelta,
+  beginChapterAnimalCheckpoint,
+  chapterAnimalTotal
 } = require('../js/chapterTargets');
+const { recordIncrease } = require('../js/animalSourceLedger');
 const { SPECIES_DB, speciesPopulationGroup } = require('../js/animalWorld');
 
 const game = new Game();
@@ -32,6 +35,9 @@ Object.keys(reserve.ecology).forEach((group) => {
     reserve.ecology[group][speciesId] = Math.max(50, Number(reserve.ecology[group][speciesId]) || 0);
   });
 });
+
+beginChapterAnimalCheckpoint(reserve, 1, 0);
+recordIncrease(reserve, 'tasked', Math.max(0, chapterTargets(1).animals - chapterAnimalTotal(reserve)));
 
 // Simulate a chapter-1 end total of 1,040 visitors, then enter chapter 2.
 const operations = reserve.development.operations;
@@ -65,7 +71,7 @@ assert.equal(afterLoss.lost, 10, 'loss must be recorded in the chapter breakdown
 assert.equal(afterLoss.untracked, 0, 'inherited and lost visitors must close the breakdown');
 
 const detail = game.buildChapterProgressDetail();
-const visitorBody = detail.metricDetails.visitors.items[0].body;
+const visitorBody = ((detail.metricDetails.visitors.items || []).find((item) => item.title === "当前游客构成") || detail.metricDetails.visitors.items[0] || {}).body;
 assert.match(visitorBody, /继承 104 人/, 'visitor detail must show the inherited carryover');
 assert.match(visitorBody, /流失 10 人/, 'visitor detail must show the current chapter loss');
 assert.doesNotMatch(visitorBody, /待分类/, 'visitor detail must not show an unclassified carryover');
@@ -125,6 +131,10 @@ allChaptersReserve.ecology.grass = 90;
 allChaptersReserve.ecology.disease = 4;
 allChaptersReserve.safety = 90;
 allChaptersReserve.poacherPressure = 5;
+// The visitor carryover fixture satisfies the chapter-10 rare resident gate;
+// the gate itself is covered by rare-animal-mvp-check.js.
+allChaptersReserve.rareAnimal.status = "resident";
+allChaptersReserve.rareAnimal.health = 72;
 Object.keys(SPECIES_DB).forEach((speciesId) => {
   const group = speciesPopulationGroup(speciesId);
   allChaptersReserve.ecology[group][speciesId] = 100;
@@ -148,6 +158,8 @@ for (let from = 1; from < 20; from += 1) {
   const target = chapterTargets(from).visitors;
   const before = chapterVisitorTotal(allChaptersReserve);
   if (before < target) applyChapterVisitorDelta(allChaptersReserve, target - before, 'recruit', { skipToday: true });
+  const animalNeed = Math.max(0, chapterTargets(from).animals - chapterAnimalTotal(allChaptersReserve));
+  if (animalNeed) recordIncrease(allChaptersReserve, 'tasked', animalNeed);
   const endingTotal = chapterVisitorTotal(allChaptersReserve);
   assert.equal(allChaptersGame.armPendingChapterPromotion(allChaptersReserve, from), true, `chapter ${from} should queue promotion`);
   assert.equal(allChaptersGame.applyPendingChapterPromotion(), true, `chapter ${from} should enter chapter ${from + 1}`);

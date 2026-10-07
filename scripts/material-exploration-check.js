@@ -26,7 +26,7 @@ const { Game } = require("../js/game");
 const { createCharacter } = require("../js/storage");
 const { simulateDay } = require("../js/simulator");
 const { previewMaterialExploration, resolveMaterialExploration, EXPLORATION_GOODS, RESCUE_GOODS } = require("../js/materialExploration");
-const { maxObtainableQualityScore } = require("../js/wildernessKnowledge");
+const { maxObtainableQualityScore, WILDERNESS_FIND_CATALOG } = require("../js/wildernessKnowledge");
 const { normalizeLifeMemory } = require("../js/emotionSystem");
 
 function assert(condition, message) {
@@ -130,5 +130,31 @@ game.rollMaterialExplorationDice = (targetId) => { rolledTarget = targetId; };
 game.infoDetailModal.action();
 assert(rolledTarget === "researchSample", "the visible die action should start the selected material exploration");
 assert(!/去巡护|巡护收集/.test(JSON.stringify(detail)), "empty material flow should no longer route to patrol");
+
+game.infoDetailModal = null;
+game.openMaterialExploration("seedpod_alarm");
+const seedpodBefore = game.materialDiceStatus(game.infoDetailModal);
+assert(seedpodBefore && /无法获得/.test(seedpodBefore.note) && !/达到5点|需掷4/.test(seedpodBefore.note), "荚果风铃警戒器不能再把门槛写成5点或掷4+");
+game.infoDetailModal.phase = "resolved";
+game.infoDetailModal.displayRoll = 5;
+game.infoDetailModal.resultScore = 5;
+const seedpodAfter = game.materialDiceStatus(game.infoDetailModal);
+assert(seedpodAfter && seedpodAfter.awarded === false && seedpodAfter.note.startsWith("未获得"), "1级掷出5点必须明确写成没有获得荚果风铃警戒器");
+
+WILDERNESS_FIND_CATALOG.concat(EXPLORATION_GOODS).forEach((item) => {
+  game.infoDetailModal = null;
+  game.openMaterialExploration(item.id);
+  const status = game.materialDiceStatus(game.infoDetailModal);
+  assert(status && status.label === item.label, `${item.label} 必须使用自己的取得说明`);
+  assert(!/达到5点|需掷4/.test(status.note) || item.minQuality <= 5, `${item.label} 不能沿用通用5点门槛`);
+  assert(status.requiredScore === item.minQuality, `${item.label} 门槛应是 ${item.minQuality} 点`);
+  game.infoDetailModal.phase = "resolved";
+  game.infoDetailModal.displayRoll = 1;
+  game.infoDetailModal.resultScore = 1;
+  const missed = game.materialDiceStatus(game.infoDetailModal);
+  if (item.minLevel > 1 || item.minQuality > (1 + (game.infoDetailModal.preview.levelContribution || 0) + (game.infoDetailModal.preview.relationshipContribution || 0))) {
+    assert(missed && missed.awarded === false && missed.note.startsWith("未获得"), `${item.label} 点数或等级不够时必须写明未获得`);
+  }
+});
 
 console.log("material exploration check ok");

@@ -9,14 +9,21 @@ for (const { stage, id } of Array.from({ length: 20 }, (_, i) => i + 1)
  .flatMap(stage => ['houndScout','antiPoacher','habitat','intervention'].map(id => ({ stage, id })))) {
  const g=make();
  Object.assign(g.state.world.reserve.progression, { stage, displayChapter: stage, level: progressionGate(stage).storyLevel });
- assert(g.openPatrolOperationScreen(id)); assert.equal(g.patrolTaskModal.id,id);
  const before=g.state.world.reserve.progression.totalActions;
  const beforeFund=g.state.world.reserve.fund;
  const beforeWater=g.state.world.reserve.ecology.water;
  const beforeGrass=g.state.world.reserve.ecology.grass;
- const buttons=[]; g.modalButton=(_c,_x,_y,_w,_h,label,_f,onTap)=>buttons.push({label,onTap}); g.drawPatrolTaskModal();
- assert(!buttons.some(b=>/规划路线|路线出发|选择节点/.test(b.label)));
- const execute=buttons.find(b=>/执行/.test(b.label)); assert(execute,id+': direct execute button missing'); execute.onTap();
+ assert(g.openPatrolOperationScreen(id));
+ const buttons=[]; g.modalButton=(_c,_x,_y,_w,_h,label,_f,onTap)=>buttons.push({label,onTap});
+ let execute={ onTap(){} };
+ if (id === 'antiPoacher') {
+  assert.notEqual((g.patrolTaskModal||{}).id,'antiPoacher',id+': must skip the intermediate page');
+ } else {
+  assert.equal(g.patrolTaskModal.id,id);
+  g.drawPatrolTaskModal();
+  assert(!buttons.some(b=>/规划路线|路线出发|选择节点/.test(b.label)));
+  execute=buttons.find(b=>/执行/.test(b.label)); assert(execute,id+': direct execute button missing'); execute.onTap();
+ }
  const modal=g.settlementModal;
  assert.equal(g.state.world.reserve.progression.totalActions,before+1);
  if (!modal || modal.silent) {

@@ -15,11 +15,13 @@ const state = {
   scrollY: 0,
   selectedIndex: -1,
   view: "list",
-  surface: "rank",
+  surface: "idle",
   worldRows: [],
   worldLeaderboardRows: [],
+  avatarRow: null,
   requestId: 0,
   friendLoading: false,
+  pendingFriendReload: false,
   touch: null
 };
 
@@ -81,13 +83,20 @@ function setFont(size, weight) {
   ctx.font = `${weight || 400} ${size}px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif`;
 }
 
+function normalizeDisplayNumericText(value) {
+  return String(value == null ? "" : value).replace(/\d+\.\d+/g, (raw) => {
+    const rounded = Math.round((Number(raw) + Number.EPSILON) * 10) / 10;
+    return String(Object.is(rounded, -0) ? 0 : rounded);
+  });
+}
+
 function text(value, x, y, size, color, align, weight) {
   if (!ctx) return;
   setFont(size, weight);
   ctx.fillStyle = color;
   ctx.textAlign = align || "left";
   ctx.textBaseline = "alphabetic";
-  ctx.fillText(String(value), x, y);
+  ctx.fillText(normalizeDisplayNumericText(value), x, y);
 }
 
 function fitText(value, maxWidth, size, weight) {
@@ -276,7 +285,7 @@ function drawWorldRows() {
   const rowH = Math.max(36, Number(state.worldRowHeight) || 44);
   roundRect(.5, .5, state.width - 1, state.height - 1, 14, "#fffefa", "rgba(60,60,67,.16)");
   state.worldRows.forEach((world, index) => {
-    const row = matchWorldFriend(world, friends);
+    const row = matchWorldFriend(world, friends) || worldAsFriendRow(world, index);
     const y = index * rowH;
     if (index) { ctx.fillStyle = "rgba(60,60,67,.10)"; ctx.fillRect(48, y, state.width - 62, 1); }
     text(world.rank, 16, y + rowH * 0.62, world.rank <= 3 ? 13 : 11, world.rank <= 3 ? "#c08a27" : "#6b746f", "center", 700);
@@ -288,6 +297,51 @@ function drawWorldRows() {
     text(world.valuation, state.width - 14, y + rowH * 0.40, 15, "#2f7d62", "right", 700);
     text(row && !world.mine ? "微信好友 ›" : "市值 ›", state.width - 14, y + rowH * 0.76, 8, "#7a847e", "right", 600);
   });
+}
+
+function drawNicknameSheet() {
+  const rows = Array.isArray(state.nicknameRows) ? state.nicknameRows : [];
+  const rowH = Math.max(16, Number(state.nicknameRowHeight) || 18);
+  const fontSize = Math.max(11, Math.min(13, Number(state.nicknameFontSize) || 13));
+  const nameH = 18;
+  rows.forEach((row, index) => {
+    const friend = matchWorldFriend(row || {}, state.friendSourceRows);
+    const nickname = String(friend && friend.nickname || "").trim();
+    const codedName = /[·・•‧.\-—_][0-9A-Fa-f]{4}/.test(nickname)
+      || /^(晨岚|远川|林迹|白石|溪望|松影|霜原|雨岸|青屿|星渡|云岭|河声)[0-9A-Fa-f]{4}$/.test(nickname);
+    const usableNick = nickname && !codedName && nickname !== "微信好友" && nickname !== "我";
+    const fallback = String(row && row.fallback || "").trim();
+    const usableFallback = fallback && !/[·・•‧.\-—_][0-9A-Fa-f]{4}/.test(fallback) ? fallback : "微信好友";
+    const label = String(usableNick ? nickname : usableFallback).slice(0, 20);
+    const y = index * rowH;
+    const avatarSize = Math.max(0, Math.min(rowH, Number(row && row.avatarSize) || 0));
+    const nameX = avatarSize > 0 ? avatarSize + 6 : 0;
+    const rowWidth = Math.max(24, Math.min(Math.max(0, state.width - nameX), Number(row && row.w) || state.width));
+    const align = row && row.align === "center" ? "center" : "left";
+    if (avatarSize >= 16) {
+      drawAvatar(friend || { nickname: label, avatarUrl: "" }, 0, y, avatarSize);
+    }
+    ctx.fillStyle = "#fffefa";
+    ctx.fillRect(nameX, y, rowWidth, nameH);
+    text(fitText(label, rowWidth - 8, fontSize, 700), align === "center" ? nameX + rowWidth / 2 : nameX + 2, y + nameH - 4, fontSize, "#1c3325", align, 700);
+  });
+}
+
+function drawWorldAvatar() {
+  const world = state.avatarRow || {};
+  const row = matchWorldFriend(world, state.friendSourceRows) || worldAsFriendRow(world, 0);
+  drawAvatar(row, 0, 0, Math.min(state.width, state.height));
+}
+
+function detailContractButtonBounds() {
+  const h = 32;
+  const w = Math.min(state.width - 28, 220);
+  return {
+    x: (state.width - w) / 2,
+    y: Math.max(198, state.height - h - 10),
+    w,
+    h
+  };
 }
 
 function drawDetail() {
@@ -318,14 +372,20 @@ function drawDetail() {
     text(item.label, x + cardW / 2, 167, 8, "#6b746f", "center", 600);
     text(item.value, x + cardW / 2, 187, 14, index === 0 ? "#2f7d62" : "#1f2d27", "center", 700);
   });
-  text("资料仅在微信开放数据域内展示", state.width / 2, Math.min(state.height - 12, 220), 9, "#7a847e", "center", 400);
+  const contractButton = detailContractButtonBounds();
+  const compact = state.height < 270;
+  if (!compact) {
+    text("资料仅在微信开放数据域内展示", state.width / 2, Math.min(contractButton.y - 14, 220), 9, "#7a847e", "center", 400);
+  }
+  roundRect(contractButton.x, contractButton.y, contractButton.w, contractButton.h, 12, "#1c5f46", "rgba(47,125,98,.22)");
+  text("发起好友合同", state.width / 2, contractButton.y + 21, 11, "#fffaf0", "center", 700);
+  state.detailContractButton = contractButton;
 }
 
 function applyCanvasTransform() {
-  const canvasWidth = Math.max(1, Number(sharedCanvas.width) || state.width || 1);
-  const canvasHeight = Math.max(1, Number(sharedCanvas.height) || state.height || 1);
-  const scaleX = canvasWidth / Math.max(1, state.width || 1);
-  const scaleY = canvasHeight / Math.max(1, state.height || 1);
+  const scale = Math.max(1, Number(state.pixelRatio) || 1);
+  const scaleX = scale;
+  const scaleY = scale;
   if (ctx.setTransform) {
     ctx.setTransform(scaleX, 0, 0, scaleY, 0, 0);
     return () => {};
@@ -345,28 +405,42 @@ function applyCanvasTransform() {
 }
 
 function hideSurface() {
-  state.surface = "idle";
-  state.phase = "idle";
-  state.view = "list";
-  state.rows = [];
-  state.worldRows = [];
-  if (!ctx || !sharedCanvas) return;
-  try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch (error) {}
-  try { ctx.globalAlpha = 1; } catch (error) {}
-  try { ctx.clearRect(0, 0, Number(sharedCanvas.width) || state.width || 1, Number(sharedCanvas.height) || state.height || 1); } catch (error) {}
+  if (state.hiding) return;
+  state.hiding = true;
+  try {
+    state.surface = "idle";
+    state.phase = "idle";
+    state.view = "list";
+    state.rows = [];
+    state.worldRows = [];
+    state.pendingFriendReload = false;
+    if (!ctx || !sharedCanvas) return;
+    try { ctx.setTransform(1, 0, 0, 1, 0, 0); } catch (error) {}
+    try { ctx.globalAlpha = 1; } catch (error) {}
+    try { ctx.clearRect(0, 0, 4096, 4096); } catch (error) {}
+  } finally {
+    state.hiding = false;
+  }
 }
 
 function render() {
   if (!ctx || !sharedCanvas) return;
-  if (state.surface === "idle") {
-    hideSurface();
+  if (state.rendering) {
+    state.renderQueued = true;
     return;
   }
+  if (state.surface === "idle") return;
+  state.rendering = true;
+  state.renderQueued = false;
   const restore = applyCanvasTransform();
   try {
     ctx.clearRect(0, 0, state.width, state.height);
     if (state.surface === "world") {
       drawWorldRows();
+    } else if (state.surface === "avatar") {
+      drawWorldAvatar();
+    } else if (state.surface === "nicknames") {
+      drawNicknameSheet();
     } else {
       roundRect(0.5, 0.5, state.width - 1, state.height - 1, 14, "#fffefa", "rgba(60,60,67,.16)");
       if (state.phase === "loading") {
@@ -384,6 +458,11 @@ function render() {
     }
   } finally {
     restore();
+    state.rendering = false;
+    if (state.renderQueued) {
+      state.renderQueued = false;
+      render();
+    }
   }
 }
 
@@ -421,6 +500,13 @@ function handlePointer(message) {
       state.view = "list";
       state.selectedIndex = -1;
       render();
+    } else {
+      const button = state.detailContractButton || detailContractButtonBounds();
+      if (x >= button.x && x <= button.x + button.w && y >= button.y && y <= button.y + button.h) {
+        // The shared canvas is input-transparent to the main game. The main
+        // domain mirrors this detail state and handles the contract action so
+        // the open-data domain remains one-way and Android-safe.
+      }
     }
     return;
   }
@@ -437,6 +523,18 @@ function applyFriendRows(data) {
   const rows = (data || []).map((user) => {
     try { return parseRow(user); } catch (error) { return null; }
   }).filter(Boolean);
+  // An empty hosted read, or a self-only fallback after hide/resize, must
+  // not wipe friends already loaded. iPhone WeChat often fails
+  // getFriendCloudStorage when the shared canvas is parked to 1px.
+  if (!rows.length && state.friendSourceRows.length) {
+    publishFriendRows(state.surface === "rank");
+    return;
+  }
+  if (rows.length === 1 && String(rows[0].nickname || "") === "我"
+    && state.friendSourceRows.some((row) => row && row.nickname && row.nickname !== "我")) {
+    publishFriendRows(state.surface === "rank");
+    return;
+  }
   state.friendSourceRows = rows;
   publishFriendRows(true);
 }
@@ -470,6 +568,18 @@ function showFriendRankError(error) {
 
 function finishFriendRankFailure(requestId, error) {
   if (requestId !== state.requestId) return;
+  if (state.pendingFriendReload) {
+    state.pendingFriendReload = false;
+    if (state.surface !== "idle") {
+      requestFriendRank({ force: true });
+      return;
+    }
+  }
+  if (state.surface === "idle") return;
+  if (state.friendSourceRows.length) {
+    publishFriendRows(state.surface === "rank");
+    return;
+  }
   if (state.surface === "world") {
     render();
     return;
@@ -494,6 +604,10 @@ function applySelfCloudStorage(requestId, profile, kvList) {
 }
 
 function requestSelfRankFallback(requestId, error) {
+  if (state.surface === "idle" || state.friendSourceRows.some((row) => row && row.nickname && row.nickname !== "我")) {
+    finishFriendRankFailure(requestId, error);
+    return;
+  }
   const failOut = () => finishFriendRankFailure(requestId, error);
   const withProfile = (profile) => {
     if (typeof wx.getUserCloudStorage !== "function") {
@@ -531,6 +645,7 @@ function requestFriendRank(options = {}) {
     return;
   }
   if (state.friendLoading) {
+    if (force) state.pendingFriendReload = true;
     if (state.surface === "rank" && state.phase !== "ready" && !state.rows.length) state.phase = "loading";
     render();
     return;
@@ -555,13 +670,17 @@ function requestFriendRank(options = {}) {
       if (requestId !== state.requestId) return;
       state.friendLoading = false;
       const incoming = result.data || [];
-      if (!incoming.length && state.rows.length && state.surface !== "rank") { render(); return; }
+      if (!incoming.length && state.friendSourceRows.length && state.surface !== "rank") { render(); return; }
       applyFriendRows(incoming);
+      if (state.pendingFriendReload) {
+        state.pendingFriendReload = false;
+        requestFriendRank({ force: true });
+      }
     },
     fail(error) {
       if (requestId !== state.requestId) return;
       state.friendLoading = false;
-      if (attempt < 3) {
+      if (attempt < 3 && state.surface !== "idle") {
         const retry = () => requestFriendRank({ force: true, attempt: attempt + 1 });
         if (typeof setTimeout === "function") setTimeout(retry, 360 * (attempt + 1));
         else retry();
@@ -573,7 +692,9 @@ function requestFriendRank(options = {}) {
 }
 
 if (typeof wx !== "undefined" && wx.onMessage) {
-  wx.onMessage((message) => {
+  let handlingOpenDataMessage = false;
+  let queuedOpenDataMessage = null;
+  const handleOpenDataMessage = (message) => {
     if (!message) return;
     if (message.type === "world_rank_show") {
       const needsFriendIdentity = !state.friendSourceRows.length
@@ -600,7 +721,36 @@ if (typeof wx !== "undefined" && wx.onMessage) {
       handlePointer(message);
       return;
     }
+    if (message.type === "friend_nickname_sheet") {
+      state.surface = "nicknames";
+      state.width = Math.max(48, Number(message.width) || 180);
+      state.height = Math.max(18, Number(message.height) || 28);
+      state.pixelRatio = Math.max(1, Number(message.pixelRatio) || 1);
+      state.nicknameRowHeight = Math.max(16, Number(message.rowHeight) || 18);
+      state.nicknameFontSize = Math.max(11, Math.min(13, Number(message.fontSize) || 13));
+      if (message.key) state.key = String(message.key);
+      if (message.scoreKey) state.scoreKey = String(message.scoreKey);
+      try { state.nicknameRows = JSON.parse(message.rowsJson || "[]").slice(0, 12); }
+      catch (error) { state.nicknameRows = []; }
+      render();
+      if (!state.friendSourceRows.length) requestFriendRank({ force: false });
+      return;
+    }
+    if (message.type === "world_avatar_show") {
+      state.surface = "avatar";
+      state.width = Math.max(32, Number(message.width) || 48);
+      state.height = Math.max(32, Number(message.height) || 48);
+      state.pixelRatio = Math.max(1, Number(message.pixelRatio) || 1);
+      if (message.key) state.key = String(message.key);
+      if (message.scoreKey) state.scoreKey = String(message.scoreKey);
+      try { state.avatarRow = JSON.parse(message.rowJson || "{}") || {}; }
+      catch (error) { state.avatarRow = {}; }
+      render();
+      if (!state.friendSourceRows.length) requestFriendRank({ force: false });
+      return;
+    }
     if (message.type === "friend_rank_hide") {
+      queuedOpenDataMessage = null;
       hideSurface();
       return;
     }
@@ -615,11 +765,25 @@ if (typeof wx !== "undefined" && wx.onMessage) {
     state.scoreKey = String(message.scoreKey || state.scoreKey);
     if (state.friendSourceRows.length && message.reload !== true) publishFriendRows();
     else requestFriendRank({ force: message.reload === true });
+  };
+  wx.onMessage((message) => {
+    if (!message) return;
+    if (handlingOpenDataMessage) {
+      queuedOpenDataMessage = message;
+      return;
+    }
+    handlingOpenDataMessage = true;
+    try {
+      handleOpenDataMessage(message);
+    } finally {
+      handlingOpenDataMessage = false;
+    }
+    const queued = queuedOpenDataMessage;
+    queuedOpenDataMessage = null;
+    if (queued && typeof setTimeout === "function") setTimeout(() => handleOpenDataMessage(queued), 0);
   });
 }
 
 if (typeof module !== "undefined") {
-  module.exports = { normalizeReserveName, friendTitle, rankLayout, rowIndexAt };
+  module.exports = { normalizeReserveName, friendTitle, rankLayout, rowIndexAt, detailContractButtonBounds };
 }
-
-render();

@@ -163,5 +163,60 @@ const dialogueSignatures = profiles.map((profile) => profile.profile.dialogues.j
 if (new Set(dialogueSignatures).size < Object.keys(SPECIES_DB).length) {
   throw new Error("all species should expose distinct recent dialogue sets");
 }
+profiles.forEach((profile) => {
+  const lines = (profile.profile && profile.profile.dialogues) || [];
+  if (lines.some((line) => game.isAnimalContextLine(line))) {
+    throw new Error(`${profile.title} recent dialogue should not include chapter/status metadata`);
+  }
+});
+
+function mockContext() {
+  const gradient = { addColorStop() {} };
+  const text = [];
+  const target = {
+    _text: text,
+    measureText(value) { return { width: String(value || "").length * 6 }; },
+    fillText(value) { text.push(String(value || "")); },
+    createLinearGradient() { return gradient; },
+    createRadialGradient() { return gradient; }
+  };
+  return new Proxy(target, {
+    get(object, property) {
+      if (property in object) return object[property];
+      return () => {};
+    },
+    set(object, property, value) {
+      object[property] = value;
+      return true;
+    }
+  });
+}
+
+const renderContext = mockContext();
+game.ctx = renderContext;
+game.width = 375;
+game.height = 667;
+game.hitAreas = [];
+game.drawSpeciesProfileModalContent(renderContext, profiles[0], 0, 0, 375, 460);
+game.drawSpeciesProfileCard(
+  renderContext,
+  0,
+  0,
+  320,
+  profiles[0].profile.species,
+  profiles[0].profile.population,
+  profiles[0].profile.status,
+  profiles[0].profile.importance,
+  null,
+  null,
+  profiles[0].profile.dialogue,
+  world.reserve
+);
+if (renderContext._text.some((line) => /近期对白|最近对话/.test(line))) {
+  throw new Error("species dialogue panels should not show a synthetic dialogue heading");
+}
+if (renderContext._text.some((line) => game.isAnimalContextLine(line))) {
+  throw new Error("species dialogue panels should not render chapter/status metadata as dialogue");
+}
 
 console.log("dialogue check ok");

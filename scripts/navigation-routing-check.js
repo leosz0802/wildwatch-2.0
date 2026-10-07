@@ -56,13 +56,25 @@ assert(tabGame.screen === "collection" && tabGame.discoveryTab === "population",
 
 const collectionGame = makeGame("home");
 collectionGame.activateGuardianBeat("collectionInvestigation");
-assert(collectionGame.screen === "survival" && collectionGame.survivalArchiveOpen, "collection investigation must enter the Survival archive instead of Discovery or the friend leaderboard");
+assert(collectionGame.screen === "home", "station tasks open the patrol post on the sandbox, not Survival archery");
+assert(collectionGame.infoDetailModal && collectionGame.infoDetailModal.kind === "facilityConstruction", "station task should open the patrol-post use card");
+collectionGame.openSurvivalCollectionArchive();
+assert(collectionGame.screen === "survival" && collectionGame.survivalArchiveOpen, "Survival archive remains available from Survival itself");
 collectionGame.collectionCaseId = "case_1";
 collectionGame.collectionPage = 1;
 collectionGame.closeSurvivalCollectionArchive();
 assert(collectionGame.screen === "survival" && !collectionGame.survivalArchiveOpen && !collectionGame.collectionCaseId && collectionGame.collectionPage === 0, "leaving a chapter collection must return to the Survival home");
 collectionGame.openDiscoveryHome();
 assert(collectionGame.screen === "collection" && collectionGame.discoveryTab === "visitors", "Discovery home must open on Visitor Operations so first-stage recruitment and ads stay visible");
+collectionGame.drawCollection(createFakeContext());
+assert(collectionGame.renderedDiscoveryNetworkEntry && collectionGame.renderedDiscoveryNetworkEntry.friends && collectionGame.renderedDiscoveryNetworkEntry.world, "Discovery header must pin friend and world ranking entry");
+assert(collectionGame.renderedDiscoveryTabs && collectionGame.renderedDiscoveryTabs.y > collectionGame.renderedDiscoveryNetworkEntry.y, "Discovery friend and world ranking entry must sit above the two discovery tabs");
+collectionGame.openReserveNetwork("friends");
+assert(collectionGame.screen === "league" && collectionGame.leagueScope === "friends", "Discovery friend ranking entry should open the friend board");
+collectionGame.openDiscoveryHome();
+collectionGame.openReserveNetwork("world");
+assert(collectionGame.screen === "league" && collectionGame.leagueScope === "world", "Discovery world ranking entry should open the world board");
+collectionGame.openDiscoveryHome();
 collectionGame.collectionCaseId = "case_1";
 collectionGame.setScreen("home");
 collectionGame.setScreen("collection");
@@ -70,9 +82,9 @@ assert(collectionGame.discoveryTab === "visitors" && !collectionGame.collectionC
 
 const patrolGame = makeGame("survival");
 patrolGame.openPatrolOperationScreen("houndScout");
-assert(patrolGame.screen === "action" && patrolGame.actionScreenOrigin === "survival" && patrolGame.patrolTaskModal.id === "houndScout", "story patrol should open its requested task and retain Survival as the return destination");
+assert(patrolGame.screen === "survival" && patrolGame.patrolTaskModal.id === "houndScout", "story patrol should open its requested task on Survival, not the patrol board");
 patrolGame.closePatrolOperationScreen();
-assert(patrolGame.screen === "survival", "closing patrol should return to Survival");
+assert(patrolGame.screen === "survival", "closing patrol should stay on Survival");
 patrolGame.setScreen("collection");
 patrolGame.openPatrolOperationScreen("houndScout");
 patrolGame.closePatrolOperationScreen();
@@ -87,9 +99,14 @@ for (const action of ["houndScout", "antiPoacher", "habitat", "intervention"]) {
     direct.infoDetailModal = { kind: "story" };
     const before = JSON.stringify(direct.state.world.reserve);
     direct.executeGoalAction({ recommendedAction: action, kind: "stage" });
-    assert(direct.screen === "action" && direct.patrolTaskModal.id === action && !direct.infoDetailModal,
-      `${origin}/${action}: story click should open the requested operation on the task page`);
-    assert(direct.actionScreenOrigin === origin && direct.pendingTaskOriginScreen === "action", "task page should retain its origin while settlement is attached to that page");
+    if (action === "antiPoacher") {
+      assert(!direct.patrolTaskModal, `${origin}/${action}: 驱赶偷猎不得停在中间页`);
+      assert(JSON.stringify(direct.state.world.reserve) !== before, `${origin}/${action}: 驱赶偷猎应直接结算`);
+      continue;
+    }
+    assert(direct.screen === origin && direct.screen !== "action" && direct.patrolTaskModal.id === action && !direct.infoDetailModal,
+      `${origin}/${action}: story click should open the requested operation on the current screen`);
+    assert(direct.pendingTaskOriginScreen === origin, "task should settle from the screen that opened it");
     assert(JSON.stringify(direct.state.world.reserve) === before, "opening the operation may record click timing but must not spend resources or advance a task");
     const task = direct.patrolTaskModal;
     assert(direct.openPatrolOperationScreen("houndScout") === false && direct.patrolTaskModal === task,
@@ -111,15 +128,8 @@ for (const action of ["houndScout", "antiPoacher", "habitat", "intervention"]) {
 const shortageRoute = makeGame("home");
 shortageRoute.state.world.reserve.supplies.alarm = 0;
 shortageRoute.openPatrolOperationScreen("antiPoacher");
-shortageRoute.drawPatrolTaskModal();
-assert(shortageRoute.screen === "action" && shortageRoute.renderedPatrolTask.id === "antiPoacher",
-  "a shortage must keep the intended operation visible");
-const shortageButtons = [];
-shortageRoute.modalButton = (_ctx, _x, _y, _w, _h, label, _fill, onTap) => shortageButtons.push({ label, onTap });
-shortageRoute.drawPatrolTaskModal();
-assert(shortageButtons.some(button => button.label === "去物资"), "a shortage must offer an actionable supply route");
-shortageButtons.find(button => button.label === "去物资").onTap();
-assert(shortageRoute.screen === "role" && !shortageRoute.patrolTaskModal, "supply route must leave the blocked operation");
+assert(shortageRoute.screen === "role" && !shortageRoute.patrolTaskModal,
+  "a shortage must send 驱赶偷猎 to materials instead of an intermediate page");
 
 // Reproduce the saved visitor title paired with an ecology action from the video.
 for (const conflict of [false, true]) {
@@ -165,6 +175,9 @@ for (const conflict of [false, true]) {
 const materialGame = makeGame("survival");
 materialGame.openMaterialExploration();
 assert(materialGame.infoDetailModal.originScreen === "survival", "exploration should remember its source tab");
+// Navigation regression uses a deterministic S result. Lower grades are
+// intentionally settled silently by the current S-only popup policy.
+materialGame.materialExplorationSettlementGrade = () => "S";
 materialGame.executeMaterialExploration("", 6);
 assert(materialGame.screen === "home" && materialGame.settlementModal && materialGame.settlementModal.returnScreen === "survival", "exploration should reveal the sandbox result and then return to its source tab");
 

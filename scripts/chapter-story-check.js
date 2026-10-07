@@ -3,8 +3,8 @@ const path = require("path");
 const { Game } = require("../js/game");
 const { createCharacter } = require("../js/storage");
 const { getUnlockedSpecies } = require("../js/animalWorld");
-const { chapterTargets } = require("../js/chapterTargets");
-const { livingAnimalTotal } = require("../js/chapterRescueSystem");
+const { chapterTargets, beginChapterAnimalCheckpoint, chapterAnimalTotal } = require("../js/chapterTargets");
+const { recordIncrease } = require("../js/animalSourceLedger");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -200,15 +200,16 @@ assert(game.tryPresentPendingChapterAdvance() && game.chapterStoryModal.level ==
   reserve.development.operations = Object.assign({}, reserve.development.operations || {}, {
     totalVisitors: chapterTargets(1).visitors
   });
-  const remaining = Math.max(0, chapterTargets(1).animals - livingAnimalTotal(reserve) - 1);
-  reserve.ecology.herbivores.deer = Math.max(0, Number(reserve.ecology.herbivores.deer) || 0) + remaining;
+  beginChapterAnimalCheckpoint(reserve, 1, 0);
+  const remaining = Math.max(0, chapterTargets(1).animals - chapterAnimalTotal(reserve) - 1);
+  if (remaining) recordIncrease(reserve, "rescued", remaining);
   seq.resetTaskCompletionFeedback();
-  reserve.ecology.herbivores.deer = Math.max(0, Number(reserve.ecology.herbivores.deer) || 0) + 1;
+  recordIncrease(reserve, "rescued", 1);
   seq.commitReserveProgression(reserve, undefined, 1);
   assert(Number(seq.state.world.reserve.progression.stage) === 1, "last core completion must not enter the next chapter immediately");
   assert(seq.pendingChapterPromotion && Number(seq.pendingChapterPromotion.to) === 2, "last core completion should hold the next chapter");
   seq.collectTaskCompletionFeedback();
-  assert(seq.taskCompletionFeedback.pending.some((item) => /动物总数/.test(item.title)), "the last chapter task must queue its completion notice");
+  assert(seq.taskCompletionFeedback.pending.some((item) => /动物总数|本章动物/.test(item.title)), "the last chapter task must queue its completion notice");
   seq.settlementModal = { title: "结果" };
   assert(!seq.showNextTaskCompletionNotice(), "other occupying tasks must delay the last-core notice");
   seq.settlementModal = null;
@@ -221,6 +222,111 @@ assert(game.tryPresentPendingChapterAdvance() && game.chapterStoryModal.level ==
   assert(Number(seq.state.world.reserve.progression.stage) === 1, "must not enter the next chapter during the cutscene");
   seq.dismissChapterStory();
   assert(Number(seq.state.world.reserve.progression.stage) === 2, "enter the next chapter only after the cutscene is dismissed");
+}
+
+{
+  const drain = new Game();
+  if (drain.stopLoop) drain.stopLoop();
+  drain.render = () => {};
+  drain.playSfx = () => {};
+  drain.prepareChapterArt = () => {};
+  drain.openFirstReturnHook = () => false;
+  drain.openPendingShareInvite = () => false;
+  drain.openPendingStrategicDilemma = () => false;
+  drain.openPendingEmotionEvent = () => false;
+  drain.openOfflineBrief = () => false;
+  drain.openGuardianReturnLetter = () => false;
+  drain.openAnimalLetterPrompt = () => false;
+  drain.openQueuedMissionPush = () => false;
+  drain.maybeOpenMissionPush = () => false;
+  drain.trackNarrative = () => {};
+  drain.screen = "home";
+  drain.state = createCharacter(null, "章节任务收尾");
+  drain.state.ui = Object.assign({}, drain.state.ui || {}, { chapterStoriesSeen: {}, onboarding: { completed: true, recruitmentDone: true, seen: {} } });
+  drain.pendingChapterPromotion = { from: 1, to: 2, summary: {} };
+  drain.pendingChapterAdvance = true;
+  drain.chapterStoryModal = null;
+  drain.chapterStoryQueue = [];
+  drain.infoDetailModal = null;
+  drain.settlementModal = null;
+  drain.patrolTaskModal = null;
+  drain.activeTaskLock = null;
+  drain.gesture = null;
+  drain.interstitialAds = null;
+  drain.mapConsequencePulse = null;
+  drain.completionFeedbackHasCharacter = true;
+  drain.taskCompletionFeedback = {
+    pending: [
+      { key: "goal:ch1:daily:patrol", title: "第一章每日巡护" },
+      { key: "core:1:animals", title: "第1章动物总数目标" }
+    ],
+    collect() {},
+    absorb() {},
+    take() { return this.pending.shift() || null; }
+  };
+  drain.queueChapterStoriesForSettlement({ chapterTransition: { from: 1, to: 2 }, deferChapterStory: true });
+  assert(!drain.tryPresentPendingChapterAdvance(), "leftover chapter-1 results must block the promotion card");
+  assert(!drain.chapterStoryModal, "promotion UI must wait behind leftover task results");
+  assert(Number(drain.state.world.reserve.progression.stage) === 1, "must stay on chapter 1 while leftover results are open");
+  assert(drain.showNextTaskCompletionNotice() && drain.infoDetailModal && /每日巡护/.test(drain.infoDetailModal.prose), "first leftover result must play first");
+  drain.dismissInfoDetailModal();
+  assert(drain.showNextTaskCompletionNotice() && drain.infoDetailModal && /动物总数/.test(drain.infoDetailModal.prose), "second leftover result must play next");
+  assert(!drain.chapterStoryModal, "promotion UI must wait until every leftover result is closed");
+  drain.dismissInfoDetailModal();
+  assert(drain.chapterStoryModal && drain.chapterStoryModal.level === 2, "promotion UI comes only after leftover results");
+  assert(Number(drain.state.world.reserve.progression.stage) === 1, "must not enter chapter 2 during the promotion card");
+  drain.dismissChapterStory();
+  assert(Number(drain.state.world.reserve.progression.stage) === 2, "enter the next chapter only after leftover results and the promotion card");
+}
+
+{
+  const late = new Game();
+  if (late.stopLoop) late.stopLoop();
+  late.render = () => {};
+  late.playSfx = () => {};
+  late.prepareChapterArt = () => {};
+  late.openFirstReturnHook = () => false;
+  late.openPendingShareInvite = () => false;
+  late.openPendingStrategicDilemma = () => false;
+  late.openPendingEmotionEvent = () => false;
+  late.openOfflineBrief = () => false;
+  late.openGuardianReturnLetter = () => false;
+  late.openAnimalLetterPrompt = () => false;
+  late.openQueuedMissionPush = () => false;
+  late.maybeOpenMissionPush = () => false;
+  late.trackNarrative = () => {};
+  late.screen = "home";
+  late.state = createCharacter(null, "晋级卡回退");
+  late.state.ui = Object.assign({}, late.state.ui || {}, { chapterStoriesSeen: {}, onboarding: { completed: true, recruitmentDone: true, seen: {} } });
+  late.pendingChapterPromotion = { from: 1, to: 2, summary: {} };
+  late.pendingChapterAdvance = true;
+  late.chapterStoryModal = null;
+  late.chapterStoryQueue = [];
+  late.infoDetailModal = null;
+  late.settlementModal = null;
+  late.patrolTaskModal = null;
+  late.activeTaskLock = null;
+  late.gesture = null;
+  late.interstitialAds = null;
+  late.mapConsequencePulse = null;
+  late.completionFeedbackHasCharacter = true;
+  late.taskCompletionFeedback = {
+    pending: [],
+    collect() {},
+    absorb() {},
+    take() { return this.pending.shift() || null; }
+  };
+  late.queueChapterStoriesForSettlement({ chapterTransition: { from: 1, to: 2 }, deferChapterStory: true });
+  assert(late.tryPresentPendingChapterAdvance() && late.chapterStoryModal && late.chapterStoryModal.level === 2, "empty leftover queue may open the promotion card");
+  late.taskCompletionFeedback.pending.push({ key: "goal:ch1:daily:late", title: "第一章未收尾任务" });
+  assert(late.showNextTaskCompletionNotice() && late.infoDetailModal && /未收尾/.test(late.infoDetailModal.prose), "a late leftover result must pull the promotion card back");
+  assert(!late.chapterStoryModal, "promotion card must yield to the leftover result");
+  assert(Number(late.state.world.reserve.progression.stage) === 1, "late leftover must not enter chapter 2");
+  assert((late.chapterStoryQueue || []).some((story) => story && story.level === 2), "promotion card stays queued behind the leftover result");
+  late.dismissInfoDetailModal();
+  assert(late.chapterStoryModal && late.chapterStoryModal.level === 2, "promotion card returns after the leftover result");
+  late.dismissChapterStory();
+  assert(Number(late.state.world.reserve.progression.stage) === 2, "enter chapter 2 only after the leftover result and promotion card");
 }
 
 console.log("chapter story check ok");

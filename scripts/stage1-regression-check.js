@@ -77,11 +77,16 @@ const pending = maybePrepareStrategicDilemma(strategyReserve, { meaningfulAction
 assert(pending && strategicDilemmaById(pending.id).id === "patrol_split", "第一阶段策略应固定为巡护分线");
 
 const developmentView = developmentBuildingView(reserve, "river_shallows", 1);
-assert(developmentView.level <= 5 && developmentView.nextUpgradeCost >= 0, "建筑等级和升级成本必须在1–5级路径内");
+assert(developmentView.level <= 9 && developmentView.nextUpgradeCost >= 0, "建筑等级和升级成本必须在1–9级路径内");
 Object.keys(DEVELOPMENT_BUILDING_PROFILES).forEach((id) => {
   const costs = DEVELOPMENT_BUILDING_PROFILES[id].upgradeCosts || [];
-  assert.strictEqual(costs.length, 6, `${id}必须提供0→5级的完整升级成本`);
-  assert(costs.slice(1).every((cost) => cost > 0), `${id}的1–5级升级成本必须为正数`);
+  assert.strictEqual(costs.length, 10, `${id}必须提供0→9级的完整升级成本`);
+  assert(costs.slice(1).every((cost) => cost > 0), `${id}的1–9级升级成本必须为正数`);
+  assert(costs.slice(1).every((cost, index, list) => index === 0 || cost > list[index - 1]), `${id}升级基金必须逐级上升`);
+  const levelOne = costs[2];
+  const levelNine = costs[9];
+  const ratio = levelNine / levelOne;
+  assert(ratio >= 10 && ratio <= 12, `${id}第9级基金必须是第1级的10–12倍，当前${ratio.toFixed(2)}`);
 });
 const source = fs.readFileSync(path.join(__dirname, "../js/game.js"), "utf8");
 assert(source.includes("resourceShortfall"), "资源不足必须使用可关闭弹窗");

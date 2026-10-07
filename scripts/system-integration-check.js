@@ -114,8 +114,8 @@ const statusExpectations = {
   antiPoacher: ["警报器 1"],
   habitat: ["野外工具包 1"],
   salvage: ["库存"],
-  intervention: ["麻醉弹 1"],
-  buySupplies: ["基金 25", "狗粮 +1"]
+  intervention: ["阻滞弹 1"],
+  buySupplies: ["基金 95", "狗粮 +4"]
 };
 
 actions.forEach((action) => {

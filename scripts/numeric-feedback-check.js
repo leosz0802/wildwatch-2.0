@@ -1,5 +1,6 @@
 const { Game } = require("../js/game");
 const { createCharacter } = require("../js/storage");
+const { recordIncrease } = require("../js/animalSourceLedger");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -87,6 +88,7 @@ const animalsBefore = game.displayReserveNumber("animalTotal", game.reserveDynam
 const herd = game.state.world.reserve.ecology.herbivores;
 const herdKey = Object.keys(herd).find((key) => Number(herd[key]) > 0) || "deer";
 herd[herdKey] = (Number(herd[herdKey]) || 0) + 8;
+recordIncrease(game.state.world.reserve, "tasked", 8);
 game.state.world.reserve.fund += 80;
 game.tweenDisplayReserveStats(80);
 assert(game.numberAnimations.animalTotal, "animal total must animate with fund instead of snapping");

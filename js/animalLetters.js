@@ -22,7 +22,6 @@ const PERSONA_NAMES = {
   河马: "深吻",
   狐狸: "红尾"
 };
-
 const SPECIES_SENSE = {
   鹿: "我把幼崽推到队伍内侧",
   斑马: "我们把最小的孩子围在中间",
@@ -47,23 +46,15 @@ const SPECIES_SENSE = {
   秃鹫: "我把不该新鲜的味道记在风里",
   白犀牛: "我把幼犀收到身后",
   穿山甲: "我把鳞片收紧再伸鼻子",
-  猎豹: "我在加速前先看跑道有没有断",
-  斑鬣狗: "我把夜班的笑声先停住",
-  水獭: "我先潜下去再看岸边",
-  鹈鹕: "我把队伍抬离拥挤的水面",
-  猩猩: "我换到更安静的一层",
-  巨嘴鸟: "我先听树冠再决定往哪飞",
   貘: "我绕开所有还亮着的灯",
   夜莺: "我把歌停在噪声盖过来之前",
   野牛: "我让队伍在边界前先聚拢",
   鹤: "我把落脚点改到水位还稳的一侧"
 };
-
 function pick(list, seed) {
   const items = Array.isArray(list) && list.length ? list : [""];
   return items[Math.abs(Number(seed) || 0) % items.length];
 }
-
 function weatherAnomalyLabel(context = {}) {
   const weather = String(context.weather || "");
   const pulse = String(context.pulse || "");
@@ -75,7 +66,6 @@ function weatherAnomalyLabel(context = {}) {
   if (/雾/.test(weather)) return "雾";
   return "";
 }
-
 function hash(text) {
   let value = 2166136261;
   String(text || "").split("").forEach((char) => {
@@ -84,14 +74,11 @@ function hash(text) {
   });
   return Math.abs(value >>> 0);
 }
-
 function dateKey(now = Date.now()) {
-  const d = now instanceof Date ? now : new Date(now);
-  const month = `${d.getMonth() + 1}`.padStart(2, "0");
-  const day = `${d.getDate()}`.padStart(2, "0");
-  return `${d.getFullYear()}-${month}-${day}`;
+  const timestamp = now instanceof Date ? now.getTime() : Number(now);
+  return new Date((Number.isFinite(timestamp) ? timestamp : Date.now()) + 4 * 60 * 60 * 1000)
+    .toISOString().slice(0, 10);
 }
-
 function normalizeAnimalLetterState(lifeMemory = {}) {
   const letters = Array.isArray(lifeMemory.animalLetters)
     ? lifeMemory.animalLetters.filter((letter) => letter && letter.id && letter.dateKey)
@@ -103,16 +90,13 @@ function normalizeAnimalLetterState(lifeMemory = {}) {
     animalLetterPromptDateKey: String(lifeMemory.animalLetterPromptDateKey || "")
   });
 }
-
 function animalName(animal = {}) {
   const raw = String(animal.shortName || animal.name || "").replace(new RegExp(`${animal.species || ""}$`), "");
   return raw || PERSONA_NAMES[animal.species] || animal.species || "森林居民";
 }
-
 function number(value, fallback = 0) {
   return Number.isFinite(Number(value)) ? Math.round(Number(value)) : fallback;
 }
-
 function contextSnapshot(world = {}) {
   const reserve = world.reserve || {};
   const ecology = reserve.ecology || {};
@@ -142,33 +126,34 @@ function contextSnapshot(world = {}) {
     eventTitle: String(emergency.title || ""),
     stage: Math.max(1, number(progression.stage || progression.storyChapter, 1)),
     chapter: chapterNumber,
+    level: Math.max(1, number(progression.level, chapterNumber)),
     chapterTitle: String(chapter.title || `第${chapterNumber}章`),
     chapterDebt: String(chapter.unpaidDebt || chapter.openQuestion || ""),
     eventStep: Math.max(0, number(chain.step, 0)),
     action: String(action || "")
   };
 }
-
 function contextKey(context = {}) {
   return [
     context.water, context.grass, context.disease, context.safety,
     context.poacher, context.migration, context.visitors,
     context.season, context.weather, context.pulse, context.eventType,
-    context.stage, context.chapter, context.eventStep, context.action
+    context.stage, context.chapter, context.level, context.eventStep, context.action,
+    context.rotationBand
   ].join("|");
 }
-
 function contextParagraph(concern, context, variant, animal = {}) {
   const anomaly = weatherAnomalyLabel(context);
   const weather = anomaly || context.weather || context.season;
   const chapterLine = `第${context.chapter}章《${context.chapterTitle}》`;
+  const levelLine = `保护区等级${context.level}`;
   const eventLine = context.eventTitle ? `现场「${context.eventTitle}」` : (context.eventStep ? `事件第${context.eventStep}步` : `${context.season}还没有把旧路改完`);
   const debt = context.chapterDebt ? context.chapterDebt : "这一章仍有未还的债";
   const species = animal.species || "我们";
   const lines = {
     water: [
-      `${chapterLine}：水源${context.water}，${weather}把浅滩又往回收了一截；${species}先看泥里有没有新脚印。`,
-      `${chapterLine}：${weather}下的水源是${context.water}，${debt}；${eventLine}，请把能喝的岸留住。`
+      `${chapterLine}·${levelLine}：水源${context.water}，${weather}把浅滩又往回收了一截；${species}先看泥里有没有新脚印。`,
+      `${chapterLine}·${levelLine}：${weather}下的水源是${context.water}，${debt}；${eventLine}，请把能喝的岸留住。`
     ],
     grass: [
       `${chapterLine}：草场${context.grass}，${weather}把嫩叶压到低地；${species}会先让出最薄的一块。`,
@@ -201,11 +186,9 @@ function contextParagraph(concern, context, variant, animal = {}) {
   };
   return pick(lines[concern.id] || lines.steady, variant);
 }
-
 function seasonOr(context) {
   return context.season || "这一季";
 }
-
 function rotationLine(rotation = 0) {
   return [
     "我把这件事记在今天的风里，等你下次经过时再告诉你变化。",
@@ -215,7 +198,14 @@ function rotationLine(rotation = 0) {
     "我把最后一段路留给自己走，也把新的线索留在原地。"
   ][Math.abs(Number(rotation) || 0) % 5];
 }
-
+function rotationBandLine(band = 0) {
+  return [
+    "这三天的记录，和上一段风声不一样。",
+    "这一轮观察刚换了方向，数值变化也被我们记住了。",
+    "新的三日窗口打开了，队伍正在用另一种方式选择路线。",
+    "这次回信多留一笔现场细节，方便你下次回来比较。"
+  ][Math.abs(Number(band) || 0) % 4];
+}
 function concernCatalog(world = {}) {
   const reserve = world.reserve || {};
   const ecology = reserve.ecology || {};
@@ -283,16 +273,16 @@ function concernCatalog(world = {}) {
   return concerns.filter((item) => item.id !== "weather" || item.score > 0)
     .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
 }
-
 function chooseAnimal(animals, concern, usedIds, seed) {
   const unused = animals.filter((animal) => !usedIds.has(animal.id || animal.species));
   const preferred = unused.filter((animal) => concern.species.includes(animal.species));
   const pool = preferred.length ? preferred : unused.length ? unused : animals;
   return pool.length ? pool[seed % pool.length] : { id: "forest", species: "动物", name: "森林居民" };
 }
-
 function buildLetter(world, key, index, concern, animals, usedIds, createdAt) {
   const context = contextSnapshot(world);
+  const dateSerial = Math.floor(Date.parse(`${key}T00:00:00Z`) / 86400000);
+  context.rotationBand = Math.floor(dateSerial / 3);
   const signature = contextKey(context);
   const serial = ((world.reserve || {}).base || {}).serial || world.id || "reserve";
   const seed = hash(`${key}|${concern.id}|${index}|${serial}|${signature}`);
@@ -301,11 +291,11 @@ function buildLetter(world, key, index, concern, animals, usedIds, createdAt) {
   const name = animalName(animal);
   const sense = SPECIES_SENSE[animal.species] || "我记得今早风里的味道";
   const animalKey = animal.id || animal.species || "forest";
-  const rotation = hash(`${key}|${animalKey}|${concern.id}|${index}|${serial}`) % 5;
-  const variant = hash(`${key}|${animalKey}|${concern.id}|${context.chapter}|${context.weather}|${context.eventType}|${index}`) % Math.max(1, concern.body.length);
-  const contentKey = `${key}|${animalKey}|${concern.id}|${context.chapter}|${context.weather}|${context.eventType}|${variant}|${rotation}`;
+  const rotation = hash(`${context.rotationBand}|${animalKey}|${concern.id}|${index}|${serial}`) % 5;
+  const variant = hash(`${context.rotationBand}|${animalKey}|${concern.id}|${context.chapter}|${context.level}|${context.weather}|${context.eventType}|${index}`) % Math.max(1, concern.body.length);
+  const contentKey = `${key}|${animalKey}|${concern.id}|${context.chapter}|${context.level}|${context.weather}|${context.eventType}|${variant}|${rotation}`;
   const paragraph = concern.body[variant];
-  const contextLine = `${contextParagraph(concern, context, variant + rotation, animal)} ${rotationLine(rotation)}`;
+  const contextLine = `保护区等级${context.level}。${contextParagraph(concern, context, variant + rotation, animal)} ${rotationBandLine(context.rotationBand)} ${rotationLine(rotation)}`;
   return {
     id: `animal_letter_${key}_${index + 1}_${String(animal.id || animal.species || "forest").replace(/[^a-zA-Z0-9_\u4e00-\u9fa5-]/g, "")}`,
     dateKey: key,
@@ -320,6 +310,8 @@ function buildLetter(world, key, index, concern, animals, usedIds, createdAt) {
     signoff: `—— ${name}`,
     factLabel: concern.factLabel,
     factValue: concern.factValue,
+    chapter: context.chapter,
+    level: context.level,
     target: concern.target,
     actionId: concern.actionId,
     actionLabel: concern.actionLabel,
@@ -327,11 +319,11 @@ function buildLetter(world, key, index, concern, animals, usedIds, createdAt) {
     contentKey,
     variant,
     rotation,
+    rotationBand: context.rotationBand,
     readAt: 0,
     sharedAt: 0
   };
 }
-
 function ensureDailyAnimalLetters(world = {}, now = Date.now()) {
   const key = dateKey(now);
   const state = normalizeAnimalLetterState(world.lifeMemory || {});
@@ -354,31 +346,26 @@ function ensureDailyAnimalLetters(world = {}, now = Date.now()) {
   state.animalLetterDateKey = key;
   return { state, created, todayLetters: created, changed: true, dateKey: key };
 }
-
 function animalLetterInbox(lifeMemory = {}) {
   return normalizeAnimalLetterState(lifeMemory).animalLetters.slice().sort((a, b) => {
     return String(b.dateKey).localeCompare(String(a.dateKey)) || number(b.createdAt) - number(a.createdAt) || String(a.id).localeCompare(String(b.id));
   });
 }
-
 function markAnimalLetterRead(lifeMemory, letterId, now = Date.now()) {
   const state = normalizeAnimalLetterState(lifeMemory);
   state.animalLetters = state.animalLetters.map((letter) => letter.id === letterId && !letter.readAt ? Object.assign({}, letter, { readAt: Number(now) || Date.now() }) : letter);
   return state;
 }
-
 function markAnimalLetterShared(lifeMemory, letterId, now = Date.now()) {
   const state = normalizeAnimalLetterState(lifeMemory);
   state.animalLetters = state.animalLetters.map((letter) => letter.id === letterId ? Object.assign({}, letter, { sharedAt: Number(now) || Date.now() }) : letter);
   return state;
 }
-
 function markAnimalLetterPrompted(lifeMemory, key = dateKey()) {
   const state = normalizeAnimalLetterState(lifeMemory);
   state.animalLetterPromptDateKey = key;
   return state;
 }
-
 module.exports = {
   dateKey,
   normalizeAnimalLetterState,

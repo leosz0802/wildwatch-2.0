@@ -1,4 +1,3 @@
-// Presentation-only tracking: never awards rewards or changes task progress.
 const COMPLETE_COLOR = '#168447';
 function metricProgress(value, target) {
   const current = Math.max(0, Number(value) || 0);
@@ -15,11 +14,12 @@ function completedTaskEntries(state = {}) {
     entries.push(extra && typeof extra === "object" ? Object.assign({ key, title }, extra) : { key, title });
   };
   ((world.goals || {}).history || []).forEach(item => {
-    // Core/full are the same daily batch reward, not additional player tasks.
     if (!item || ['daily_core', 'daily_full'].includes(item.type)) return;
-    // Instant rewards are issued per action, even halfway through a daily
-    // objective. Only its daily_objective entry represents task completion.
     if (item.type === 'instant' && /^(daily:|rescue:|chapter:.*:rescue:)/.test(item.id || '')) return;
+    // Older builds recorded a chapter-theme action twice: once as an
+    // `instant` reward and once as `chapter_theme`. Keep the themed entry as
+    // the single visible completion card when reading legacy history.
+    if (item.type === 'instant' && /^theme:\d+:/.test(String(item.id || ''))) return;
     add(`goal:${item.dateKey || ''}:${item.type}:${item.id}`, item.title);
   });
   const rescue = reserve.chapterRescue || {};
@@ -33,7 +33,13 @@ function completedTaskEntries(state = {}) {
       const impactChanges = realNature
         ? ((item.businessChange || {}).impactChanges || []).filter((change) => change && (change.label || change.metric)).slice(0, 2)
         : [];
-      add(`event:${item.id}`, item.title, realNature ? { impactChanges, realNature: true } : null);
+      add(`event:${item.id}`, item.title, realNature ? {
+        impactChanges,
+        realNature: true,
+        type: item.type,
+        category: item.category,
+        realEventId: item.realEventId
+      } : null);
     }
   });
   return entries;

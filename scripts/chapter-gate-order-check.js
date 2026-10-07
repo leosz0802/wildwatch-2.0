@@ -4,7 +4,8 @@ const { createCharacter } = require('../js/storage');
 const { reserveProgressionFor } = require('../js/simulator');
 const { normalizeChapterRescue, collectRescueItem, rescueAnimal } = require('../js/chapterRescueSystem');
 const { reconcileSpeciesPopulations } = require('../js/animalWorld');
-const { chapterTargets } = require('../js/chapterTargets');
+const { chapterTargets, chapterAdvanceReady, beginChapterAnimalCheckpoint, chapterAnimalTotal } = require('../js/chapterTargets');
+const { recordIncrease } = require('../js/animalSourceLedger');
 
 for (const reverse of [false, true]) {
   for (let stage = 1; stage <= 20; stage++) {
@@ -25,8 +26,16 @@ for (const reverse of [false, true]) {
         reserve.ecology[group][speciesId] = 10000;
       });
     });
+    if (stage >= 10) {
+      reserve.rareAnimal.status = "resident";
+      reserve.rareAnimal.health = 72;
+      reserve.ecology.herbivores.pangolin = 10000;
+    }
     reserve.development.operations.totalVisitors = 10000;
     reserve.development.operations.visitorLedger = { totalVisitors: 10000 };
+    beginChapterAnimalCheckpoint(reserve, stage, stage === 1 ? 0 : chapterTargets(stage - 1).animals);
+    const animalNeed = Math.max(0, chapterTargets(stage).animals - chapterAnimalTotal(reserve));
+    if (animalNeed) recordIncrease(reserve, 'tasked', animalNeed);
     const visitorBaseline = stage === 1 ? 0 : Math.max(0, 10000 - chapterTargets(stage).visitors);
     reserve.progression.chapterStart = {
       stage,
@@ -39,10 +48,12 @@ for (const reverse of [false, true]) {
     reserve.storyDiscoveries = { [`case_${level}`]: { evidence: 9 } };
     const targets = normalizeChapterRescue(reserve, stage, { fresh: true }).targets.slice();
     if (reverse) targets.reverse();
+    const beforeRescue = reserveProgressionFor(reserve);
+    const coresReady = chapterAdvanceReady(reserve, stage);
+    if (!coresReady) {
+      assert.equal(beforeRescue.stage, stage, `chapter ${stage} must stay until species, animals and visitors are met`);
+    }
     for (const target of targets) {
-      const before = reserveProgressionFor(reserve);
-      assert.equal(before.stage, stage, `chapter ${stage} advanced with a captive target`);
-      if (stage === 20) assert(!before.chapterComplete, 'final chapter must not finish before its rescues');
       for (const item of target.requiredItems.slice().reverse()) {
         assert(collectRescueItem(reserve, target.targetId, item));
       }
@@ -50,7 +61,7 @@ for (const reverse of [false, true]) {
       assert(!rescueAnimal(reserve, target.targetId).ok, 'duplicate completion must be rejected');
     }
     const after = reserveProgressionFor(reserve);
-    assert.equal(after.stage, Math.min(20, stage + 1), `chapter ${stage} remained blocked after every prerequisite completed`);
+    assert.equal(after.stage, Math.min(20, stage + 1), `chapter ${stage} must promote once the three core metrics (and rare auction) are met`);
     if (stage === 20) assert(after.chapterComplete);
   }
 }

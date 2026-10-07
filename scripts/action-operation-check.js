@@ -107,8 +107,11 @@ game.state.world.reserve.fund = 10000;
 game.state.world.reserve.supplies = { dogFood: 10, alarm: 10, fieldKit: 10, tranquilizer: 10, medicalKit: 10, evidenceTrap: 2 };
 for (const actionId of actionIds) {
   const option = game.reserveActionOptions().find(item => item.id === actionId);
+  game.settlementModal = null;
   game.openPatrolTaskModal(option);
-  assert(game.confirmPatrolTask(option), `${actionId} should settle directly`);
+  if (actionId !== "antiPoacher") {
+    assert(game.confirmPatrolTask(option), `${actionId} should settle directly`);
+  }
   assert(game.settlementModal && !game.patrolOperationPlan, `${actionId} must not open a route second step`);
   game.settlementModal = null;
 }

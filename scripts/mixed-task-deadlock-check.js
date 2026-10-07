@@ -47,12 +47,20 @@ function record(game, id) {
 }
 function shot(game, id, roll) {
   assert(game.openChapterRescueTask(id));
+  // Once this rescue's cumulative points are complete, the shared entry
+  // intentionally skips the card and starts the release animation directly.
+  // The caller must stop feeding shots to a record that has already settled.
+  if (!game.infoDetailModal) {
+    assert(game.mapConsequencePulse && game.mapConsequencePulse.rescueSpeciesId);
+    return true;
+  }
   assert(!game.infoDetailModal.rescueReady, 'unfinished task must not steal another task\'s item');
   game.infoDetailModal.action();
   assert.equal(game.infoDetailModal.kind, 'materialExploration');
   game.executeMaterialExploration(game.infoDetailModal.targetId, roll);
   game.finishSettlement('home');
   assert.equal(game.activeTaskLock, null, 'closing settlement must release ownership');
+  return false;
 }
 function restart(game) {
   saveState(game.state); game.state = loadState();
@@ -103,17 +111,33 @@ for (const order of [[0, 1], [1, 0]]) {
     const ids = [chapterId, poacher.targetId];
     for (const choice of order) {
       const id = ids[choice];
-      for (let attempt = 0; attempt < 24 && !rescueItemCountFor(game.state.world.reserve, record(game, id), item); attempt++) {
-        shot(game, id, [1, 4, 2, 6][attempt % 4]); shots++;
+      let directSettled = false;
+      for (let attempt = 0; attempt < 24 && !directSettled
+        && !rescueItemCountFor(game.state.world.reserve, record(game, id), item); attempt++) {
+        directSettled = shot(game, id, [1, 4, 2, 6][attempt % 4]); shots++;
+        if (directSettled) break;
         const realEventType = realNatureTriggerType(game.state.world.reserve, Date.UTC(2026, 8, 19 + attempt));
         interruptWithEvent(game, ['visitor_conflict', realEventType, 'neighbor_water', realEventType][attempt % 4], attempt);
         interruptions++;
         restart(game);
       }
+      if (directSettled) {
+        assert(!game.completeChapterRescue(id), 'directly settled rescue must settle once');
+        game.infoDetailModal = null;
+        restart(game);
+        continue;
+      }
       assert(rescueItemCountFor(game.state.world.reserve, record(game, id), item), `${id} failed to finish within 24 shots`);
       assert(game.openChapterRescueTask(id));
-      assert(game.infoDetailModal.rescueReady);
-      assert(game.completeChapterRescue(id));
+      // A completed cumulative score now takes the same direct-release path
+      // as the map marker. Item-only readiness still opens the card so the
+      // player can explicitly enter the map operation.
+      if (!game.infoDetailModal) {
+        assert(game.mapConsequencePulse && game.mapConsequencePulse.rescueSpeciesId);
+      } else {
+        assert(game.infoDetailModal.rescueReady);
+        assert(game.completeChapterRescue(id));
+      }
       assert(!game.completeChapterRescue(id), 'completed rescue must settle once');
       game.infoDetailModal = null;
       restart(game);
@@ -133,8 +157,9 @@ for (const order of [[0, 1], [1, 0]]) {
   game.state.world.reserve.inventory.rescueItems = {};
   restart(game);
   assert(game.openChapterRescueTask(target.targetId));
-  assert(game.infoDetailModal.rescueReady, 'a verified completed record must recover from legacy inventory theft');
-  assert(game.completeChapterRescue(target.targetId));
+  assert(!game.infoDetailModal, 'a verified completed record must release without a second prompt');
+  assert(game.mapConsequencePulse && game.mapConsequencePulse.rescueSpeciesId);
+  assert(!game.completeChapterRescue(target.targetId));
 }
 Math.random = originalRandom;
 console.log(`mixed task deadlock check ok: 4 completion orders, ${shots} arrows, ${interruptions} visitor/disaster interruptions, restart after interruptions, independent materials, old-save recovery, bounded completion`);

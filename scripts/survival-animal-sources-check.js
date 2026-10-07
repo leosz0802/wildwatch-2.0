@@ -53,15 +53,20 @@ for (let chapter = 1; chapter <= 20; chapter++) {
   ["rescued", "returned", "growth", "opening", "immigrated", "breeding", "comforted", "advertised", "shared", "tasked", "emigrated", "died"].forEach((key) => {
     assert.equal(loadedSources[key], savedSources[key], `reload must keep ${key}`);
   });
-  const game = Object.create(Game.prototype); game.state = state;
+  const game = Object.create(Game.prototype); game.state = state; game.render = () => {};
   const detail = game.buildChapterProgressDetail().metricDetails.animals;
-  assert.equal(detail.items.length, 8);
+  assert.equal(detail.items.length, 6, "解救、迁入、繁殖剩余合成一条，并前置最近可做事件");
+  assert.ok(detail.items[0].sourceStrip);
   assert.ok(detail.items[0].title.includes(`+${added}`));
-  assert.ok(detail.items.some(item => item.tag === '分享任务' && /分享动物来信/.test(item.title)));
+  assert.equal(detail.items[1].tag, "最近");
   assert.ok(detail.items.some(item => item.tag === '具体任务' && typeof item.action === 'function'));
   assert.ok(detail.items.some(item => /幸运获得|迁入动物/.test(`${item.tag}${item.title}`)));
   assert.ok(detail.items.some(item => item.tag === '流水' && /留存/.test(`${item.title}${item.body}`)));
+  assert.ok(!detail.items.some(item => item.tag === '分享任务'), "built chapter card keeps share off the stacked list");
   assert.ok(!detail.items.some(item => /游客|晋级路径/.test(item.title)));
+  game.openCoreMetricDetail("animals");
+  const liveItems = (game.infoDetailModal && game.infoDetailModal.items) || [];
+  assert.ok(liveItems.some(item => item.tag === "分享任务" && /获得动物/.test(item.title)), "opening the animal detail injects the live share row");
 }
 const state = createCharacter(null, '生态来源');
 const reserve = state.world.reserve;
@@ -92,12 +97,11 @@ assert.ok(habitatMigrationAssessment(reserve).delta <= 0, 'unsafe reserve pauses
 const poor = survivalImpact(reserve);
 reserve.safety = 80;
 const healthy = survivalImpact(reserve);
-assert.notEqual(poor[2].lines[1], healthy[2].lines[1], 'migration share follows safety');
+assert.notEqual(poor[0].lines[1], healthy[0].lines[1], 'migration share follows safety');
 reserve.ecology.water = 90;
 reserve.ecology.grass = 90;
-assert.notEqual(survivalImpact(reserve)[2].lines[1], healthy[2].lines[1], 'migration share follows water and grass');
-reserve.ecology.water = 20;
-assert.ok(survivalImpact(reserve)[0].lines.join(' ').includes('来访减少'));
+assert.notEqual(survivalImpact(reserve)[0].lines[1], healthy[0].lines[1], 'migration share follows water and grass');
+assert.deepEqual(survivalImpact(reserve).map((item) => item.id), ['safety']);
 reserve.progression.stage = 2;
 assert.equal(animalSourceSummary(reserve).rescued, 0, 'new chapter has separate sources');
 for (const [width, height] of [[320, 568], [375, 812], [430, 932]]) {
@@ -106,8 +110,8 @@ for (const [width, height] of [[320, 568], [375, 812], [430, 932]]) {
   game.screen = 'survival'; game.scrollY = 0;
   rendered.length = 0;
   game.drawSurvival(context);
-  assert.equal(game.renderedSurvivalImpacts.length, 3);
-  assert.deepEqual(game.renderedSurvivalImpacts.map(item => item.id), ['water', 'grass', 'safety']);
+  assert.equal(game.renderedSurvivalImpacts.length, 1);
+  assert.deepEqual(game.renderedSurvivalImpacts.map(item => item.id), ['safety']);
   assert.ok(rendered.some(text => text.includes('生存经营')));
   assert.ok(!game.renderedSurvivalImpacts.some(item => /物资|可应急|库存保障/.test(`${item.title} ${item.lines.join(' ')}`)), 'survival ops must not show the emergency-supplies block');
   game.infoDetailModal = game.buildChapterProgressDetail().metricDetails.animals;

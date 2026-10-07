@@ -12,21 +12,23 @@ const { normalizeGuardianCycle, normalizeMastery } = require("./guardianCycle");
 const { consistentMigrationSnapshot } = require("./ecologyConsistency");
 const { normalizeWildernessKnowledge } = require("./wildernessKnowledge");
 const { normalizeEcologyNarrative } = require("./ecologyNarrativeSystem");
-const { ensureChapterVisitorCheckpoint } = require("./chapterTargets");
+const { normalizePatrolState } = require("./worldHoundPatrol");
+const { ensureChapterVisitorCheckpoint, repairChapterAnimalHud } = require("./chapterTargets");
 const { syncVisitorReceptionGrant } = require("./visitorReception");
 const { ensureEndlessGuardMode } = require("./endlessGuardMode");
 const { localDateKey, normalizeFirstReturnHook } = require("./firstReturnHook");
 const { normalizeReserveDevelopment } = require("./reserveDevelopment");
-const { normalizeChapterRescue, chapterDefinition, poacherRescueState } = require("./chapterRescueSystem");
+const { normalizeChapterRescue, reconcileRescueArcheryLedger, chapterDefinition, poacherRescueState } = require("./chapterRescueSystem");
 const { OBSOLETE_GENERIC_NATURE_TYPES } = require("./worldEventSystem");
-
+const { normalizeRareAnimalState, ensureRareAnimalPopulation } = require("./rareAnimalSystem");
+const { normalizeDailySellFund } = require("./sellFundCap");
+const { BALANCE_V2, supplyCapFor } = require("./balanceConfig");
 const STORAGE_KEY = "forest_kingdom_wechat_game_state";
 const MAX_STORED_REPORTS = 12;
-
 function compactStoredText(value, limit) {
-  return String(value || "").replace(/\s+/g, " ").trim().slice(0, limit);
+  const legacyMaterialName = "\u9e7f\u89d2";
+  return String(value || "").replace(new RegExp(legacyMaterialName, "g"), "岩角").replace(/\s+/g, " ").trim().slice(0, limit);
 }
-
 function compactReportForStorage(report = {}) {
   const visual = report.visual || {};
   const eventCard = visual.eventCard || {};
@@ -50,7 +52,6 @@ function compactReportForStorage(report = {}) {
     visual: compactVisual
   };
 }
-
 function compactStateForStorage(state = {}) {
   return Object.assign({}, state, {
     reports: (Array.isArray(state.reports) ? state.reports : [])
@@ -58,7 +59,61 @@ function compactStateForStorage(state = {}) {
       .map(compactReportForStorage)
   });
 }
-
+function normalizeArcheryShot(saved = {}) {
+  if (!saved || typeof saved !== "object") return null;
+  const targetId = String(saved.targetId || "").slice(0, 80);
+  const rescueTargetId = String(saved.rescueTargetId || "").slice(0, 80);
+  const rescueItemId = String(saved.rescueItemId || saved.itemId || "").slice(0, 80);
+  const score = Math.max(0, Math.min(6, Math.round(Number(saved.score != null ? saved.score : saved.shotScore) || 0)));
+  const totalScore = Math.max(0, Math.min(999, Math.round(Number(saved.totalScore) || 0)));
+  if (!targetId && !rescueTargetId && !rescueItemId && !score && !totalScore) return null;
+  return {
+    token: String(saved.token || "").slice(0, 120),
+    targetId,
+    score,
+    chapter: Math.max(1, Math.round(Number(saved.chapter) || 1)),
+    rescueTargetId,
+    rescueItemId,
+    totalScore,
+    recordedAt: Math.max(0, Math.round(Number(saved.recordedAt) || 0))
+  };
+}
+function normalizeRescueShot(saved = {}) {
+  if (!saved || typeof saved !== "object") return null;
+  const rescueTargetId = String(saved.rescueTargetId || "").slice(0, 80);
+  const itemId = String(saved.itemId || saved.rescueItemId || "").slice(0, 80);
+  const shotScore = Math.max(0, Math.min(6, Math.round(Number(saved.shotScore != null ? saved.shotScore : saved.score) || 0)));
+  const totalScore = Math.max(0, Math.min(999, Math.round(Number(saved.totalScore) || 0)));
+  if (!rescueTargetId && !itemId && !shotScore && !totalScore) return null;
+  return {
+    rescueTargetId,
+    itemId,
+    shotScore,
+    totalScore,
+    recordedAt: Math.max(0, Math.round(Number(saved.recordedAt) || 0))
+  };
+}
+function normalizePendingArcheryShot(saved = {}) {
+  if (!saved || typeof saved !== "object" || saved.consumed) return null;
+  const token = String(saved.token || "").slice(0, 120);
+  if (!token) return null;
+  return {
+    token,
+    kind: String(saved.kind || "materialExploration").slice(0, 40),
+    targetId: String(saved.targetId || "").slice(0, 80),
+    rescueTargetId: String(saved.rescueTargetId || "").slice(0, 80),
+    rescueItemId: String(saved.rescueItemId || "").slice(0, 80),
+    score: Math.max(1, Math.min(6, Math.round(Number(saved.score) || 1))),
+    baseBid: Math.max(0, Math.round(Number(saved.baseBid) || 0)),
+    dilemmaId: String(saved.dilemmaId || "").slice(0, 80),
+    choiceId: String(saved.choiceId || "").slice(0, 80),
+    routeModifier: Math.max(-99, Math.min(99, Math.round(Number(saved.routeModifier) || 0))),
+    resourceModifier: Math.max(-99, Math.min(99, Math.round(Number(saved.resourceModifier) || 0))),
+    queuedAt: Math.max(0, Math.round(Number(saved.queuedAt) || 0)),
+    consumed: false,
+    ledgerWritten: !!saved.ledgerWritten
+  };
+}
 function normalizeWeatherPulse(pulse) {
   if (!pulse || typeof pulse !== "object") return null;
   const type = String(pulse.type || "").trim();
@@ -73,13 +128,10 @@ function normalizeWeatherPulse(pulse) {
     intensity: Math.max(0, Math.min(1, Number(pulse.intensity) || 0))
   };
 }
-
 function defaultState() {
   const world = createInitialWorld();
   const reserve = world.reserve || {};
   const rescueState = normalizeChapterRescue(reserve, 1, { fresh: true });
-  // A new game must complete its chapter rescue before promotion. Legacy
-  // compatibility flags belong to loaded saves, never the default template.
   rescueState.legacyGateBypass = false;
   reserve.inventory = reserve.inventory || {};
   delete reserve.inventory.rescueItems;
@@ -97,7 +149,6 @@ function defaultState() {
     lastCommand: ""
   };
 }
-
 function loadState() {
   const runtime = getRuntime();
   try {
@@ -116,7 +167,6 @@ function loadState() {
   }
   return defaultState();
 }
-
 function normalizeState(saved) {
   const fresh = defaultState();
   const savedKnownCharacters = ((saved && saved.world && saved.world.knownCharacters) || []).slice();
@@ -163,7 +213,6 @@ function normalizeState(saved) {
   state.reports = (Array.isArray(state.reports) ? state.reports : [])
     .slice(-MAX_STORED_REPORTS)
     .map(compactReportForStorage);
-  // 自由文本入口已移除；升级旧存档时同时清除历史玩家文本，避免继续保存 UGC。
   state.messages = [];
   delete state.contentSecurity;
   state.ui = Object.assign({}, (saved && saved.ui) || {});
@@ -186,7 +235,7 @@ function normalizeState(saved) {
   const seenStories = (state.ui && state.ui.chapterStoriesSeen) || {};
   const reserve = state.world.reserve || {};
   const stage = Math.max(1, Math.round(Number((reserve.progression || {}).stage || 1)));
-  if (stage >= CHAPTERS.length && (seenStories[`${CHAPTERS.length}:end`] || seenStories["20:end"])) {
+  if (stage >= CHAPTERS.length && (seenStories[`${CHAPTERS.length}:end`] || seenStories["18:end"] || seenStories["20:end"])) {
     reserve.progression = Object.assign({}, reserve.progression || {}, {
       chapterComplete: true,
       stageComplete: true
@@ -195,7 +244,6 @@ function normalizeState(saved) {
   }
   return state;
 }
-
 function normalizeReserve(saved, fallback) {
   const base = Object.assign({}, createReserveState(), fallback || {});
   const reserve = Object.assign({}, base, saved || {});
@@ -214,7 +262,9 @@ function normalizeReserve(saved, fallback) {
     grass: ((saved && saved.ecology && saved.ecology.grass) || base.ecology.grass),
     disease: ((saved && saved.ecology && saved.ecology.disease) || base.ecology.disease)
   };
+  normalizeRareAnimalState(reserve);
   reserve.ecologyNarrative = normalizeEcologyNarrative((saved && saved.ecologyNarrative) || base.ecologyNarrative || {});
+  reserve.worldHoundPatrol = normalizePatrolState((saved && saved.worldHoundPatrol) || reserve.worldHoundPatrol || {});
   reserve.inventory = Object.assign({}, base.inventory, (saved && saved.inventory) || {});
   reserve.pendingRecovered = Object.assign({}, base.pendingRecovered || {}, (saved && saved.pendingRecovered) || {});
   reserve.ecologyEconomy = normalizeEcologyEconomy((saved && saved.ecologyEconomy) || base.ecologyEconomy, reserve);
@@ -222,6 +272,29 @@ function normalizeReserve(saved, fallback) {
     ? JSON.parse(JSON.stringify(saved.lastMaterialExploration))
     : null;
   reserve.materialExplorationProgress = Object.assign({}, (saved && saved.materialExplorationProgress) || {});
+  reserve.lastArcheryShot = normalizeArcheryShot(saved && saved.lastArcheryShot);
+  reserve.lastRescueShot = normalizeRescueShot(saved && saved.lastRescueShot);
+  reserve.archeryHistory = Array.isArray(saved && saved.archeryHistory)
+    ? saved.archeryHistory.map(normalizeArcheryShot).filter(Boolean).slice(-50)
+    : [];
+  reserve.lastArcherySettleToken = String((saved && saved.lastArcherySettleToken) || "").slice(0, 120);
+  reserve.lastArcheryLedgerToken = String((saved && saved.lastArcheryLedgerToken) || "").slice(0, 120);
+  reserve.pendingArcheryShot = normalizePendingArcheryShot(saved && saved.pendingArcheryShot);
+  if (!reserve.archeryHistory.length && reserve.lastArcheryShot) {
+    reserve.archeryHistory = [reserve.lastArcheryShot];
+  }
+  if (!reserve.lastArcheryShot && reserve.lastRescueShot) {
+    reserve.lastArcheryShot = {
+      targetId: reserve.lastRescueShot.itemId,
+      score: reserve.lastRescueShot.shotScore,
+      chapter: Math.max(1, Math.round(Number((reserve.progression || {}).stage) || 1)),
+      rescueTargetId: reserve.lastRescueShot.rescueTargetId,
+      rescueItemId: reserve.lastRescueShot.itemId,
+      totalScore: reserve.lastRescueShot.totalScore,
+      recordedAt: reserve.lastRescueShot.recordedAt
+    };
+    if (!reserve.archeryHistory.length) reserve.archeryHistory = [reserve.lastArcheryShot];
+  }
   const lastShot = reserve.lastMaterialExploration;
   if (lastShot && !Object.prototype.hasOwnProperty.call(reserve.materialExplorationProgress, lastShot.targetId)) {
     reserve.materialExplorationProgress[lastShot.targetId] = Math.max(0, Number((lastShot.collectionProgress || {}).current) || Number(lastShot.roll) || 0);
@@ -243,8 +316,12 @@ function normalizeReserve(saved, fallback) {
   reserve.emergencySupplyAd.lastGuardianDay = Math.max(0, Math.round(finiteOr(reserve.emergencySupplyAd.lastGuardianDay, 0)));
   reserve.emergencySupplyAd.claimCount = Math.max(0, Math.round(finiteOr(reserve.emergencySupplyAd.claimCount, 0)));
   reserve.emergencySupplyAd.claimCountToday = Math.max(0, Math.round(finiteOr(reserve.emergencySupplyAd.claimCountToday, 0)));
-  // V3.1 将历史上同时承担修复/救助的 fieldKit 拆成两种库存。
-  // 旧存档保留原工具包，并给予安全线内的医疗包，避免升级后动物救助突然软锁。
+  reserve.dailySellFund = Object.assign(
+    {},
+    base.dailySellFund || { version: 1, lastGuardianDay: 0, lastChapter: 0, soldFund: 0, soldTimes: 0, unlockedBatches: 2, unlockClaimCount: 0, unlockClaimCountToday: 0, lastUnlock: null },
+    (saved && saved.dailySellFund) || {}
+  );
+  normalizeDailySellFund(reserve);
   if (!(saved && saved.supplies && Object.prototype.hasOwnProperty.call(saved.supplies, "medicalKit"))) {
     reserve.supplies.medicalKit = Math.min(2, Math.max(0, Number(reserve.supplies.fieldKit) || 0));
   }
@@ -256,11 +333,10 @@ function normalizeReserve(saved, fallback) {
     (saved && saved.animalCareGrant) || {}
   );
   reserve.visitorReceptionGrant = Object.assign(
-    { chapter: 0, dateKey: "", remaining: 1, gained: 0 },
+    { chapter: 0, dateKey: "", remaining: 3, allowance: 3, gained: 0 },
     (saved && saved.visitorReceptionGrant) || {}
   );
   reserve.social = Object.assign({}, base.social, (saved && saved.social) || {});
-  // 好友通信按自然日持久化，避免重复渲染或重新进入游戏时重复发信。
   const savedFriendLetters = saved && saved.social && saved.social.friendLetters;
   const friendLetters = (savedFriendLetters && typeof savedFriendLetters === "object") ? savedFriendLetters : {};
   reserve.social.friendLetters = {
@@ -281,8 +357,34 @@ function normalizeReserve(saved, fallback) {
   reserve.progression = Object.assign({}, base.progression, (saved && saved.progression) || {});
   reserve.progression.level = Math.max(1, Math.min(7, Math.round(finiteOr(reserve.progression.level, 1))));
   const savedHadStage = !!(saved && saved.progression && Number.isFinite(Number(saved.progression.stage)));
-  reserve.progression.stage = Math.max(1, Math.min(CHAPTERS.length, Math.round(savedHadStage ? finiteOr(saved.progression.stage, 1) : reserve.progression.level * 2 - 1)));
+  const savedDisplayChapter = saved && saved.progression && Number.isFinite(Number(saved.progression.displayChapter))
+    ? finiteOr(saved.progression.displayChapter, 1)
+    : null;
+  const legacyChapterMarkers = [
+    savedDisplayChapter,
+    saved && saved.chapterRescue && saved.chapterRescue.chapter,
+    saved && saved.chapterAnimalCarryover && saved.chapterAnimalCarryover.chapter,
+    saved && saved.progression && saved.progression.stageStart && saved.progression.stageStart.stage,
+    saved && saved.progression && saved.progression.chapterStart && saved.progression.chapterStart.stage
+  ];
+  const legacyStage = legacyChapterMarkers.find((value) => Number.isFinite(Number(value)) && Number(value) >= 1);
+  // Chapter is persisted independently from reserve level. Inferring it as
+  // `level * 2 - 1` lets a level-up jump over the even chapter in old saves
+  // (for example level 6 becoming chapter 11). If a legacy save has no
+  // chapter marker, keep it at chapter 1 until the normal sequential gate
+  // establishes the next chapter.
+  const restoredStage = savedHadStage
+    ? finiteOr(saved.progression.stage, 1)
+    : (legacyStage != null ? finiteOr(legacyStage, 1) : 1);
+  reserve.progression.stage = Math.max(1, Math.min(CHAPTERS.length, Math.round(restoredStage)));
   reserve.progression.displayChapter = reserve.progression.stage;
+  // Enforce the current warehouse capacities when loading older saves. This
+  // prevents a legacy stock value from rendering above the new limit and keeps
+  // subsequent purchase/reward calculations consistent with the same caps.
+  Object.keys(BALANCE_V2.supplyCaps || {}).forEach((id) => {
+    const current = Math.max(0, Math.round(Number(reserve.supplies[id]) || 0));
+    reserve.supplies[id] = Math.min(current, supplyCapFor(id, reserve));
+  });
   reserve.progression.daysManaged = Math.max(0, Math.round(finiteOr(reserve.progression.daysManaged, 0)));
   reserve.progression.totalActions = Math.max(0, Math.round(finiteOr(reserve.progression.totalActions, reserve.progression.daysManaged)));
   reserve.progression.totalMeaningfulActions = Math.max(0, Math.round(finiteOr(reserve.progression.totalMeaningfulActions, reserve.strategy.totalMeaningfulActions || 0)));
@@ -323,6 +425,7 @@ function normalizeReserve(saved, fallback) {
       visitors: Math.max(0, Math.round(Number(savedBest.visitors) || 0))
     }
     : { stage: reserve.progression.stage, species: 0, animals: 0, visitors: 0 };
+  reserve.progression.animalHudVersion = Math.max(0, Math.round(Number((saved && saved.progression && saved.progression.animalHudVersion) || 0)));
   reserve.progression.fundEarningMode = "compliant_gross_v2";
   reserve.balanceVersion = 2;
   reserve.actionRepeat = Object.assign({ lastAction: null, count: 0, multiplier: 1 }, (saved && saved.actionRepeat) || {});
@@ -352,21 +455,46 @@ function normalizeReserve(saved, fallback) {
   }
   reserve.emergency.history = ((saved && saved.emergency && saved.emergency.history) || []).slice(-8);
   reserve.weatherPulse = normalizeWeatherPulse((saved && saved.weatherPulse) || base.weatherPulse || null);
-  const { normalizeSandboxTaskRhythm } = require("./sandboxTaskCadence");
+  const { normalizeSandboxTaskRhythm, normalizeDisasterDrain } = require("./sandboxTaskCadence");
   reserve.sandboxTaskRhythm = normalizeSandboxTaskRhythm((saved && saved.sandboxTaskRhythm) || base.sandboxTaskRhythm || {});
+  reserve.disasterDrain = normalizeDisasterDrain((saved && saved.disasterDrain) || base.disasterDrain || {});
   reserve.chapterRescue = saved && saved.chapterRescue ? JSON.parse(JSON.stringify(saved.chapterRescue)) : null;
   reserve.animalSourceLedger = saved && saved.animalSourceLedger
     ? JSON.parse(JSON.stringify(saved.animalSourceLedger))
     : null;
+  reserve.ecologyFlowLedger = saved && saved.ecologyFlowLedger
+    ? JSON.parse(JSON.stringify(saved.ecologyFlowLedger))
+    : null;
+  reserve.ledgerAudit = saved && saved.ledgerAudit
+    ? JSON.parse(JSON.stringify(saved.ledgerAudit))
+    : null;
+  reserve.chapterAnimalCarryover = saved && saved.chapterAnimalCarryover
+    ? JSON.parse(JSON.stringify(saved.chapterAnimalCarryover))
+    : (base.chapterAnimalCarryover || null);
   reserve.poacherRescue = JSON.parse(JSON.stringify((saved && saved.poacherRescue) || {}));
-  // Recover the animal deducted by an obsolete duplicate before ecology fills
-  // empty populations, otherwise a last captive animal could become a new herd.
   poacherRescueState(reserve);
-  // Clamp chapter captives to 1 before seeding missing unlocks, otherwise a
-  // missing or 0-count captive is treated as uninitialized and dumped at initialPop.
   const rescueChapter = Math.max(1, Math.round(reserve.progression.displayChapter || reserve.progression.stage || 1));
   const rescueFresh = !saved || (!saved.chapterRescue && Math.max(0, Number(reserve.progression.totalActions) || 0) === 0);
-  const rescueState = normalizeChapterRescue(reserve, rescueChapter, { fresh: rescueFresh });
+  let rescueState = normalizeChapterRescue(reserve, rescueChapter, { fresh: rescueFresh });
+  // Repair saves written by the old promotion bug. If a jumped-to chapter
+  // still has an unfinished carryover rescue from an earlier chapter, rewind
+  // to that chapter so the player receives its animals and story tasks in
+  // order instead of being left at an unreachable species gate.
+  const pendingCarryoverChapters = (rescueState.targets || [])
+    .filter((record) => record && record.carryover && record.status !== "rescued")
+    .map((record) => Math.max(1, Math.round(Number(record.chapter) || 1)));
+  if (pendingCarryoverChapters.length) {
+    const repairChapter = Math.min(...pendingCarryoverChapters);
+    if (repairChapter < rescueChapter) {
+      reserve.progression.stage = repairChapter;
+      reserve.progression.displayChapter = repairChapter;
+      reserve.progression.chapterComplete = false;
+      reserve.progression.stageComplete = false;
+      reserve.progression.coreBest = { stage: repairChapter, species: 0, animals: 0, visitors: 0 };
+      rescueState = normalizeChapterRescue(reserve, repairChapter);
+    }
+  }
+  reconcileRescueArcheryLedger(reserve);
   if (rescueFresh) {
     const definition = chapterDefinition(rescueChapter);
     definition.captive.forEach((speciesId) => {
@@ -377,6 +505,7 @@ function normalizeReserve(saved, fallback) {
     });
   }
   reconcileSpeciesPopulations(reserve, { removeLocked: true, initializeUnlocked: true });
+  ensureRareAnimalPopulation(reserve);
   reserve.houndTeam = Object.assign({}, base.houndTeam, (saved && saved.houndTeam) || {});
   reserve.houndTeam.level = Math.max(1, Math.min(30, Math.round(reserve.houndTeam.level || 1)));
   reserve.houndTeam.xp = Math.max(0, Math.round(reserve.houndTeam.xp || 0));
@@ -394,6 +523,8 @@ function normalizeReserve(saved, fallback) {
   reserve.chapterSpecial = normalizeChapterSpecial(Object.assign({}, reserve, { chapterSpecial: (saved && saved.chapterSpecial) || reserve.chapterSpecial || {} }));
   const { normalizeFriendAid } = require("./friendAidSystem");
   reserve.friendAid = normalizeFriendAid(Object.assign({}, reserve, { friendAid: (saved && saved.friendAid) || reserve.friendAid || {} }));
+  const { normalizeFriendContract } = require("./friendContractSystem");
+  reserve.friendContract = normalizeFriendContract(Object.assign({}, reserve, { friendContract: (saved && saved.friendContract) || reserve.friendContract || {} }));
   reserve.base = Object.assign({}, base.base, (saved && saved.base) || {});
   reserve.base.serial = normalizeReserveSerial(reserve.base.serial);
   reserve.base.protectedAnimals = Object.assign({}, base.base.protectedAnimals, (saved && saved.base && saved.base.protectedAnimals) || {});
@@ -444,8 +575,6 @@ function normalizeReserve(saved, fallback) {
   ["water", "disease"].forEach((key) => {
     reserve.ecology[key] = bounded(reserve.ecology[key], base.ecology[key] || 0);
   });
-  // 草场采用紧平衡上沿：旧存档中长期堆到 90–100 的值会在载入时回到
-  // 可恢复区间，后续再由动物取食、季节和修复共同拉扯，避免顶部指标长期满格。
   reserve.ecology.grass = bounded(reserve.ecology.grass, base.ecology.grass || 56, 0, 74);
   [reserve.inventory, reserve.supplies, reserve.pendingRecovered].forEach((group) => {
     Object.keys(group || {}).filter((key) => key !== "rescueItems").forEach((key) => { group[key] = Math.max(0, Math.round(finiteOr(group[key], 0))); });
@@ -459,18 +588,15 @@ function normalizeReserve(saved, fallback) {
   if (Object.keys(normalizedRescueItems).length) reserve.inventory.rescueItems = normalizedRescueItems;
   else delete reserve.inventory.rescueItems;
   reserve.base.raidTickets = 0;
-  // 修复旧存档中“草场/水源高风险却仍显示迁入”的历史矛盾。
-  // 这里只校正迁徙方向和解释，不追扣旧存档动物数量。
   reserve.migration = consistentMigrationSnapshot(reserve, reserve.migration || {});
+  repairChapterAnimalHud(reserve);
   return reserve;
 }
-
 function normalizeReserveSerial(value) {
   const text = String(value || "").replace(/\D/g, "").slice(-4);
   if (text.length === 4) return text;
   return `${Math.floor(Math.random() * 10000)}`.padStart(4, "0");
 }
-
 function normalizeCharacter(character) {
   if (!character) return null;
   if (character.role !== "warden") return null;
@@ -497,18 +623,15 @@ function normalizeCharacter(character) {
     rank: 3
   }, character);
 }
-
 function saveState(state) {
   normalizeCollectionState(state);
   getRuntime().setStorageSync(STORAGE_KEY, compactStateForStorage(state));
   return state;
 }
-
 function resetState() {
   const state = defaultState();
   return saveState(state);
 }
-
 function createCharacter(_animal, name) {
   const state = loadState();
   const animalName = name || "保护区卫士";
@@ -568,7 +691,6 @@ function createCharacter(_animal, name) {
   ];
   return saveState(state);
 }
-
 module.exports = {
   loadState,
   saveState,

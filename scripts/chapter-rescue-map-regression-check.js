@@ -121,6 +121,33 @@ try {
   assert(boarGame.openChapterRescueTask('boar', { autoRun: true }), 'boar rescue click failed');
   assert.strictEqual(findRecord(boarReserve.chapterRescue, 'boar').status, 'rescued');
 
+  // A captive marker with a missing rescue item must open the archery screen
+  // directly, instead of stopping on the story card or completing early.
+  const missingGame = makeGame(1);
+  const missingReserve = missingGame.state.world.reserve;
+  const missingTarget = missingGame.chapterRescueState().targets.find((record) => record.status !== 'rescued');
+  assert(missingTarget, 'missing-item regression target is unavailable');
+  missingGame.setScreen = function (screen) { this.screen = screen; };
+  missingGame.requestRender = () => {};
+  missingGame.toast = () => {};
+  missingGame.playSfx = () => {};
+  missingGame.render();
+  const missingMarker = missingGame.renderedRescueMapMarkers.find((entry) => entry.targetId === missingTarget.targetId);
+  assert(missingMarker, 'missing-item rescue marker is not rendered');
+  // Exercise the same callback used by the marker's tap handler.  The
+  // renderer can skip hit registration in a headless fast-map frame, so the
+  // regression focuses on the callback's routing contract here.
+  assert(missingGame.activateRescueMapMarker(missingTarget.targetId), 'missing-item marker callback must be handled');
+  assert.equal(findRecord(missingReserve.chapterRescue, missingTarget.targetId).status, 'captive',
+    'missing-item marker must not attempt a premature rescue');
+  const missingItem = missingTarget.requiredItems[0];
+  assert(missingGame.infoDetailModal && missingGame.infoDetailModal.kind === 'materialExploration',
+    'missing rescue item must open the archery exploration modal');
+  assert.equal(missingGame.infoDetailModal.explorationMode, 'archery',
+    'rescue item exploration must use the standard archery mode');
+  assert.equal(missingGame.infoDetailModal.targetId, missingItem,
+    'archery exploration must target the missing rescue item');
+
   // A malformed legacy portrait must degrade to a small result card instead
   // of aborting the frame after clearRect.
   const pulse = boarGame.mapConsequencePulse;

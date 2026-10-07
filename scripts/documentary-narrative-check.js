@@ -24,7 +24,7 @@ function assertBeat(beat, label) {
   assert(beat.nextHook.length <= 26, `${label} next hook exceeds 26 characters: ${beat.nextHook}`);
 }
 
-assert.strictEqual(CHAPTERS.length, 20, "documentary narrative must cover twenty chapters");
+assert.strictEqual(CHAPTERS.length, 11, "documentary narrative must cover eleven chapters");
 CHAPTERS.forEach((chapter) => {
   ["story", "openQuestion", "unpaidDebt", "nextHook", "ending", "actionId", "threshold"].forEach((key) => {
     assert(chapter[key], `chapter ${chapter.chapter} missing ${key}`);

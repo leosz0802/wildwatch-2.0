@@ -152,14 +152,17 @@ if (strongResult.world.reserve.poacherPressure !== weakResult.world.reserve.poac
 
 const salvageState = createCharacter(null, "保护区卫士");
 salvageState.world.reserve.inventory.shedAntlerA = 1;
-salvageState.world.reserve.inventory.researchSample = 2;
+salvageState.world.reserve.inventory.researchSample = 8;
 const fundBefore = salvageState.world.reserve.fund;
-const salvageResult = withRandom(0.9, () => simulateDay("出售仓库里的脱落鹿角和研究样本", salvageState));
+const salvageResult = withRandom(0.9, () => simulateDay("出售仓库里的脱落岩角和研究样本", salvageState));
 if (salvageResult.world.reserve.fund <= fundBefore) {
   throw new Error("salvage should convert recovered goods into fund");
 }
-if (salvageResult.world.reserve.inventory.shedAntlerA !== 0 || salvageResult.world.reserve.inventory.researchSample !== 0) {
-  throw new Error("salvage should consume recovered goods");
+if (salvageResult.world.reserve.inventory.shedAntlerA !== 0) {
+  throw new Error("salvage should consume recovered goods that fit today's sell cap");
+}
+if (salvageResult.world.reserve.inventory.researchSample) {
+  throw new Error("one salvage sell should dump accumulated samples instead of clipping by fund");
 }
 
 const leagueGame = makeGame();
@@ -167,8 +170,8 @@ leagueGame.state.world.reserve.base.raidTickets = 1;
 leagueGame.state.world.reserve.supplies.dogFood = 1;
 leagueGame.selectedRivalId = "base_sun";
 withRandom(0, () => leagueGame.raidRival());
-if (Object.prototype.hasOwnProperty.call(leagueGame.state.world.reserve, "fieldPermits") || leagueGame.state.world.reserve.supplies.dogFood !== 0) {
-  throw new Error("border patrol should consume dog food without restoring retired permit fields");
+if (Object.prototype.hasOwnProperty.call(leagueGame.state.world.reserve, "fieldPermits") || leagueGame.state.world.reserve.supplies.dogFood !== 1) {
+  throw new Error("removed border patrol must not consume dog food or restore retired permit fields");
 }
 
 console.log("resource loop check ok");

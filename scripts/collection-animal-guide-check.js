@@ -55,7 +55,8 @@ assert.strictEqual(game.screen, "home", "定位后应返回沙盘");
 assert.strictEqual(game.infoDetailModal, null, "定位后不应残留收藏详情弹窗");
 assert.strictEqual(game.speakingAnimalId, deer.id, "沙盘应选中对应动物");
 assert.strictEqual(game.selectedTarget.id, deer.id, "沙盘焦点应指向对应动物");
-assert(game.mapZoom >= 1.35, "定位后应自动放大沙盘");
+assert.strictEqual(game.mapZoom, 0, "定位后必须保持第1章全景比例");
+assert(Math.abs(game.currentMapScale() - 0.97) < 0.001, "定位后相机比例必须仍是第1章的 0.97");
 assert(game.collectionAnimalGuide && game.collectionAnimalGuide.animalId === deer.id, "定位后应保留短时高亮引导");
 
 game.state.world.collection.discovery.active = {

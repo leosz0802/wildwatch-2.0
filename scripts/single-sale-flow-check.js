@@ -8,12 +8,13 @@ global.wx = {
 
 const { Game } = require("../js/game");
 const { createCharacter } = require("../js/storage");
+const { sellFundCapStatus, convertRecoveredGoodsToSupplies } = require("../js/sellFundCap");
 
 const game = new Game();
 game.state = createCharacter(null, "保护区卫士");
 const reserve = game.state.world.reserve;
 reserve.fund = 100;
-reserve.inventory = { shedAntlerA: 1, shedAntlerB: 1, naturalHide: 0, researchSample: 2, recoveredTrap: 1 };
+reserve.inventory = { shedAntlerA: 1, shedAntlerB: 1, naturalHide: 0, researchSample: 8, recoveredTrap: 1 };
 reserve.pendingRecovered = {};
 reserve.guardianCycle = Object.assign({}, reserve.guardianCycle, { day: 4 });
 
@@ -28,15 +29,51 @@ if (!game.infoDetailModal || game.infoDetailModal.kind !== "recoveredChoice" || 
 }
 const before = reserve.fund;
 const sale = game.confirmRecoveredSale();
-if (!sale || sale.sold.length !== 5 || reserve.fund <= before) {
-  throw new Error(`sale should clear all inventory and increase fund: ${JSON.stringify(sale)}`);
+if (!sale || !sale.sold.length || reserve.fund <= before) {
+  throw new Error(`sale should increase fund within the daily cap: ${JSON.stringify(sale)}`);
 }
-if (Object.values(reserve.inventory).some((value) => value !== 0)) {
-  throw new Error("single sale should consume every stored sample");
+if (sellFundCapStatus(reserve).soldTimes !== 1) {
+  throw new Error(`one confirm should consume exactly one sell, got ${sellFundCapStatus(reserve).soldTimes}`);
+}
+if (sellFundCapStatus(reserve).freeSellsLeft !== 1) {
+  throw new Error("dumping the warehouse should still leave one free sell");
+}
+function restockWarehouse() {
+  reserve.inventory = { shedAntlerA: 1, shedAntlerB: 1, naturalHide: 0, researchSample: 3, recoveredTrap: 1 };
+}
+let consecutive = 1;
+while (consecutive < 5) {
+  restockWarehouse();
+  game.openRecoveredChoice();
+  const next = game.confirmRecoveredSale();
+  consecutive += 1;
+  if (consecutive <= 2) {
+    if (!next || !next.sold.length) throw new Error(`free sell ${consecutive} should still go through`);
+    if (sellFundCapStatus(reserve).soldTimes !== consecutive) {
+      throw new Error(`sell ${consecutive} should record soldTimes=${consecutive}, got ${sellFundCapStatus(reserve).soldTimes}`);
+    }
+  } else if (next && next.sold && next.sold.length) {
+    throw new Error(`sell ${consecutive} must be blocked after 2 free times`);
+  }
+}
+if (sellFundCapStatus(reserve).soldTimes !== 2) {
+  throw new Error(`five consecutive confirms must stop at 2 free sells, got ${sellFundCapStatus(reserve).soldTimes}`);
+}
+if (sellFundCapStatus(reserve).adEligible !== true) {
+  throw new Error("leftover stock after 2 consecutive sells should unlock an ad");
 }
 const latest = (reserve.fundLedger || []).slice(-1)[0];
 if (!latest || latest.type !== "income" || latest.source !== "样本出售收入" || latest.balance !== reserve.fund) {
   throw new Error("sale should append a fund income ledger entry with the post-sale balance");
+}
+reserve.inventory = { shedAntlerA: 0, shedAntlerB: 0, naturalHide: 0, researchSample: 2, recoveredTrap: 0 };
+reserve.dailySellFund.soldTimes = 2;
+const converted = convertRecoveredGoodsToSupplies(reserve, { onlyLeftover: true });
+if (!converted.count) {
+  throw new Error("samples left after 2 sells should convert into patrol supplies");
+}
+if (Object.values(reserve.inventory).some((value) => value !== 0)) {
+  throw new Error("converting leftover samples should clear the remaining warehouse");
 }
 const sameFund = reserve.fund;
 game.openRecoveredChoice();

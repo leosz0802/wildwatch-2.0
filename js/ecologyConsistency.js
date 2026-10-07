@@ -1,14 +1,11 @@
 const { BALANCE_V2, speciesVitalFor } = require("./balanceConfig");
 const { chapterCaptiveSpeciesSet } = require("./chapterRescueSystem");
-
 function clampRange(value, min, max) {
   return Math.max(min, Math.min(max, Number(value) || 0));
 }
-
 function totalAnimals(group) {
   return Object.keys(group || {}).reduce((sum, key) => sum + Math.max(0, Number(group[key]) || 0), 0);
 }
-
 function habitatCapacitySnapshot(reserve = {}) {
   const ecology = reserve.ecology || {};
   const water = clampRange(ecology.water, 0, 100);
@@ -21,9 +18,10 @@ function habitatCapacitySnapshot(reserve = {}) {
   const level = clampRange(Math.round(((reserve.progression || {}).level) || 1), 1, 7);
   const baseCapacity = BALANCE_V2.population.carryingCapacity[level] || BALANCE_V2.population.carryingCapacity[7];
   const limitingResource = Math.min(water, grass);
-  // 60 点水草约等于章节基础承载；低于 40 时短板会快速压缩承载，
-  // 高水源不能再抵消严重缺草，反之亦然。
-  const resourceFactor = clampRange(0.62 + limitingResource * 0.0065 - Math.max(0, disease - 50) * 0.003, 0.42, 1.15);
+  const diseaseBand = clampRange((disease - 35) / 65, 0, 1);
+  const diseaseCurve = diseaseBand * diseaseBand * (3 - 2 * diseaseBand);
+  const diseasePenalty = diseaseCurve * Math.max(0, disease - 35) * 0.003;
+  const resourceFactor = clampRange(0.62 + limitingResource * 0.0065 - diseasePenalty, 0.42, 1.15);
   const effectiveCapacity = Math.max(1, Math.round(baseCapacity * resourceFactor));
   const herbivoreShare = totalPopulation > 0 ? herbivores / totalPopulation : 0.78;
   const effectiveHerbivoreCapacity = Math.max(1, Math.round(effectiveCapacity * clampRange(herbivoreShare, 0.68, 0.84)));
@@ -39,13 +37,15 @@ function habitatCapacitySnapshot(reserve = {}) {
     baseCapacity,
     limitingResource,
     resourceFactor,
+    diseaseBand,
+    diseaseCurve,
+    diseasePenalty,
     effectiveCapacity,
     effectiveHerbivoreCapacity,
     loadRatio: totalPopulation / effectiveCapacity,
     herbivoreLoadRatio: herbivores / effectiveHerbivoreCapacity
   };
 }
-
 function habitatEcologyScore(snapshot) {
   return clampRange(Math.round(
     snapshot.water * 0.42
@@ -53,12 +53,10 @@ function habitatEcologyScore(snapshot) {
     + (100 - snapshot.disease) * 0.16
   ), 0, 100);
 }
-
 function habitatChapter(reserve = {}) {
   const progression = reserve.progression || {};
   return Math.max(1, Math.round(Number(progression.displayChapter || progression.stage || 1)));
 }
-
 function presentHerbivoreIds(reserve = {}) {
   const herd = (reserve.ecology || {}).herbivores || {};
   const preferred = ["deer", "antelope", "hare", "zebra", "boar"];
@@ -66,7 +64,6 @@ function presentHerbivoreIds(reserve = {}) {
   const present = Object.keys(herd).filter((id) => Number(herd[id]) > 0 && !captive.has(id));
   return preferred.filter((id) => present.includes(id)).concat(present.filter((id) => !preferred.includes(id)));
 }
-
 function applyHabitatPopulationDelta(reserve = {}, delta) {
   const amount = Math.round(Number(delta) || 0);
   const herd = (reserve.ecology || {}).herbivores || {};
@@ -82,7 +79,6 @@ function applyHabitatPopulationDelta(reserve = {}, delta) {
   }
   return applied;
 }
-
 function scaleHabitatMigrationDelta(assessment = {}, intensity = "idle") {
   const raw = Math.round(Number(assessment.delta) || 0);
   if (!raw) return 0;
@@ -90,7 +86,6 @@ function scaleHabitatMigrationDelta(assessment = {}, intensity = "idle") {
   if (raw < 0) return assessment.forced ? Math.max(raw, -2) : -1;
   return 1;
 }
-
 function habitatMigrationAssessment(reserve = {}, beforeEcology) {
   const capacity = habitatCapacitySnapshot(reserve);
   const ecologyScore = habitatEcologyScore(capacity);
@@ -110,7 +105,6 @@ function habitatMigrationAssessment(reserve = {}, beforeEcology) {
   let reason = chapter <= 1
     ? "泥岸初醒，动物只把这里当作临时路过点，暂时观望"
     : "水源、草场与种群承载暂时平衡，动物保持观望";
-
   if (forced) {
     const resourceDeficit = Math.max(0, 39 - capacity.grass, 41 - capacity.water);
     const diseasePressure = Math.max(0, capacity.disease - 54);
@@ -143,13 +137,11 @@ function habitatMigrationAssessment(reserve = {}, beforeEcology) {
     delta = 2;
     reason = "水草承载改善，少量动物开始回流";
   } else if (chapter >= 2 && ecologyScore >= 58 && capacity.limitingResource >= 52 && capacity.disease <= 40 && capacity.loadRatio <= 1) {
-    // 第2章剧情门槛是水源52、浅滩开始停留；开局第1章即使水草够用也只观望。
     delta = clampRange(1 + Math.round((ecologyScore - 58) / 14), 1, 2);
     reason = capacity.water <= capacity.grass
       ? "浅滩水源站稳，少量已有种群开始停留"
       : "草场能支持短暂停留，少量已有种群开始靠近";
   }
-
   const safety = reserve.safety == null ? 60 : clampRange(reserve.safety, 0, 100);
   if (delta > 0 && safety < 45) {
     delta = 0;
@@ -180,7 +172,6 @@ function habitatMigrationAssessment(reserve = {}, beforeEcology) {
     reason
   });
 }
-
 function consistentMigrationSnapshot(reserve = {}, storedMigration = (reserve || {}).migration, beforeEcology) {
   const assessment = habitatMigrationAssessment(reserve, beforeEcology);
   const stored = Object.assign({ trend: "stable", delta: 0, reason: "" }, storedMigration || {});
@@ -201,7 +192,6 @@ function consistentMigrationSnapshot(reserve = {}, storedMigration = (reserve ||
     reason: stored.reason || assessment.reason
   });
 }
-
 module.exports = {
   totalAnimals,
   habitatCapacitySnapshot,

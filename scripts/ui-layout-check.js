@@ -69,7 +69,7 @@ if (game.contentHeight < 500 + game.navHeight() + 20) {
   throw new Error("bottom safe inset is not reserved");
 }
 
-const reserve = game.state.world.reserve || {};
+let reserve = game.state.world.reserve || {};
 const scoutCards = game.patrolTaskChangeCards("houndScout", reserve, { canRun: true });
 if ((game.primaryPatrolTaskChange("houndScout", scoutCards, { canRun: true }) || {}).label !== "偷猎") {
   throw new Error("hound scout modal should foreground poaching reduction instead of intel gain");
@@ -145,6 +145,13 @@ if (game.renderedSandboxStateTiles.map((tile) => tile.label).join("/") !== "基�
 }
 if (game.renderedSandboxStateTiles.map((tile) => tile.icon).join("/") !== "fund/water/grass/people/paw/paw") {
   throw new Error("home HUD should use a human icon for visitors and animal paw icons for the two animal metrics");
+}
+const animalTile = game.renderedSandboxStateTiles.find((tile) => tile.id === "animalTotal");
+if (!animalTile
+  || animalTile.value !== game.renderedSandboxInfoDock.coreMetrics.animals
+  || animalTile.progressText !== `${game.renderedSandboxInfoDock.coreMetrics.animals}/${game.renderedSandboxInfoDock.coreGoals.animals}`
+  || animalTile.animationKey !== "chapterAnimalTotal") {
+  throw new Error("home animal card must display the chapter animal progress, not the whole living herd");
 }
 if (game.renderedSandboxStateTiles.some((tile) => !tile.readOnly || !tile.detailOnly || !tile.risk
   || !tile.clickable
@@ -407,9 +414,14 @@ game.render = savedDetailRender;
 game.hitAreas = [];
 game.drawInfoDetailModal();
 const leagueDetailItems = (game.infoDetailModal && game.infoDetailModal.renderedInfoItems) || [];
-if (!game.infoDetailModal.renderedPlayerAvatar || leagueDetailItems.length !== 4
-  || leagueDetailItems.some((entry) => !entry.layout.noTagTitleOverlap || entry.layout.tagBounds.x + entry.layout.tagBounds.w >= entry.layout.titleBounds.x)) {
-  throw new Error("league player detail should show a player avatar and keep every label clear of its value text");
+const leagueProfileCard = game.infoDetailModal && game.infoDetailModal.renderedProfileCard;
+if (!game.infoDetailModal.renderedPlayerAvatar || !leagueProfileCard
+  || leagueProfileCard.modal.h > 545
+  || leagueProfileCard.duplicateRankLine !== false
+  || leagueDetailItems.length !== 3
+  || leagueDetailItems.map((entry) => entry.item.label).join(",") !== "市值,等级,动物"
+  || leagueDetailItems.some((entry) => !entry.layout.noTagTitleOverlap)) {
+  throw new Error("league player detail should use the compact friend-style profile card without duplicate ranking text");
 }
 game.infoDetailModal = null;
 
@@ -417,9 +429,9 @@ reserve.fund = 520;
 reserve.guardianCycle.day = 2;
 reserve.emergencyFundAd = {};
 const fundDetail = game.buildReserveMetricDetail("fund");
-if (!fundDetail || fundDetail.readOnly || typeof fundDetail.action !== "function" || !/1000/.test(fundDetail.actionLabel || "")
+if (!fundDetail || fundDetail.readOnly || typeof fundDetail.action !== "function" || !/\+1000/.test(fundDetail.actionLabel || "")
   || !fundDetail.items || fundDetail.items.length !== 3 || fundDetail.items.some((item) => item.tag === "广告")) {
-  throw new Error("fund detail should keep three useful data cards and one contextual 1000-star-coin action");
+  throw new Error("fund detail should keep three useful data cards and one contextual chapter-scaled fund ad action");
 }
 ["water", "grass"].forEach((type) => {
   const detail = game.buildReserveMetricDetail(type);
@@ -441,11 +453,16 @@ if (game.hitAreas.length < 2 || game.renderedPatrolThreatBoard.readOnly || game.
 if (!game.renderedPatrolThreatTiles[0] || game.renderedPatrolThreatTiles[0].clickable !== true) {
   throw new Error("high poacher pressure must be a real patrol entry, not a dead status card");
 }
+const alarmBeforeUrgent = reserve.supplies.alarm || 0;
 game.handleTap(50, 240);
-if (!game.patrolTaskModal || game.patrolTaskModal.id !== "antiPoacher") {
-  throw new Error("tapping the urgent poacher card must open the drive-off patrol");
+if (game.patrolTaskModal) {
+  throw new Error("tapping the urgent poacher card must settle immediately, not open an intermediate page");
+}
+if ((reserve.supplies.alarm || 0) >= alarmBeforeUrgent && !game.settlementModal) {
+  throw new Error("tapping the urgent poacher card must start drive-off settlement");
 }
 game.patrolTaskModal = null;
+reserve = game.state.world.reserve || reserve;
 
 game.hitAreas = [];
 game.drawMaterialCompactHeader(game.ctx, 18, 520, game.width - 36, reserve);
@@ -470,33 +487,44 @@ reserve.supplies.dogFood = 0;
 reserve.supplies.alarm = 0;
 reserve.fund = 5000;
 game.scrollY = 0;
+const layoutRender = game.render;
+game.render = () => {};
 game.drawSupplyDepot(game.ctx, 18, 700, game.width - 36, reserve);
+const depotFund = reserve.fund;
 game.handleTap(300, 720);
-if (!game.patrolTaskModal || game.patrolTaskModal.id !== "buySupplies" || game.patrolTaskModal.purchaseId !== "all") {
-  throw new Error("supply depot header should open all-shortages replenishment task");
+if (game.patrolTaskModal || !(reserve.fund < depotFund)) {
+  throw new Error("supply depot header should spend fund and restock shortages");
 }
-game.patrolTaskModal = null;
+reserve.supplies.dogFood = 0;
+reserve.supplies.alarm = 0;
+reserve.fund = 5000;
 game.hitAreas = [];
 game.drawStickySuppliesHeader(game.ctx, 18, 100, game.width - 36, 66);
+const stickyFund = reserve.fund;
 game.handleTap(300, 120);
-if (!game.patrolTaskModal || game.patrolTaskModal.id !== "buySupplies" || game.patrolTaskModal.purchaseId !== "all") {
-  throw new Error("supply depot action should open all-shortages replenishment task");
+if (game.patrolTaskModal || !(reserve.fund < stickyFund)) {
+  throw new Error("supply depot action should spend fund and restock shortages");
 }
-game.patrolTaskModal = null;
+reserve.supplies.dogFood = 0;
+reserve.supplies.alarm = 0;
+reserve.fund = 5000;
+game.infoDetailModal = null;
 game.hitAreas = [];
 game.drawSupplyDepot(game.ctx, 18, 700, game.width - 36, reserve);
 game.handleTap(50, 770);
-if (!game.infoDetailModal || game.infoDetailModal.kind !== "supplyQuantity" || game.infoDetailModal.title.indexOf("狗粮") < 0) {
-  throw new Error("dog food supply card should open quantity picker");
+if (game.infoDetailModal || !(reserve.supplies.dogFood > 0) || !(reserve.fund < 5000)) {
+  throw new Error("dog food supply card should buy with fund");
 }
+reserve.supplies.alarm = 0;
+reserve.fund = 5000;
 game.infoDetailModal = null;
 game.hitAreas = [];
 game.drawSupplyDepot(game.ctx, 18, 700, game.width - 36, reserve);
 game.handleTap(270, 770);
-if (!game.infoDetailModal || game.infoDetailModal.title.indexOf("警报器") < 0) {
-  throw new Error("alarm supply card should open material detail");
+if (game.infoDetailModal || !(reserve.supplies.alarm > 0)) {
+  throw new Error("alarm supply card should buy with fund");
 }
-game.infoDetailModal = null;
+game.render = layoutRender;
 
 game.hitAreas = [];
 game.drawRecoveredGoods(game.ctx, 18, 960, game.width - 36, reserve);
@@ -510,13 +538,13 @@ if (!game.infoDetailModal || game.infoDetailModal.kind !== "recoveredChoice") {
 game.infoDetailModal = null;
 game.hitAreas = [];
 game.drawRecoveredGoods(game.ctx, 18, 960, game.width - 36, reserve);
-game.handleTap(50, 1050);
+game.handleTap(50, 1080);
 if (!game.infoDetailModal || game.infoDetailModal.kicker !== "守护样本") {
   throw new Error("recovered goods row should open material detail");
 }
 const goodsDetailText = JSON.stringify(game.infoDetailModal.items || []);
-if (!/探索/.test(goodsDetailText) || !/移交/.test(goodsDetailText)) {
-  throw new Error("recovered goods detail should separate exploration and transfer");
+if (!/探索/.test(goodsDetailText) || !/出售/.test(goodsDetailText) || /"tag":"操作"/.test(goodsDetailText)) {
+  throw new Error("recovered goods detail should keep exploration and sale, without a redundant action row");
 }
 game.infoDetailModal = null;
 game.hitAreas = [];
@@ -587,7 +615,7 @@ const settlementModal = {
     { label: "偷猎压力", after: 12, delta: -19, inverse: true },
     { label: "迁移指数", after: 6, delta: 6 }
   ],
-  rewards: ["今日目标完成：守护分奖励已结算", "动物迁入 +6：保护区吸引力提升", "消耗/补给：警报器 -1 / 回收物：追回陷阱 +1"],
+  rewards: ["今日目标完成：守护分奖励已结算", "动物迁入 +6：保护区吸引力提升", "消耗/补给：警报器 -1 / 回收物：追回机关 +1"],
   nextHint: "明日建议：局面不错，回沙盘点动物再决定下一步。",
   speaker: "沉牙狼",
   speech: "巡护后，风贴着泥走。我先省点体力，再闻一遍边界。"

@@ -6,6 +6,8 @@
     "worldLeaderboard": true,
     "socialTrade": true,
     "reciprocalTrade": true,
+    "friendContracts": true,
+    "worldPatrols": true,
     "telemetry": true,
     "cloudSave": false,
     "remoteBalance": true
@@ -20,12 +22,12 @@
       "version": ""
     },
     "premiumUiAtlas": {
-      "url": "https://wild.hubao.tv/assets/premium-ui-v1.jpg",
-      "version": "premium-ui-v1"
+      "url": "",
+      "version": ""
     },
     "wildernessMaterialAtlas": {
-      "url": "https://wild.hubao.tv/assets/wilderness-materials-atlas-v1.webp",
-      "version": "wilderness-materials-v1"
+      "url": "",
+      "version": ""
     },
     "animalPortraitAtlas": {
       "url": "",
@@ -36,12 +38,12 @@
       "version": ""
     },
     "facilities": {
-      "url": "https://wild.hubao.tv/assets/facility-sprites-atlas-v4.png",
-      "version": "facility-sprites-v4"
+      "url": "",
+      "version": ""
     },
     "collectionItems": {
-      "url": "https://wild.hubao.tv/assets/collection-items-atlas.png",
-      "version": "collection-items-v1"
+      "url": "",
+      "version": ""
     }
   },
   "messages": {

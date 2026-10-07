@@ -39,11 +39,12 @@ for (const actionType of ["houndScout", "antiPoacher", "habitat", "intervention"
   }
 }
 
-["A", "S"].forEach((grade) => {
-  const result = game.configureSettlementReveal(Object.assign({}, base, { actionType: "houndScout", grade }), "home");
-  assert(result.silent === false, `grade ${grade} should still show the settlement card`);
-  assert(result.autoFinishAt === undefined, `grade ${grade} must wait for acknowledgement`);
-});
+const gradeA = game.configureSettlementReveal(Object.assign({}, base, { actionType: "houndScout", grade: "A" }), "home");
+assert(gradeA.silent === true, "grade A patrol results should stay silent");
+assert(gradeA.autoFinishAt === 0, "grade A patrol results must not wait for acknowledgement");
+const gradeS = game.configureSettlementReveal(Object.assign({}, base, { actionType: "houndScout", grade: "S" }), "home");
+assert(gradeS.silent === false, "grade S should still show the settlement card");
+assert(gradeS.autoFinishAt === undefined, "grade S must wait for acknowledgement");
 
 const nightQuiet = game.configureSettlementReveal(Object.assign({}, base, {
   actionType: "habitat",
@@ -58,7 +59,7 @@ const nightAlert = game.configureSettlementReveal(Object.assign({}, base, {
   grade: "A",
   guardianNight: { day: 10, eventResult: { title: "浅滩回声" } }
 }), "home");
-assert(nightAlert.silent === false, "guardian-night A cards should still appear");
+assert(nightAlert.silent === true, "ordinary guardian-night A cards should stay silent");
 
 const ecologyQuiet = game.configureSettlementReveal(Object.assign({}, base, {
   actionType: "habitat",
@@ -95,13 +96,33 @@ game.patrolTaskModal = null;
 game.infoDetailModal = null;
 assert(game.canPresentSandboxEvent() === true, "after a silent B/C find, other sandbox tasks must be able to start");
 
-["A", "S"].forEach((grade) => {
-  const result = game.configureSettlementReveal(Object.assign({}, base, {
-    grade,
-    materialExploration: { reward: { id: "quiet_mark", label: "安静水标", amount: 1 } }
-  }), "home");
-  assert(result.silent === false, `exploration grade ${grade} should still show the settlement card`);
+const explorationA = game.configureSettlementReveal(Object.assign({}, base, {
+  grade: "A",
+  materialExploration: { reward: { id: "quiet_mark", label: "安静水标", amount: 1 } }
+}), "home");
+assert(explorationA.silent === true, "exploration grade A must stay silent");
+const explorationS = game.configureSettlementReveal(Object.assign({}, base, {
+  grade: "S",
+  materialExploration: { reward: { id: "quiet_mark", label: "安静水标", amount: 1 } }
+}), "home");
+assert(explorationS.silent === false, "exploration grade S should still show the settlement card");
+
+const screenshotLikeExploration = { roll: 5, qualityScore: 6, quality: "常见", reward: { id: "quiet_mark", label: "安静水标", amount: 1 } };
+assert(game.materialExplorationSettlementGrade(screenshotLikeExploration, "C") === "A", "roll 5 / total 6 exploration should still be graded A");
+const screenshotLikeModal = Object.assign({}, base, {
+  grade: game.materialExplorationSettlementGrade(screenshotLikeExploration, "C"),
+  materialExploration: screenshotLikeExploration
 });
+const screenshotLikeResult = game.configureSettlementReveal(screenshotLikeModal, "home");
+assert(screenshotLikeResult.silent === true, "A-grade exploration like the screenshot must not show a popup");
+const sRankExploration = { roll: 6, qualityScore: 10, quality: "罕见", reward: { id: "rare_mark", label: "稀有水标", amount: 3 } };
+assert(game.materialExplorationSettlementGrade(sRankExploration, "C") === "S", "quality score 10 exploration should be graded S");
+const sRankResult = game.configureSettlementReveal(Object.assign({}, base, {
+  grade: game.materialExplorationSettlementGrade(sRankExploration, "C"),
+  materialExploration: sRankExploration
+}), "home");
+assert(sRankResult.silent === false, "S-grade exploration should still show the popup");
+
 const explorationD = Object.assign({}, base, {
   grade: "D",
   materialExploration: { reward: { id: "quiet_mark", label: "安静水标", amount: 1 } }

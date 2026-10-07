@@ -1,26 +1,27 @@
-// species, animals, visitors. Animal totals count rescued herds, so each
-// gate sits above a single chapter rescue (ch1: antelope 45 → ~125 live).
-// Chapter 10 stays under the typical level-5 water/grass cap (~814).
-// From chapter 3, species gates match the live count after that chapter's required rescues.
-// From chapter 10, both newly introduced species are required unlocks (not one free + one rescue).
-const { livingAnimalTotal, chapterCaptiveSpeciesSet } = require("./chapterRescueSystem");
-
+const {
+  livingAnimalTotal,
+  chapterCaptiveSpeciesSet,
+  normalizeChapterRescue,
+  chapterRescueSummary
+} = require("./chapterRescueSystem");
+const { rareAnimalChapterGate } = require("./rareAnimalSystem");
+const { getUnlockedSpecies, CHAPTERS } = require("./animalWorld");
 const TARGETS = Object.freeze([
-  // 第1–2章保持开局节奏。第3章起拉高动物/游客门槛，拉长通关时间。
-  // 游客关卡合同不变：两次免费招募即使生态很好也不过关；本章特别任务
-  // 加上两次免费招募仍不过关。建筑/日常任务只作补差。
-  [7, 180, 95], [7, 220, 145], [9, 320, 315], [11, 390, 405], [12, 470, 495],
-  [14, 555, 595], [16, 630, 695], [18, 700, 795], [20, 745, 900], [22, 820, 1000],
-  [24, 845, 1100], [24, 870, 1200], [25, 895, 1310], [25, 920, 1410], [25, 945, 1510],
-  [27, 970, 1610], [29, 995, 1710], [31, 1020, 1810], [33, 1045, 1910], [33, 1070, 2010]
+  [7, 70, 114], [7, 84, 174], [9, 101, 378], [11, 118, 486], [12, 137, 594],
+  [14, 158, 714], [16, 182, 984], [18, 209, 1104], [20, 238, 1320], [22, 269, 1488],
+  [33, 715, 3888]
 ]);
-
+const CHAPTER_ANIMAL_HUD_INFLOWS = Object.freeze([
+  "rescued", "comforted", "tasked", "advertised", "shared", "rareAuction", "breeding"
+]);
+const CHAPTER_ANIMAL_HUD_OUTFLOWS = Object.freeze(["died", "rareMigrated", "rareStolen"]);
+const CHAPTER_ANIMAL_HUD_VERSION = 3;
+const LEGACY_CAREER_ANIMAL_TARGETS = Object.freeze([
+  180, 220, 320, 390, 470, 555, 630, 700, 745, 820,
+  1070
+]);
 const CHAPTER_VISITOR_CARRYOVER_RATIO = 0.1;
 const LATE_CHAPTER_VISITOR_CARRYOVER_RATIO = CHAPTER_VISITOR_CARRYOVER_RATIO;
-// 产品口径：所有章节只把上一章结束游客总数的 10% 带入，避免跨章游客
-// 直接完成当前门槛；剩余进度来自本章招募、设施到访、剧情和任务。
-// 游客门槛是本章 HUD（继承 + 本章招募/到访/任务），不是生涯累计。
-// 快玩靠广告把 6 分钟恢复压缩成当场第三次/第四次招募；慢玩只靠时长恢复和经营。
 const LATE_CHAPTER_VISITOR_CARRYOVER_STAGE = 14;
 const VISITOR_SOURCE_BUCKETS = Object.freeze({
   recruit: "recruitedVisitors",
@@ -29,16 +30,9 @@ const VISITOR_SOURCE_BUCKETS = Object.freeze({
   task: "taskVisitors",
   share: "shareVisitors"
 });
-
-// 每章游客账目自持：本章总数 = 继承（上一章结束总数 ×10%）+ 本章各来源 − 本章流失。
-// 记录保存在 development.operations 上，而不是 progression.chapterStart：
-// reserveProgressionFor 在章节推进时会整体重建 chapterStart，新对象不带任何游客
-// 字段，旧的“生涯总数 − 章节基线”推导会因此先把继承和本章招募清零，再被下一次
-// 任务重新推高，表现为反复横跳；两条口径不同步时还会多出“待分类”。
 const CHAPTER_VISITOR_GAIN_BUCKETS = Object.freeze([
   "recruitedVisitors", "migratedVisitors", "facilityVisitors", "taskVisitors", "shareVisitors"
 ]);
-
 function emptyChapterVisitorRecord(stage = 1) {
   return {
     stage: Math.max(1, Math.round(Number(stage) || 1)),
@@ -48,7 +42,6 @@ function emptyChapterVisitorRecord(stage = 1) {
     startLifetime: 0
   };
 }
-
 function normalizeChapterVisitorRecord(saved = {}, stage = 1) {
   return {
     stage: Math.max(1, Math.round(Number(saved.stage || stage) || 1)),
@@ -58,7 +51,6 @@ function normalizeChapterVisitorRecord(saved = {}, stage = 1) {
     startLifetime: wholeVisitors(saved.startLifetime)
   };
 }
-
 function persistChapterVisitorRecord(reserve, record) {
   const development = reserve.development || (reserve.development = {});
   const operations = development.operations || (development.operations = {});
@@ -69,19 +61,12 @@ function persistChapterVisitorRecord(reserve, record) {
   });
   return record;
 }
-
-// 本章各来源 = 当前账本 − 本章起点账本快照。总数由同一组桶相加得到，
-// 因此“继承 + 各来源 − 流失”必然等于总数，结构上不可能再出现“待分类”。
 function chapterVisitorGains(reserve = {}, record = {}) {
   const live = normalizeVisitorFlowLedger((((reserve.development || {}).operations || {}).visitorLedger) || {});
   const start = normalizeVisitorFlowLedger(record.start || {});
   const gained = (key) => Math.max(0, wholeVisitors(live[key]) - wholeVisitors(start[key]));
   const gains = {};
   CHAPTER_VISITOR_GAIN_BUCKETS.concat(["lostVisitors"]).forEach((key) => { gains[key] = gained(key); });
-  // 有些存档和外部写入只更新了生涯总数，没有分来源账本。此时按来源相加会得到
-  // 0，游客看起来凭空消失，所以退回“生涯总数 − 本章起点生涯数”，统一记作到访。
-  // 只在账本一条本章流水都没有时兜底：账本一旦有数据就以账本为准，否则会把
-  // 上一章的人数重新带进本章。
   const hasFlow = CHAPTER_VISITOR_GAIN_BUCKETS.some((key) => gains[key] > 0) || gains.lostVisitors > 0;
   if (!hasFlow) {
     const legacyGain = Math.max(0, reserveLifetimeVisitors(reserve) - wholeVisitors(record.startLifetime));
@@ -89,31 +74,16 @@ function chapterVisitorGains(reserve = {}, record = {}) {
   }
   return gains;
 }
-
 function chapterVisitorRecordTotal(reserve = {}, record = {}) {
   const gains = chapterVisitorGains(reserve, record);
   const earned = CHAPTER_VISITOR_GAIN_BUCKETS.reduce((sum, key) => sum + gains[key], 0);
   return Math.max(0, wholeVisitors(record.inherited) + wholeVisitors(record.legacySeed) + earned - gains.lostVisitors);
 }
-
 function legacyChapterVisitorInherit(stage = 1) {
   const current = Math.max(1, Math.round(Number(stage) || 1));
   if (current <= 1) return 0;
   return chapterVisitorCarryover(chapterTargets(current - 1).visitors, current);
 }
-
-function legacyChapterVisitorSeedTotal(reserve = {}, stage = 1) {
-  const current = Math.max(1, Math.round(Number(stage) || 1));
-  const inherit = legacyChapterVisitorInherit(current);
-  if (current <= 1) return 0;
-  const lifetime = reserveLifetimeVisitors(reserve);
-  const target = chapterTargets(current).visitors;
-  // 第5章以后的老档，旧版游客 HUD 往往是生涯累计。已经够本章门槛的，
-  // 本章至少补到过关，但不能把几万生涯人数写进本章数字。
-  if (current >= 5 && lifetime >= target) return target;
-  return inherit;
-}
-
 function recoverLegacyInheritedVisitors(reserve = {}, record = {}, stage = 1) {
   const current = Math.max(1, Math.round(Number(stage) || 1));
   if (current <= 1) return 0;
@@ -128,42 +98,46 @@ function recoverLegacyInheritedVisitors(reserve = {}, record = {}, stage = 1) {
   }
   return legacyChapterVisitorInherit(current);
 }
-
 function repairLegacyChapterVisitorRecord(reserve, record, stage) {
   const current = Math.max(1, Math.round(Number(stage) || 1));
+  // `legacySeed` came from the old cumulative-total repair path. It is not a
+  // chapter-local source and must not inflate the HUD or promotion gate.
+  if (current > 1) record.legacySeed = 0;
   if (current <= 1 || wholeVisitors(record.inherited) > 0) return record;
   record.inherited = recoverLegacyInheritedVisitors(reserve, record, current);
-  const seeded = legacyChapterVisitorSeedTotal(reserve, current);
-  const currentTotal = chapterVisitorRecordTotal(reserve, record);
-  if (seeded > currentTotal) {
-    record.legacySeed = wholeVisitors(record.legacySeed) + (seeded - currentTotal);
-  }
   return record;
 }
-
 function chapterExpectedMinutes(chapter = 1) {
   const n = Math.max(1, Math.round(Number(chapter) || 1));
   if (n <= 1) return 4;
   if (n === 2) return 9;
   if (n <= 5) return 14;
   if (n <= 10) return 16;
-  if (n <= 15) return 18;
   return 22;
 }
-
 function chapterTargets(chapter = 1) {
   const index = Math.max(0, Math.min(TARGETS.length - 1, Math.round(Number(chapter) || 1) - 1));
   const [species, animals, visitors] = TARGETS[index];
   return { species, animals, visitors, expectedMinutes: chapterExpectedMinutes(index + 1) };
 }
-
+function comfortAnimalGainRange(chapter = 1) {
+  const target = Math.max(1, chapterTargets(chapter).animals);
+  const min = Math.max(1, Math.round(target * 0.01));
+  const max = Math.max(min, Math.round(target * 0.03));
+  return { min, max, target };
+}
+function rollComfortAnimalGain(chapter = 1, random = Math.random) {
+  const range = comfortAnimalGainRange(chapter);
+  const percent = 1 + Math.floor(Math.max(0, Math.min(0.999999, Number(random()) || 0)) * 201) / 100;
+  const amount = Math.round(range.target * percent / 100);
+  return Math.max(range.min, Math.min(range.max, amount));
+}
 function visitorOperationsPresent(reserve = {}) {
   const operations = ((reserve.development || {}).operations) || {};
   const visitorLedger = operations.visitorLedger || {};
   return Number.isFinite(Number(operations.totalVisitors))
     || Number.isFinite(Number(visitorLedger.totalVisitors));
 }
-
 function reserveLifetimeVisitors(reserve = {}) {
   const operations = ((reserve.development || {}).operations || {});
   const visitorLedger = operations.visitorLedger || {};
@@ -174,28 +148,256 @@ function reserveLifetimeVisitors(reserve = {}) {
   const values = [Number(operations.totalVisitors), Number(visitorLedger.totalVisitors), Number(developmentLedger.totalVisitors), nodeTotal]
     .filter((value) => Number.isFinite(value) && Number(value) > 0);
   if (values.length) return Math.max(0, Math.round(Math.max(...values)));
-  // Incomplete snapshots omit the visitor ledger. Treat lifetime as unchanged
-  // so inherited + (lifetime - baseline) does not go negative and flash 0.
   const start = ((reserve.progression || {}).chapterStart)
     || ((reserve.progression || {}).stageStart)
     || {};
   const baseline = Number(start.totalVisitors);
   return Number.isFinite(baseline) && baseline > 0 ? Math.round(baseline) : 0;
 }
-
 function chapterVisitorCarryoverRatio(nextStage = 1) {
   return CHAPTER_VISITOR_CARRYOVER_RATIO;
 }
-
 function chapterVisitorCarryover(previousChapterTotal = 0, nextStage = 1) {
   return Math.max(0, Math.round((Number(previousChapterTotal) || 0) * chapterVisitorCarryoverRatio(nextStage)));
 }
-
+function chapterAnimalCarryover(previousAnimalTotal = 0, nextStage = 1) {
+  return chapterVisitorCarryover(previousAnimalTotal, nextStage);
+}
+function scaleLivingAnimalsTo(reserve = {}, targetTotal = 0) {
+  const wanted = Math.max(0, Math.round(Number(targetTotal) || 0));
+  const ecology = reserve.ecology || (reserve.ecology = {});
+  const captive = chapterCaptiveSpeciesSet(reserve);
+  const entries = [];
+  ["predators", "herbivores", "birds"].forEach((group) => {
+    const bucket = ecology[group] || (ecology[group] = {});
+    Object.keys(bucket).forEach((id) => {
+      const pop = Math.max(0, Math.round(Number(bucket[id]) || 0));
+      if (pop <= 0) return;
+      entries.push({ group, id, pop, captive: captive.has(id) });
+    });
+  });
+  const current = entries.reduce((sum, item) => sum + item.pop, 0);
+  if (current <= 0 || wanted >= current) return current;
+  const captiveCount = entries.filter((item) => item.captive).length;
+  const freeEntries = entries.filter((item) => !item.captive);
+  const freeWanted = Math.max(0, wanted - captiveCount);
+  const freeCurrent = freeEntries.reduce((sum, item) => sum + item.pop, 0);
+  entries.forEach((item) => {
+    if (item.captive) {
+      ecology[item.group][item.id] = 1;
+      return;
+    }
+    ecology[item.group][item.id] = freeCurrent > 0
+      ? Math.max(1, Math.round(item.pop * freeWanted / freeCurrent))
+      : 1;
+  });
+  const adjust = (delta) => {
+    const pool = freeEntries.slice().sort((a, b) => ecology[b.group][b.id] - ecology[a.group][a.id]);
+    for (let step = 0; step < Math.abs(delta); step += 1) {
+      const pick = pool.find((item) => delta < 0 ? ecology[item.group][item.id] > 1 : true);
+      if (!pick) break;
+      ecology[pick.group][pick.id] = Math.max(1, ecology[pick.group][pick.id] + (delta < 0 ? -1 : 1));
+    }
+  };
+  adjust(wanted - livingAnimalTotal(reserve));
+  return livingAnimalTotal(reserve);
+}
+function beginChapterAnimalLedger(reserve, stage) {
+  require("./animalSourceLedger").beginChapterSourceLedger(reserve, stage);
+}
+function beginChapterAnimalCheckpoint(reserve = {}, nextStage, previousAnimalTotal) {
+  const stage = Math.max(1, Math.round(Number(nextStage) || liveChapterStage(reserve)));
+  const state = reserve.chapterAnimalCarryover || {};
+  if (Math.round(Number(state.stage) || 0) === stage) return chapterAnimalTotal(reserve);
+  if (stage <= 1) {
+    reserve.chapterAnimalCarryover = { stage: 1, fromTotal: 0, inherited: 0 };
+    beginChapterAnimalLedger(reserve, 1);
+    return chapterAnimalTotal(reserve);
+  }
+  const fromTotal = Math.max(0, Math.round(Number(previousAnimalTotal) || 0));
+  const inherited = Math.max(
+    chapterAnimalCarryover(fromTotal, stage),
+    chapterAnimalCarryover(chapterTargets(stage - 1).animals, stage)
+  );
+  reserve.chapterAnimalCarryover = { stage, fromTotal, inherited };
+  beginChapterAnimalLedger(reserve, stage);
+  return chapterAnimalTotal(reserve);
+}
+function legacyCareerAnimalGate(chapter = 1) {
+  const index = Math.max(0, Math.min(LEGACY_CAREER_ANIMAL_TARGETS.length - 1, Math.round(Number(chapter) || 1) - 1));
+  return LEGACY_CAREER_ANIMAL_TARGETS[index];
+}
+function chapterAnimalInherited(reserve = {}) {
+  const stage = liveChapterStage(reserve);
+  const state = reserve.chapterAnimalCarryover || {};
+  if (Math.round(Number(state.stage) || 0) === stage) {
+    if (state.legacyCompleteSeed === true && Math.round(Number(state.strategyVersion) || 0) >= 2) {
+      return Math.max(0, Math.round(Number(state.inherited) || 0));
+    }
+    const expected = stage <= 1
+      ? 0
+      : Math.max(
+        chapterAnimalCarryover(Number(state.fromTotal) || chapterTargets(stage - 1).animals, stage),
+        chapterAnimalCarryover(chapterTargets(stage - 1).animals, stage)
+      );
+    const inherited = Math.max(0, Math.round(Number(state.inherited) || 0));
+    if (inherited !== expected) {
+      state.inherited = expected;
+      state.strategyVersion = 2;
+      reserve.chapterAnimalCarryover = state;
+    }
+    return expected;
+  }
+  if (stage <= 1) return 0;
+  return chapterAnimalCarryover(chapterTargets(stage - 1).animals, stage);
+}
+function chapterHasAnimalLedgerFlow(reserve = {}) {
+  const summary = require("./animalSourceLedger").animalSourceSummary(reserve);
+  return ["rescued", "comforted", "tasked"]
+    .some((key) => Math.max(0, Math.round(Number(summary[key]) || 0)) > 0);
+}
+function legacyChapterAnimalComplete(reserve = {}, chapter = 1) {
+  const stage = Math.max(1, Math.round(Number(chapter) || liveChapterStage(reserve)));
+  const oldGate = legacyCareerAnimalGate(stage);
+  const living = livingAnimalTotal(reserve);
+  const best = (reserve.progression || {}).coreBest || {};
+  const peak = Math.round(Number(best.stage) || 0) === stage
+    ? Math.max(0, Math.round(Number(best.animals) || 0))
+    : 0;
+  return living >= oldGate || peak >= oldGate;
+}
+function chapterAnimalFlowTotal(reserve = {}) {
+  const summary = require("./animalSourceLedger").animalSourceSummary(reserve);
+  const amount = (key) => Math.max(0, Math.round(Number(summary[key]) || 0));
+  const earned = CHAPTER_ANIMAL_HUD_INFLOWS.reduce((sum, key) => sum + amount(key), 0);
+  const losses = CHAPTER_ANIMAL_HUD_OUTFLOWS.reduce((sum, key) => sum + amount(key), 0);
+  // Opening stock and immigration stay off the chapter counter. Their deaths
+  // have to be absorbed there first. Otherwise a loss in the starting herd
+  // cancels rescued, comforted and tasked animals, and the HUD stays at 0.
+  const uncounted = amount("opening") + amount("immigrated");
+  const countedLosses = Math.max(0, losses - uncounted);
+  return earned - countedLosses;
+}
+function chapterAnimalTotal(reserve = {}) {
+  return Math.max(0, chapterAnimalInherited(reserve) + chapterAnimalFlowTotal(reserve));
+}
+function chapterAnimalBreakdown(reserve = {}) {
+  const summary = require("./animalSourceLedger").animalSourceSummary(reserve);
+  const inherited = chapterAnimalInherited(reserve);
+  const flow = chapterAnimalFlowTotal(reserve);
+  return {
+    inherited,
+    rescued: Math.max(0, Math.round(Number(summary.rescued) || 0)),
+    immigrated: Math.max(0, Math.round(Number(summary.immigrated) || 0)),
+    breeding: Math.max(0, Math.round(Number(summary.breeding) || 0)),
+    comforted: Math.max(0, Math.round(Number(summary.comforted) || 0)),
+    advertised: Math.max(0, Math.round(Number(summary.advertised) || 0)),
+    shared: Math.max(0, Math.round(Number(summary.shared) || 0)),
+    tasked: Math.max(0, Math.round(Number(summary.tasked) || 0)),
+    rareAuction: Math.max(0, Math.round(Number(summary.rareAuction) || 0)),
+    emigrated: Math.max(0, Math.round(Number(summary.emigrated) || 0)),
+    died: Math.max(0, Math.round(Number(summary.died) || 0)),
+    living: livingAnimalTotal(reserve),
+    flow,
+    total: chapterAnimalTotal(reserve)
+  };
+}
+function previousChapterVisitorClosingTotal(reserve = {}, fromStage) {
+  const from = Math.max(1, Math.round(Number(fromStage) || liveChapterStage(reserve)));
+  const saved = ((reserve.development || {}).operations || {}).chapterVisitors;
+  if (saved && Math.round(Number(saved.stage) || 0) === from) {
+    return chapterVisitorRecordTotal(reserve, normalizeChapterVisitorRecord(saved, from));
+  }
+  if (liveChapterStage(reserve) === from) return chapterVisitorTotal(reserve);
+  return rawChapterVisitorTotal(reserve);
+}
+function chapterVisitorEarned(reserve = {}, record = {}) {
+  const gains = chapterVisitorGains(reserve, record);
+  return CHAPTER_VISITOR_GAIN_BUCKETS.reduce((sum, key) => sum + gains[key], 0);
+}
+function repairShortVisitorInherit(reserve, record, stage) {
+  const floor = legacyChapterVisitorInherit(stage);
+  if (stage <= 1 || floor <= 0) return record;
+  const gains = chapterVisitorGains(reserve, record);
+  if (chapterVisitorEarned(reserve, record) > 0 || gains.lostVisitors > 0) return record;
+  if (wholeVisitors(record.inherited) < floor) record.inherited = floor;
+  return record;
+}
+function repairFreshChapterAnimalCarryover(reserve) {
+  const stage = liveChapterStage(reserve);
+  const state = reserve.chapterAnimalCarryover || {};
+  const expectedInherited = stage <= 1
+    ? 0
+    : Math.max(
+      chapterAnimalCarryover(Number(state.fromTotal) || chapterTargets(stage - 1).animals, stage),
+      chapterAnimalCarryover(chapterTargets(stage - 1).animals, stage)
+    );
+  if (Math.round(Number(state.stage) || 0) === stage) {
+    // A previous migration could write the whole current-chapter target into
+    // `inherited` (for example chapter 6 showed 132 inherited animals). The
+    // chapter strategy is fixed: carry over only the configured 10% floor,
+    // then earn the rest through this chapter's ledger.
+    if (Math.max(0, Math.round(Number(state.inherited) || 0)) !== expectedInherited) {
+      state.inherited = expectedInherited;
+      state.strategyVersion = 2;
+      reserve.chapterAnimalCarryover = state;
+    }
+    return chapterAnimalTotal(reserve);
+  }
+  if (stage <= 1) {
+    reserve.chapterAnimalCarryover = { stage: 1, fromTotal: 0, inherited: 0, strategyVersion: 2 };
+    return chapterAnimalTotal(reserve);
+  }
+  const fromTotal = Math.max(0, Math.round(Number(state.fromTotal) || chapterTargets(stage - 1).animals));
+  reserve.chapterAnimalCarryover = {
+    stage,
+    fromTotal,
+    inherited: Math.max(
+      chapterAnimalCarryover(fromTotal, stage),
+      chapterAnimalCarryover(chapterTargets(stage - 1).animals, stage)
+    ),
+    strategyVersion: 2
+  };
+  return chapterAnimalTotal(reserve);
+}
+function repairChapterAnimalHud(reserve = {}) {
+  const progression = reserve.progression || (reserve.progression = {});
+  const stage = liveChapterStage(reserve);
+  const savedCarryover = reserve.chapterAnimalCarryover || {};
+  const hasCurrentChapterCheckpoint = stage > 1
+    && Math.round(Number(savedCarryover.stage) || 0) === stage;
+  repairFreshChapterAnimalCarryover(reserve);
+  if (Math.round(Number(progression.animalHudVersion) || 0) === CHAPTER_ANIMAL_HUD_VERSION) {
+    return Math.round(chapterAnimalTotal(reserve));
+  }
+  let live = Math.round(chapterAnimalTotal(reserve));
+  if (!hasCurrentChapterCheckpoint && live < chapterTargets(stage).animals && legacyChapterAnimalComplete(reserve, stage)) {
+    const summary = require("./animalSourceLedger").animalSourceSummary(reserve);
+    const hasChapterFlow = CHAPTER_ANIMAL_HUD_INFLOWS.concat(CHAPTER_ANIMAL_HUD_OUTFLOWS)
+      .some((key) => Math.max(0, Math.round(Number(summary[key]) || 0)) > 0);
+    if (!hasChapterFlow) {
+      reserve.chapterAnimalCarryover = stage <= 1
+        ? { stage: 1, fromTotal: 0, inherited: chapterTargets(1).animals, legacyCompleteSeed: true, strategyVersion: 2 }
+        : Object.assign({}, reserve.chapterAnimalCarryover || {}, {
+          stage,
+          inherited: Math.max(chapterAnimalInherited(reserve), chapterTargets(stage).animals),
+          legacyCompleteSeed: true,
+          strategyVersion: 2
+        });
+      live = Math.round(chapterAnimalTotal(reserve));
+    }
+  }
+  progression.animalHudVersion = CHAPTER_ANIMAL_HUD_VERSION;
+  const best = progression.coreBest;
+  if (best && Math.round(Number(best.stage) || 0) === stage) {
+    best.animals = live;
+  }
+  return live;
+}
 function liveChapterStage(reserve = {}) {
   const progression = reserve.progression || {};
   return Math.max(1, Math.round(Number(progression.stage || progression.displayChapter || 1)));
 }
-
 function emptyVisitorLedgerSnapshot() {
   return {
     totalVisitors: 0,
@@ -207,11 +409,9 @@ function emptyVisitorLedgerSnapshot() {
     lostVisitors: 0
   };
 }
-
 function wholeVisitors(value) {
   return Math.max(0, Math.round(Number(value) || 0));
 }
-
 function normalizeVisitorFlowLedger(saved = {}) {
   return {
     totalVisitors: wholeVisitors(saved.totalVisitors),
@@ -223,14 +423,12 @@ function normalizeVisitorFlowLedger(saved = {}) {
     lostVisitors: wholeVisitors(saved.lostVisitors)
   };
 }
-
 function snapshotVisitorLedger(reserve = {}) {
   const ledger = normalizeVisitorFlowLedger((((reserve.development || {}).operations || {}).visitorLedger) || {});
   return Object.assign({}, ledger, {
     totalVisitors: reserveLifetimeVisitors(reserve)
   });
 }
-
 function rawChapterVisitorTotal(reserve = {}) {
   const lifetime = reserveLifetimeVisitors(reserve);
   const start = ((reserve.progression || {}).chapterStart)
@@ -240,7 +438,6 @@ function rawChapterVisitorTotal(reserve = {}) {
   const baseline = Math.max(0, Math.round(Number(start.totalVisitors) || 0));
   return Math.max(0, Math.round(inherited + (lifetime - baseline)));
 }
-
 function writeChapterVisitorCheckpoint(reserve, fields = {}) {
   const progression = reserve.progression || (reserve.progression = {});
   const stage = Math.max(1, Math.round(Number(fields.stage || liveChapterStage(reserve))));
@@ -259,12 +456,20 @@ function writeChapterVisitorCheckpoint(reserve, fields = {}) {
   });
   return start;
 }
-
 function beginChapterVisitorCheckpoint(reserve = {}, nextStage, previousChapterTotal) {
   const stage = Math.max(1, Math.round(Number(nextStage) || liveChapterStage(reserve)));
-  // 本章自持记录是唯一权威：只带入上一章结束总数的 10%，其余来源全部清零。
   const development = reserve.development || (reserve.development = {});
   const operations = development.operations || (development.operations = {});
+  const existing = normalizeChapterVisitorRecord(operations.chapterVisitors || {}, stage);
+  if (existing.stage === stage && (stage <= 1 || existing.inherited > 0)) {
+    return writeChapterVisitorCheckpoint(reserve, {
+      stage,
+      totalVisitors: existing.startLifetime,
+      inheritedVisitors: existing.inherited,
+      visitorLedger: existing.start,
+      baselineLocked: true
+    });
+  }
   const record = emptyChapterVisitorRecord(stage);
   record.inherited = stage <= 1 ? 0 : chapterVisitorCarryover(previousChapterTotal, stage);
   record.start = normalizeVisitorFlowLedger(operations.visitorLedger || {});
@@ -282,13 +487,6 @@ function beginChapterVisitorCheckpoint(reserve = {}, nextStage, previousChapterT
     baselineLocked: true
   });
 }
-
-// A legacy save can contain a lifetime visitor total but no trustworthy
-// checkpoint for the chapter that is currently displayed.  The old repair
-// path inferred progress from the chapter target (target × 1.5), which made
-// every visitor recruited in earlier chapters appear in the new chapter.  We
-// cannot recover the missing historical boundary, so start this chapter at
-// the current lifetime total and let new deltas be the only progress.
 function resetLegacyChapterVisitorCheckpoint(reserve, stage) {
   const development = reserve.development || (reserve.development = {});
   const operations = development.operations || (development.operations = {});
@@ -309,7 +507,6 @@ function resetLegacyChapterVisitorCheckpoint(reserve, stage) {
     baselineLocked: true
   });
 }
-
 function ensureChapterVisitorCheckpoint(reserve = {}) {
   if (!reserve || typeof reserve !== "object") {
     return { stage: 1, totalVisitors: 0, inheritedVisitors: 0, visitorLedger: emptyVisitorLedgerSnapshot() };
@@ -331,7 +528,6 @@ function ensureChapterVisitorCheckpoint(reserve = {}) {
   const lifetime = reserveLifetimeVisitors(reserve);
   const hasInherited = Object.prototype.hasOwnProperty.call(start, "inheritedVisitors");
   const hasLifetime = Object.prototype.hasOwnProperty.call(start, "totalVisitors");
-
   if (startStage !== stage) {
     if (stage <= 1) {
       return writeChapterVisitorCheckpoint(reserve, {
@@ -341,16 +537,21 @@ function ensureChapterVisitorCheckpoint(reserve = {}) {
         visitorLedger: emptyVisitorLedgerSnapshot()
       });
     }
-    // If the saved checkpoint is still the stage-1 default (baseline 0), the
-    // current lifetime total belongs to earlier play and cannot be carried
-    // into this chapter.  Reset it before calculating any 10% carryover.
+    if (existing && Math.round(Number(existing.stage) || 0) === stage) {
+      return writeChapterVisitorCheckpoint(reserve, {
+        stage,
+        totalVisitors: wholeVisitors(existing.startLifetime),
+        inheritedVisitors: wholeVisitors(existing.inherited),
+        visitorLedger: existing.start || snapshotVisitorLedger(reserve),
+        baselineLocked: true
+      });
+    }
     if (!hasLifetime || Math.max(0, Math.round(Number(start.totalVisitors) || 0)) === 0) {
       return resetLegacyChapterVisitorCheckpoint(reserve, stage);
     }
-    const previousTotal = rawChapterVisitorTotal(reserve);
+    const previousTotal = previousChapterVisitorClosingTotal(reserve, startStage);
     return beginChapterVisitorCheckpoint(reserve, stage, previousTotal);
   }
-
   if (!hasInherited) {
     if (stage <= 1) {
       return writeChapterVisitorCheckpoint(reserve, {
@@ -360,10 +561,6 @@ function ensureChapterVisitorCheckpoint(reserve = {}) {
         visitorLedger: start.visitorLedger || emptyVisitorLedgerSnapshot()
       });
     }
-    // A chapter with no inherited field is from an older save format.  Keep a
-    // known lifetime baseline when it exists; when it is zero/absent, use the
-    // current lifetime as the baseline.  Neither case can justify inventing a
-    // 10% carryover, because the previous chapter total is unknown.
     if (!hasLifetime || Math.max(0, Math.round(Number(start.totalVisitors) || 0)) === 0) {
       return resetLegacyChapterVisitorCheckpoint(reserve, stage);
     }
@@ -374,7 +571,6 @@ function ensureChapterVisitorCheckpoint(reserve = {}) {
       visitorLedger: start.visitorLedger || snapshotVisitorLedger(reserve)
     });
   }
-
   if (!hasLifetime) {
     if (lifetime <= 0 && !visitorOperationsPresent(reserve)) return start;
     return writeChapterVisitorCheckpoint(reserve, {
@@ -384,10 +580,6 @@ function ensureChapterVisitorCheckpoint(reserve = {}) {
       visitorLedger: start.visitorLedger || emptyVisitorLedgerSnapshot()
     });
   }
-
-  // A same-stage legacy snapshot can still carry the default zero baseline
-  // and inherited field.  Treat it exactly like the stage-mismatch case: the
-  // chapter starts at zero and no prior lifetime visitors are reclassified.
   if (stage > 1
     && lifetime > 0
     && Math.max(0, Math.round(Number(start.totalVisitors) || 0)) === 0
@@ -396,25 +588,13 @@ function ensureChapterVisitorCheckpoint(reserve = {}) {
       || wholeVisitors(start.visitorLedger && start.visitorLedger.totalVisitors) > 0)) {
     return resetLegacyChapterVisitorCheckpoint(reserve, stage);
   }
-
   if (!start.visitorLedger) {
     return writeChapterVisitorCheckpoint(reserve, {
-      // Preserve the chapter boundary even when a legacy save omitted only
-      // the per-source ledger.  Starting from the current snapshot prevents
-      // old recruitment buckets from being shown as this chapter's activity.
       visitorLedger: snapshotVisitorLedger(reserve)
     });
   }
-
   return start;
 }
-
-// 旧存档没有自持记录，只能从“章节起点账本 → 当前账本”的差值还原本章各来源。
-// 这里刻意用各来源之和，而不是生涯总数差值：后者会把上一章残留的人数一起算进
-// 本章（界面上就是那一条“待分类”），前者天然只包含本章真正发生过的流水。
-// 旧存档没有自持记录：先跑一遍既有的检查点修复，再用修复后的基线做本章起点。
-// 旧档里“章节起点缺失 / 仍是第1章默认值”这类形态必须继续判为本章 0 进度，
-// 不能把更早章节的人数算成本章成绩。
 function legacyChapterVisitorRecord(reserve = {}, stage = 1) {
   const checkpoint = ensureChapterVisitorCheckpoint(reserve) || {};
   const existing = ((reserve.development || {}).operations || {}).chapterVisitors;
@@ -427,7 +607,6 @@ function legacyChapterVisitorRecord(reserve = {}, stage = 1) {
   record.startLifetime = wholeVisitors(checkpoint.totalVisitors);
   return repairLegacyChapterVisitorRecord(reserve, record, stage);
 }
-
 function ensureChapterVisitorRecord(reserve = {}) {
   if (!reserve || typeof reserve !== "object") return emptyChapterVisitorRecord(1);
   const development = reserve.development || (reserve.development = {});
@@ -438,30 +617,20 @@ function ensureChapterVisitorRecord(reserve = {}) {
   if (saved && typeof saved === "object") {
     const record = normalizeChapterVisitorRecord(saved, stage);
     if (record.stage === stage) {
-      return persistChapterVisitorRecord(reserve, repairLegacyChapterVisitorRecord(reserve, record, stage));
+      const repaired = repairShortVisitorInherit(reserve, repairLegacyChapterVisitorRecord(reserve, record, stage), stage);
+      return persistChapterVisitorRecord(reserve, repaired);
     }
   }
   return persistChapterVisitorRecord(reserve, legacyChapterVisitorRecord(reserve, stage));
 }
-
 function chapterVisitorTotal(reserve = {}) {
   return chapterVisitorRecordTotal(reserve, ensureChapterVisitorRecord(reserve));
 }
-
-// 当日客流里真正被计入本章总数的人数。事件/剧情的负向变化只能在这个范围内
-// 生效——它们影响的是“今天来的人”，不该动本章此前攒下的存量。
-// 返回 null 表示这份数据从未跟踪过当日贡献（旧存档，或外部直接写了 today）。
-// 调用方遇到 null 时退回旧口径按当日客流计算，避免旧档的事件反馈整个失效。
 function todayChapterContribution(reserve = {}) {
   const today = (((reserve.development || {}).operations) || {}).today || {};
   if (today.chapterGained === undefined || today.chapterGained === null) return null;
   return wholeVisitors(today.chapterGained);
 }
-
-// 当日客流有可能是别的模块直接写进 today 的（结算、事件脚本、旧存档），
-// 从没经过账本。这些人必须先按来源登记进本章，之后才谈得上被事件扣减；
-// 否则“当日贡献”是 0，负向反馈会整个失效。这里同时写生涯总数和来源桶——
-// 早先的实现只写了生涯总数，差额就变成界面上的“待分类 N 人”。
 function registerUntrackedTodayCrowd(reserve, operations, today, record) {
   if (today.chapterGained !== undefined && today.chapterGained !== null) return;
   const walked = wholeVisitors(today.visitors);
@@ -469,8 +638,6 @@ function registerUntrackedTodayCrowd(reserve, operations, today, record) {
   const crowd = walked + recruited;
   today.chapterGained = crowd;
   if (!crowd) return;
-  // 这批人可能已经部分记在账本或生涯总数里，两边各自只补自己的缺口，
-  // 否则会重复计数。
   const gains = chapterVisitorGains(reserve, record);
   const booked = CHAPTER_VISITOR_GAIN_BUCKETS.reduce((sum, key) => sum + gains[key], 0);
   const bucketShortfall = Math.max(0, crowd - booked);
@@ -488,7 +655,6 @@ function registerUntrackedTodayCrowd(reserve, operations, today, record) {
     ledger.totalVisitors = wholeVisitors(ledger.totalVisitors) + lifetimeShortfall;
   }
 }
-
 function applyChapterVisitorDelta(reserve = {}, delta = 0, source = "visit", options = {}) {
   if (!reserve || typeof reserve !== "object") return { before: 0, after: 0, delta: 0, source };
   ensureChapterVisitorCheckpoint(reserve);
@@ -501,14 +667,9 @@ function applyChapterVisitorDelta(reserve = {}, delta = 0, source = "visit", opt
   const before = chapterVisitorRecordTotal(reserve, record);
   const wanted = Math.round(Number(delta) || 0);
   if (!wanted) return { before, after: before, delta: 0, source, applied: 0 };
-
   const ledger = operations.visitorLedger = normalizeVisitorFlowLedger(operations.visitorLedger || {});
   let applied = wanted;
-
   if (wanted > 0) {
-    // 记录“当日客流对本章的实际贡献”。事件和剧情的负向影响以它为上限，
-    // 否则按当日客流算出的百分比会反复啃食本章的累计存量：当日客流每天
-    // 重新计数，本章总数却只减不回，几个守护日就会被清空。
     today.chapterGained = wholeVisitors(today.chapterGained) + wanted;
     operations.totalVisitors = wholeVisitors(operations.totalVisitors) + wanted;
     ledger.totalVisitors = wholeVisitors(ledger.totalVisitors) + wanted;
@@ -522,7 +683,6 @@ function applyChapterVisitorDelta(reserve = {}, delta = 0, source = "visit", opt
       }
     }
   } else {
-    // 流失只能吃掉本章现有的人数，不会穿透到上一章。
     const need = Math.min(Math.abs(wanted), before);
     applied = -need;
     today.chapterGained = Math.max(0, wholeVisitors(today.chapterGained) - need);
@@ -537,12 +697,18 @@ function applyChapterVisitorDelta(reserve = {}, delta = 0, source = "visit", opt
       today.recruitedVisitors = Math.max(0, wholeVisitors(today.recruitedVisitors) - left);
     }
   }
-
   operations.chapterVisitors = record;
   const after = chapterVisitorRecordTotal(reserve, record);
   return { before, after, delta: after - before, source, applied };
 }
-
+function arrivalMatchedVisitorLoss(arrivals, retention) {
+  const crowd = Math.max(0, Math.round(Number(arrivals) || 0));
+  if (crowd < 30) return 0;
+  const pressure = Math.min(1, (crowd - 30) / 190);
+  const ease = Math.max(-8, Math.min(12, retention - 62)) / 100;
+  const rate = Math.max(0.15, Math.min(0.58, 0.22 + pressure * 0.28 - ease));
+  return Math.max(1, Math.round(crowd * rate));
+}
 function chapterVisitorDailyAttrition(reserve = {}, snapshot = {}) {
   const stage = Math.max(1, Math.round(Number((reserve.progression || {}).stage || 1)));
   if (stage < 3) return 0;
@@ -555,18 +721,16 @@ function chapterVisitorDailyAttrition(reserve = {}, snapshot = {}) {
     || 62
   ));
   const leakRate = 0.022 + Math.max(0, (70 - retention) / 100) * 0.055;
-  const lost = Math.max(1, Math.round(total * Math.min(0.08, leakRate)));
+  const stockLost = Math.max(1, Math.round(total * Math.min(0.08, leakRate)));
+  const arrivals = Math.max(0, Math.round(Number(snapshot.visitors) || Number(tourism.scale) || 0));
+  const lost = stockLost + arrivalMatchedVisitorLoss(arrivals, retention);
   return Math.min(lost, Math.max(0, total - 4));
 }
-
 function applyChapterVisitorDailyAttrition(reserve = {}, snapshot = {}) {
   const lost = chapterVisitorDailyAttrition(reserve, snapshot);
   if (lost <= 0) return { applied: 0, lost: 0 };
   return Object.assign({ lost }, applyChapterVisitorDelta(reserve, -lost, "loss", { skipToday: true }));
 }
-
-// 构成直接读本章自持记录，所以“继承 + 各来源 − 流失”必然等于总数，
-// untracked 恒为 0；它只是为了兼容既有界面字段而保留。
 function chapterVisitorBreakdown(reserve = {}) {
   const record = ensureChapterVisitorRecord(reserve);
   const gains = chapterVisitorGains(reserve, record);
@@ -582,39 +746,54 @@ function chapterVisitorBreakdown(reserve = {}) {
     total: chapterVisitorRecordTotal(reserve, record)
   };
 }
-
-function chapterSpeciesCount(reserve = {}) {
-  const ecology = reserve.ecology || {};
+function chapterSpeciesCount(reserve = {}, chapter = null) {
+  const progression = reserve.progression || {};
+  const currentChapter = Math.max(1, Math.min(CHAPTERS.length, Math.round(Number(
+    chapter || progression.stage || progression.displayChapter || 1
+  ) || 1)));
+  const level = Math.max(1, Math.min(7, Math.round(Number(progression.level) || 1)));
+  // The roster is stable even when live populations temporarily migrate or
+  // hit zero. Pending rescues from a skipped chapter remain deductions until
+  // the catch-up task is completed, so a legacy save cannot pass by accident.
   const captive = chapterCaptiveSpeciesSet(reserve);
-  const species = new Set();
-  [ecology.predators, ecology.herbivores, ecology.birds].forEach((group) => {
-    Object.keys(group || {}).forEach((id) => {
-      if (Number(group[id]) > 0 && !captive.has(id)) species.add(id);
-    });
-  });
-  return species.size;
+  return getUnlockedSpecies(level, currentChapter).filter((species) => {
+    const id = species && species.id ? species.id : species;
+    return id && !captive.has(id);
+  }).length;
 }
-
 function chapterCoreLiveSnapshot(reserve = {}, chapter = 1) {
-  const target = chapterTargets(chapter);
-  const species = chapterSpeciesCount(reserve);
-  const animals = Math.round(livingAnimalTotal(reserve));
+  const current = Math.max(1, Math.min(CHAPTERS.length, Math.round(Number(chapter) || 1)));
+  normalizeChapterRescue(reserve, current);
+  const target = chapterTargets(current);
+  const species = chapterSpeciesCount(reserve, current);
+  const animals = Math.round(chapterAnimalTotal(reserve));
   const visitors = chapterVisitorTotal(reserve);
+  const rareAnimal = rareAnimalChapterGate(reserve, current);
+  const rescue = chapterRescueSummary(reserve, current);
   return {
     species,
     animals,
     visitors,
     target,
-    complete: species >= target.species && animals >= target.animals && visitors >= target.visitors
+    rareAnimal,
+    rescue,
+    complete: species >= target.species
+      && animals >= target.animals
+      && visitors >= target.visitors
+      && rareAnimal.met
+      && rescue.complete
   };
 }
-
 function chapterCoreLiveComplete(reserve = {}, chapter = 1) {
   return chapterCoreLiveSnapshot(reserve, chapter).complete;
 }
-
+function chapterAdvanceReady(reserve = {}, chapter = 1) {
+  return chapterCoreLiveComplete(reserve, chapter);
+}
 module.exports = {
   chapterTargets,
+  comfortAnimalGainRange,
+  rollComfortAnimalGain,
   chapterExpectedMinutes,
   chapterVisitorDailyAttrition,
   applyChapterVisitorDailyAttrition,
@@ -626,6 +805,21 @@ module.exports = {
   reserveLifetimeVisitors,
   chapterVisitorCarryoverRatio,
   chapterVisitorCarryover,
+  CHAPTER_ANIMAL_HUD_VERSION,
+  LEGACY_CAREER_ANIMAL_TARGETS,
+  legacyCareerAnimalGate,
+  chapterAnimalCarryover,
+  chapterHasAnimalLedgerFlow,
+  legacyChapterAnimalComplete,
+  repairFreshChapterAnimalCarryover,
+  repairChapterAnimalHud,
+  chapterAnimalInherited,
+  chapterAnimalFlowTotal,
+  chapterAnimalTotal,
+  chapterAnimalBreakdown,
+  scaleLivingAnimalsTo,
+  beginChapterAnimalCheckpoint,
+  previousChapterVisitorClosingTotal,
   rawChapterVisitorTotal,
   beginChapterVisitorCheckpoint,
   ensureChapterVisitorCheckpoint,
@@ -641,5 +835,6 @@ module.exports = {
   emptyVisitorLedgerSnapshot,
   chapterSpeciesCount,
   chapterCoreLiveSnapshot,
-  chapterCoreLiveComplete
+  chapterCoreLiveComplete,
+  chapterAdvanceReady
 };

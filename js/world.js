@@ -3,7 +3,7 @@ const { buildReserveView } = require("./reserveView");
 const { SPECIES_DB, getUnlockedSpecies } = require("./animalWorld");
 const { buildSeasonDynamics } = require("./seasonSystem");
 const { createGoalState } = require("./goalSystem");
-
+const { defaultRareAnimalState } = require("./rareAnimalSystem");
 const regions = [
   { id: "north", name: "北部针叶林", feature: "冷杉与松林，树冠连续", resource: "松果、鸟巢、野兔、树洞", x: 0.25, y: 0.15, mood: "cold", water: 34, food: 58, danger: 42, territory: { ownerId: "npc_crow", ownerName: "黑铃鸦", ownerSpecies: "乌鸦", claim: "树冠观察区", pressure: 38, rule: "高处视野决定消息流向，交换消息比武力更有效" } },
   { id: "center", name: "中央混交林", feature: "阔叶林与灌木层密集", resource: "浆果、鹿群、鼠类、隐蔽庇护", x: 0.36, y: 0.42, mood: "dense", water: 52, food: 74, danger: 66, territory: { ownerId: "npc_wolf", ownerName: "沉牙狼", ownerSpecies: "狼", claim: "狼群猎场", pressure: 74, rule: "穿越、追踪和捕猎都会改变鹿群路线" } },
@@ -12,7 +12,6 @@ const regions = [
   { id: "rocks", name: "西部岩坡洞域", feature: "岩坡、洞穴和稀疏灌木", resource: "洞穴、鸟巢、矿盐、腐木昆虫", x: 0.29, y: 0.70, mood: "stone", water: 28, food: 45, danger: 54, territory: { ownerId: "npc_bear", ownerName: "厚掌熊", ownerSpecies: "熊", claim: "独行洞域", pressure: 68, rule: "靠近洞穴会被视为冒犯，矿盐会吸引鹿群" } },
   { id: "lake", name: "北部高地湖泊", feature: "高地湖与芦苇浅滩", resource: "饮水、鱼、水鸟、水貂", x: 0.55, y: 0.35, mood: "water", water: 88, food: 54, danger: 40, territory: { ownerId: "npc_mink", ownerName: "霜脊貂", ownerSpecies: "水貂", claim: "湖岸猎场", pressure: 44, rule: "浅滩是水貂的伏击点，饮水者需留退路" } }
 ];
-
 const knownCharacters = [
   {
     id: "npc_wolf",
@@ -337,57 +336,17 @@ const knownCharacters = [
     intent: { type: "move", label: "夜里顺着土层边缘找蚁道", targetRegionId: "rocks", certainty: "rumor", stance: "cautious" },
     relation: { trust: 34, threat: 24 }
   },
-  {
-    id: "npc_cheetah",
-    name: "风点猎豹",
-    species: "猎豹",
-    shortName: "风点",
-    cartoonLook: "细长身形、黑泪纹顺着脸颊往下，像一道会奔跑的风",
-    location: "南部林缘草甸",
-    temperament: "警觉，爆发力很强",
-    rank: 4,
-    title: "短跑追猎者",
-    personality: "会观察草高、视线和猎物距离，追击短而快",
-    wisdom: "猎豹依赖开阔视野和足够草高的伏击距离；过密的人类活动会迫使它更早放弃猎物",
-    memory: ["记得草场太亮时，追到一半就会被迫停下"],
-    publicState: "在草甸边缘等风向和距离",
-    intent: { type: "hunt", label: "沿草边寻找短距离冲刺机会", targetRegionId: "meadow", certainty: "confirmed", stance: "threat" },
-    relation: { trust: 28, threat: 78 }
-  },
-  {
-    id: "npc_hyena",
-    name: "鬣影狗",
-    species: "斑鬣狗",
-    shortName: "鬣影",
-    cartoonLook: "肩高不齐、笑纹明显，跑动时像一团会回头的阴影",
-    location: "西部岩坡洞域",
-    temperament: "机警，群体协作强",
-    rank: 4,
-    title: "夜间清道队",
-    personality: "会在冲突后迅速接手残余、清理边缘资源",
-    wisdom: "鬣狗通常在夜间协作觅食，边界越模糊、残余越多，它们越容易聚集",
-    memory: ["记得狮群离开后，整片草地只剩更安静的骨头和更警觉的脚步"],
-    publicState: "在夜里绕着草场边线巡回",
-    intent: { type: "guard", label: "跟着残余气味清理边界", targetRegionId: "rocks", certainty: "confirmed", stance: "open" },
-    relation: { trust: 30, threat: 66 }
-  }
 ];
-
 const missingNpcSeeds = {
   hare: { name: "短耳兔", location: "南部林缘草甸", title: "草洞观察员", intentType: "move", targetRegionId: "meadow", stance: "cautious" },
   boar: { name: "九纹猪", location: "中央混交林", title: "林缘翻土者", intentType: "move", targetRegionId: "center", stance: "open" },
   owl: { name: "圆羽鸮", location: "北部针叶林", title: "夜间观察者", intentType: "observe", targetRegionId: "north", stance: "open" },
   fox: { name: "赤尾狐", location: "中央混交林", title: "边缘侦察者", intentType: "observe", targetRegionId: "center", stance: "cautious" },
-  otter: { name: "浮须獭", location: "东部河岸湿地", title: "浅滩巡水者", intentType: "move", targetRegionId: "river", stance: "cautious" },
-  pelican: { name: "白帆鹈", location: "东部河岸湿地", title: "水面编队者", intentType: "move", targetRegionId: "river", stance: "open" },
-  orangutan: { name: "长臂猩", location: "北部针叶林", title: "林冠守护者", intentType: "observe", targetRegionId: "north", stance: "cautious" },
-  toucan: { name: "彩喙鸟", location: "北部针叶林", title: "树冠信使", intentType: "observe", targetRegionId: "north", stance: "open" },
   tapir: { name: "灰鼻貘", location: "中央混交林", title: "夜路播种者", intentType: "move", targetRegionId: "center", stance: "cautious" },
   fireflyBird: { name: "微光莺", location: "南部林缘草甸", title: "夜路示警者", intentType: "observe", targetRegionId: "meadow", stance: "open" },
   bison: { name: "宽肩牛", location: "南部林缘草甸", title: "迁徙旗舰", intentType: "move", targetRegionId: "meadow", stance: "open" },
   crane: { name: "长鸣鹤", location: "东部河岸湿地", title: "湿地驿使", intentType: "move", targetRegionId: "river", stance: "cautious" }
 };
-
 Object.keys(SPECIES_DB).forEach((speciesId) => {
   const species = SPECIES_DB[speciesId];
   const seed = missingNpcSeeds[speciesId] || {
@@ -417,7 +376,6 @@ Object.keys(SPECIES_DB).forEach((speciesId) => {
     relation: { trust: 44, threat: Math.max(12, Math.min(88, (species.tier || 1) * 14)) }
   });
 });
-
 const NAMED_ANIMAL_DEPTH = Object.freeze({
   狼: { trauma: "幼年时跟随旧狼群穿过公路，只有它和一只跛脚同伴抵达另一侧。", humanStance: "相信人类可以守住边界，但不相信人类有权替狼群决定该捕哪一只鹿。", sameSpeciesSplit: "年轻狼愿意利用巡护线避开偷猎者，老狼认为任何固定人类气味最终都会引来围捕。" },
   乌鸦: { trauma: "曾把同伴引向一处人类留下的食物，后来发现那里藏着毒饵。", humanStance: "愿意用线索交换安全，却拒绝把所有巢位告诉任何守护者。", sameSpeciesSplit: "树冠北侧的乌鸦主张继续向人类示警，南侧小群只把人类当成可以观察的危险动物。" },
@@ -453,7 +411,6 @@ const NAMED_ANIMAL_DEPTH = Object.freeze({
   野牛: { trauma: "迁徙通道被围栏截成两半时，它看见幼崽停在无法穿过的那一侧。", humanStance: "记得谁重新留出了通道，也记得谁把边界当成墙。", sameSpeciesSplit: "队首愿意使用新开的宽路，队尾母兽坚持旧路更容易维持熟悉队形。" },
   鹤: { trauma: "邻区水位骤降那年，它在中途停歇地等到天亮也没有同伴降落。", humanStance: "把稳定水位看作最大善意，却拒绝为了景观把停歇地改成观鸟台。", sameSpeciesSplit: "有的个体改走更远的备用湿地，有的个体仍守着原来的浅滩驿站。" }
 });
-
 knownCharacters.forEach((animal) => {
   const depth = NAMED_ANIMAL_DEPTH[animal.species] || {};
   animal.trauma = depth.trauma || "它记得一段尚未愿意交给人类解释的损失。";
@@ -461,7 +418,6 @@ knownCharacters.forEach((animal) => {
   animal.sameSpeciesSplit = depth.sameSpeciesSplit || "同一物种的不同个体对人类边界仍有分歧。";
   if (!(animal.memory || []).length) animal.memory = [`记得${animal.trauma.replace(/[。.]$/, "")}`];
 });
-
 function syncKnownCharactersForReserve(currentCharacters, reserve) {
   const level = Math.max(1, Math.min(7, Math.round(((reserve && reserve.progression) || {}).level || 1)));
   const current = currentCharacters || [];
@@ -489,9 +445,6 @@ function syncKnownCharactersForReserve(currentCharacters, reserve) {
       insight: (old && old.insight) || "",
       aiMood: (old && old.aiMood) || template.aiMood || null,
       ally: (old && old.ally) || false,
-      // Animal health is a real reserve condition, not a UI fallback. Older
-      // saves did not persist it, so migrate them to a healthy-but-not-perfect
-      // baseline and let water/grass/disease dynamics move it afterwards.
       health: old && Number.isFinite(old.health)
         ? Math.max(0, Math.min(100, Math.round(old.health)))
         : Number.isFinite(template.health)
@@ -502,7 +455,6 @@ function syncKnownCharactersForReserve(currentCharacters, reserve) {
     });
   }).filter(Boolean);
 }
-
 const hierarchy = {
   title: "森林等级不是职业强弱，而是谁更能让别人绕路",
   levels: [
@@ -513,12 +465,7 @@ const hierarchy = {
     { rank: 1, label: "低位生存者", privilege: "更容易隐藏和被群体接纳", cost: "暴露后风险很高" }
   ]
 };
-
-// New guardians receive enough protection fund to complete the first full
-// patrol-supply replenishment without having to sell samples first. Existing
-// saves keep their persisted balance through normalizeReserve.
-const INITIAL_PROTECTION_FUND = 800;
-
+const INITIAL_PROTECTION_FUND = 1000;
 function createReserveState() {
   return {
     fund: INITIAL_PROTECTION_FUND,
@@ -556,6 +503,7 @@ function createReserveState() {
     seasonDynamics: buildSeasonDynamics({ name: "雨季", day: 1, cycleDay: 1, changed: false }),
     weatherPulse: null,
     sandboxTaskRhythm: { lastClosedAt: {}, lastShownAt: {}, visible: {} },
+    disasterDrain: { lastTickAt: 0, pausedAt: 0 },
     emergency: { active: null, cooldown: 0, history: [], lastOutcome: null },
     guardianRun: {
       title: "7天守护挑战",
@@ -642,6 +590,7 @@ function createReserveState() {
       grass: 56,
       disease: 12
     },
+    rareAnimal: defaultRareAnimalState(),
     inventory: {
       shedAntlerA: 1,
       shedAntlerB: 0,
@@ -708,7 +657,25 @@ function createReserveState() {
       chapter: 1,
       request: null,
       incoming: null,
-      used: false
+      used: false,
+      history: []
+    },
+    friendContract: {
+      version: 3,
+      day: 1,
+      dateKey: "",
+      id: "",
+      status: "open",
+      partner: null,
+      objective: null,
+      player: { completed: false, action: "", contribution: 0, completedAt: 0 },
+      partnerSide: { completed: false, action: "", contribution: 0, completedAt: 0 },
+      createdAt: 0,
+      fallbackAt: 0,
+      completedAt: 0,
+      resolution: "",
+      slots: [],
+      history: []
     },
     mysteryEvidence: {
       evidence: {},
@@ -779,6 +746,7 @@ function createReserveState() {
       evidenceTrap: 0
     },
     emergencySupplyAd: { version: 1, lastGuardianDay: 0, claimCount: 0, lastReward: null },
+    dailySellFund: { version: 1, lastGuardianDay: 0, lastChapter: 0, soldFund: 0, soldTimes: 0, unlockedBatches: 2, unlockClaimCount: 0, unlockClaimCountToday: 0, lastUnlock: null },
     hounds: [
       { id: "hound_ash", name: "砾灰", role: "追踪", level: 1, xp: 0, scent: 82, speed: 62, courage: 68, bond: 54, stamina: 86, injured: false },
       { id: "hound_river", name: "白河", role: "驱赶", level: 1, xp: 0, scent: 55, speed: 78, courage: 72, bond: 49, stamina: 80, injured: false },
@@ -840,11 +808,9 @@ function createReserveState() {
     }
   };
 }
-
 function createInitialGoals(state = {}) {
   return createGoalState(state);
 }
-
 function createInitialWorld() {
   const reserve = createReserveState();
   const world = {
@@ -914,7 +880,6 @@ function createInitialWorld() {
   world.aiForest = directed.director;
   return world;
 }
-
 module.exports = {
   regions,
   knownCharacters,

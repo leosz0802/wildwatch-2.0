@@ -1,5 +1,4 @@
 const { facilityStates } = require("./reserveFacilities");
-
 const SPECIES_LINES = {
   鹿: ["低头吃了很久的草，抬头确认你还在。", "把最嫩的一小片草让给了幼鹿。", "走到水边，又退半步等同伴先喝。"],
   乌鸦: ["把一根亮亮的草茎藏进了树杈。", "学着巡护哨叫了一声，然后自己吓了一跳。", "站在高处认真点评今天的脚印。"],
@@ -24,7 +23,6 @@ const SPECIES_LINES = {
   狐狸: ["在边界牌后藏起半块果子，转身就忘了位置。", "踩着干净的巡护路走了一小段，又钻回草里。", "远远观察回收点，确认没有食物残渣才离开。"],
   猎犬: ["巡完一圈，把鼻子搭在门槛上休息。", "认真检查空饭盆，仿佛它会自己变满。", "追着自己的尾巴转半圈，想起还在值班。"]
 };
-
 const FACILITY_LINES = {
   old_patrol_post: ["在重新点亮的巡护灯下趴了一会儿。", "从巡护站门口经过，脚步没有加快。"],
   hydrology_station: ["在水尺旁停下，看了一会儿自己的倒影。", "沿着重新流动的浅水线慢慢走远。"],
@@ -33,19 +31,16 @@ const FACILITY_LINES = {
   governance_hall: ["在治理厅外的阴影里睡了一个短觉。", "绕着治理厅走了一圈，像在检查新邻居。"],
   guardian_memorial: ["在名字墙前安静停下，风翻动了纪念页。", "靠近纪念墙闻了闻，然后坐在你名字旁边。"]
 };
-
 function hash(text) {
   let value = 2166136261;
   String(text || "").split("").forEach((char) => { value ^= char.charCodeAt(0); value = Math.imul(value, 16777619); });
   return Math.abs(value >>> 0);
 }
-
 function momentAnimal(world, seed) {
   const animals = (world.knownCharacters || []).filter((animal) => animal && animal.species && animal.status !== "dead" && animal.status !== "departed");
   if (!animals.length) return { id: "forest_animal", name: "附近动物", species: "鹿" };
   return animals[seed % animals.length];
 }
-
 function recordOrdinaryMoment(state, context = {}) {
   if (!state || !state.world) return { state, moment: null };
   const world = state.world;
@@ -76,10 +71,8 @@ function recordOrdinaryMoment(state, context = {}) {
   world.latestOrdinaryMoment = moment;
   return { state, moment };
 }
-
 function latestOrdinaryMoment(state) {
   const world = (state && state.world) || {};
   return world.latestOrdinaryMoment || (world.ordinaryMoments || []).slice(-1)[0] || null;
 }
-
 module.exports = { SPECIES_LINES, FACILITY_LINES, recordOrdinaryMoment, latestOrdinaryMoment };

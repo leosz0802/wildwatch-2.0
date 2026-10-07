@@ -19,6 +19,7 @@ global.wx = {
 
 const { Game } = require("../js/game");
 const { createCharacter } = require("../js/storage");
+const { fundAdRewardFor } = require("../js/adSystem");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -58,9 +59,10 @@ async function main() {
     game.rewardedSupplyAds = { show: async () => { ads++; return { completed, reason: completed ? "completed" : "closed_early" }; } };
     const before = JSON.stringify({ fund: reserve.fund, inventory: reserve.inventory, actions: reserve.progression.totalActions });
     game.openMaterialsForMissing({ id: "buySupplies", missing: ["基金"], purchase: { id: "all", cost: 500 } });
+    const reward = fundAdRewardFor(reserve);
     assert(game.infoDetailModal && game.infoDetailModal.kind === "fundReplenish", "supply replenish with no fund should open the fund popup");
     assert(!game.patrolTaskModal, "fund popup should replace the blocked purchase task");
-    assert(/幸运获得/.test(game.infoDetailModal.luckyLabel) && /1000/.test(game.infoDetailModal.luckyLabel), "popup must offer lucky ad 1000");
+    assert(/幸运获得/.test(game.infoDetailModal.luckyLabel) && game.infoDetailModal.luckyLabel.includes(String(reward)), `popup must offer lucky ad ${reward}`);
     const popupButtons = [];
     const drawButton = game.modalButton.bind(game);
     game.modalButton = (...args) => { popupButtons.push({ label: args[5] }); return drawButton(...args); };
@@ -68,14 +70,14 @@ async function main() {
     game.drawInfoDetailModal();
     game.modalButton = drawButton;
     assert(popupButtons[0] && popupButtons[0].label === "去收取研究样本", "top option must be collect research samples");
-    assert(popupButtons[1] && popupButtons[1].label === "幸运获得（看广告给1000）", "lower option must be lucky ad for 1000");
+    assert(popupButtons[1] && popupButtons[1].label === `幸运获得（看广告给${reward}）`, `lower option must be lucky ad for ${reward}`);
     game.chooseFundReplenishLucky();
     await Promise.resolve();
     assert(reserve.fund === 0 && ads === 1, "incomplete lucky ad must not grant funds");
     completed = true;
     game.chooseFundReplenishLucky();
     await Promise.resolve();
-    assert(reserve.fund === 1000, "lucky ad should grant 1000 fund");
+    assert(reserve.fund === reward, `lucky ad should grant chapter fund ${reward}`);
     assert(!game.infoDetailModal, "lucky reward should close the replenish popup");
     reserve.fund = 0;
     reserve.supplies.dogFood = 0;
@@ -99,8 +101,11 @@ async function main() {
     completed = true;
     game.claimEmergencyFundAd();
     await Promise.resolve();
-    assert(reserve.fund === 1000, "completed video should grant the existing exact fund reward");
+    assert(reserve.fund === reward, "completed video should grant the chapter-scaled fund reward");
     assert(!game.infoDetailModal && game.screen === "role", "reward should leave the player at the sample table");
+    assert(!game.renderedRecoveredGoodsPanel.fundGuidance, "a 1000 fund ad should clear a 500-fund purchase gap");
+    reserve.fund = Math.max(500, reward);
+    game.render();
     assert(!game.renderedRecoveredGoodsPanel.fundGuidance, "resolved shortage must remove relief guidance");
 
     reserve.fund = 0;

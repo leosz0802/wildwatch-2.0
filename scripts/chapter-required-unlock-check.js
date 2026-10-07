@@ -12,7 +12,8 @@ const {
   chapterDefinition,
   normalizeChapterRescue,
   addRescueItem,
-  rescueAnimal
+  rescueAnimal,
+  RESCUE_VERSION
 } = require('../js/chapterRescueSystem');
 const { chapterTargets, chapterSpeciesCount } = require('../js/chapterTargets');
 const { createReserveState } = require('../js/world');
@@ -42,14 +43,11 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
     assert(getSpeciesById(speciesId), `chapter ${chapter}: ${speciesId} is missing from SPECIES_DB`);
   });
 
-  if (chapter >= 10) {
-    const opening = new Set(["deer", "antelope", "hare", "crow", "wolf", "zebra", "boar"]);
-    const novel = (info.newSpecies || []).filter((id) => !opening.has(id));
+  const opening = new Set(["deer", "antelope", "hare", "crow", "wolf", "zebra", "boar"]);
+  const novel = (info.newSpecies || []).filter((id) => !opening.has(id));
+  if (novel.length) {
     assert.equal(definition.targets.length, novel.length, `chapter ${chapter}: every new species must be a required unlock`);
     assert.deepEqual(definition.targets.slice().sort(), novel.slice().sort(), `chapter ${chapter}: required unlocks must match this chapter's new species`);
-    if (novel.length >= 2) {
-      assert.equal(definition.targets.length, 2, `chapter ${chapter}: two new species must both be required unlocks`);
-    }
   }
 
   const unlocked = new Set(getUnlockedSpecies(info.level, chapter).map((species) => species.id));
@@ -89,4 +87,45 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
   }
 }
 
-console.log('chapter required unlock check ok: 20 chapters, required animals stay present, species gates reachable');
+// Chapter 4/8 regression: both newly introduced species must be actionable, and
+// a pending prior rescue must not consume the current chapter's unlock slots.
+assert.deepEqual(chapterDefinition(4).targets.slice().sort(), ['leopard', 'lion']);
+assert.deepEqual(chapterDefinition(8).targets.slice().sort(), ['crocodile', 'wildDog']);
+const transitionReserve = createReserveState();
+normalizeChapterRescue(transitionReserve, 3, { fresh: true });
+transitionReserve.progression.stage = 4;
+transitionReserve.progression.displayChapter = 4;
+transitionReserve.progression.level = CHAPTERS[3].level;
+const transitionState = normalizeChapterRescue(transitionReserve, 4);
+const transitionTargets = transitionState.targets || [];
+assert(transitionTargets.some((record) => record.speciesId === 'lion' && record.chapter === 4));
+assert(transitionTargets.some((record) => record.speciesId === 'leopard' && record.chapter === 4));
+assert(transitionTargets.filter((record) => record.carryover && record.chapter === 3).length >= 1);
+
+// A save created before the coverage fix may already be normalized with only
+// the old target. Reload normalization must add the missing species without
+// resetting the existing target or its progress.
+const staleFourRecord = {
+  targetId: 'chapter:4:rescue:1',
+  speciesId: 'leopard',
+  status: 'captive',
+  requiredItems: ['rescue_scent_cloth'],
+  pointTarget: 12,
+  pointProgress: {}
+};
+const staleFour = createReserveState();
+Object.assign(staleFour.progression, { stage: 4, displayChapter: 4, level: CHAPTERS[3].level });
+staleFour.chapterRescue = {
+  version: RESCUE_VERSION,
+  chapter: 4,
+  targets: [staleFourRecord],
+  animals: { [staleFourRecord.targetId]: staleFourRecord },
+  completedTargets: {},
+  enforceCompletion: true,
+  legacyGateBypass: false
+};
+const migratedFour = normalizeChapterRescue(staleFour, 4);
+assert(migratedFour.targets.some((record) => record.speciesId === 'leopard'));
+assert(migratedFour.targets.some((record) => record.speciesId === 'lion'));
+
+console.log('chapter required unlock check ok: 20 chapters, every novel species is actionable, chapter 4/8 coverage and species gates reachable');

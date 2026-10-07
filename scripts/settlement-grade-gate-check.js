@@ -13,7 +13,7 @@ function explorationModal(grade) {
   };
 }
 
-for (const grade of ["A", "S"]) {
+for (const grade of ["S"]) {
   const game = Object.create(Game.prototype);
   game.screen = "home";
   game.pendingOnboardingFirstAction = false;
@@ -26,7 +26,7 @@ for (const grade of ["A", "S"]) {
   assert.ok(modal.revealAt > 0, `${grade} must have a reveal time`);
 }
 
-for (const grade of ["B", "C", "D"]) {
+for (const grade of ["A", "B", "C", "D"]) {
   const game = Object.create(Game.prototype);
   game.screen = "home";
   game.pendingOnboardingFirstAction = false;
@@ -44,6 +44,6 @@ const game = Object.create(Game.prototype);
 assert.equal(game.settlementShouldPresent(explorationModal("B")), false);
 assert.equal(game.settlementShouldPresent(explorationModal("C")), false);
 assert.equal(game.settlementShouldPresent(explorationModal("D")), false);
-assert.equal(game.settlementShouldPresent(explorationModal("A")), true);
+assert.equal(game.settlementShouldPresent(explorationModal("A")), false);
 assert.equal(game.settlementShouldPresent(explorationModal("S")), true);
-console.log("settlement grade gate ok: only A/S exploration results interrupt; B/C/D settle in background");
+console.log("settlement grade gate ok: only S exploration results interrupt; A/B/C/D settle in background");

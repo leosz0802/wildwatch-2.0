@@ -22,7 +22,7 @@ function stateFor(chapter) {
 }
 
 let previousLateCadence = null;
-for (let chapter = 1; chapter <= 20; chapter++) {
+for (let chapter = 1; chapter <= CHAPTERS.length; chapter++) {
   const state = stateFor(chapter);
   const game = Object.create(Game.prototype);
   game.state = state;
@@ -43,30 +43,35 @@ for (let chapter = 1; chapter <= 20; chapter++) {
   }
 
   const reserve = state.world.reserve;
-  assert.equal(ecologyNarrativeCadence(reserve), 2);
+  assert.equal(ecologyNarrativeCadence(reserve), chapter >= 3 ? 4 : 3);
   const eventDays = [];
+  const eventTypes = [];
   for (let day = 1; day <= 12; day++) {
     const event = resolveEcologyNarrativeEvent(reserve, reserve, { day, dayClosed: true, random: () => .999 });
     if (!event) continue;
     eventDays.push(day);
+    eventTypes.push(event.type);
     const result = applyEcologyNarrativeDecision(reserve, event.id, event.choices[0].id);
     assert(result.ok, `chapter ${chapter}, day ${day}: generated story must be completable`);
   }
   if (chapter >= 3) {
-    const expectedGap = 2;
-    assert(eventDays.length >= 6, `chapter ${chapter}: too few guaranteed story tasks`);
+    const expectedGap = 4;
+    assert(eventDays.length >= 3, `chapter ${chapter}: too few guaranteed story tasks`);
     eventDays.slice(1).forEach((day, index) => {
       assert(day - eventDays[index] <= expectedGap, `chapter ${chapter}: story gap exceeds ${expectedGap} guardian days`);
+    });
+    eventTypes.slice(1).forEach((type, index) => {
+      assert.notEqual(type, eventTypes[index], `chapter ${chapter}: consecutive ecology stories must not repeat type ${type}`);
     });
   }
 }
 
 {
-  const reserve = stateFor(20).world.reserve;
+  const reserve = stateFor(CHAPTERS.length).world.reserve;
   const first = resolveEcologyNarrativeEvent(reserve, reserve, { day: 1, dayClosed: true, random: () => .999 });
   assert(first);
   assert.equal(resolveEcologyNarrativeEvent(reserve, reserve, { day: 2, dayClosed: true, random: () => .999 }), null,
     "an unresolved story must block stacking even at the fastest late-game cadence");
 }
 
-console.log("late chapter task frequency ok: 20 chapter bands, map guidance, 4/5 routine slots, 6–12 action cadence and non-stacking story guarantees");
+console.log(`late chapter task frequency ok: ${CHAPTERS.length} chapter bands, map guidance, 4/5 routine slots, 6–12 action cadence and non-stacking story guarantees`);

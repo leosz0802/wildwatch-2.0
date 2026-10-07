@@ -38,7 +38,10 @@ assert.equal(visitorFirst.dailyEventChecklist().remaining, 1);
 assert.equal(visitorFirst.dailyPartialCompletionLine(visitorOnly), "招揽游客来访已完成");
 visitorFirst.markDailyPresentationSeen();
 visitorFirst.infoDetailModal = null;
-assert.equal(visitorFirst.maybeOpenMissionPush("settlement", { force: true }), false, "完成一项后不得再自动弹出每日");
+assert.equal(visitorFirst.maybeOpenMissionPush("settlement", { force: true }), true, "完成一项后仍可推进章节主线");
+assert.notEqual(visitorFirst.infoDetailModal && visitorFirst.infoDetailModal.kind, "dailyEvents", "完成一项后不得再自动弹出每日");
+assert.notEqual(visitorFirst.infoDetailModal && visitorFirst.infoDetailModal.goalId, "daily", "完成一项后不得再把每日任务当成章节任务");
+visitorFirst.infoDetailModal = null;
 assert.equal(visitorFirst.maybeOpenMissionPush("home"), false, "完成一项后主页也不得再弹出每日");
 
 const ecologyFirst = makeGame();
@@ -49,7 +52,8 @@ assert.equal(ecologyFirst.dailyEventChecklist().complete, 1);
 assert.equal(ecologyFirst.dailyEventChecklist().remaining, 1);
 ecologyFirst.markDailyPresentationSeen();
 ecologyFirst.infoDetailModal = null;
-assert.equal(ecologyFirst.maybeOpenMissionPush("settlement", { force: true }), false, "先做水草后也不得再自动弹出每日");
+assert.equal(ecologyFirst.maybeOpenMissionPush("settlement", { force: true }), true, "先做水草后仍可推进章节主线");
+assert.notEqual(ecologyFirst.infoDetailModal && ecologyFirst.infoDetailModal.kind, "dailyEvents", "先做水草后不得再自动弹出每日");
 
 const both = makeGame();
 completeByAction(both, "viewVisitors");

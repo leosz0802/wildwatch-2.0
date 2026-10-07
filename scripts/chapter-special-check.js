@@ -17,7 +17,7 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-assert.strictEqual(CATALOG.length, 20, "二十章都必须有特别剧情和任务");
+assert.strictEqual(CATALOG.length, 11, "主线十一章都必须有特别剧情和任务");
 const storyNames = new Set();
 const taskNames = new Set();
 CATALOG.forEach((entry) => {
@@ -66,12 +66,12 @@ assert.strictEqual(chapterSpecialStatus(readyReserve, t0).available, false, "完
 const failed = clone(fresh);
 failed.chapterSpecial = { version: 1, chapter: 2, enteredAt: t0 - UNLOCK_DELAY_MS, unlocked: true, completed: false };
 failed.progression = Object.assign({}, failed.progression, { stage: 2, displayChapter: 2 });
-const grassBefore = failed.ecology.grass;
+const animals2 = livingAnimalTotal(failed);
 const water2 = failed.ecology.water;
 const miss = applyChapterSpecialReward(failed, 2, t0);
 assert(miss.ok && !miss.success, "射箭低点必须判定失败并仍改两项数据");
 assert.strictEqual(failed.ecology.water, water2 - 4, "第2章失败必须直接降低水源");
-assert.strictEqual(failed.ecology.grass, grassBefore - 3, "第2章失败必须直接降低草地");
+assert.strictEqual(livingAnimalTotal(failed), animals2 - 12, "第2章失败必须直接减少动物");
 
 const skipped = skippedCardStories(1);
 assert.strictEqual(skipped.length, 2, "第1章应减去两张不紧要卡片");
@@ -100,19 +100,20 @@ assert.strictEqual(progressionGate(1).storyBeats, 2, "第1章前半段仍保留�
   flowGame.render = flowGame.playSfx = flowGame.playArcheryImpact = flowGame.toast = () => {};
   flowGame.lockArcheryAim = () => .5;
   flowGame.archeryScoreFor = () => 5;
-  let arrowLanded = null;
   flowGame.animateInlineDiceRoll = (modal, roll, tokenKey, onDone) => {
     assert.strictEqual(modal.phase, "rolling", "必须先进入箭矢飞行阶段");
     assert.strictEqual(modal.result, null, "箭矢飞行时不能先出现判定结果");
     assert.strictEqual(reserve.ecology.water, waterBeforeShot, "箭矢落靶前不能提前结算数值");
     modal.displayRoll = roll;
-    arrowLanded = onDone;
+    modal.phase = "resolved";
+    modal.actionLabel = "确认得分";
+    modal.pendingConfirmAction = onDone;
   };
   assert.strictEqual(flowGame.resolveChapterSpecialTask(), true);
-  assert.strictEqual(flowGame.infoDetailModal.phase, "rolling");
-  assert.strictEqual(reserve.chapterSpecial.completed, false, "射箭动画结束前任务不能完成");
-  arrowLanded();
-  assert.strictEqual(flowGame.infoDetailModal.phase, "result", "箭矢落靶后才显示判定结果");
+  assert.strictEqual(flowGame.infoDetailModal.phase, "resolved", "箭矢落靶后必须停在确认得分");
+  assert.strictEqual(reserve.chapterSpecial.completed, false, "未确认前任务不能完成");
+  assert.strictEqual(flowGame.confirmResolvedArcheryOrDice(), true, "确认得分必须有效");
+  assert.strictEqual(flowGame.infoDetailModal.phase, "result", "确认后才显示判定结果");
   assert.strictEqual(flowGame.infoDetailModal.result.roll, 5, "判定必须使用刚刚射出的点数");
   assert.strictEqual(reserve.chapterSpecial.completed, true);
 }

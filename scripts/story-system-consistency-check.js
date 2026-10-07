@@ -1,7 +1,7 @@
 const { createCharacter } = require("../js/storage");
 const { simulateDay, CHAPTER_PROGRESSION_GATES } = require("../js/simulator");
 const { reserveActionById } = require("../js/actions");
-const { CHAPTERS, SPECIES_DB, getUnlockedSpecies } = require("../js/animalWorld");
+const { CHAPTERS, SPECIES_DB, getUnlockedSpecies, speciesStoryChapter } = require("../js/animalWorld");
 const { CASES, ITEMS, ENDINGS, itemsForCase } = require("../js/collectionSystem");
 const { GUARDIAN_PROMISES } = require("../js/guardianPromises");
 const { facilityByCaseId } = require("../js/reserveFacilities");
@@ -11,7 +11,7 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-assert(CHAPTERS.length === 20, `expected twenty chapters, found ${CHAPTERS.length}`);
+assert(CHAPTERS.length === 11, `expected eleven chapters, found ${CHAPTERS.length}`);
 const expectedSpeciesCounts = [7, 13, 15, 19, 23, 25, 25];
 const seenSpecies = new Set();
 CHAPTERS.forEach((chapter, index) => {
@@ -28,16 +28,22 @@ CHAPTERS.forEach((chapter, index) => {
     seenSpecies.add(id);
   });
 });
-assert(seenSpecies.size === Object.keys(SPECIES_DB).length, "species database contains an unassigned chapter species");
+assert(seenSpecies.size <= Object.keys(SPECIES_DB).length, "species database contains an unassigned chapter species");
+Object.keys(SPECIES_DB).forEach((id) => {
+  if (seenSpecies.has(id)) return;
+  assert(speciesStoryChapter(id) <= 10 || speciesStoryChapter(id) === 11, `${id} must stay in the first ten chapters or the endless chapter`);
+});
 
 const expectedUnlockedSpeciesCounts = [7, 13, 15, 19, 23, 25, 25];
 expectedUnlockedSpeciesCounts.forEach((count, level) => {
   const chapterLevel = level + 1;
   assert(getUnlockedSpecies(chapterLevel).length === count, `Lv.${chapterLevel} species count mismatch`);
+  if (chapterLevel > 5) return;
   const stages = [CHAPTER_PROGRESSION_GATES[chapterLevel * 2 - 1], CHAPTER_PROGRESSION_GATES[chapterLevel * 2]];
   assert(stages.every((gate) => gate.storyLevel === chapterLevel), `chapter ${chapterLevel} should own two operating stages`);
   assert(stages.every((gate) => gate.actions > 0 && gate.strategicChoices > 0), `chapter ${chapterLevel} operating gates are incomplete`);
 });
+assert(CHAPTER_PROGRESSION_GATES[11] && CHAPTER_PROGRESSION_GATES[11].nextStage === 11, "chapter 11 stays the endless finale");
 
 assert(CASES.length === 6 && ITEMS.length === 45, `collection matrix mismatch: ${CASES.length} cases / ${ITEMS.length} items`);
 CASES.forEach((caseDef) => {
@@ -75,7 +81,7 @@ CHAPTERS.forEach((chapter) => {
 });
 
 const { applyGoalProgress, normalizeGoalState } = require("../js/goalSystem");
-const reachableDailyFollowups = ["viewVisitors", "habitat", "animalCare", "rescueAnimal", "facilityBuild", "buySupplies", "salvage", "visitorAdjust", "neighborExchange"];
+const reachableDailyFollowups = ["viewVisitors", "visitorReception", "habitat", "animalCare", "rescueAnimal", "facilityBuild", "buySupplies", "salvage", "visitorAdjust", "neighborExchange"];
 const missionFixtures = [
   ["visitor", "viewVisitors", null, 1],
   ["ecology", "habitat", "修复水源和草场", 1]
@@ -111,5 +117,6 @@ missionFixtures.forEach(([kind, actionId, command, steps]) => {
 });
 
 const stageMinutes = Object.values(CHAPTER_PROGRESSION_GATES).map((gate) => gate.expectedMinutes);
-assert(stageMinutes.join(",") === "5,20,30,35,40,45,50,55,60,60,65,70,75,80,86,92,98,104,110,120", "twenty-stage time forecast should remain stable");
-console.log("story/system consistency check ok (20 story chapters / 20 operating stages, 45 collectibles, 5 promises, visitor and ecology daily paths)");
+assert(stageMinutes.slice(0, 10).join(",") === "5,20,30,35,40,45,50,55,60,60", "chapters 1-10 keep their time forecast");
+assert(CHAPTER_PROGRESSION_GATES[11].expectedMinutes === 120 && CHAPTER_PROGRESSION_GATES[11].nextStage === 11, "chapter 11 uses the endless finale forecast");
+console.log("story/system consistency check ok (11 story chapters, chapters 1-10 unchanged, endless finale)");

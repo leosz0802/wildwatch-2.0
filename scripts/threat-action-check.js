@@ -114,9 +114,13 @@ const urgent = (game.renderedPatrolThreatTiles || [])[0];
 if (!urgent || urgent.clickable !== true || urgent.recommendedAction !== "antiPoacher") {
   throw new Error("high poacher pressure on the patrol board must be tappable");
 }
+const alarmBeforeUrgent = reserve.supplies.alarm || 0;
 game.handleTap(urgent.x + 40, urgent.y + 24);
-if (!game.patrolTaskModal || game.patrolTaskModal.id !== "antiPoacher") {
-  throw new Error("tapping 当前最急 must open the matching patrol, not a dead status card");
+if (game.patrolTaskModal) {
+  throw new Error("tapping 当前最急 must settle 驱赶偷猎 immediately, not open an intermediate page");
+}
+if ((reserve.supplies.alarm || 0) >= alarmBeforeUrgent && !game.settlementModal) {
+  throw new Error("tapping 当前最急 must start the matching patrol settlement");
 }
 
 console.log("threat action check ok");

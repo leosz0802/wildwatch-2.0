@@ -1,7 +1,4 @@
-// Verified real-world nature events copied from the reviewed Canvas library.
-// Add the next reviewed batch to this array; runtime definitions are derived in realNatureEventSystem.js.
 const ADDITIONAL_REAL_NATURE_EVENTS = require("./realNatureEventCatalogAdditional");
-
 const REAL_NATURE_EVENTS = Object.freeze([
   {
     "id": "ocean-01",
@@ -754,5 +751,4 @@ const REAL_NATURE_EVENTS = Object.freeze([
     "metrics": "water↓重 · grass↓中"
   }
 ].concat(ADDITIONAL_REAL_NATURE_EVENTS).map((event) => Object.freeze(event)));
-
 module.exports = { REAL_NATURE_EVENTS };

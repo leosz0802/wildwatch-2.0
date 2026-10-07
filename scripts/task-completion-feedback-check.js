@@ -101,7 +101,7 @@ for (const [w,h] of [[320,568],[375,812],[430,932]]) {
   game.render();
   const modal = game.infoDetailModal;
   assert.equal(modal.kind, 'taskCompletionNotice');
-  assert.equal(modal.title, '你完成了');
+  assert.equal(modal.title, '本步完成');
   assert.equal(modal.prose, '记录今天的生态线索');
   const frame = modal.renderedInfoFrame;
   assert(frame && frame.y >= 0 && frame.y + frame.h <= h);
@@ -236,6 +236,34 @@ for (const [w,h] of [[320,568],[375,812],[430,932]]) {
     game.infoDetailModal = null;
     assert.equal(drain(game).length, 0, 'reopening an outcome must not reannounce it');
   }
+}
+// Chapter task results keep the chapter-facing name even when a legacy
+// history row still carries the old action label ("偷猎"). The white
+// settlement title uses the same action vocabulary as the task modal.
+{
+  const game = Object.create(Game.prototype);
+  const reserve = {
+    progression: { stage: 1, displayChapter: 1 },
+    chapterTheme: { chapter: 1, step: 3 }
+  };
+  const keyed = game.chapterThemeCompletionPresentation(reserve, {
+    key: 'goal:test:chapter_theme:theme:1:first-protection',
+    title: '偷猎'
+  });
+  assert.equal(keyed.completed.title, '完成首次保护');
+  assert.equal(keyed.resultSummary, '首次保护已经落地，泥岸警报得到回应。');
+  const legacy = game.chapterThemeCompletionPresentation(reserve, { title: '偷猎' });
+  assert.equal(legacy.completed.title, '完成首次保护');
+  assert.equal(game.patrolSettlementTitle('antiPoacher'), '边界驱赶');
+  const flowGame = make(375, 812, 1);
+  flowGame.state.world.reserve.chapterTheme = { chapter: 1, step: 3 };
+  flowGame.state.world.goals.history.push({
+    type: 'chapter_theme',
+    id: 'theme:1:first-protection',
+    dateKey: 'test',
+    title: '偷猎'
+  });
+  assert(drain(flowGame).includes('完成首次保护'), 'legacy first-protection result must show the chapter task title');
 }
 delete global.wx;
 console.log('task completion feedback ok: 20 chapters, 3 metrics, exact thresholds, real daily progress, popup render/touch on 3 phone sizes, rescue animation deferral, single result popup per task, patrol/recruitment/visitor result not duplicated, repeat/failure/partial-shot protection');

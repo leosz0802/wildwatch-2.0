@@ -2,14 +2,18 @@ const assert = require("assert");
 const { createInitialWorld, createReserveState } = require("../js/world");
 const { normalizeReserve } = require("../js/storage");
 const { buildReserveView } = require("../js/reserveView");
-const { resolveGoals } = require("../js/goalSystem");
+const { resolveGoals, buildGoalView, applyGoalProgress, CHAPTER_THEME_TASKS } = require("../js/goalSystem");
 const { updateReserveEmergency, advanceIdleEmergency } = require("../js/simulator");
+const { applyEventBusinessOutcome } = require("../js/eventEconomy");
+const { chapterAnimalTotal } = require("../js/chapterTargets");
+const { livingAnimalTotal } = require("../js/chapterRescueSystem");
 const { REAL_NATURE_EVENTS } = require("../js/realNatureEventCatalog");
 const {
   REAL_NATURE_EVENT_DEFINITIONS,
   REAL_NATURE_ARCHERY_THRESHOLD,
   realNatureEventForDate,
   realNatureTriggerType,
+  realNatureTheme,
   realNatureImpactPair,
   applyRealNatureOutcome,
   futureTimelineText,
@@ -21,7 +25,9 @@ const {
   OBSOLETE_GENERIC_NATURE_TYPES,
   worldEventTriggerType,
   worldEventIdleTriggerType,
-  lateChapterRealNatureChance
+  lateChapterRealNatureChance,
+  extraRealNatureAllowed,
+  chapterThemePending
 } = require("../js/worldEventSystem");
 
 assert.strictEqual(REAL_NATURE_EVENTS.length, 100, "exactly 100 reviewed real events must be available");
@@ -37,6 +43,26 @@ for (const type of OBSOLETE_GENERIC_NATURE_TYPES) {
   assert(!WORLD_EVENT_DEFINITIONS[type], `${type} must not remain in runtime definitions`);
 }
 assert(Object.keys(REAL_NATURE_EVENT_DEFINITIONS).length === REAL_NATURE_EVENTS.length, "every catalog item needs a runtime definition");
+for (const event of REAL_NATURE_EVENTS) {
+  const definition = REAL_NATURE_EVENT_DEFINITIONS[`real_nature_${event.id}`];
+  assert(definition.themeLabel && definition.relationshipLine && definition.animalLine, `${event.id} needs a visible ecology relationship narrative`);
+  assert(definition.ecologicalMechanism && definition.playerQuestion, `${event.id} needs a visible cause-and-choice narrative`);
+  assert(Array.isArray(definition.causeChain) && definition.causeChain.length === 3, `${event.id} needs a three-step cause chain`);
+}
+const diseaseEvent = REAL_NATURE_EVENTS.find((event) => /疾病|疫情|禽流感|病毒|病原|中毒|毒藻|搁浅|异常.*死亡|集中死亡|死亡调查|感染|病死|兽疫|疫/.test(Object.values(event).join(" ")));
+assert(diseaseEvent, "catalog must contain a disease or poisoning event");
+assert.strictEqual(realNatureTheme(diseaseEvent).visualKind, "disease-zone", "disease events need a disease map route");
+assert(REAL_NATURE_EVENT_DEFINITIONS[`real_nature_${diseaseEvent.id}`].effectsFor === undefined, "theme effects must stay plain serializable fields");
+assert(REAL_NATURE_EVENT_DEFINITIONS[`real_nature_${diseaseEvent.id}`].pressureEffects.disease > 0, "disease events must raise disease pressure while active");
+const waterEvent = REAL_NATURE_EVENTS.find((event) => /污染|泄漏|水质|洪水|水源|水道|河流|湿地|水华|油膜/.test(Object.values(event).join(" ")));
+assert(waterEvent, "catalog must contain a water event");
+assert.strictEqual(realNatureTheme(waterEvent).visualKind, "contaminated-water", "water events need a contaminated-water map route");
+assert(Object.prototype.hasOwnProperty.call(REAL_NATURE_EVENT_DEFINITIONS[`real_nature_${waterEvent.id}`].resolvedEffects, "water"), "water events must settle water");
+const fireEvent = REAL_NATURE_EVENTS.find((event) => /山火|火点|火季|野火|森林火|高火险/.test(event.title || ""))
+  || REAL_NATURE_EVENTS.find((event) => /山火|火灾|火点|火季|热浪|高温|干旱|干热|烟雾|烧毁|野火/.test(Object.values(event).join(" ")));
+assert(fireEvent, "catalog must contain a fire or heat event");
+assert.strictEqual(realNatureTheme(fireEvent).visualKind, "wildfire", "fire events need a wildfire map route");
+assert(Object.prototype.hasOwnProperty.call(REAL_NATURE_EVENT_DEFINITIONS[`real_nature_${fireEvent.id}`].resolvedEffects, "grass"), "fire events must settle grass");
 assert.strictEqual(futureTimelineText("2025-08-29"), "2030-08-29", "player-facing event dates must use the +5 year timeline");
 assert.strictEqual(REAL_NATURE_EVENT_DEFINITIONS["real_nature_ocean-07"].date, "2030-08-29", "runtime definitions must shift dates without changing source data");
 assert.strictEqual(REAL_NATURE_EVENTS.find((event) => event.id === "ocean-07").date, "2025-08-29", "audit catalog must keep the real source date");
@@ -83,7 +109,12 @@ idleLatch.emergency = Object.assign({}, idleLatch.emergency, { active: null, coo
 const idleOutcome = advanceIdleEmergency(idleLatch, { name: "雨季" }, Date.now(), () => 0.01);
 assert(idleOutcome && /^real_nature_/.test(idleLatch.emergency.active && idleLatch.emergency.active.type), "required real event must ignore the 3–5 minute idle window");
 assert.strictEqual(idleLatch.emergency.realNatureChapter, 1, "spawning the chapter real event must latch it");
-assert(!chapterNeedsRequiredRealNature(idleLatch), "the same chapter must not keep owing a second required real event");
+assert.strictEqual(idleLatch.emergency.realNatureChapterCount, 1, "the first real event fills one of the two chapter slots");
+assert(!chapterNeedsRequiredRealNature(idleLatch), "an active real event must not stack a second required event");
+idleLatch.emergency.active = null;
+assert(chapterNeedsRequiredRealNature(idleLatch), "the chapter still owes a second real event after the first one ends");
+markChapterRealNatureSeen(idleLatch);
+assert(!chapterNeedsRequiredRealNature(idleLatch), "two real events fill the chapter quota");
 
 const actionLatch = createReserveState();
 actionLatch.progression.stage = 2;
@@ -110,6 +141,7 @@ lateReserve.progression.activeSeconds = (lateReserve.progression.chapterStart.ac
 lateReserve.poacherPressure = 72;
 lateReserve.social = { pressure: 2 };
 lateReserve.development.operations.today = { visitors: 90, recruitedVisitors: 20, trouble: "游客越过标线" };
+markChapterRealNatureSeen(lateReserve);
 markChapterRealNatureSeen(lateReserve);
 assert(lateChapterRealNatureChance(3) >= 0.18, "chapter 3+ must reserve a real-event slot");
 assert(lateChapterRealNatureChance(8) >= 0.32, "chapter 7+ must reserve a real-event slot");
@@ -174,6 +206,30 @@ assert.strictEqual(win.changes.length, 2);
 assert(win.changes.every((item) => item.delta > 0), "score >= 3 must raise both settlement metrics");
 assert(win.changes.some((item) => item.metric === "animals") ? winReserve.ecology.herbivores.deer >= 24 : true);
 
+// Real-event animal gains must survive the chapter HUD ledger.  Previously
+// applyAnimalImpact recorded them as migration, so the live herd changed but
+// reopening Chapter 1 still showed 0/58.
+const chapterEventReserve = createReserveState();
+const chapterEventBefore = chapterAnimalTotal(chapterEventReserve);
+const liveAnimalBefore = livingAnimalTotal(chapterEventReserve);
+const chapterEvent = Object.assign({}, coral, {
+  type: `real_nature_${coral.id}`,
+  id: `real_nature_${coral.id}`
+});
+const chapterEventChange = applyEventBusinessOutcome(chapterEventReserve, chapterEvent, true, false);
+const chapterAnimalChange = (chapterEventChange.impactChanges || []).find((item) => item.metric === "animals");
+assert(chapterAnimalChange && chapterAnimalChange.delta > 0, "a positive real event must return an animal gain");
+assert.strictEqual(
+  chapterAnimalTotal(chapterEventReserve),
+  chapterEventBefore + chapterAnimalChange.delta,
+  "positive real-event animals must be included in the current chapter HUD"
+);
+assert.strictEqual(
+  livingAnimalTotal(chapterEventReserve),
+  liveAnimalBefore + chapterAnimalChange.delta,
+  "positive real-event animals must also reach the live herd used by the HUD total"
+);
+
 const loseReserve = createReserveState();
 loseReserve.fund = 800;
 loseReserve.development.operations.today = { visitors: 40, recruitedVisitors: 0, income: 200 };
@@ -204,8 +260,24 @@ settleGame.playSfx = () => {};
 settleGame.playArcheryImpact = () => {};
 settleGame.render = () => {};
 settleGame.toast = () => {};
+const narrativeDefinition = REAL_NATURE_EVENT_DEFINITIONS[`real_nature_${fireEvent.id}`];
+assert(settleGame.openWorldEventDetail({ eventType: narrativeDefinition.type, title: narrativeDefinition.title }, narrativeDefinition), "real-event detail should open");
+assert(settleGame.infoDetailModal.items.some((item) => item.tag === "生态关系"), "real-event detail must explain human-animal relationship");
+assert(settleGame.infoDetailModal.items.some((item) => item.body.includes(narrativeDefinition.ecologicalMechanism)), "real-event detail must explain the ecological mechanism");
+assert.strictEqual(settleGame.infoDetailModal.items.length, 2, "real-event detail should keep only event detail and ecological relationship");
+assert(!settleGame.infoDetailModal.items.some((item) => item.tag === "结算影响"), "real-event detail must not duplicate the settlement impact card");
+settleGame.infoDetailModal = { kind: "neighborEventDice", phase: "ready", definition };
+let nestedSettle = null;
+const originalLock = settleGame.lockArcheryAim.bind(settleGame);
+settleGame.lockArcheryAim = function lockArcheryAim(modal) {
+  nestedSettle = this.resolveNeighborEventDice();
+  return originalLock(modal);
+};
 const settled = settleGame.resolveNeighborEventDice();
+settleGame.lockArcheryAim = originalLock;
+assert.strictEqual(nestedSettle, false, "the same tap stack must not settle a real event twice");
 assert(settled && settled.success, "real-event archery at 4 must settle positive");
+assert.strictEqual(settleGame.resolveNeighborEventDice(), false, "a second fire after lock must not pay out again");
 assert.strictEqual((settled.impactChanges || []).length, 2, "settlement must show exactly two metric cards");
 assert(settled.impactChanges.every((item) => item.delta > 0 && item.label && Number.isFinite(item.before) && Number.isFinite(item.after)));
 
@@ -240,6 +312,7 @@ assert(settleGame.showNextTaskCompletionNotice(), "real events must open their d
 assert.strictEqual(settleGame.infoDetailModal.kind, "realNatureSettlement", "real events must not reuse the generic 你完成了 card");
 assert.strictEqual((settleGame.infoDetailModal.impactChanges || []).length, 2);
 assert.strictEqual(settleGame.infoDetailModal.statusText, "", "dedicated settlement must not keep a status-line caption");
+assert(settleGame.infoDetailModal.prose.includes("主题："), "real-event settlement must retain the event ecology theme");
 drawn.length = 0;
 const colored = [];
 settleGame.text = (_ctx, value, _x, _y, _size, color, ...rest) => {
@@ -258,6 +331,108 @@ settleGame.drawCoreImpactChangeCards(settleGame.ctx, [
   { label: "下降样例", before: 10, after: 6, delta: -4, unit: "只" }
 ], 16, 80, 200, 82);
 assert(colored.filter((item) => item.value === "↓").every((item) => item.color === "#1f8a55"), "decline arrows must be green");
-assert.strictEqual(settleGame.infoDetailModalHeight({ kind: "taskCompletionNotice" }), 300, "generic completion card height must stay unchanged");
+assert.strictEqual(settleGame.infoDetailModalHeight({ kind: "taskCompletionNotice" }), 420, "completion card must leave room for the result and next-step rows");
+
+const themeBusy = createReserveState();
+themeBusy.progression.stage = 17;
+themeBusy.progression.displayChapter = 17;
+themeBusy.progression.level = 7;
+themeBusy.progression.activeSeconds = (themeBusy.progression.chapterStart.activeSeconds || 0) + 120;
+themeBusy.poacherPressure = 72;
+themeBusy.social = { pressure: 2 };
+themeBusy.development.operations.today = { visitors: 90, recruitedVisitors: 20, trouble: "游客越过标线" };
+themeBusy.chapterTheme = { version: 1, chapter: 17, step: 0, completed: false, completedTaskIds: [] };
+markChapterRealNatureSeen(themeBusy);
+markChapterRealNatureSeen(themeBusy);
+assert.equal(extraRealNatureAllowed(themeBusy), false, "unfinished chapter 17 theme must stop extra real-nature spawns");
+assert(!String(worldEventTriggerType(themeBusy, { name: "雨季" }, () => .12) || "").startsWith("real_nature_"), "late extras must not steal an unfinished chapter theme");
+let themeBusyIdleHits = 0;
+for (let i = 0; i < 200; i += 1) {
+  if (String(worldEventIdleTriggerType(themeBusy, { name: "雨季" }, () => (i + 0.5) / 200)).startsWith("real_nature_")) themeBusyIdleHits += 1;
+}
+assert.equal(themeBusyIdleHits, 0, `unfinished chapter theme must keep extra idle droughts at 0, got ${themeBusyIdleHits}`);
+
+const leftoverTheme = createReserveState();
+leftoverTheme.progression.stage = 17;
+leftoverTheme.progression.displayChapter = 17;
+leftoverTheme.progression.level = 7;
+leftoverTheme.progression.activeSeconds = (leftoverTheme.progression.chapterStart.activeSeconds || 0) + 120;
+leftoverTheme.chapterTheme = { version: 1, chapter: 16, step: 3, completed: true, completedTaskIds: ["stabilize-water"] };
+markChapterRealNatureSeen(leftoverTheme);
+markChapterRealNatureSeen(leftoverTheme);
+assert.equal(chapterThemePending(leftoverTheme), true, "entering chapter 17 with a finished chapter 16 ledger still counts as theme pending");
+assert.equal(extraRealNatureAllowed(leftoverTheme), false, "a leftover previous-chapter theme ledger must not unlock extra droughts");
+assert(!String(worldEventTriggerType(leftoverTheme, { name: "雨季" }, () => .12) || "").startsWith("real_nature_"), "chapter 17 extras must wait until this chapter theme starts");
+
+function chapterReserveWithMapCycle(chapter) {
+  const reserve = createReserveState();
+  reserve.progression.stage = chapter;
+  reserve.progression.displayChapter = chapter;
+  reserve.progression.level = Math.max(1, Math.ceil(chapter / 2));
+  reserve.fund = 500;
+  reserve.ecology.water = 80;
+  reserve.ecology.grass = 62;
+  reserve.ecology.disease = 4;
+  reserve.supplies = { dogFood: 6, alarm: 4, tranquilizer: 4, fieldKit: 4, medicalKit: 2, evidenceTrap: 2 };
+  reserve.emergency = {
+    active: Object.assign({ id: `real_nature_climate-02_ch${chapter}`, progress: 0, daysRemaining: 3 }, climateDefinition, {
+      responses: climateDefinition.responses.map((item) => Object.assign({}, item))
+    }),
+    history: []
+  };
+  reserve.reserveView = { mapMarkers: [{ id: "back-edge", reserve }] };
+  return reserve;
+}
+
+const climateDefinition = REAL_NATURE_EVENT_DEFINITIONS["real_nature_climate-02"];
+for (const chapter of [9, 10]) {
+  const reserve = chapterReserveWithMapCycle(chapter);
+  const world = createInitialWorld();
+  world.reserve = reserve;
+  world.mapEvents = reserve.reserveView.mapMarkers;
+  world.goals = null;
+  const game = new Game();
+  game.state = { world, character: { name: `chapter-${chapter}` }, ui: {} };
+  game.state.world.goals = resolveGoals(game.state, null, "check");
+  const blocked = buildGoalView(game.state, game.state.world.goals);
+  assert.strictEqual(blocked.primary.title, "强热带气旋奇多", `chapter ${chapter} real event must hold the task bar until it settles`);
+  assert.throws(() => JSON.stringify(game.state.world), /circular|Converting circular/i, `chapter ${chapter} played world must be the circular case`);
+  const cloned = game.cloneStateForGoalProgress();
+  assert.strictEqual(cloned.world.reserve.progression.displayChapter, chapter, "goal snapshot must keep the chapter");
+  assert.strictEqual(cloned.world.reserve.reserveView, undefined, "goal snapshot must drop the map back-edge");
+  const toasts = [];
+  game.resetTaskCompletionFeedback();
+  game.infoDetailModal = { kind: "neighborEventDice", phase: "ready", definition: climateDefinition, threshold: REAL_NATURE_ARCHERY_THRESHOLD };
+  game.archeryAimValueFor = () => 0.5;
+  game.lockArcheryAim = () => {};
+  game.archeryScoreFor = () => 4;
+  game.animateInlineDiceRoll = (_modal, _roll, _token, done) => done();
+  game.playSfx = () => {};
+  game.playArcheryImpact = () => {};
+  game.render = () => {};
+  game.saveState = () => {};
+  game.toast = (message) => toasts.push(message);
+  const settledChapter = game.resolveNeighborEventDice();
+  assert(settledChapter && settledChapter.success, `chapter ${chapter} real event must settle on a circular world`);
+  assert.strictEqual(reserve.emergency.active, null, `chapter ${chapter} real event must leave the task bar`);
+  assert(!toasts.includes("结算没有完成，可以再试一次"), `chapter ${chapter} must not stick on a failed settlement`);
+  game.state.world.goals = resolveGoals(game.state, null, "check");
+  const opened = buildGoalView(game.state, game.state.world.goals);
+  const expectedTitle = chapter === 9 ? "截下水貂夜行" : "截下白犀牛泥坑";
+  assert.strictEqual(opened.primary && opened.primary.title, expectedTitle, `chapter ${chapter} theme must become the current task`);
+}
+
+const chapterTen = new Game();
+const chapterTenReserve = chapterReserveWithMapCycle(10);
+chapterTenReserve.emergency.active = null;
+chapterTen.state = { world: { reserve: chapterTenReserve, goals: null }, character: { name: "chapter-10" }, ui: {} };
+chapterTen.state.world.goals = resolveGoals(chapterTen.state, null, "check");
+const themeBefore = Number((chapterTenReserve.chapterTheme || {}).step) || 0;
+const themeProgress = applyGoalProgress(chapterTen.state, chapterTen.state, { action: "antiPoacher", advanceChapterTheme: true, now: Date.now() });
+chapterTen.state = themeProgress.state;
+const themeAfter = chapterTen.state.world.reserve.chapterTheme || {};
+assert.strictEqual(themeAfter.step, themeBefore, "chapter 10 patrol action must not consume the share task");
+assert.strictEqual(!(themeAfter.completedTaskIds || []).includes("flagship-border"), true, "chapter 10 border patrol task is deleted");
+assert.strictEqual((CHAPTER_THEME_TASKS[10] || []).some((task) => task && task.id === "flagship-border"), false);
 
 console.log("real nature event check ok");

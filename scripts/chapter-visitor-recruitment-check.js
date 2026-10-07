@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { createInitialWorld } = require('../js/world');
 const { chapterTargets, CHAPTER_TARGETS, chapterVisitorCarryover } = require('../js/chapterTargets');
 const { consumeVisitorRecruitment, previewVisitorRecruitment, grantVisitorRecruitmentAd } = require('../js/visitorRecruitment');
+const { visitorReceptionPlan } = require('../js/visitorReception');
 const { getUnlockedSpecies, speciesPopulationGroup } = require('../js/animalWorld');
 const { chapterSpecialDef } = require('../js/chapterSpecialSystem');
 
@@ -103,9 +104,10 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
     `chapter ${chapter} two free recruits must leave a visitor gap: ${waveA.visitors}+${waveB.visitors} < ${need}`
   );
   if (chapter <= 2) {
+    const reception = visitorReceptionPlan(chapter).budget;
     assert.ok(
-      waveA.visitors + waveB.visitors + waveC.visitors >= need,
-      `chapter ${chapter} slow path (two free + one restored recruit) must cover +${need}: ${waveA.visitors}+${waveB.visitors}+${waveC.visitors}`
+      waveA.visitors + waveB.visitors + waveC.visitors + reception >= need,
+      `chapter ${chapter} two free + one restore plus reception must cover +${need}: ${waveA.visitors}+${waveB.visitors}+${waveC.visitors}+${reception}`
     );
     assert.ok(
       waveA.visitors + waveB.visitors + waveC.visitors + waveD.visitors >= need,
@@ -169,9 +171,10 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
     `healthy chapter ${chapter} two free recruits plus special task +${specialVisitors} must not skip the ad/restore: ${waveA.visitors}+${waveB.visitors}+${specialVisitors} < ${need}`
   );
   if (chapter <= 2) {
+    const reception = visitorReceptionPlan(chapter).budget;
     assert.ok(
-      waveA.visitors + waveB.visitors + waveC.visitors >= need,
-      `healthy chapter ${chapter} third recruit (restore or ad) must finish: ${waveA.visitors}+${waveB.visitors}+${waveC.visitors} >= ${need}`
+      waveA.visitors + waveB.visitors + waveC.visitors + reception >= need,
+      `healthy chapter ${chapter} third recruit plus reception must finish: ${waveA.visitors}+${waveB.visitors}+${waveC.visitors}+${reception} >= ${need}`
     );
   } else {
     assert.ok(

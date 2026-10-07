@@ -776,7 +776,7 @@ viewports.forEach((viewport) => {
   if (!chooseAudit.texts.some((item) => item.text === "进入游戏")
     || !chooseAudit.texts.some((item) => /解救 1 只动物/.test(item.text))
     || !chooseAudit.texts.some((item) => /招募 95 名游客/.test(item.text))
-    || !chooseAudit.texts.some((item) => /扩大到 180 只/.test(item.text))
+    || !chooseAudit.texts.some((item) => /扩大到 58 只/.test(item.text))
     || !chooseAudit.texts.some((item) => /这里没有无代价的善意/.test(item.text))
     || prologueVisual.stage !== "fog" || prologueVisual.dynamicMap || !prologueVisual.staticUnderlay || prologueVisual.staticChapterArt
     || !prologueVisual.cinematicArt || prologueVisual.beat !== "enter" || prologueVisual.soundCue !== "叮——"
@@ -1032,7 +1032,7 @@ viewports.forEach((viewport) => {
     || !homeNetworkAudit.buttons.some((button) => button.label.startsWith("世界 #") || button.label === "世界榜 · 待开放")
     || (networkTeaser.worldLeaderboardLocked && !homeNetworkAudit.buttons.some((button) => button.label === "世界榜 · 待开放"))
     || homeNetworkAudit.texts.some((item) => item.text.includes("朋友/世界保护地正在影响迁移线"))) {
-    fail(`${viewport.name}/home-network`, "保护地网络二级入口仍占用过多高度，或重复展示说明文字");
+    fail(`${viewport.name}/home-network`, `保护地网络二级入口异常（${networkTeaser.h || 0}px/${networkTeaser.metrics || 0}项/${networkTeaser.buttons || 0}按钮；${homeNetworkAudit.buttons.map((button) => button.label).join("|")}）`);
   }
   const actionAudit = runRenderAudit(game, viewport, "action", 0);
   if (!actionAudit.texts.some((item) => item.text === "×")) {
@@ -1054,11 +1054,12 @@ viewports.forEach((viewport) => {
     fail(`${viewport.name}/action`, "威胁卡仍显示不参与决策的英文副标题");
   }
   if (actionTiles.length !== 1 || actionTiles.some((item) => !item.primaryLabel || !item.primaryValue || item.valueSize < 12 || !item.costText)) {
-    fail(`${viewport.name}/action`, "巡护页必须只展示当前任务，并保留真实变化与资源消耗");
+    fail(`${viewport.name}/action`, `巡护页必须只展示当前任务，并保留真实变化与资源消耗（任务卡 ${actionTiles.length}）`);
   }
-  if (!["资金", "承载", "社区"].every((label) => actionAudit.texts.some((item) => item.text === label))
+  const missingActionResources = ["资金", "承载", "社区"].filter((label) => !actionAudit.texts.some((item) => item.text === label));
+  if (missingActionResources.length
     || actionAudit.texts.some((item) => item.text === "巡护点" || /巡护节奏|现场/.test(item.text))) {
-    fail(`${viewport.name}/action`, "巡护页未完整展示五项核心资源，或仍暴露旧资源");
+    fail(`${viewport.name}/action`, `巡护页未完整展示核心资源，或仍暴露旧资源（缺 ${missingActionResources.join("、") || "0"}）`);
   }
   game.leagueScope = "world";
   // The world leaderboard is intentionally gated during the first two
@@ -1093,14 +1094,14 @@ viewports.forEach((viewport) => {
     fail(`${viewport.name}/league-world`, "world ranking should contain only clearly identified real players");
   }
   const leagueHeader = game.renderedLeagueHeader || {};
-  const leagueBattle = game.renderedLeagueBattle || {};
+  const leaguePatrol = game.renderedLeaguePatrolRecord || {};
   const leagueRows = game.renderedLeagueRows || [];
   const leaguePagination = game.renderedLeaguePagination || {};
   if (leagueHeader.h > 88 || leagueHeader.rankSize < 24 || !leagueHeader.rank
-    || leagueBattle.h > 158 || leagueBattle.metricSize < 16 || leagueBattle.buttons !== 3
-    || !leagueBattle.success || leagueRows.length !== 10 || leagueRows[0].y - leagueHeader.y > 300
+    || leaguePatrol.h > 96 || !leaguePatrol.body
+    || leagueRows.length !== 10 || leagueRows[0].y - leagueHeader.y > 260
     || leaguePagination.total !== 100 || leaguePagination.pageCount !== 10 || leaguePagination.page !== 0) {
-    fail(`${viewport.name}/league-world`, "世界页首屏仍被说明区占满，或排名/胜率/防护主数据不够突出");
+    fail(`${viewport.name}/league-world`, "世界页应展示巡逻记录和市值榜，且整页可滚动");
   }
   const worldLastPageAudit = runRenderAudit(game, viewport, "league", 0, (g) => {
     g.leagueScope = "world";
@@ -1112,19 +1113,22 @@ viewports.forEach((viewport) => {
     || worldLastPageAudit.texts.some((item) => /卫士[·・•.\-_:：]/.test(item.text))) {
     fail(`${viewport.name}/league-world`, "世界榜百人名单无法翻到末页，或仍显示旧的卫士前缀");
   }
-  if (!["边界巡查", "资源交换", "加固"].every((label) => worldLeagueAudit.buttons.some((button) => button.label === label))
-    || worldLeagueAudit.texts.some((item) => item.text.startsWith("当前 #") || item.text === "世界保护区")) {
-    fail(`${viewport.name}/league-world`, "世界页核心三操作不完整，或旧的重复排名文字仍在显示");
+  if (!worldLeagueAudit.buttons.some((button) => button.label === "查看记录")
+    || ["边界巡查", "资源交换", "加固"].some((label) => worldLeagueAudit.buttons.some((button) => button.label === label))
+    || worldLeagueAudit.texts.some((item) => item.text.startsWith("当前 #") || item.text === "世界保护区" || item.text === "我方" || item.text === "对方")) {
+    fail(`${viewport.name}/league-world`, "世界页应只保留巡逻记录入口，不再显示边界巡查三操作");
   }
   const worldActionAudit = runRenderAudit(game, viewport, "league", 0, (g) => {
     g.leagueScope = "world";
-    g.state.world.reserve.league.lastAction = { type: "raid", title: "边界巡查完成", materialDelta: 14, shieldDelta: -3, ratingDelta: 8, valuationDelta: 18 };
+    g.state.world.reserve.worldHoundPatrol = {
+      pending: [],
+      history: [{ status: "settled", targetName: "云岭湖岸哨站", actorReward: { fund: 80, visitors: 12, animals: 4 } }]
+    };
   });
-  const leagueImpacts = (game.renderedLeagueBattle && game.renderedLeagueBattle.impacts) || [];
-  if (leagueImpacts.length !== 3 || leagueImpacts.some((item) => item.valueSize < 13)
-    || !worldActionAudit.texts.some((item) => item.text === "+14" && item.size >= 13)
-    || !worldActionAudit.texts.some((item) => item.text === "-3" && item.size >= 13)) {
-    fail(`${viewport.name}/league-world-result`, "世界操作结果没有以三项独立大号差值显示");
+  if (!(game.renderedLeaguePatrolRecord && game.renderedLeaguePatrolRecord.hasRecord)
+    || !worldActionAudit.texts.some((item) => String(item.text).includes("云岭湖岸哨站"))
+    || !worldActionAudit.texts.some((item) => String(item.text).includes("基金 +80"))) {
+    fail(`${viewport.name}/league-world-result`, "世界页巡逻记录卡必须显示最近一条巡逻结果");
   }
   game.leagueScope = "friends";
   const emptyFriendAudit = runRenderAudit(game, viewport, "league", 0);
@@ -1157,10 +1161,11 @@ viewports.forEach((viewport) => {
     });
     g.ensureSelectedRivalForScope("friends");
   });
-  if (!realFriendAudit.buttons.some((button) => button.label === "好友交换")
+  if (!realFriendAudit.buttons.some((button) => button.label === "查看记录")
+    || realFriendAudit.buttons.some((button) => button.label === "好友交换")
     || !(game.renderedLeagueRows || []).some((row) => !row.mine && !row.simulated)
     || realFriendAudit.texts.some((item) => item.text.includes("系统守护者"))) {
-    fail(`${viewport.name}/league-friends-real`, "真实好友加入后没有切换到好友交换操作与真实好友榜单");
+    fail(`${viewport.name}/league-friends-real`, "真实好友加入后应显示巡逻记录，而不是好友交换");
   }
   game.leagueScope = "world";
   const collectionAudit = runRenderAudit(game, viewport, "collection", 0, (g) => {
@@ -1168,6 +1173,11 @@ viewports.forEach((viewport) => {
   });
   checkPremiumSkin(game, "collection", `${viewport.name}/collection-premium-skin`);
   const discoveryTabs = game.renderedDiscoveryTabs || {};
+  const discoveryNetwork = game.renderedDiscoveryNetworkEntry || {};
+  if (!discoveryNetwork.friends || !discoveryNetwork.world || discoveryNetwork.h < 32
+    || discoveryTabs.y <= discoveryNetwork.y) {
+    fail(`${viewport.name}/collection-network`, "Discovery must pin friend and world ranking entry above the two tabs");
+  }
   if (!Array.isArray(discoveryTabs.items) || discoveryTabs.items.length !== 2
     || !discoveryTabs.items.some((tab) => tab.id === "visitors")
     || !discoveryTabs.items.some((tab) => tab.id === "population")
@@ -1328,7 +1338,7 @@ viewports.forEach((viewport) => {
     g.state.world.reserve.actionPoints = 4;
     g.state.world.reserve.inventory.recoveredTrap = 3;
     g.selectedReserveAction = "salvage";
-    g.command = "移交库存中的陷阱证据";
+    g.command = "移交库存中的隐踪器";
     g.patrolTaskModal = g.reserveActionOptions().find((item) => item.id === "salvage");
   });
   checkPatrolTaskModal(game, salvageTaskAudit, `${viewport.name}/salvage-task`);
@@ -1363,8 +1373,8 @@ viewports.forEach((viewport) => {
       }
       g.infoDetailModal = g.buildReserveMetricDetail(type);
       if (type === "fund") {
-        if (g.infoDetailModal.readOnly || typeof g.infoDetailModal.action !== "function" || !/1000/.test(g.infoDetailModal.actionLabel || "")) {
-          fail(`${viewport.name}/fund-data`, "低基金详情必须提供1000星币激励视频入口");
+        if (g.infoDetailModal.readOnly || typeof g.infoDetailModal.action !== "function" || !/\+1000/.test(g.infoDetailModal.actionLabel || "")) {
+          fail(`${viewport.name}/fund-data`, "低基金详情必须提供章节定额激励视频入口");
         }
       } else if (!g.infoDetailModal.readOnly || g.infoDetailModal.action || g.infoDetailModal.actionLabel) {
         fail(`${viewport.name}/${type}-data`, "水源、草场详情必须只展示数据，不能带经营操作");
@@ -1543,7 +1553,7 @@ viewports.forEach((viewport) => {
     g.settlementModal = Object.assign(settlementFixture(g), {
       causality: null,
       title: "样本移交完成 · 研究补助 +230",
-      commerce: { count: 2, description: "A级鹿角×1 / 研究样本×1", baseValue: 210, value: 230, fundingLabel: "研究补助", levelFactor: 1.05, neighborFactor: 1.04 },
+      commerce: { count: 2, description: "A级岩角×1 / 研究样本×1", baseValue: 210, value: 230, fundingLabel: "研究补助", levelFactor: 1.05, neighborFactor: 1.04 },
       fundBefore: 1000,
       fundAfter: 1230,
       returnScreen: "role"
@@ -1562,9 +1572,9 @@ viewports.forEach((viewport) => {
   const explorationAudit = runRenderAudit(game, viewport, "role", 0, (g) => {
     g.settlementModal = Object.assign(settlementFixture(g), {
       causality: null,
-      title: "探索发现 · 陷阱证据 ×2",
+      title: "探索发现 · 隐踪器 ×2",
       materialExploration: {
-        reward: { id: "trap", label: "陷阱证据", amount: 2 },
+        reward: { id: "trap", label: "隐踪器", amount: 2 },
         roll: 5,
         levelContribution: 2,
         relationshipContribution: 1,
@@ -1578,11 +1588,11 @@ viewports.forEach((viewport) => {
     });
   });
   const explorationPrimary = ((game.settlementModal && game.settlementModal.renderedSettlementChanges) || []).find((item) => item.role === "primary");
-  if (!explorationPrimary || explorationPrimary.label !== "陷阱证据" || explorationPrimary.shownValue !== "×2" || explorationPrimary.valueSize < 18) {
+  if (!explorationPrimary || explorationPrimary.label !== "隐踪器" || explorationPrimary.shownValue !== "×2" || explorationPrimary.valueSize < 18) {
     fail(`${viewport.name}/settlement-exploration`, "探索结算没有突出具体收集物名称与数量");
   }
   const explorationStyle = (game.settlementModal && game.settlementModal.renderedSettlementStyle) || {};
-  const explorationTitleCount = explorationAudit.texts.filter((item) => /陷阱证据\s*×2/.test(item.text)).length;
+  const explorationTitleCount = explorationAudit.texts.filter((item) => /隐踪器\s*×2/.test(item.text)).length;
   if (!explorationStyle.focusedExploration || explorationStyle.rewardRows !== 1 || explorationTitleCount !== 1) {
     fail(`${viewport.name}/settlement-exploration`, "探索结算重复展示收集物，或次要信息仍与主结果争夺视觉层级");
   }
@@ -1592,20 +1602,20 @@ viewports.forEach((viewport) => {
   const recoveryAudit = runRenderAudit(game, viewport, "role", 0, (g) => {
     g.settlementModal = Object.assign(settlementFixture(g), {
       causality: null,
-      title: "回收完成 · A级鹿角 ×1",
-      recoveredGoodsGain: { items: [{ id: "antler", label: "A级鹿角", amount: 1 }] },
+      title: "回收完成 · A级岩角 ×1",
+      recoveredGoodsGain: { items: [{ id: "antler", label: "A级岩角", amount: 1 }] },
       fundBefore: 1000,
       fundAfter: 1000,
       returnScreen: "role"
     });
   });
   const recoveryPrimary = ((game.settlementModal && game.settlementModal.renderedSettlementChanges) || []).find((item) => item.role === "primary");
-  if (!recoveryPrimary || recoveryPrimary.label !== "A级鹿角" || recoveryPrimary.shownValue !== "×1") {
+  if (!recoveryPrimary || recoveryPrimary.label !== "A级岩角" || recoveryPrimary.shownValue !== "×1") {
     fail(`${viewport.name}/settlement-recovery`, "回收结算没有突出具体回收物名称与数量");
   }
   const recoveryStyle = (game.settlementModal && game.settlementModal.renderedSettlementStyle) || {};
   if (!recoveryStyle.focusedOutcome || recoveryStyle.focusMode !== "recovery" || recoveryStyle.rewardRows !== 1
-    || recoveryAudit.texts.filter((item) => item.phase === "modal" && /A级鹿角\s*×1/.test(item.text)).length !== 1
+    || recoveryAudit.texts.filter((item) => item.phase === "modal" && /A级岩角\s*×1/.test(item.text)).length !== 1
     || recoveryAudit.texts.some((item) => item.phase === "modal" && item.text === "明日")) {
     fail(`${viewport.name}/settlement-recovery`, "回收结算仍重复物品名称，或次要信息没有收束");
   }
@@ -1651,20 +1661,20 @@ viewports.forEach((viewport) => {
   if (!game.infoDetailModal || game.infoDetailModal.selectedMethodId !== "animal") {
     fail(`${viewport.name}/collection-investigation`, "调查弹窗没有默认选择适合的调查方式");
   }
-  if (!investigationAudit.texts.some((item) => item.text.includes("默认选中")) || !investigationAudit.buttons.some((button) => button.label === "确认并掷骰")) {
-    fail(`${viewport.name}/collection-investigation`, "默认选择提示或可用确认按钮没有展示");
+  if (!investigationAudit.texts.some((item) => item.text.includes("推荐 ·")) || !investigationAudit.texts.some((item) => item.text.includes("怎么完成")) || !investigationAudit.buttons.some((button) => button.label === "开始调查")) {
+    fail(`${viewport.name}/collection-investigation`, "推荐方案、三步说明或开始调查按钮没有展示");
   }
   const methodLayout = (game.infoDetailModal && game.infoDetailModal.renderedMethodLayout) || [];
   const methodText = (game.infoDetailModal && game.infoDetailModal.renderedMethodText) || [];
   const investigationVisual = (game.infoDetailModal && game.infoDetailModal.renderedCollectionInvestigation) || {};
   if (methodLayout.length !== 3
-    || methodLayout.some((item) => !item.graphical || item.layout !== "vertical" || item.h < 54 || item.iconSize < 36 || item.valueSize < 16)
+    || methodLayout.some((item) => !item.graphical || item.layout !== "horizontal" || item.h < 54 || item.iconSize < 30 || item.valueSize < 13)
     || !methodLayout.some((item) => item.selected)
     || investigationVisual.graphicalTiles !== 3
-    || investigationVisual.layout !== "vertical"
-    || investigationVisual.primaryValueSize < 20
-    || investigationVisual.detailH > 84) {
-    fail(`${viewport.name}/collection-investigation`, "调查方式没有形成三张纵向大图按钮与紧凑骰前结果区");
+    || investigationVisual.layout !== "simple"
+    || investigationVisual.primaryValueSize < 13
+    || investigationVisual.detailH < 48) {
+    fail(`${viewport.name}/collection-investigation`, "调查方式没有形成清晰的方案选择与结算说明");
   }
   if (!methodText.length || methodText.some((item) => !item.layout || item.layout.truncated)) {
     fail(`${viewport.name}/collection-investigation`, "默认调查方式仍有核心说明被截断");
@@ -1682,24 +1692,24 @@ viewports.forEach((viewport) => {
     require("../js/collectionSystem").startInvestigation(g.state, "audit_dice", "animal");
     g.openCollectionDice("audit_dice", "animal");
   });
-  if (!collectionDiceAudit.texts.some((item) => /看准中心/.test(item.text)) || !collectionDiceAudit.buttons.some((button) => button.label === "发射")) {
-    fail(`${viewport.name}/collection-dice`, "射箭调查缺少明确的发射提示或底部发射按钮");
+  if (!collectionDiceAudit.texts.some((item) => /第2步 \/ 2/.test(item.text)) || !collectionDiceAudit.buttons.some((button) => button.label === "发射并判定")) {
+    fail(`${viewport.name}/collection-dice`, "点数调查缺少明确的第二步提示或底部判定按钮");
   }
   if (collectionDiceAudit.buttons.some((button) => button.label === "稍后继续" || /生成点数决定/.test(button.label))) {
     fail(`${viewport.name}/collection-dice`, "点数调查底部不应再保留稍后继续或生成点数决定");
   }
   const collectionDiceFactors = (game.infoDetailModal && game.infoDetailModal.renderedDiceFactors) || [];
-  if (collectionDiceFactors.length !== 4 || collectionDiceFactors.some((item) => item.labelSize < 9 || item.valueSize < 17)) {
-    fail(`${viewport.name}/collection-dice`, "调查骰子的线索、方法、关系或骰面数据过小");
+  if (collectionDiceFactors.length !== 3 || collectionDiceFactors.some((item) => item.labelSize < 9 || item.valueSize < 17)) {
+    fail(`${viewport.name}/collection-dice`, "调查骰子的线索、方案或随机点数数据过小");
   }
-  if (collectionDiceAudit.texts.filter((item) => item.text === "动物引路").length !== 1) {
-    fail(`${viewport.name}/collection-dice`, "调查方式名称在标题和骰子正文中重复出现");
+  if (collectionDiceAudit.texts.filter((item) => item.text === "动物引路").length > 1) {
+    fail(`${viewport.name}/collection-dice`, "调查方式名称在标题和步骤正文中重复出现");
   }
   const materialDiceAudit = runRenderAudit(game, viewport, "role", 0, (g) => {
     g.state.world.reserve.actionPoints = 3;
     g.openMaterialExploration("shedAntlerA");
   });
-  if (materialDiceAudit.texts.filter((item) => item.phase === "modal" && /A级鹿角/.test(item.text)).length !== 1
+  if (materialDiceAudit.texts.filter((item) => item.phase === "modal" && /A级岩角/.test(item.text)).length !== 1
     || !materialDiceAudit.texts.some((item) => item.text === "定向样本 + 生存素材")) {
     fail(`${viewport.name}/material-dice`, "物资探索目标在标题和骰子正文中重复出现");
   }

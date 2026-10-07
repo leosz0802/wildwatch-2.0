@@ -1,7 +1,8 @@
 const { createInitialWorld } = require("../js/world");
 const { simulateDay, animalTrustTierFor, reserveProgressionFor } = require("../js/simulator");
 const { Game } = require("../js/game");
-const { chapterTargets } = require("../js/chapterTargets");
+const { chapterTargets, beginChapterAnimalCheckpoint, chapterAnimalTotal } = require("../js/chapterTargets");
+const { recordIncrease } = require("../js/animalSourceLedger");
 
 let state = {
   world: createInitialWorld(),
@@ -68,6 +69,9 @@ gated.ecology.herbivores.deer = 1000;
 // chapter 1; seed enough current-chapter visitors for this gate fixture.
 gated.development.operations.totalVisitors = 2000;
 gated.development.operations.visitorLedger = { totalVisitors: 2000 };
+gated.progression = Object.assign({}, gated.progression || {}, { stage, displayChapter: stage });
+beginChapterAnimalCheckpoint(gated, stage, chapterTargets(stage - 1).animals);
+recordIncrease(gated, "tasked", Math.max(0, chapterTargets(stage).animals - chapterAnimalTotal(gated)));
 const gatedVisitorBaseline = 2000 - chapterTargets(stage).visitors;
 gated.progression = Object.assign({}, gated.progression || {}, {
   level: 1,
@@ -102,6 +106,8 @@ firstStage.progression.chapterStart = {
   inheritedVisitors: 0,
   visitorLedger: { totalVisitors: 0, migratedVisitors: 0, recruitedVisitors: 0, facilityVisitors: 0 }
 };
+beginChapterAnimalCheckpoint(firstStage, 1, 0);
+recordIncrease(firstStage, "tasked", Math.max(0, chapterTargets(1).animals - chapterAnimalTotal(firstStage)));
 for (const seconds of [0, 179, 180, 240, 299, 299.99, 300, 301]) {
   firstStage.progression.activeSeconds = seconds;
   const result = reserveProgressionFor(firstStage);

@@ -22,10 +22,19 @@ const state = {
   messages: []
 };
 
+function dailyStillOpen(daily) {
+  const objectives = (daily && daily.objectives) || [];
+  return objectives.map((item) => item.kind).join(",") === "visitor,ecology"
+    && objectives.every((item) => !item.complete && (item.progress || 0) === 0)
+    && (daily.progress || 0) === 0
+    && !daily.completedPrevious
+    && daily.cycle === 1;
+}
+
 const before = JSON.parse(JSON.stringify(state.world.reserve));
 const first = simulateDay("驱赶偷猎者：带白河去西部岩坡洞域排查可疑人影", state);
-if ((first.world.goals.daily.progress || 0) !== 1 || first.world.goals.daily.completedPrevious) {
-  throw new Error("阶段任务应先累计进度，不能一次操作后立刻完成并刷新");
+if (!dailyStillOpen(first.world.goals.daily)) {
+  throw new Error("驱赶偷猎者不得推进每日招募或水草任务");
 }
 const secondState = Object.assign({}, state, { world: first.world, character: first.character, reports: first.reports });
 const second = simulateDay("派猎犬侦察：确认边界直线脚印", secondState);
@@ -40,8 +49,8 @@ if (!result.visual.guardianRun || typeof result.visual.dailyGoalDone !== "boolea
   throw new Error("结算视觉缺少守护挑战信息");
 }
 
-if (!result.world.goals.daily || result.world.goals.daily.completedPrevious !== true || result.world.goals.daily.cycle <= state.world.goals.daily.cycle) {
-  throw new Error("阶段目标达到要求次数后没有进入下一项任务");
+if (!dailyStillOpen(result.world.goals.daily)) {
+  throw new Error("侦察不得完成或刷新每日招募与水草任务");
 }
 
 const rewardState = result.world.goals.lastReward || after.lastTaskReward || {};

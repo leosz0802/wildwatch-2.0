@@ -61,7 +61,7 @@ assert.strictEqual(Object.keys(initial.world.collection.items).length, 0, "初�
 assert.strictEqual(initial.world.collection.discovery.active, null, "初始不应凭空生成发现");
 
 const legacyState = { world: createInitialWorld(), ui: {} };
-legacyState.world.collection = { version: 1, entries: { shedAntlerA: { count: 3 }, white_deer: { count: 1 } }, history: [{ id: "shedAntlerA", name: "A级完整鹿角", day: 8 }] };
+legacyState.world.collection = { version: 1, entries: { shedAntlerA: { count: 3 }, white_deer: { count: 1 } }, history: [{ id: "shedAntlerA", name: "A级完整岩角", day: 8 }] };
 normalizeCollectionState(legacyState);
 assert.strictEqual(legacyState.world.collection.version, 3, "旧存档必须迁移到V3");
 assert.strictEqual(legacyState.world.collection.legacyArchive.count, 2, "旧记录必须完整迁入纪念档案");

@@ -21,6 +21,9 @@ assert.equal(game.renderedSandboxGoalBar.w, 320, "goal bar should span the compl
 assert.equal(game.renderedSandboxGoalBar.h, 52, "goal bar should keep a compact single information-row height");
 assert.equal(game.renderedSandboxGoalBar.interaction, "full-card", "current goal must expose a full-card interaction");
 assert(game.hitAreas.some((hit) => hit.w >= 320 && hit.h >= 52), "current goal card must register a tappable full-card hit area");
+const goalHit = game.hitAreas.find((hit) => hit.goalEntry);
+assert(goalHit, "current goal card must be marked as the task entry");
+assert.equal(Game.prototype.isPressImmediateHudHit.call(game, goalHit), true, "the task entry must respond when the finger goes down");
 game.state.world.reserve.emergency.active = { id: "fire-1", type: "wildfire", recommendedAction: "habitat" };
 const crisisGoal = Game.prototype.sandboxGoalBarData.call(game);
 assert(crisisGoal.title.includes("危机") && !crisisGoal.guidance, "an active crisis must outrank onboarding guidance");

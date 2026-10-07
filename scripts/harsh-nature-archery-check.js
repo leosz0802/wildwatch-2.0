@@ -8,6 +8,8 @@ const {
   isHarshNatureEvent,
   harshNatureKind,
   harshNatureDamageForScore,
+  harshNaturePopulationScale,
+  harshNatureMeterScale,
   applyHarshNatureOutcome,
   HARSH_NATURE_ARCHERY_THRESHOLD
 } = require("../js/sandboxTaskCadence");
@@ -53,6 +55,76 @@ assert.ok(damages[0] > damages[1], "1点伤害必须重于2点");
 assert.ok(damages[1] > damages[2], "2点伤害必须重于3点");
 assert.ok(damages[2] >= damages[5], "3点伤害必须不轻于6点");
 
+assert.equal(harshNaturePopulationScale({ progression: { stage: 1 } }), 1);
+assert.equal(harshNaturePopulationScale({ progression: { stage: 11, displayChapter: 11 } }), 4);
+assert.equal(harshNaturePopulationScale({ progression: { stage: 14, displayChapter: 14 } }), 5);
+assert.equal(harshNatureMeterScale({ progression: { stage: 1 } }), 1);
+assert.equal(harshNatureMeterScale({ progression: { stage: 14, displayChapter: 14 } }), 4);
+
+const earlyFire = createReserveState();
+earlyFire.progression = Object.assign({}, earlyFire.progression, { stage: 1, displayChapter: 1 });
+earlyFire.ecology.grass = 74;
+earlyFire.ecology.herbivores = Object.assign({}, earlyFire.ecology.herbivores, { deer: 80, antelope: 80 });
+const lateFire = createReserveState();
+lateFire.progression = Object.assign({}, lateFire.progression, { stage: 14, displayChapter: 14 });
+lateFire.ecology.grass = 74;
+lateFire.ecology.herbivores = Object.assign({}, lateFire.ecology.herbivores, { deer: 800, antelope: 800 });
+const earlyPerfect = applyHarshNatureOutcome(earlyFire, "wildfire", 6);
+const latePerfect = applyHarshNatureOutcome(lateFire, "wildfire", 6);
+const earlyAnimalHit = Math.abs((earlyPerfect.changes.find((item) => item.metric === "animals") || {}).delta || 0);
+const lateAnimalHit = Math.abs((latePerfect.changes.find((item) => item.metric === "animals") || {}).delta || 0);
+const earlyGrassHit = Math.abs((earlyPerfect.changes.find((item) => item.metric === "grass") || {}).delta || 0);
+const lateGrassHit = Math.abs((latePerfect.changes.find((item) => item.metric === "grass") || {}).delta || 0);
+assert.equal(earlyAnimalHit, 1, "第1章6点动物伤害保持1只");
+assert.equal(lateAnimalHit, 5, "第14章6点动物伤害只按缓慢档位放大");
+assert.ok(lateGrassHit > earlyGrassHit, "第14章草场伤害也要随章节加重");
+assert.ok(lateGrassHit < 8, "完美压低后的草场伤害不得一次打穿指数");
+
+const lateMissReserve = createReserveState();
+lateMissReserve.progression = Object.assign({}, lateMissReserve.progression, { stage: 14, displayChapter: 14 });
+lateMissReserve.ecology.grass = 74;
+lateMissReserve.ecology.herbivores = Object.assign({}, lateMissReserve.ecology.herbivores, { deer: 800, antelope: 800 });
+const lateMiss = applyHarshNatureOutcome(lateMissReserve, "wildfire", 1);
+const missAnimalHit = Math.abs((lateMiss.changes.find((item) => item.metric === "animals") || {}).delta || 0);
+assert.ok(missAnimalHit > lateAnimalHit, "第14章1点动物伤害必须重于6点");
+
+const lateFlood = createReserveState();
+lateFlood.progression = Object.assign({}, lateFlood.progression, { stage: 14, displayChapter: 14 });
+lateFlood.ecology.herbivores = Object.assign({}, lateFlood.ecology.herbivores, { deer: 800, antelope: 800 });
+lateFlood.development = lateFlood.development || {};
+lateFlood.development.operations = Object.assign({}, lateFlood.development.operations, {
+  chapterVisitors: { stage: 14, inherited: 400, legacySeed: 0, start: {}, startLifetime: 0 },
+  visitorLedger: { totalVisitors: 1200, recruitedVisitors: 800, lostVisitors: 0 },
+  today: { visitors: 200, recruitedVisitors: 200 }
+});
+const floodPerfect = applyHarshNatureOutcome(lateFlood, "flood", 6);
+const floodVisitorHit = Math.abs((floodPerfect.changes.find((item) => item.metric === "visitors") || {}).delta || 0);
+assert.equal(floodVisitorHit, 5, "第14章水灾6点游客流失必须跟缓慢档位走");
+const floodMissReserve = createReserveState();
+floodMissReserve.progression = Object.assign({}, floodMissReserve.progression, { stage: 11, displayChapter: 11 });
+floodMissReserve.ecology.herbivores = Object.assign({}, floodMissReserve.ecology.herbivores, { deer: 400, antelope: 400 });
+floodMissReserve.development = floodMissReserve.development || {};
+floodMissReserve.development.operations = Object.assign({}, floodMissReserve.development.operations, {
+  chapterVisitors: { stage: 11, inherited: 300, legacySeed: 0, start: {}, startLifetime: 0 },
+  visitorLedger: { totalVisitors: 900, recruitedVisitors: 600, lostVisitors: 0 },
+  today: { visitors: 160, recruitedVisitors: 160 }
+});
+const floodMiss = applyHarshNatureOutcome(floodMissReserve, "flood", 1);
+const floodMissVisitors = Math.abs((floodMiss.changes.find((item) => item.metric === "visitors") || {}).delta || 0);
+const floodMissAnimals = Math.abs((floodMiss.changes.find((item) => item.metric === "animals") || {}).delta || 0);
+assert.ok(floodMissVisitors > floodVisitorHit, "第11章水灾1点游客流失必须重于后期完美压低");
+assert.ok(floodMissVisitors <= 24, "水灾游客流失不得再按章节整倍打穿客流");
+assert.ok(floodMissAnimals <= 16, "水灾动物损失不得再按整章倍乘");
+const fireMissEleven = createReserveState();
+fireMissEleven.progression = Object.assign({}, fireMissEleven.progression, { stage: 11, displayChapter: 11 });
+fireMissEleven.ecology.grass = 74;
+fireMissEleven.ecology.herbivores = Object.assign({}, fireMissEleven.ecology.herbivores, { deer: 400, antelope: 400 });
+const fireMiss = applyHarshNatureOutcome(fireMissEleven, "wildfire", 1);
+const fireMissAnimals = Math.abs((fireMiss.changes.find((item) => item.metric === "animals") || {}).delta || 0);
+const fireMissGrass = Math.abs((fireMiss.changes.find((item) => item.metric === "grass") || {}).delta || 0);
+assert.ok(fireMissAnimals <= 16, "火灾动物损失不得再按整章倍乘");
+assert.ok(fireMissGrass <= 12, "火灾草场伤害不得一次打掉大段指数");
+
 const flood = seededReserve();
 const visitorsBefore = require("../js/chapterTargets").chapterVisitorTotal(flood);
 const floodAnimalsBefore = require("../js/chapterRescueSystem").livingAnimalTotal(flood);
@@ -95,6 +167,10 @@ const floodMarker = buildReserveView(wet, wet, { day: 2, season: "雨季", weath
 assert(floodMarker && floodMarker.recommendAction === "harshNature", "水灾必须走射箭判定");
 
 const sickView = createReserveState();
+sickView.development = sickView.development || {};
+sickView.development.nodes = Object.assign({}, sickView.development.nodes, {
+  river_shallows: { id: "river_shallows", phase: "operational", planId: "reed_refuge", buildingLevel: 1 }
+});
 sickView.ecology.disease = 28;
 const diseaseMarker = buildReserveView(sickView, sickView, { day: 3, season: "雨季", weather: "阴", now: 1_000 })
   .mapMarkers.find((item) => harshNatureKind(item) === "disease");

@@ -27,10 +27,10 @@ assert(game.maybeOpenMissionPush("login"), "first task push should remain availa
 game.infoDetailModal = null;
 game.state.ui.missionPushSeenKey = "";
 game.state.ui.lastMissionAutoPushAt = Date.now();
-assert(!game.maybeOpenMissionPush("home"), "a second task must wait inside the 57 second window");
+assert(!game.maybeOpenMissionPush("home"), "a second task must wait inside the 82 second window");
 // Advance the clock, not just one timestamp: both user/system quiet windows
-// and the current 80-second card cadence must actually have elapsed.
-clock += 80001;
+// and the current 105-second card cadence must actually have elapsed.
+clock += 105001;
 game.state.ui.missionPushSeenKey = "";
 game.state.ui.lastMissionAutoAction = 0;
 assert(game.maybeOpenMissionPush("home"), "task push should resume after shared quiet time and card cadence");
@@ -40,10 +40,10 @@ highLevel.state.world.reserve.progression.level = 3;
 highLevel.state.ui.lastMissionAutoPushAt = Date.now();
 highLevel.state.ui.missionPushSeenKey = "old";
 assert(!highLevel.maybeOpenMissionPush("home"), "level 3 must retain its longer card interval");
-clock += 96001;
+clock += 121001;
 highLevel.state.ui.missionPushSeenKey = "";
 highLevel.state.ui.lastMissionAutoAction = 0;
-assert(highLevel.maybeOpenMissionPush("home"), "level 3 task push should resume after 65 + 2*8 + 15 seconds");
+assert(highLevel.maybeOpenMissionPush("home"), "level 3 task push should resume after 65 + 2*8 + 40 seconds");
 
 const syncGame = setup();
 syncGame.pendingMissionPush = { key: "old", reason: "settlement" };

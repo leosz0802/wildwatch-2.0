@@ -15,7 +15,8 @@ const {
   rescueAnimal,
   livingAnimalTotal
 } = require("../js/chapterRescueSystem");
-const { chapterTargets } = require("../js/chapterTargets");
+const { chapterTargets, beginChapterAnimalCheckpoint, chapterAnimalTotal, chapterSpeciesCount } = require("../js/chapterTargets");
+const { recordIncrease } = require("../js/animalSourceLedger");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -116,6 +117,7 @@ Object.values(CHAPTER_PROGRESSION_GATES).forEach((gate) => {
   fixture.ecology.herbivores.hare = 200;
   fixture.guardianRun.score = 100;
   Object.assign(fixture.progression, { level: gate.storyLevel, stage: gate.stage, displayChapter: gate.stage });
+  beginChapterAnimalCheckpoint(fixture, gate.stage, gate.stage === 1 ? 0 : chapterTargets(gate.stage - 1).animals);
   normalizeChapterRescue(fixture, gate.stage, { fresh: true });
   reconcileSpeciesPopulations(fixture, { removeLocked: true, initializeUnlocked: true });
   (normalizeChapterRescue(fixture, gate.stage).targets || []).forEach((record) => {
@@ -124,8 +126,17 @@ Object.values(CHAPTER_PROGRESSION_GATES).forEach((gate) => {
   });
   reconcileSpeciesPopulations(fixture, { removeLocked: true, initializeUnlocked: true });
   const liveTarget = chapterTargets(gate.stage);
-  const animalGap = Math.max(0, liveTarget.animals - livingAnimalTotal(fixture));
-  if (animalGap) fixture.ecology.herbivores.deer = Math.max(0, Number(fixture.ecology.herbivores.deer) || 0) + animalGap;
+  Object.keys(SPECIES_DB).forEach((id) => {
+    if (chapterSpeciesCount(fixture) >= liveTarget.species) return;
+    const group = speciesPopulationGroup(id);
+    const bucket = fixture.ecology[group] || (fixture.ecology[group] = {});
+    if (!(Number(bucket[id]) > 0)) bucket[id] = 1;
+  });
+  const animalGap = Math.max(0, liveTarget.animals - chapterAnimalTotal(fixture));
+  if (animalGap) recordIncrease(fixture, "tasked", animalGap);
+  if (gate.stage >= 10) {
+    fixture.rareAnimal = Object.assign({}, fixture.rareAnimal || {}, { status: "resident", speciesId: "pangolin", health: 72 });
+  }
   fixture.development = fixture.development || {};
   fixture.development.operations = Object.assign({}, fixture.development.operations || {}, {
     totalVisitors: liveTarget.visitors

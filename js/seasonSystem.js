@@ -28,11 +28,9 @@ const SEASON_PROFILES = {
     summary: "动物集中到少数水点，捕食与偷猎路线重叠；象群沿旧水路扩大迁徙。"
   }
 };
-
 function seasonProfile(name = "雨季") {
   return SEASON_PROFILES[name] || SEASON_PROFILES.雨季;
 }
-
 function buildSeasonDynamics(seasonState = {}, previous = {}) {
   const profile = seasonProfile(seasonState.name);
   const day = Math.max(1, Math.round(seasonState.day || 1));
@@ -56,13 +54,11 @@ function buildSeasonDynamics(seasonState = {}, previous = {}) {
     summary: profile.summary
   };
 }
-
 function applySeasonDynamics(reserve, seasonState) {
   if (!reserve) return buildSeasonDynamics(seasonState);
   reserve.seasonDynamics = buildSeasonDynamics(seasonState, reserve.seasonDynamics || {});
   return reserve.seasonDynamics;
 }
-
 function seasonLifeModifiers(name) {
   const profile = seasonProfile(name);
   return {
@@ -72,5 +68,4 @@ function seasonLifeModifiers(name) {
     diseaseRiskFaces: profile.name === "雨季" ? 2 : 1
   };
 }
-
 module.exports = { SEASON_PROFILES, seasonProfile, buildSeasonDynamics, applySeasonDynamics, seasonLifeModifiers };

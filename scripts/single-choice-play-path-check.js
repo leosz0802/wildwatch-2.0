@@ -220,8 +220,8 @@ function seedTactical(game, dilemmaId = "patrol_split") {
 
 function spawnAnimalStory(game) {
   const reserve = game.state.world.reserve;
-  reserve.ecology.predators = Object.assign({ wolf: 4, lion: 2 }, reserve.ecology.predators || {});
-  reserve.ecology.herbivores = Object.assign({ deer: 35, antelope: 24, zebra: 22 }, reserve.ecology.herbivores || {});
+  reserve.ecology.predators = Object.assign({ wolf: 4, lion: 2, wilddog: 2, crocodile: 1 }, reserve.ecology.predators || {});
+  reserve.ecology.herbivores = Object.assign({ deer: 35, antelope: 24, zebra: 22, boar: 10 }, reserve.ecology.herbivores || {});
   reserve.ecology.water = Math.min(reserve.ecology.water || 62, 60);
   reserve.safety = Math.min(reserve.safety || 74, 40);
   reserve.animalInteractions = { version: 1, active: null, history: [], ignoredCount: 0, lastSpawnDay: 0, nextEligibleDay: 1 };

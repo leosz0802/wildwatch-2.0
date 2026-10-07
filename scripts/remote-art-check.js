@@ -36,9 +36,9 @@ if (!/PREMIUM_UI_ATLAS/.test(game)
   throw new Error("remote premium UI texture lifecycle missing");
 }
 if (!serverConfig.assets || !serverConfig.assets.premiumUiAtlas
-  || serverConfig.assets.premiumUiAtlas.url !== "https://wild.hubao.tv/assets/premium-ui-v1.jpg"
-  || serverConfig.assets.premiumUiAtlas.version !== "premium-ui-v1") {
-  throw new Error("server premium UI config missing or version mismatch");
+  || serverConfig.assets.premiumUiAtlas.url
+  || serverConfig.assets.premiumUiAtlas.version) {
+  throw new Error("remote premium UI downloads must stay disabled");
 }
 if (!/WILDERNESS_MATERIAL_ATLAS/.test(game)
   || !/downloadRemoteWildernessMaterialAtlas/.test(game)
@@ -48,9 +48,9 @@ if (!/WILDERNESS_MATERIAL_ATLAS/.test(game)
   throw new Error("remote wilderness material atlas lifecycle missing");
 }
 if (!serverConfig.assets.wildernessMaterialAtlas
-  || serverConfig.assets.wildernessMaterialAtlas.url !== "https://wild.hubao.tv/assets/wilderness-materials-atlas-v1.webp"
-  || serverConfig.assets.wildernessMaterialAtlas.version !== "wilderness-materials-v1") {
-  throw new Error("server wilderness material atlas config missing or version mismatch");
+  || serverConfig.assets.wildernessMaterialAtlas.url
+  || serverConfig.assets.wildernessMaterialAtlas.version) {
+  throw new Error("remote wilderness material downloads must stay disabled");
 }
 if (premiumUiSize > 800 * 1024) throw new Error(`premium UI atlas too large: ${premiumUiSize}`);
 if (wildernessMaterialSize > 900 * 1024) throw new Error(`wilderness material atlas too large: ${wildernessMaterialSize}`);
@@ -69,8 +69,8 @@ if (!/refreshRemoteAssetsAndScore\(true\)/.test(game)) {
 }
 const urlResolver = Object.create(Game.prototype);
 urlResolver.runtime = { getStorageSync() { return "https://legacy.invalid/old-atlas.jpg"; } };
-if (urlResolver.remoteWildernessMaterialUrl({ url: serverConfig.assets.wildernessMaterialAtlas.url, urlStorageKey: "legacy" }) !== serverConfig.assets.wildernessMaterialAtlas.url) {
-  throw new Error("reviewed server asset URLs should override stale local development URLs");
+if (urlResolver.remoteAssetConfigured("wildernessMaterialAtlas")) {
+  throw new Error("disabled wilderness material downloads must not revive stale URLs");
 }
 if (urlResolver.remoteAnimalPortraitUrl({ url: "", urlStorageKey: "legacy" })) {
   throw new Error("local animal portraits must not revive a stale remote URL");
@@ -118,10 +118,10 @@ if (serverConfig.assets.animalMapSprites && serverConfig.assets.animalMapSprites
   throw new Error("animal map sprites must not be served as a remote download");
 }
 if (!serverConfig.assets.facilities
-  || serverConfig.assets.facilities.url !== "https://wild.hubao.tv/assets/facility-sprites-atlas-v4.png"
+  || serverConfig.assets.facilities.url
   || !serverConfig.assets.collectionItems
-  || serverConfig.assets.collectionItems.url !== "https://wild.hubao.tv/assets/collection-items-atlas.png") {
-  throw new Error("server deferred login art config missing");
+  || serverConfig.assets.collectionItems.url) {
+  throw new Error("deferred art downloads must stay disabled");
 }
 if (!/ensureLocalArtSlot\("animalMapSprites", ANIMAL_MAP_SPRITES_SRC\)/.test(game)
   || /upgradeLocal:\s*true/.test(game)
@@ -130,6 +130,10 @@ if (!/ensureLocalArtSlot\("animalMapSprites", ANIMAL_MAP_SPRITES_SRC\)/.test(gam
 }
 if (!/DEFERRED_ART_ASSETS/.test(game) || !/prepareDeferredArt/.test(game) || !/ensureDeferredArtForScreen/.test(game)) {
   throw new Error("deferred post-login art download lifecycle missing");
+}
+if (!/REMOTE_ART_DOWNLOAD_ENABLED\s*=\s*false/.test(game)
+  || !/if \(!REMOTE_ART_DOWNLOAD_ENABLED\) return false/.test(game)) {
+  throw new Error("remote art downloads must be disabled at runtime");
 }
 [
   "assets/art/game-art-atlas.png",

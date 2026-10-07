@@ -1,17 +1,13 @@
 const { getUnlockedSpecies } = require("./animalWorld");
 const { survivalFindForExploration, capCollectibleMinQuality, wildernessFindById } = require("./wildernessKnowledge");
 const { RESCUE_ITEM_CATALOG, rescueTargetScore } = require("./chapterRescueSystem");
-
 const EXPLORATION_GOODS = [
   { id: "researchSample", label: "研究样本", minLevel: 1, minQuality: 5, story: "动物带你找到一处反复使用的蹭痕，留下了完整样本。" },
-  { id: "shedAntlerB", label: "B级鹿角", minLevel: 1, minQuality: 6, story: "旧兽道旁的落叶下，露出一段自然脱落的鹿角。" },
-  { id: "recoveredTrap", label: "陷阱证据", minLevel: 1, minQuality: 7, story: "动物刻意绕开一片草丛，你在那里发现了废弃陷阱。" },
+  { id: "shedAntlerB", label: "B级岩角", minLevel: 1, minQuality: 6, story: "旧兽道旁的落叶下，露出一段自然脱落的岩角。" },
+  { id: "recoveredTrap", label: "隐踪器", minLevel: 1, minQuality: 7, story: "动物刻意绕开一片草丛，你在那里发现了废弃机关。" },
   { id: "naturalHide", label: "自然生命档案", minLevel: 2, minQuality: 8, story: "动物把你领到安静的自然死亡点，一份完整的生命记录被保存下来。" },
-  { id: "shedAntlerA", label: "A级鹿角", minLevel: 3, minQuality: 9, story: "熟悉你的鹿群没有避开旧角脱落地，一枚完整鹿角得以被合规回收。" }
+  { id: "shedAntlerA", label: "A级岩角", minLevel: 3, minQuality: 9, story: "熟悉你的鹿群没有避开旧角脱落地，一枚完整岩角得以被合规回收。" }
 ].map((item) => Object.assign({}, item, { minQuality: capCollectibleMinQuality(item.minLevel, item.minQuality) }));
-
-// 解救物品沿用生存频道的探索、点数和待收取流程，但单独标记为 rescue，
-// 这样任务可以把探索目标精确指向当前被囚禁动物所需的物品。
 const RESCUE_GOODS = RESCUE_ITEM_CATALOG.map((item, index) => Object.assign({}, item, {
   kind: "rescue",
   minLevel: 1 + Math.floor(index / 3),
@@ -19,11 +15,9 @@ const RESCUE_GOODS = RESCUE_ITEM_CATALOG.map((item, index) => Object.assign({}, 
   story: item.story
 }));
 const POACHER_RESCUE_TARGET_SCORE = 10;
-
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
-
 function explorationRelationship(knownCharacters, level, lifeMemory) {
   const unlockedNames = new Set(getUnlockedSpecies(level).map((species) => species.name));
   const namedCandidates = (((lifeMemory || {}).individuals) || []).filter((animal) => {
@@ -33,7 +27,6 @@ function explorationRelationship(knownCharacters, level, lifeMemory) {
     const ranked = namedCandidates.map((animal) => {
       const security = clamp(Math.round(animal.security), 0, 100);
       const wildness = clamp(Math.round(animal.wildness), 0, 100);
-      // 探索需要动物既愿意靠近，也仍保有辨认自然路线的能力；单纯投喂堆高安全感不会成为最优解。
       const quality = Math.round(security * 0.6 + wildness * 0.4);
       return { animal, security, wildness, quality };
     }).sort((a, b) => b.quality - a.quality);
@@ -71,7 +64,6 @@ function explorationRelationship(knownCharacters, level, lifeMemory) {
     helper: helper ? { id: helper.id, name: helper.shortName || helper.name || helper.species, species: helper.species, security: helper.relation.trust || 0, wildness: 70, trust: helper.relation.trust || 0 } : null
   };
 }
-
 function previewMaterialExploration(reserve, knownCharacters, lifeMemory) {
   const level = clamp(Math.round((((reserve || {}).progression || {}).level) || 1), 1, 7);
   const relationship = explorationRelationship(knownCharacters, level, lifeMemory);
@@ -91,12 +83,9 @@ function previewMaterialExploration(reserve, knownCharacters, lifeMemory) {
     actionCost: 1
   };
 }
-
 function explorationGoodById(id) {
   return EXPLORATION_GOODS.concat(RESCUE_GOODS).find((item) => item.id === id) || null;
 }
-
-
 function explorationTargetScore(target, options = {}) {
   if (!target || target.kind !== "rescue") return 0;
   const forcedScore = Number(options.requiredScore);
@@ -105,13 +94,11 @@ function explorationTargetScore(target, options = {}) {
   }
   return rescueTargetScore(target.id);
 }
-
 function explorationProgressFor(reserve, targetId, options = {}) {
   const target = explorationGoodById(targetId);
   const map = (reserve && reserve.materialExplorationProgress) || {};
   const required = explorationTargetScore(target, options);
   const last = (reserve && reserve.lastMaterialExploration) || {};
-  // Recover the last verifiable shot from builds that dropped the progress map.
   const saved = Object.prototype.hasOwnProperty.call(map, targetId) ? map[targetId]
     : last.targetId === targetId ? ((last.collectionProgress || {}).current || last.roll) : 0;
   const current = Math.max(0, Math.round(Number(saved) || 0));
@@ -147,11 +134,11 @@ function resolveMaterialExploration(reserve, knownCharacters, targetId = "", ran
     if (collectionProgress.completed && !previouslyComplete) reward = rescueTarget;
   } else if (wildernessTarget) {
     reward = null;
-  } else if (success && eligible.length) {
-    const targetEligible = target && eligible.some((item) => item.id === target.id);
+  } else if (target && target.kind !== "rescue") {
+    if (eligible.some((item) => item.id === target.id)) reward = target;
+  } else if (success && eligible.length && !target) {
     const resultSeed = ((roll * 17 + preview.level * 13 + preview.relationship.average) % 100) / 100;
-    if (targetEligible && (target.kind !== "rescue" ? resultSeed < 0.68 : (!collectionProgress.required || collectionProgress.completed))) reward = target;
-    if (!reward && (!target || target.kind !== "rescue")) reward = eligible[Math.min(eligible.length - 1, Math.floor(resultSeed * eligible.length))];
+    reward = eligible[Math.min(eligible.length - 1, Math.floor(resultSeed * eligible.length))];
   }
   const amount = reward ? (rescueTarget ? 1 : qualityScore >= 10 ? 3 : qualityScore >= 8 ? 2 : 1) : 0;
   const helperName = preview.relationship.helper ? preview.relationship.helper.name : "附近动物";
@@ -181,7 +168,6 @@ function resolveMaterialExploration(reserve, knownCharacters, targetId = "", ran
     summary
   });
 }
-
 module.exports = {
   EXPLORATION_GOODS,
   RESCUE_GOODS,

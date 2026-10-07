@@ -49,9 +49,9 @@ if (!coreMapInfo || coreMapInfo.width !== 1672 || coreMapInfo.height !== 941) {
   throw new Error(`core anime map must stay a 1672x941 baseline JPEG: ${JSON.stringify(coreMapInfo)}`);
 }
 if (coreMapInfo.progressive) throw new Error("core anime map must use baseline JPEG for broad wx.createImage compatibility");
-// Clear broad shapes remain sharp on phone screens without spending the package
-// budget on details hidden behind the HUD and animal interactions.
-if (coreMap.length < 160 * 1024 || coreMap.length > 300 * 1024) {
+// Clear broad shapes remain sharp on phone screens while the baseline JPEG
+// stays compressed enough for the 4MiB first-package budget.
+if (coreMap.length < 130 * 1024 || coreMap.length > 300 * 1024) {
   throw new Error(`core map unexpected size: ${coreMap.length}`);
 }
 

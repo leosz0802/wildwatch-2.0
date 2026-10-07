@@ -1,14 +1,12 @@
+const { habitatRecoveryGain } = require("./balanceConfig");
 const MIN_OFFLINE_MS = 30 * 60 * 1000;
 const MAX_OFFLINE_MS = 30 * 24 * 60 * 60 * 1000;
-
 function number(value) {
   return Math.round(Number(value) || 0);
 }
-
 function sum(group = {}) {
   return Object.keys(group || {}).reduce((total, key) => total + number(group[key]), 0);
 }
-
 function offlineSnapshot(state = {}, capturedAt = Date.now()) {
   const world = state.world || {};
   const reserve = world.reserve || {};
@@ -36,12 +34,10 @@ function offlineSnapshot(state = {}, capturedAt = Date.now()) {
     latestReportDay: number((reports[reports.length - 1] || {}).day)
   };
 }
-
 function signed(value) {
   const delta = number(value);
   return delta > 0 ? `+${delta}` : `${delta}`;
 }
-
 function elapsedLabel(elapsedMs) {
   const hours = Math.max(1, Math.floor(elapsedMs / 3600000));
   if (hours < 24) return `${hours}小时`;
@@ -49,7 +45,6 @@ function elapsedLabel(elapsedMs) {
   const remainder = hours % 24;
   return remainder ? `${days}天${remainder}小时` : `${days}天`;
 }
-
 function eventSummary(state, previous) {
   const reports = Array.isArray(state.reports) ? state.reports : [];
   const fresh = reports.slice(Math.max(0, number(previous.reportCount))).slice(-3);
@@ -62,18 +57,16 @@ function eventSummary(state, previous) {
   if ((ecology.water || 0) < 50 || (ecology.grass || 0) < 50) return "水草压力仍在，离线期间没有替你自动消耗补给。";
   return "巡护队维持了日常观察，没有替你自动执行关键选择。";
 }
-
-// The reserve continues a small, bounded maintenance loop while the player is
-// away.  It is deliberately conservative: it represents staff, visitors and
-// natural recovery, never a hidden high-risk decision or a large reward.
 function applyOfflineAutonomy(state, elapsedMs) {
   const reserve = (((state || {}).world || {}).reserve) || {};
   const ecology = reserve.ecology || (reserve.ecology = {});
   const days = Math.max(1, Math.min(7, Math.floor(elapsedMs / 86400000)));
   const activeFacilities = Object.values(((reserve.development || {}).nodes) || {})
     .filter((node) => Number(node.level || 0) > 0).length;
-  const waterRecovery = Math.min(3, Math.max(1, Math.ceil(days * (activeFacilities ? 0.7 : 0.35))));
-  const grassRecovery = Math.min(3, Math.max(1, Math.ceil(days * (activeFacilities ? 0.55 : 0.25))));
+  const waterBase = Math.min(3, Math.max(1, Math.ceil(days * (activeFacilities ? 0.7 : 0.35))));
+  const grassBase = Math.min(3, Math.max(1, Math.ceil(days * (activeFacilities ? 0.55 : 0.25))));
+  const waterRecovery = habitatRecoveryGain(ecology.water, waterBase);
+  const grassRecovery = habitatRecoveryGain(ecology.grass, grassBase);
   ecology.water = Math.max(0, Math.min(100, number(ecology.water) + waterRecovery));
   ecology.grass = Math.max(0, Math.min(100, number(ecology.grass) + grassRecovery));
   ecology.disease = Math.max(0, Math.min(100, number(ecology.disease) - Math.min(2, Math.max(1, Math.floor(days / 2)))));
@@ -86,7 +79,6 @@ function applyOfflineAutonomy(state, elapsedMs) {
     note: "离线期间由巡护队、游客和自然恢复维持基础运转"
   });
 }
-
 function prepareOfflineBrief(state, now = Date.now()) {
   if (!state || !state.character || !state.world) return { brief: null, state };
   state.ui = Object.assign({}, state.ui || {});
@@ -124,13 +116,11 @@ function prepareOfflineBrief(state, now = Date.now()) {
     }
   };
 }
-
 function markOfflineCheckpoint(state, now = Date.now()) {
   if (!state || !state.character || !state.world) return state;
   state.ui = Object.assign({}, state.ui || {}, { offlineCheckpoint: offlineSnapshot(state, now) });
   return state;
 }
-
 module.exports = {
   MIN_OFFLINE_MS,
   offlineSnapshot,

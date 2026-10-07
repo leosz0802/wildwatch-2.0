@@ -34,13 +34,13 @@ function testGame(screen = "survival") {
 
 const performanceGame = testGame("role");
 performanceGame.mapCrisisBurst = { expiresAt: Date.now() + 5000 };
-assert(performanceGame.targetFrameMs() === 240, "an offscreen map crisis still forced the UI into the map frame rate");
+assert(performanceGame.targetFrameMs() === 1000, "an offscreen map crisis still forced the UI into the map frame rate");
 performanceGame.chapterStoryModal = { level: 2 };
-assert(performanceGame.targetFrameMs() === 240, "a deferred chapter story still accelerated an unrelated screen");
+assert(performanceGame.targetFrameMs() === 1000, "a deferred chapter story still accelerated an unrelated screen");
 assert(!performanceGame.openDataInputBlocked(), "a deferred chapter story blocked input outside the sandbox");
 performanceGame.settlementModal = { presentationScreen: "home", revealAt: Date.now() + 5000 };
 assert(!performanceGame.settlementBlocksCurrentScreen(), "a deferred settlement blocked touch input outside the sandbox");
-assert(performanceGame.targetFrameMs() === 240, "a deferred settlement accelerated an unrelated screen");
+assert(performanceGame.targetFrameMs() === 1000, "a deferred settlement accelerated an unrelated screen");
 performanceGame.settlementModal = null;
 
 const emotionGame = testGame("collection");

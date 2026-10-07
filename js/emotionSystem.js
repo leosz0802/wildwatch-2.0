@@ -2,19 +2,15 @@ const { SPECIES_DB, getUnlockedSpecies, speciesPopulation } = require("./animalW
 const { applyNamedSpeciesBirth } = require("./animalSourceLedger");
 const { seasonLifeModifiers } = require("./seasonSystem");
 const { relationshipModifierFor, lifeCycleModifiers } = require("./guardianPromises");
-
 const DAY_MS = 24 * 60 * 60 * 1000;
-
 const RARE_MOMENTS = [
   { id: "white_deer", speciesId: "deer", name: "月白", title: "白鹿踏进晨雾", level: 2, safety: 70, ecology: 64, rarity: "白鹿" },
   { id: "black_wolf", speciesId: "wolf", name: "玄夜", title: "黑狼站上旧界碑", level: 3, safety: 74, ecology: 70, rarity: "黑狼" },
   { id: "gold_elephant", speciesId: "elephant", name: "鎏光", title: "金象带着幼象归来", level: 4, safety: 82, ecology: 78, rarity: "金象" }
 ];
-
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Number(value) || 0));
 }
-
 function hash(text) {
   let value = 2166136261;
   String(text || "").split("").forEach((char) => {
@@ -23,20 +19,17 @@ function hash(text) {
   });
   return Math.abs(value >>> 0);
 }
-
 function ecologyScore(reserve) {
   const ecology = (reserve && reserve.ecology) || {};
   if (typeof reserve.ecologyScore === "number") return reserve.ecologyScore;
   return Math.round(((reserve.stability || 50) * 0.42) + ((ecology.water || 50) * 0.29) + ((ecology.grass || 50) * 0.21) + ((100 - (ecology.disease || 0)) * 0.08));
 }
-
 function lifeStage(individual) {
   const ratio = (individual.ageDays || 0) / Math.max(1, individual.lifespanDays || 120);
   if (ratio < 0.18) return "幼年";
   if (ratio >= 0.78) return "老年";
   return "成年";
 }
-
 function displayStatus(individual) {
   if (individual.status === "independent") return "重归野外";
   if (individual.status === "departed") return "离开";
@@ -45,13 +38,11 @@ function displayStatus(individual) {
   if (individual.rarity) return individual.rarity;
   return lifeStage(individual) === "老年" ? "年老" : "健康";
 }
-
 function relationshipAxes(individual = {}) {
   const security = clamp(individual.security == null ? (individual.bond == null ? 40 : individual.bond) : individual.security);
   const wildness = clamp(individual.wildness == null ? 76 : individual.wildness);
   return { security, wildness };
 }
-
 function baseIndividual(species, day, index = 0) {
   const seed = hash(`${species.id}|${index}`);
   const lifespanDays = 105 + (species.tier || 1) * 24 + seed % 50;
@@ -80,7 +71,6 @@ function baseIndividual(species, day, index = 0) {
     oldNoted: false
   };
 }
-
 function normalizeLifeMemory(world, now = Date.now()) {
   const reserve = (world && world.reserve) || {};
   const progression = reserve.progression || {};
@@ -137,7 +127,6 @@ function normalizeLifeMemory(world, now = Date.now()) {
     if (next.security == null) next.security = typeof relation.trust === "number" ? clamp(relation.trust + next.strategicBond) : clamp(next.bond);
     next.security = clamp(next.security);
     next.wildness = clamp(next.wildness == null ? 76 : next.wildness);
-    // bond 仅作为旧存档与旧接口的兼容别名；命名动物的新关系模型以安全感/野性为准。
     next.bond = next.security;
     next.health = clamp(next.health, 0, next.healthCap);
     next.lifeStage = lifeStage(next);
@@ -145,7 +134,6 @@ function normalizeLifeMemory(world, now = Date.now()) {
   });
   return state;
 }
-
 function memoryFor(event) {
   return {
     id: `memory_${event.id}`,
@@ -159,7 +147,6 @@ function memoryFor(event) {
     tone: event.tone || "warm"
   };
 }
-
 function makeEvent(type, day, individual, title, body, tone = "warm") {
   return {
     id: `${type}_${day}_${individual.id}`,
@@ -172,7 +159,6 @@ function makeEvent(type, day, individual, title, body, tone = "warm") {
     isMajor: ["rare", "return", "death", "birth", "independence", "wild_visit"].includes(type)
   };
 }
-
 function relationshipShiftForAction(actionId, reserve = {}) {
   const shifts = {
     habitat: { security: 2, wildness: 3, reason: "修复栖息地让它更安心，也更能靠自己生活" },
@@ -183,7 +169,6 @@ function relationshipShiftForAction(actionId, reserve = {}) {
     salvage: { security: 1, wildness: 1, reason: "合规回收没有侵入动物生活，森林记住了克制" }
   };
   const shift = Object.assign({ security: 0, wildness: 0, reason: "" }, shifts[actionId] || {});
-  // 极高偷猎压力下，高强度执法的惊扰更明显；良好水草则让栖息地修复更能恢复野性。
   if (actionId === "antiPoacher" && (reserve.poacherPressure || 0) >= 65) shift.wildness -= 1;
   if (actionId === "habitat" && ((reserve.ecology || {}).water || 0) >= 65 && ((reserve.ecology || {}).grass || 0) >= 65) shift.wildness += 1;
   const promiseModifier = relationshipModifierFor(reserve, actionId);
@@ -192,7 +177,6 @@ function relationshipShiftForAction(actionId, reserve = {}) {
   if (promiseModifier.reasons.length) shift.reason = `${shift.reason}；承诺“${promiseModifier.reasons.join("、")}”生效`;
   return shift;
 }
-
 function applyActionRelationshipShift(state, beforeWorld, afterWorld, context = {}) {
   const actionId = context.actionId || "";
   const reserve = (afterWorld && afterWorld.reserve) || {};
@@ -224,7 +208,6 @@ function applyActionRelationshipShift(state, beforeWorld, afterWorld, context = 
     reason: shift.reason
   };
 }
-
 function advanceLifeMemory(beforeWorld, afterWorld, context = {}) {
   const reserve = (afterWorld && afterWorld.reserve) || {};
   const beforeReserve = (beforeWorld && beforeWorld.reserve) || {};
@@ -246,7 +229,6 @@ function advanceLifeMemory(beforeWorld, afterWorld, context = {}) {
   const state = normalizeLifeMemory(Object.assign({}, afterWorld, { lifeMemory: (beforeWorld && beforeWorld.lifeMemory) || afterWorld.lifeMemory }));
   const events = [];
   const relationshipChange = applyActionRelationshipShift(state, beforeWorld, afterWorld, context);
-
   state.individuals = state.individuals.map((raw) => {
     const individual = Object.assign({}, raw);
     if (individual.status === "dead") return individual;
@@ -256,11 +238,7 @@ function advanceLifeMemory(beforeWorld, afterWorld, context = {}) {
     const eventGap = day - (individual.lastEventDay || 0);
     const riskRoll = hash(`${individual.id}|${day}`) % 7;
     const axes = relationshipAxes(individual);
-
-    // 上午和下午仍会记录关系变化，但出生、受伤、离开、归来和老去
-    // 只在入夜跨日后检查一次，避免三阶段把动物生命速度放大三倍。
     if (usesGuardianDay && elapsedDays === 0) return individual;
-
     if (individual.status === "independent") {
       const visitDelay = Math.max(4, Math.min(14, 8 + promiseLife.wildVisitDelay));
       const readyForVisit = !individual.wildVisitNoted && day - (individual.independenceDay || day) >= visitDelay && season === "雨季" && safety >= 72 && ecology >= 70;
@@ -271,7 +249,6 @@ function advanceLifeMemory(beforeWorld, afterWorld, context = {}) {
       }
       return individual;
     }
-
     if (individual.status === "departed") {
       if (eventGap >= 2 && day >= (individual.returnBlockedUntilDay || 0) && safety >= 68 && ecology >= 60 && migration >= 0) {
         individual.status = "active";
@@ -281,7 +258,6 @@ function advanceLifeMemory(beforeWorld, afterWorld, context = {}) {
       }
       return individual;
     }
-
     const independenceWildness = Math.max(72, Math.min(92, 82 + promiseLife.independenceThreshold));
     const healthyDistance = individual.status === "active"
       && individual.lifeStage !== "幼年"
@@ -300,7 +276,6 @@ function advanceLifeMemory(beforeWorld, afterWorld, context = {}) {
       events.push(makeEvent("independence", day, individual, `${individual.name}不再需要保护站了`, "它已能独立取水、避险和迁徙。离开，是守护成功。", "resolve"));
       return individual;
     }
-
     if (individual.health < 46 && eventGap >= 2 && disease < 36 && safety >= 58) {
       individual.health = Math.min(78, individual.health + 24);
       individual.lastEventDay = day;
@@ -310,14 +285,12 @@ function advanceLifeMemory(beforeWorld, afterWorld, context = {}) {
       individual.lastEventDay = day;
       events.push(makeEvent("injury", day, individual, `${individual.name}受伤了`, disease > 55 ? "湿草边缘出现病弱迹象。先控制疾病、稳定水草。" : "边界惊扰让它带伤退回核心区。", "sad"));
     }
-
     if (individual.status === "active" && eventGap >= 3 && safety < 32 && migration < 0 && riskRoll === 2) {
       individual.status = "departed";
       individual.lastEventDay = day;
       events.push(makeEvent("departure", day, individual, `${individual.name}离开了保护区`, "记忆簿保留它的名字。环境恢复后，它可能沿旧路归来。", "sad"));
       return individual;
     }
-
     if (!individual.oldNoted && individual.lifeStage === "老年") {
       individual.oldNoted = true;
       individual.lastEventDay = day;
@@ -331,7 +304,6 @@ function advanceLifeMemory(beforeWorld, afterWorld, context = {}) {
     }
     return individual;
   });
-
   getUnlockedSpecies(level, progression.stage || level).forEach((species) => {
     const friends = state.individuals.filter((item) => item.speciesId === species.id && item.status === "active");
     const allFriends = state.individuals.filter((item) => item.speciesId === species.id);
@@ -350,7 +322,6 @@ function advanceLifeMemory(beforeWorld, afterWorld, context = {}) {
       events.push(makeEvent("birth", day, newborn, `${newborn.name}出生了`, `${friends[0].name}第一次把幼崽带到你巡过的路线上。保护区够安全，生命才会把明天交给这里。`, "joy"));
     }
   });
-
   const rare = RARE_MOMENTS.find((candidate) => {
     if (usesGuardianDay && elapsedDays === 0) return false;
     const discovered = state.rareMoments.some((item) => item.id === candidate.id);
@@ -374,7 +345,6 @@ function advanceLifeMemory(beforeWorld, afterWorld, context = {}) {
     state.rareMoments.push({ id: rare.id, day, title: rare.title, individualId: individual.id });
     events.push(makeEvent("rare", day, individual, rare.title, `现身条件：安全 ${rare.safety}+ · 生态 ${rare.ecology}+。`, "surprise"));
   }
-
   state.individuals = state.individuals.map((individual) => {
     const axes = relationshipAxes(individual);
     return Object.assign({}, individual, {
@@ -391,7 +361,6 @@ function advanceLifeMemory(beforeWorld, afterWorld, context = {}) {
   const primaryEvent = events.slice().sort((a, b) => (priority[b.type] || 0) - (priority[a.type] || 0))[0] || null;
   return { state, events, primaryEvent, relationshipChange };
 }
-
 const STRATEGIC_SPECIES_THEMES = {
   water_access: ["deer", "antelope", "zebra", "mink", "hippo"],
   water_governance: ["deer", "antelope", "zebra", "mink", "hippo"],
@@ -406,11 +375,9 @@ const STRATEGIC_SPECIES_THEMES = {
   evidence_destination: ["crow", "deer", "wolf", "rhino"],
   reserve_funding_crisis: []
 };
-
 const DEPARTURE_FAILURE_CHOICES = new Set(["publish_route", "build_fence", "corridor_open", "rare_live", "charter_fence"]);
 const DELAYED_RETURN_CHOICES = new Set(["strict_quarantine", "corridor_delay"]);
 const LETHAL_RISK_DILEMMAS = new Set(["disease_response", "disease_corridor", "poacher_network", "rare_guardians"]);
-
 function strategicIndividualSnapshot(individual) {
   if (!individual) return null;
   const axes = relationshipAxes(individual);
@@ -428,7 +395,6 @@ function strategicIndividualSnapshot(individual) {
     status: individual.status
   };
 }
-
 function strategicIndividualFor(world, dilemma, pending = {}) {
   const state = normalizeLifeMemory(world);
   const existingId = (pending.namedIndividual || {}).id;
@@ -439,9 +405,6 @@ function strategicIndividualFor(world, dilemma, pending = {}) {
   if (dilemma && dilemma.requiresDilemmaId) {
     const parent = (((world.reserve || {}).strategy || {}).choiceHistory || []).slice().reverse().find((record) => record.dilemmaId === dilemma.requiresDilemmaId && record.namedIndividual && record.namedIndividual.id);
     if (parent) {
-      // A permanent consequence must remain visible in its follow-up chain. If the
-      // friend died, the next decision is about its legacy instead of silently
-      // replacing it with a more convenient living animal.
       const sameFriend = state.individuals.find((item) => item.id === parent.namedIndividual.id);
       if (sameFriend) return { state, individual: sameFriend };
     }
@@ -459,13 +422,11 @@ function strategicIndividualFor(world, dilemma, pending = {}) {
   const index = hash(`${(dilemma && dilemma.id) || "major"}|${pending.day || (world && world.day) || 1}|${pending.occurrence || 1}`) % top.length;
   return { state, individual: top[index] };
 }
-
 function bindStrategicIndividual(world, dilemma, pending = {}) {
   const selected = strategicIndividualFor(world, dilemma, pending);
   const nextPending = Object.assign({}, pending, { namedIndividual: strategicIndividualSnapshot(selected.individual) });
   return { state: selected.state, individual: selected.individual, pending: nextPending };
 }
-
 function strategicAnimalTrait(dilemma, choice, success) {
   if (!success) return `${choice.label}留下的长期阴影`;
   const routeTraits = {
@@ -476,7 +437,6 @@ function strategicAnimalTrait(dilemma, choice, success) {
   };
   return routeTraits[choice.route] || `${choice.label}留下的生命印记`;
 }
-
 function strategicAxisDeltas(dilemma, choice, success) {
   const routeBase = {
     enforcement: { security: 4, wildness: -3 },
@@ -512,7 +472,6 @@ function strategicAxisDeltas(dilemma, choice, success) {
   }
   return base;
 }
-
 function strategicAnimalOutcomePreview(world, dilemma, choice, namedIndividual) {
   const selected = namedIndividual && namedIndividual.id
     ? normalizeLifeMemory(world).individuals.find((item) => item.id === namedIndividual.id) || namedIndividual
@@ -531,7 +490,6 @@ function strategicAnimalOutcomePreview(world, dilemma, choice, namedIndividual) 
   if (DELAYED_RETURN_CHOICES.has(choice.id)) return `永久 · ${name}：风险下降，暂时离开`;
   return `永久 · ${name}：安全感${successAxes.security >= 0 ? "+" : ""}${successAxes.security}/野性${successAxes.wildness >= 0 ? "+" : ""}${successAxes.wildness}`;
 }
-
 function applyStrategicAnimalConsequence(world, strategicResult) {
   const dilemma = strategicResult && strategicResult.dilemma;
   const choice = strategicResult && strategicResult.choice;
@@ -562,17 +520,13 @@ function applyStrategicAnimalConsequence(world, strategicResult) {
   if (["field_clinics", "mobile_screening", "corridor_zones"].includes(choice.id)) healthDelta += 5;
   if (["compensate", "water_committee", "charter_local"].includes(choice.id)) securityDelta += 3;
   if (["strict_quarantine", "corridor_delay"].includes(choice.id)) securityDelta -= 2;
-
   const statusBefore = individual.status;
-  // Death is irreversible. Follow-up events can change how the reserve carries
-  // the friend's legacy, but can never turn a dead individual back into a number.
   if (statusBefore === "dead" || statusBefore === "independent") {
     healthDelta = 0;
     securityDelta = 0;
     wildnessDelta = 0;
     healthCapDelta = 0;
   }
-
   let statusAfter = statusBefore;
   if (statusBefore === "dead") statusAfter = "dead";
   else if (statusBefore === "independent") statusAfter = "independent";
@@ -647,7 +601,6 @@ function applyStrategicAnimalConsequence(world, strategicResult) {
   event.history = history;
   return { state, individual, before, memory, event, history };
 }
-
 function prepareGuardianReturnLetter(world, now = Date.now()) {
   const state = normalizeLifeMemory(world, now);
   const previous = state.lastSeenAt || now;
@@ -677,17 +630,14 @@ function prepareGuardianReturnLetter(world, now = Date.now()) {
   state.memories = state.memories.slice(-240);
   return { state, letter };
 }
-
 function markGuardianVisit(world, now = Date.now()) {
   const state = normalizeLifeMemory(world, now);
   state.lastSeenAt = now;
   return state;
 }
-
 function individualsForSpecies(world, speciesId) {
   return normalizeLifeMemory(world).individuals.filter((item) => item.speciesId === speciesId);
 }
-
 module.exports = {
   RARE_MOMENTS,
   normalizeLifeMemory,

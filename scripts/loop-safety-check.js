@@ -89,7 +89,7 @@ focusGame.render = () => {};
 assert(focusGame.focusStoryDiscovery(locatedDiscovery), "located story item could not be focused from its task");
 const discoveryRegion = focusGame.findRegion(locatedDiscovery.regionId);
 assert(focusGame.screen === "home" && focusGame.scrollY === 0, "story focus did not return to the visible sandbox");
-assert(focusGame.mapZoom >= 1.35, "story focus did not make the collectible readable");
+assert(focusGame.mapZoom === 0, "story focus must keep the chapter 1 overview scale");
 assert(focusGame.mapCamera.cx === discoveryRegion.x && focusGame.mapCamera.cy === discoveryRegion.y, "story focus did not center the collectible region");
 assert(focusGame.storyDiscoveryGuide && focusGame.storyDiscoveryGuide.itemId === locatedDiscovery.itemId, "story focus did not arm a visible guide");
 assert(/已定位/.test(focusGame.lastToast || ""), "story focus did not explain the next tap");
@@ -152,7 +152,8 @@ const sourceRoot = path.resolve(__dirname, "../js");
 const sources = fs.readdirSync(sourceRoot).filter((name) => name.endsWith(".js")).map((name) => fs.readFileSync(path.join(sourceRoot, name), "utf8")).join("\n");
 assert(!/while\s*\(\s*true\s*\)|for\s*\(\s*;\s*;\s*\)/.test(sources), "unbounded static loop found in runtime code");
 const gameSource = fs.readFileSync(path.join(sourceRoot, "game.js"), "utf8");
-assert((gameSource.match(/frame\s*<\s*(8|12|frames)/g) || []).length >= 2, "dice animation lost its explicit frame cap");
+assert(/animateInlineDiceRoll[\s\S]*setArcheryConfirmationState/.test(gameSource), "dice/archery input must enter the shared confirmation state");
+assert(/rollMaterialExplorationDice[\s\S]*setArcheryConfirmationState/.test(gameSource), "rescue input must enter the shared confirmation state");
 const guardianSource = fs.readFileSync(path.join(sourceRoot, "guardianCycle.js"), "utf8");
 assert(/actionIndex\s*=\s*0/.test(guardianSource) && /slice\(-3\)/.test(guardianSource), "守护日缺少三阶段收束或行动记录上限");
 

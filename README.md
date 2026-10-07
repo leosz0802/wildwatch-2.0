@@ -12,11 +12,7 @@ Canvas 单入口微信小游戏。当前版本聚焦“自然保护区卫士”�
 
 ## 音频来源
 
-- `Nature` by chribonn，原始文件 `chribonn-nature-216798.mp3`
-- 来源：https://pixabay.com/sound-effects/nature-216798/
-- 许可：Pixabay Content License
-- 获取日期：2026-08-29
-- `bgm-nature-loop.m4a` 为剪辑压缩后的自然氛围循环；五个 `sfx-*.m4a` 混入了同源的低音量滤波纹理。
+背景循环已移除。保留的短音效来自 `Nature` by chribonn（Pixabay Content License，https://pixabay.com/sound-effects/nature-216798/），只用于成功和骰子结果。
 
 ## 打开方式
 

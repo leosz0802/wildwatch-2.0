@@ -1,8 +1,15 @@
 const { createCharacter } = require("../js/storage");
 const { Game } = require("../js/game");
 const { simulateDay } = require("../js/simulator");
-const { normalizeCollectionState, CATALOG, ENDINGS, submitCaseEnding } = require("../js/collectionSystem");
-const { FACILITIES, ROUTE_KITS, facilityStates, facilityByCaseId, normalizeFacilityConstruction, applyFacilityBuildStep, applyFacilitySpecialization, applyFacilityOperationalEffects } = require("../js/reserveFacilities");
+const { normalizeCollectionState } = require("../js/collectionSystem");
+const {
+  FACILITIES,
+  FACILITY_USE_PROFILES,
+  facilityStates,
+  facilityByCaseId,
+  applyFacilityUse,
+  facilityUsePreview
+} = require("../js/reserveFacilities");
 
 if (FACILITIES.length !== 6 || new Set(FACILITIES.map((item) => item.id)).size !== 6) {
   throw new Error("reserve map must define exactly six unique facilities");
@@ -10,74 +17,51 @@ if (FACILITIES.length !== 6 || new Set(FACILITIES.map((item) => item.id)).size !
 FACILITIES.forEach((facility) => {
   if (!(facility.x > 0.08 && facility.x < 0.92 && facility.y > 0.08 && facility.y < 0.9)) throw new Error(`facility outside safe map area: ${facility.id}`);
   if (!facilityByCaseId(facility.caseId)) throw new Error(`facility is not bound to a collection case: ${facility.id}`);
-  if (!Array.isArray(facility.buildCosts) || facility.buildCosts.length !== 2 || facility.buildCosts.some((cost) => cost <= 0)) throw new Error(`facility needs two valid construction costs: ${facility.id}`);
-  if (!Array.isArray(facility.routes) || facility.routes.length !== 3 || new Set(facility.routes.map((route) => route.id)).size !== 3) throw new Error(`facility needs three distinct specializations: ${facility.id}`);
-  facility.routes.forEach((route) => {
-    if (!ROUTE_KITS[route.id] || !route.name || !route.note) throw new Error(`invalid facility route: ${facility.id}/${route.id}`);
-  });
+  if (!FACILITY_USE_PROFILES[facility.id]) throw new Error(`facility needs a same-day use profile: ${facility.id}`);
 });
 
 const state = createCharacter(null, "设施测试员");
 normalizeCollectionState(state);
 state.world.reserve.fund = 2000;
-// 建设升级需要同时满足保护区与游客进阶；本段推进到第二阶后再验证旧的两步建设流程。
-state.world.reserve.progression.level = 2;
-state.world.reserve.development.operations.today.tourismScore = 12;
+state.world.reserve.supplies = Object.assign({}, state.world.reserve.supplies || {}, {
+  dogFood: 6,
+  fieldKit: 6,
+  alarm: 6,
+  medicalKit: 6
+});
 let states = facilityStates(state);
-if (states.some((facility) => facility.repaired)) throw new Error("new save should show six facilities but none repaired");
+const patrol = states.find((facility) => facility.id === "old_patrol_post");
+const hall = states.find((facility) => facility.id === "governance_hall");
 const hiddenAtStart = states.find((facility) => facility.caseId === "hidden");
+if (!patrol || !patrol.available || patrol.status !== "repaired") throw new Error("chapter 1 patrol post should be usable without construction");
+if (hall && hall.available) throw new Error("governance hall should stay locked until chapter 5");
+if (states.filter((facility) => facility.available && facility.id !== "old_patrol_post").length) {
+  throw new Error("chapter 1 should only unlock the patrol post among the six stations");
+}
 if (!hiddenAtStart.concealed || hiddenAtStart.available || hiddenAtStart.status !== "hidden") throw new Error("guardian memorial must remain concealed until a hidden lead is found");
 state.world.collection.leads.push({ id: "hidden_lead_test", caseId: "hidden" });
 if (facilityStates(state).find((facility) => facility.caseId === "hidden").concealed) throw new Error("a hidden archive lead should reveal the guardian memorial");
 state.world.collection.leads = state.world.collection.leads.filter((lead) => lead.id !== "hidden_lead_test");
 
-const caseId = "case_1";
-const caseState = state.world.collection.cases[caseId];
-CATALOG.filter((item) => item.caseId === caseId && !item.condition.finale).forEach((item) => {
-  state.world.collection.items[item.id] = { itemId: item.id, firstDay: 1, methodName: "测试" };
-  caseState.itemIds.push(item.id);
-});
-const ending = ENDINGS[caseId][0];
-const result = submitCaseEnding(state, caseId, ending.id);
-if (!result.ok) throw new Error(`case ending should repair facility: ${result.error}`);
-states = facilityStates(state);
-if (!states.find((facility) => facility.caseId === caseId).repaired) throw new Error("case_1 ending did not repair old patrol post");
-if (states.filter((facility) => facility.repaired).length !== 1) throw new Error("one case ending must not repair unrelated facilities");
-let patrol = states.find((facility) => facility.caseId === caseId);
-if (patrol.collectionStage !== 3 || patrol.buildStage !== 0 || !/待建设/.test(patrol.stageLabel)) throw new Error("case ending should unlock, but not auto-complete, the linked facility");
-if (!applyFacilityBuildStep(state, patrol.id).ok || !applyFacilityBuildStep(state, patrol.id).ok) throw new Error("unlocked facility should accept two explicit construction investments");
-patrol = facilityStates(state).find((facility) => facility.caseId === caseId);
-state.world.reserve.progression.level = 2;
-state.world.reserve.development.operations.today.tourismScore = 12;
-const blockedSpecialization = applyFacilitySpecialization(state, patrol.id, "enforcement");
-if (blockedSpecialization.ok || blockedSpecialization.missing.length !== 2) throw new Error("facility specialization should expose both progression gates");
-state.world.reserve.progression.level = 3;
-state.world.reserve.development.operations.today.tourismScore = 18;
-if (patrol.buildStage !== 2 || !applyFacilitySpecialization(state, patrol.id, "enforcement").ok) throw new Error("completed facility body should allow one permanent route specialization");
-state.world.reserve.poacherPressure = 50;
-const operational = applyFacilityOperationalEffects(state.world.reserve, "antiPoacher", "旱季");
-if (!operational.changes.some((change) => change.key === "poacherPressure" && change.delta < 0) || state.world.reserve.poacherPressure >= 50) throw new Error("restored patrol post must keep improving matching future patrol actions");
-state.world.reserve.poacherPressure = 50;
-state.world.reserve.supplies.alarm = Math.max(1, state.world.reserve.supplies.alarm || 0);
+const preview = facilityUsePreview(state, "old_patrol_post");
+if (!preview.ready || preview.fund !== 20 || preview.animals !== 1) throw new Error("chapter 1 patrol use should cost 20 fund and add 1 animal");
+const used = applyFacilityUse(state, "old_patrol_post");
+if (!used.ok) throw new Error(used.error || "unlocked patrol post should accept a same-day use");
+if (used.preview.remaining !== 2) throw new Error("first patrol use should leave 2 free uses this chapter");
+
 const simulated = simulateDay("驱赶偷猎者：让巡护灯网协助封锁边界", state);
 const persistedSite = (((simulated.world.reserve.facilityConstruction || {}).sites || {}).old_patrol_post) || {};
-if (persistedSite.collectionStage !== 3 || persistedSite.buildStage !== 3 || persistedSite.specialization !== "enforcement") throw new Error("collection and player-built facility stages must survive normal operating-day cloning");
-if (!simulated.visual.facilityOperational || !simulated.visual.facilityOperational.changes.some((change) => change.key === "poacherPressure" && change.delta < 0)) throw new Error("matching settlement must expose the ongoing facility effect");
-
-const poorState = createCharacter(null, "贫困设施测试员");
-normalizeCollectionState(poorState);
-poorState.world.collection.cases.case_1.ending = { id: "test", name: "测试结案" };
-poorState.world.reserve.fund = 0;
-if (applyFacilityBuildStep(poorState, "old_patrol_post").ok) throw new Error("unfinished collection must not bypass its case milestone");
+if (Number(persistedSite.usedCount) !== 1) throw new Error("same-day station use must survive normal operating-day cloning");
 
 state.world.collection.worldFlags.forest_remembers = true;
-if (!facilityStates(state).find((facility) => facility.caseId === "hidden").repaired) throw new Error("hidden archive should repair guardian memorial");
+if (facilityStates(state).find((facility) => facility.caseId === "hidden").concealed) throw new Error("hidden archive should reveal guardian memorial");
 
 const uiGame = new Game();
 if (uiGame.stopLoop) uiGame.stopLoop();
 uiGame.state = JSON.parse(JSON.stringify(state));
 uiGame.render = () => {};
 uiGame.openReserveFacilityDetail("old_patrol_post");
-if (!uiGame.infoDetailModal || uiGame.infoDetailModal.facility.buildStage !== 3) throw new Error("facility UI should show the player's permanent specialization");
+if (!uiGame.infoDetailModal || uiGame.infoDetailModal.kind !== "facilityConstruction") throw new Error("facility UI should open the same-day use panel");
+if (!uiGame.infoDetailModal.use || uiGame.infoDetailModal.use.action !== "派出短巡") throw new Error("facility UI should show the current chapter use, not a build or specialization path");
 
 console.log("reserve facilities check ok");

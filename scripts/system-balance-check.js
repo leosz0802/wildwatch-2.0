@@ -145,7 +145,7 @@ const protectedAnimalCount = Object.keys((reserve.base || {}).protectedAnimals |
 assert(reserve.safety === 68, `converged initial safety should be 68, got ${reserve.safety}`);
 assert(reserve.stability === 66, `converged initial ecology/stability should be 66, got ${reserve.stability}`);
 assert(reserve.business === 58, `converged initial business should be 58, got ${reserve.business}`);
-assert(reserve.fund === 800, `新玩家初始保护基金应为800，实际 ${reserve.fund}`);
+assert(reserve.fund === 1000, `新玩家初始星币应为1000，实际 ${reserve.fund}`);
 assert(protectedAnimalCount === 32, `converged protected animal count should be 32, got ${protectedAnimalCount}`);
 assert((reserve.base || {}).rareAnimals === 3, `converged rare animal count should be 3, got ${(reserve.base || {}).rareAnimals}`);
 assert(reserve.reputation === 50, `converged reputation should be 50, got ${reserve.reputation}`);
@@ -226,7 +226,7 @@ state = wardenState();
 state.world.reserve.inventory.shedAntlerA = 1;
 state.world.reserve.inventory.researchSample = 2;
 before = clone(state.world.reserve);
-result = run("出售仓库里的脱落鹿角和研究样本", state);
+result = run("出售仓库里的脱落岩角和研究样本", state);
 assert(result.world.reserve.fund > before.fund, "salvage should increase fund");
 assert(result.world.reserve.inventory.shedAntlerA < before.inventory.shedAntlerA, "salvage should consume recovered goods");
 
@@ -241,7 +241,7 @@ assert(result.world.reserve.supplies.fieldKit === before.supplies.fieldKit, "buy
 state = wardenState();
 state.world.reserve.supplies.tranquilizer = 2;
 before = clone(state.world.reserve);
-result = run("执行许可内生态干预：麻醉转移过度靠近水源的鹿", state);
+result = run("执行许可内生态干预：阻滞转移过度靠近水源的鹿", state);
 assert(result.world.reserve.supplies.tranquilizer === before.supplies.tranquilizer - 1, "intervention should consume tranquilizer");
 assert(!Object.prototype.hasOwnProperty.call(result.world.reserve, "intel"), "intervention must not restore retired resource fields");
 assert(result.world.reserve.ecology.grass > before.ecology.grass, "intervention should improve grass");
@@ -270,23 +270,23 @@ leagueGame.state.world.reserve.base.raidTickets = 1;
 leagueGame.state.world.reserve.supplies.dogFood = 1;
 leagueGame.selectedRivalId = "base_sun";
 withRandom(0, () => leagueGame.raidRival());
-assert(!Object.prototype.hasOwnProperty.call(leagueGame.state.world.reserve, "fieldPermits"), "border patrol must not restore retired permit fields");
-assert(leagueGame.state.world.reserve.supplies.dogFood === 0, "border patrol should consume dog food");
-assert((leagueGame.state.world.reserve.social || {}).migrationDelta > 0, "border patrol should influence migration");
+assert(!Object.prototype.hasOwnProperty.call(leagueGame.state.world.reserve, "fieldPermits"), "removed border patrol must not restore retired permit fields");
+assert(leagueGame.state.world.reserve.supplies.dogFood === 1, "removed border patrol must not consume dog food");
+assert(!((leagueGame.state.world.reserve.social || {}).migrationDelta > 0), "removed border patrol must not influence migration");
 
 leagueGame.state.world.reserve.fund = 1000;
 leagueGame.state.world.reserve.inventory.recoveredTrap = 1;
 const shieldBefore = leagueGame.state.world.reserve.base.shield;
 leagueGame.upgradeShield();
-assert(leagueGame.state.world.reserve.base.shield > shieldBefore, "fortify should increase shield");
-assert(leagueGame.state.world.reserve.inventory.recoveredTrap === 0, "fortify should consume trap evidence");
+assert(leagueGame.state.world.reserve.base.shield === shieldBefore, "removed fortify must not increase shield");
+assert(leagueGame.state.world.reserve.inventory.recoveredTrap === 1, "removed fortify must not consume trap evidence");
 
 const longState = wardenState();
 [
   "猎犬侦察：让砾灰沿中央混交林闻一圈",
   "驱赶偷猎者：带白河去西部岩坡洞域排查可疑人影",
   "修复水源和草场：去东部河岸湿地修复水源",
-  "出售仓库里的脱落鹿角和研究样本",
+  "出售仓库里的脱落岩角和研究样本",
   "采购狗粮包"
 ].forEach((command) => {
   const step = run(command, longState);

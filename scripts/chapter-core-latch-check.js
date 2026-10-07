@@ -2,7 +2,8 @@
 const assert = require('node:assert/strict');
 const { createCharacter } = require('../js/storage');
 const { Game, chapterCoreMetrics } = require('../js/game');
-const { chapterTargets } = require('../js/chapterTargets');
+const { chapterTargets, beginChapterAnimalCheckpoint, chapterAnimalTotal } = require('../js/chapterTargets');
+const { recordIncrease, recordDecrease } = require('../js/animalSourceLedger');
 
 function totalAnimals(reserve) {
   return ['predators', 'herbivores', 'birds'].reduce((sum, group) => (
@@ -43,17 +44,17 @@ const target = chapterTargets(chapter);
 reserve.progression.stage = chapter;
 reserve.progression.displayChapter = chapter;
 reserve.progression.coreBest = { stage: chapter, species: 0, animals: 0, visitors: 0 };
+reserve.progression.animalHudVersion = 2;
+beginChapterAnimalCheckpoint(reserve, chapter, 0);
 
-boostAnimals(reserve, target.animals + 4);
+recordIncrease(reserve, "tasked", target.animals + 4);
 let core = chapterCoreMetrics(reserve, chapter);
 assert.equal(core.met.animals, true, 'crossing the animal target must latch that unlock');
 assert.ok(core.animals >= target.animals);
 
 const peakAnimals = core.best.animals;
-boostAnimals(reserve, Math.max(0, target.animals - 12));
-Object.keys(reserve.ecology.herbivores).forEach((id) => {
-  reserve.ecology.herbivores[id] = Math.max(1, Math.round((Number(reserve.ecology.herbivores[id]) || 0) * 0.4));
-});
+const liveAfterPeak = chapterAnimalTotal(reserve);
+recordDecrease(reserve, "died", Math.max(1, liveAfterPeak - Math.max(0, target.animals - 12)));
 core = chapterCoreMetrics(reserve, chapter);
 assert.ok(core.animals < target.animals, 'live animal total must be allowed to fall after the latch');
 assert.equal(core.met.animals, true, 'later animal loss must not undo a completed animal unlock');
@@ -85,7 +86,7 @@ assert.ok(core.percentages.animals < 100, "live animal percentage can stay below
 
 const blocked = game.reserveProgression(reserve);
 assert.equal(blocked.stage, chapter, "live animal shortage must block the next chapter");
-boostAnimals(reserve, target.animals);
+recordIncrease(reserve, "tasked", Math.max(0, target.animals - chapterAnimalTotal(reserve)));
 core = chapterCoreMetrics(reserve, chapter);
 assert.equal(core.complete, true, "all live core goals must complete after animal recovery");
 

@@ -1,26 +1,110 @@
 const { ECOLOGY_THRESHOLDS } = require("./balanceConfig");
-
 const PATROL_ACTIONS = Object.freeze(["houndScout", "antiPoacher", "habitat", "intervention"]);
-
-// These are automatic task thresholds. Explicit story steps and player
-// actions remain available without manufacturing a routine patrol objective.
+const RISK_COPY = Object.freeze({
+  1: {
+    water: ["泥岸水窝见底", "退潮后的泥岸只剩薄水，鹿群和野兔都停在洞口外。把浅滩水窝重新蓄上，第一条气味线才还有水可依。"],
+    grass: ["泥岸新草被踩秃", "鹿群试探的泥岸边，返青草被踩成光泥，野兔洞口外没有可咬的叶。把这一线草补上。"],
+    disease: ["泥岸水窝出现病迹", "鹿群试过的水窝边上出现病迹，野兔开始缩回洞里。做一次生态干预，把病源从泥岸水线隔开。"],
+    poacher: ["泥岸边界多出车辙", "刚记下的脚印旁边多出直线车辙。驱赶靠近第一条保护线的偷猎者。"],
+    safety: ["泥岸安静被踩破", "鹿群刚敢试的泥岸突然静下来，野兔缩回洞里。先查明切断气味线的来源，再把泥岸的安全路线接回去。"]
+  },
+  2: {
+    water: ["浅滩回声断流", "斑马排不成队，野猪把仅剩的湿泥拱开。把浅滩这条水线补回去。"],
+    grass: ["浅滩外沿的草退了", "斑马喝完水要在外沿吃草，野猪拱过的地方已经见土。把浅滩外的草补回去。"],
+    disease: ["浅滩排队处染上病味", "斑马排队的浅水和野猪拱开的泥叠在一起，病味顺着水线走。做一次生态干预，把病源从浅滩隔开。"],
+    poacher: ["浅滩外沿出现车灯", "斑马水线外侧有车灯，野猪拱开的缺口被当成入口。驱赶贴着浅滩边界的偷猎者。"],
+    safety: ["浅滩上的队伍散了", "斑马不再排队，野猪也不再拱泥，浅滩一下子空了。先查出打散它们的来源，再恢复进出水线的安全通道。"]
+  },
+  3: {
+    water: ["火烈鸟脚下的水退了", "鹰还在上空盘旋，火烈鸟脚下的水已经缩成泥印。把水边补回可停的深度。"],
+    grass: ["观鸟线旁的草被踏穿", "火烈鸟挤在水边，观鸟线外侧的草被脚掌踏穿。把这一侧草场补上，鹰指出的空档才还有落点。"],
+    disease: ["火烈鸟脚边的病在扩散", "拥堵的水边已经有病迹，幼鸟互相踩踏的地方最重。做一次生态干预，别让这个水点变成扩散点。"],
+    poacher: ["观鸟线外有人越界", "鹰盘旋的空档外出现越界脚印，火烈鸟水边被灯光扫过。驱赶贴着观鸟线的偷猎者。"],
+    safety: ["天空和水面同时失稳", "鹰不再指出空档，火烈鸟挤成一团后忽然散开。先查明打乱水边的危险，再把观鸟线的安全距离找回来。"]
+  },
+  4: {
+    water: ["草缘水点缩进泥里", "狮群巡界和豹子的灌木廊都靠同一串草缘水点。水点见底后，试压会挤回一条线。把草缘饮水补上。"],
+    grass: ["草原试压吃穿了草", "狮群巡界和回流动物压在同一片草上，草已经见土。把试压带的草场补开。"],
+    disease: ["草缘病迹跟着巡界走", "狮群经过的草缘出现病迹，豹子的灌木廊也被绕开。做一次生态干预，把病源从试压带隔开。"],
+    poacher: ["草缘车辙压过巡界", "狮群要走的巡界上有新车辙，豹子的灌木廊被灯照亮。驱赶草缘上的偷猎者。"],
+    safety: ["巡界和灌木廊叠在一起", "狮群的巡界和豹子的独行廊叠住，草场上的动物不再敢停。先查出试压带的危险来源，再分开两条安全路线。"]
+  },
+  5: {
+    water: ["长颈鹿够不着水", "长颈鹿把脖子探进干裂的水印。把相机线外的水点蓄上，刚建立的信任才不会卡在一口空井。"],
+    grass: ["长颈脚下的草层太薄", "长颈鹿探进相机的地方，草层薄得只剩茎。把咽喉高度外的草场补厚。"],
+    disease: ["安静水点变成病点", "长颈鹿和捕食者共用的水点先出现病迹。做一次生态干预，别把刚建立的信任变成躲避。"],
+    poacher: ["相机线外有人蹲守", "长颈鹿咽喉高度外有人蹲守，安静被车声切断。驱赶相机线外的偷猎者。"],
+    safety: ["信任线被动静打断", "长颈鹿缩回脖子，乌鸦也不再传消息。先查明打断信任的动静，再让捕食者和游客各回各自的安全距离。"]
+  },
+  6: {
+    water: ["草甸水湾退到洞口", "熊的洞域和秃鹫的盘旋圈中间，水湾已经退尽。把草甸这一湾补上，回路两端才不至于抢同一口湿泥。"],
+    grass: ["草甸回路两端见土", "熊清场和秃鹫盘旋把草甸中间吃出空地。把回路上的草补回去。"],
+    disease: ["草甸清场线上有病味", "熊清场留下的线旁，秃鹫盘旋的草甸出现病迹。做一次生态干预，把病源从回路中间隔开。"],
+    poacher: ["熊洞外有夜间车声", "厚掌的洞域外有夜间车声，秃鹫盘旋圈被灯柱切开。驱赶草甸边界的偷猎者。"],
+    safety: ["草甸回路中间没了回应", "熊不出来清场，秃鹫在洞口上空盘着不落。先查出草甸中间的危险，再把回路两端的安全距离分开。"]
+  },
+  7: {
+    water: ["旧水路再次见底", "云耳记得的旧河道露出硬泥，河马的泡点只剩背脊。把旧水重新接上，幼象才有湿泥可走。"],
+    grass: ["旧塘边的草撑不住", "河马占住新塘，幼象挤在塘边，草已经被踩实。把旧水旁边的草场松开补上。"],
+    disease: ["旧河泡点泛起病膜", "河马泡点和幼象喝水的侧槽同时出现病膜。做一次生态干预，别让接上的旧水变成病路。"],
+    poacher: ["旧河口有人截住幼象", "云耳记得的河口出现截停的灯光，幼象的侧槽被堵住。驱赶旧水边的偷猎者。"],
+    safety: ["旧水边上的幼象失散", "幼象挤不进河马的身体墙，旧河口没有回应。先查明卡在侧槽上的危险，再恢复幼象能走的安全水路。"]
+  },
+  8: {
+    water: ["核心岸线露出泥底", "鳄鱼守着的水现在只剩泥，野犬幼崽的借岸通道也跟着干裂。把核心水线蓄回去。"],
+    grass: ["核心草场被踩实", "野犬带幼崽沿岸找草，鳄鱼伏击线外已经没有可吃的叶。把核心区这一片草补上。"],
+    disease: ["核心岸线的病在爬", "鳄鱼伏击线和野犬幼崽通道之间，病迹沿着湿泥爬。做一次生态干预，把病源留在核心区外面。"],
+    poacher: ["核心岸线有人越界", "鳄鱼的伏击线外有人下到岸边，野犬幼崽的通道被踩出新辙。驱赶核心区边界的偷猎者。"],
+    safety: ["核心区的岸线惊慌了", "鳄鱼离开伏击线，野犬不再带幼崽沿岸。先查出核心岸上的危险来源，再把借岸通道的安全水线找回来。"]
+  },
+  9: {
+    water: ["迁徙口的水线断开", "水貂探出去的浅滩在迁徙口断成干印，狐狸的气味桩旁边没有水。把这条过路水线接上。"],
+    grass: ["迁徙口的草被踏成路", "过路兽群把迁徙口的草踏成硬路，水貂和狐狸都绕着光土走。把通道两侧的草补回去。"],
+    disease: ["迁徙口把病味带出去", "水貂探出的水线和狐狸的气味桩之间有病迹，过路兽群会把它带出迁徙口。做一次生态干预，把病源隔在口内。"],
+    poacher: ["迁徙口被灯照住", "水貂探出去的口子有灯，狐狸的气味桩旁边多了钢丝。驱赶迁徙口外的偷猎者。"],
+    safety: ["迁徙口的气味突然变了", "水貂不再把路探出去，狐狸在口外乱走。先查明改写迁徙口的危险，再恢复过路动物的安全通道。"]
+  },
+  10: {
+    water: ["犀牛泥坑失水", "白犀牛要趴的泥坑见了底，穿山甲的步道洞口也干成硬土。把这片泥坑的水补回去。"],
+    grass: ["犀牛背侧的草见底", "白犀牛吃草的地方露出泥底，穿山甲洞口的草皮也翻开了。把这一片草补上。"],
+    disease: ["泥坑和洞口同时有病迹", "白犀牛的泥坑和穿山甲的步道洞口一起出现病迹。做一次生态干预，别让它们停留的地方变成扩散点。"],
+    poacher: ["有人冲着犀牛角来", "白犀牛背侧有灯，穿山甲的步道洞被翻开。驱赶贴着犀牛活动线的偷猎者。"],
+    safety: ["旗舰停留的地方失稳", "白犀牛不肯趴下，穿山甲把洞挖得更深。先查出夜间的危险来源，再恢复犀牛背侧的安全距离。"]
+  },
+  11: {
+    water: ["守望水线这一轮空了", "野牛和鹤还停在上一轮的水边，这一轮水线空了。把守望里的水重新蓄上。"],
+    grass: ["守望草场这一轮吃空", "野牛停留的草带这一轮见了土，鹤落下来也找不到掩蔽。把守望草场补回去。"],
+    disease: ["这一轮守望染上病味", "野牛停留的草带和鹤落下的浅水同时有病迹。做一次生态干预，把病源从这一轮的守望线隔开。"],
+    poacher: ["守望边界又有人越界", "野牛停留的草带外出现车辙，鹤落下的浅水被灯扫到。驱赶这一轮守望边界的偷猎者。"],
+    safety: ["这一轮守望失去回应", "野牛不再停在草带上，鹤也不落浅水。先查明这一轮守望里的危险来源，再把停留的安全方向找回来。"]
+  }
+});
+function chapterOf(reserve = {}) {
+  const progression = reserve.progression || {};
+  const chapter = Math.round(Number(progression.stage || progression.displayChapter) || 1);
+  return Math.max(1, Math.min(11, chapter));
+}
+function riskCopy(reserve, id) {
+  const chapterCopy = RISK_COPY[chapterOf(reserve)] || RISK_COPY[1];
+  return chapterCopy[id] || RISK_COPY[1][id];
+}
 function criticalPatrolRisk(reserve = {}) {
   const ecology = reserve.ecology || {};
   const rows = [
-    ["water", ecology.water, ECOLOGY_THRESHOLDS.criticalWater, "low", "habitat", "水源严重不足", "修复水点，阻止动物继续失去饮水来源。"],
-    ["grass", ecology.grass, ECOLOGY_THRESHOLDS.criticalGrass, "low", "habitat", "草场严重不足", "恢复草场，减轻种群的取食压力。"],
-    ["disease", ecology.disease, ECOLOGY_THRESHOLDS.criticalDisease, "high", "intervention", "疾病正在扩散", "执行生态干预，控制疾病扩散。"],
-    ["poacher", reserve.poacherPressure, 65, "high", "antiPoacher", "边界偷猎风险过高", "驱赶靠近保护区的偷猎者。"],
-    ["safety", reserve.safety, 30, "low", "houndScout", "保护区安全严重下降", "查明危险来源，再恢复动物的安全路线。"]
+    ["water", ecology.water, ECOLOGY_THRESHOLDS.criticalWater, "low", "habitat"],
+    ["grass", ecology.grass, ECOLOGY_THRESHOLDS.criticalGrass, "low", "habitat"],
+    ["disease", ecology.disease, ECOLOGY_THRESHOLDS.criticalDisease, "high", "intervention"],
+    ["poacher", reserve.poacherPressure, 65, "high", "antiPoacher"],
+    ["safety", reserve.safety, 30, "low", "houndScout"]
   ];
   return rows.filter(([, value]) => value != null && Number.isFinite(Number(value)))
-    .map(([id, raw, threshold, direction, action, title, body]) => {
+    .map(([id, raw, threshold, direction, action]) => {
       const value = Number(raw);
       const deviation = direction === "low" ? threshold - value : value - threshold;
-      return { id, value, score: deviation >= 0 ? deviation + 1 : 0, action, title, body };
+      const copy = riskCopy(reserve, id);
+      return { id, value, score: deviation >= 0 ? deviation + 1 : 0, action, title: copy[0], body: copy[1] };
     })
     .filter(risk => risk.score > 0)
     .sort((a, b) => b.score - a.score)[0] || null;
 }
-
 module.exports = { PATROL_ACTIONS, criticalPatrolRisk };

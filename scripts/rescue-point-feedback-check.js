@@ -69,8 +69,7 @@ function make() {
   Object.assign(reserve.progression, { stage: 7, displayChapter: 7, level: 4 });
   require('../js/chapterRescueSystem').normalizeChapterRescue(reserve, 7, { fresh: true });
   const record = reserve.chapterRescue.targets[0], item = record.requiredItems[0];
-  game.openChapterRescueTask(record.targetId);
-  const modal = game.infoDetailModal;
+  const modal = { kind: 'chapterRescueTask', rescueTargetId: record.targetId, rescueRecord: record, prose: '' };
   const nextReserve = normalizeReserve(JSON.parse(JSON.stringify(reserve)));
   require('../js/chapterRescueSystem').normalizeChapterRescue(nextReserve, 7);
   game.rescueRecordFor(record.targetId, nextReserve).pointProgress[item] = 8;
@@ -91,18 +90,55 @@ function make() {
   game.activeTaskLock = { kind: 'chapterRescue', targetId: record.targetId };
   game.openMaterialExploration(item);
   game.archeryScoreFor = () => 6;
-  const originalTimeout = global.setTimeout, callbacks = [];
-  global.setTimeout = fn => { callbacks.push(fn); return callbacks.length; };
-  try {
-    game.rollMaterialExplorationDice(item);
-    while (game.infoDetailModal.phase === 'rolling') callbacks.shift()();
-    assert.equal(game.infoDetailModal.rescueScore.shotScore, 6);
-    const delayedSettlement = callbacks.shift();
-    game.dismissInfoDetailModal();
-    delayedSettlement();
-    assert.equal(game.rescueRecordFor(record.targetId).pointProgress[item], 6, 'close and delayed settlement commit once');
-    assert.equal(game.rescueRecordFor(record.targetId).pointHistory.length, 1);
-  } finally { global.setTimeout = originalTimeout; }
+  game.rollMaterialExplorationDice(item);
+  assert.equal(game.infoDetailModal.rescueScore.shotScore, 6);
+  assert.equal(game.rescueRecordFor(record.targetId).pointProgress[item] || 0, 0, '确认前不能写入解救进度');
+  assert.equal((game.rescueRecordFor(record.targetId).pointHistory || []).length, 0, '确认前不能写入解救历史');
+  assert.equal(game.waitingArcheryOrDiceConfirm(), true, '发射后必须停在确认得分');
+  game.confirmArcheryScore();
+  assert.equal(game.rescueRecordFor(record.targetId).pointProgress[item], 6, '手动确认后才结算');
+  assert.equal(game.rescueRecordFor(record.targetId).pointHistory.length, 1);
+}
+// A previous animal's finished total, or a shared material counter, must not
+// be adopted as this arrow. One shot below the target must leave the animal captive.
+{
+  const game = make();
+  const reserve = game.state.world.reserve;
+  Object.assign(reserve.progression, { stage: 1, displayChapter: 1, level: 1 });
+  require('../js/chapterRescueSystem').normalizeChapterRescue(reserve, 1, { fresh: true });
+  const record = reserve.chapterRescue.targets[0];
+  const item = record.requiredItems[0];
+  const required = require('../js/chapterRescueSystem').rescuePointTarget(record, item);
+  reserve.lastRescueShot = {
+    rescueTargetId: 'chapter:1:rescue:other',
+    itemId: item,
+    shotScore: 6,
+    totalScore: required,
+    recordedAt: 1
+  };
+  reserve.materialExplorationProgress = { [item]: required };
+  reserve.lastArcheryShot = {
+    token: 'previous-animal',
+    targetId: item,
+    rescueTargetId: 'chapter:1:rescue:other',
+    rescueItemId: item,
+    score: 6,
+    totalScore: required,
+    recordedAt: 1
+  };
+  game.activeTaskLock = { kind: 'chapterRescue', targetId: record.targetId, animalId: record.speciesId };
+  game.openMaterialExploration(item);
+  game.infoDetailModal.phase = 'resolved';
+  game.infoDetailModal.displayRoll = 1;
+  game.infoDetailModal.resultScore = 1;
+  game.confirmArcheryScore();
+  const live = game.rescueRecordFor(record.targetId);
+  assert.equal(live.pointProgress[item], 1, '一箭只能记入这一箭的点数');
+  assert.equal(live.status, 'captive', '点数不够时不能解救');
+  game.infoDetailModal = null;
+  game.settlementModal = null;
+  game.activateRescueMapMarker(record.targetId);
+  assert.equal(game.rescueRecordFor(record.targetId).status, 'captive', '点数不够时点击沙盘也不能解救');
 }
 // All chapter records, including later chapters sharing the same material,
 // must retain their own points through a save/load and subsequent arrow.
@@ -117,25 +153,39 @@ for (let chapter = 1; chapter <= 20; chapter++) {
     game.activeTaskLock = { kind: 'chapterRescue', targetId: record.id };
     game.openMaterialExploration(record.item);
     assert.equal(game.infoDetailModal.collectionProgress.current, 0, 'another rescue must not donate points');
-    game.infoDetailModal.phase = 'rolling';
+    // 只有尚未发射的 ready 卡片可以取消；箭一旦进入飞行阶段，关闭会结算本次得分。
+    game.infoDetailModal.phase = 'ready';
     game.dismissInfoDetailModal();
-    assert.equal(game.infoDetailModal.phase, 'rolling', 'in-flight arrow cannot be discarded');
-    game.infoDetailModal.phase = 'resolved'; game.infoDetailModal.displayRoll = 4;
+    assert.equal(game.infoDetailModal, null, 'ready rescue shot can be closed without scoring');
+    assert.equal(game.rescueRecordFor(record.id, game.state.world.reserve).pointProgress[record.item] || 0, 0, 'cancel before firing does not commit');
+    game.activeTaskLock = { kind: 'chapterRescue', targetId: record.id };
+    game.openMaterialExploration(record.item);
+    game.infoDetailModal.phase = 'resolved'; game.infoDetailModal.displayRoll = 4; game.infoDetailModal.resultScore = 4;
     game.dismissInfoDetailModal();
     let current = game.rescueRecordFor(record.id, game.state.world.reserve);
-    assert.equal(current.pointProgress[record.item], 4, `chapter ${chapter}: close must commit impact`);
+    assert.equal(current.pointProgress[record.item] || 0, 0, `chapter ${chapter}: close must not auto-commit impact`);
+    assert.equal(game.waitingArcheryOrDiceConfirm(), true, `chapter ${chapter}: close must keep confirm page`);
+    game.confirmArcheryScore();
+    current = game.rescueRecordFor(record.id, game.state.world.reserve);
+    assert.equal(current.pointProgress[record.item], 4, `chapter ${chapter}: confirm must commit impact`);
     assert.equal(current.pointHistory.at(-1).shotScore, 4);
+    if (game.settlementModal) game.finishSettlement('home');
     saveState(game.state); game.state = loadState();
     game.activeTaskLock = { kind: 'chapterRescue', targetId: record.id };
     game.openMaterialExploration(record.item);
     assert.ok(game.infoDetailModal, `reopen chapter ${chapter}: ${JSON.stringify(game.activeRescueRecord())}`);
     assert.equal(game.infoDetailModal.collectionProgress.current, 4);
-    game.infoDetailModal.phase = 'resolved'; game.infoDetailModal.displayRoll = 3;
+    game.infoDetailModal.phase = 'resolved'; game.infoDetailModal.displayRoll = 3; game.infoDetailModal.resultScore = 3;
     game.dismissInfoDetailModal();
+    current = game.rescueRecordFor(record.id, game.state.world.reserve);
+    assert.equal(current.pointProgress[record.item], 4, '第二轮关闭不能自动增加点数');
+    assert.equal(game.waitingArcheryOrDiceConfirm(), true);
+    game.confirmArcheryScore();
     current = game.rescueRecordFor(record.id, game.state.world.reserve);
     assert.equal(current.pointProgress[record.item], 7);
     assert.equal(current.pointHistory.at(-1).totalScore, 7);
     assert.equal(current.pointHistory.at(-1).chapter, chapter);
+    if (game.settlementModal) game.finishSettlement('home');
     game.dismissInfoDetailModal();
     assert.equal(current.pointHistory.length, 2, 'close again must not score twice');
   }

@@ -1,29 +1,22 @@
 const { normalizeLifeMemory } = require("./emotionSystem");
 const { applyChapterVisitorDelta, chapterVisitorTotal } = require("./chapterTargets");
-const { SPECIES_DB, speciesPopulationGroup } = require("./animalWorld");
+const { SPECIES_DB, speciesPopulationGroup, chapterFeaturedSpecies } = require("./animalWorld");
 const { livingAnimalTotal, chapterCaptiveSpeciesSet } = require("./chapterRescueSystem");
 const { recordIncrease } = require("./animalSourceLedger");
-
-// Keep share artwork in the uploaded game package. WeChat can render a
-// package-local image immediately, while a remote-only URL can leave the card
-// with a blank placeholder when the download domain is unavailable.
 const SHARE_IMAGES = {
   warm: "assets/art/share/share-warm.jpg",
   rescue: "assets/art/share/share-rescue.jpg",
   rare: "assets/art/share/share-rare.jpg"
 };
-
-const SHARE_EVENT_TYPES = new Set(["rare", "injury", "departure", "return", "birth", "death", "strategic_permanent"]);
-
+const SHARE_EVENT_TYPES = new Set([
+  "rare", "injury", "departure", "return", "birth", "death", "strategic_permanent",
+  "chapterRescue", "poacherRescue", "realNature", "animal_letter"
+]);
 function clean(value, max = 48) {
   return String(value || "").replace(/[\r\n&=?#]/g, " ").trim().slice(0, max);
 }
-
 function decodeShareValue(value) {
   let decoded = String(value == null ? "" : value).replace(/\+/g, " ");
-  // Launch options differ between DevTools, QR preview and a real share entry:
-  // some provide decoded values, some keep one layer, and old forwarded links
-  // may contain two layers. Decode only while a valid percent escape remains.
   for (let index = 0; index < 2 && /%[0-9a-fA-F]{2}/.test(decoded); index += 1) {
     try {
       const next = decodeURIComponent(decoded);
@@ -35,7 +28,6 @@ function decodeShareValue(value) {
   }
   return decoded;
 }
-
 function normalizeShareQuery(options = {}) {
   const source = options && Object.prototype.hasOwnProperty.call(options, "query") ? options.query : options;
   if (!source) return {};
@@ -48,7 +40,6 @@ function normalizeShareQuery(options = {}) {
     return result;
   }, {});
 }
-
 function shareMoment(world, event = null, dailyLetter = null) {
   const day = (world && world.day) || 1;
   const forceDaily = !!(dailyLetter && dailyLetter.forceDaily);
@@ -79,11 +70,34 @@ function shareMoment(world, event = null, dailyLetter = null) {
   const individual = memory.individuals.find((item) => item.id === individualId) || (source && source.individual) || null;
   const name = clean((source && source.name) || (individual && individual.name) || (dailyLetter && dailyLetter.animalName) || "森林居民", 16);
   const species = clean((source && source.species) || (individual && individual.species) || (dailyLetter && dailyLetter.animal && dailyLetter.animal.species) || "动物", 12);
-  const type = (source && source.type) || "daily";
+  const sourceKind = (source && source.sourceKind)
+    || (dailyLetter && dailyLetter.sourceKind)
+    || (source && source.kind === "realNature" ? "animal" : "")
+    || "animal";
+  const type = (source && source.type)
+    || (dailyLetter && dailyLetter.type)
+    || (dailyLetter && dailyLetter.relayKind === "rescue_event" ? "chapterRescue" : "")
+    || (dailyLetter && dailyLetter.sourceKind === "animal" ? "animal_letter" : "daily");
+  const relayKind = (source && source.relayKind)
+    || (dailyLetter && dailyLetter.sourceKind === "animal" ? "animal_letter" : "")
+    || (["chapterRescue", "poacherRescue"].includes(type) ? "rescue_event" : "")
+    || (type === "realNature" || (source && source.source === "realNature") ? "real_event" : "")
+    || (["rare", "injury", "departure", "return", "birth", "death", "strategic_permanent"].includes(type) ? "animal_memory" : "animal_letter");
   const quote = clean((dailyLetter && dailyLetter.quote) || "你做过的每一次守护，森林都记得。", 72);
   const body = clean((source && source.body) || quote, 96);
   const status = individual ? individual.status : "active";
-  const moment = { type, day: (source && source.day) || day, individualId, name, species, body, status };
+  const moment = {
+    type,
+    relayKind,
+    sourceKind,
+    sourceTitle: clean((source && (source.title || source.themeLabel)) || (dailyLetter && dailyLetter.title) || "", 48),
+    day: (source && source.day) || day,
+    individualId,
+    name,
+    species,
+    body,
+    status
+  };
   if (forestRemembers && !source) {
     return Object.assign(moment, {
       kind: "collection_memory",
@@ -102,6 +116,26 @@ function shareMoment(world, event = null, dailyLetter = null) {
       text: `第${moment.day}日，${name}第一次走进保护区。它不是抽到的奖励，而是安全和生态一起变好后才愿意现身。来替我见证这一刻。`,
       imageUrl: SHARE_IMAGES.rare,
       callToAction: "来见证它第一次出现"
+    });
+  }
+  if (["chapterRescue", "poacherRescue"].includes(type)) {
+    return Object.assign(moment, {
+      kind: "rescue",
+      label: "解救事件",
+      title: `我把${name}带回了保护区`,
+      text: `第${moment.day}日，${name}从困住它的路线中获救。${body || "愿意来替它留下守护接力吗？"}`,
+      imageUrl: SHARE_IMAGES.rescue,
+      callToAction: "为这次解救留下守护接力"
+    });
+  }
+  if (type === "realNature") {
+    return Object.assign(moment, {
+      kind: "realNature",
+      label: "真实事件",
+      title: sourceTitleOrDefault(moment.sourceTitle, "真实事件值得被记住"),
+      text: `第${moment.day}日，${body || "保护区记录了一次人与动物共同面对的真实变化。"} 愿意来留下守护接力吗？`,
+      imageUrl: SHARE_IMAGES.warm,
+      callToAction: "为真实事件留下守护接力"
     });
   }
   if (["injury", "departure"].includes(type) || (type === "strategic_permanent" && ["departed", "dead"].includes(status))) {
@@ -159,16 +193,22 @@ function shareMoment(world, event = null, dailyLetter = null) {
     callToAction: "来听听它今天想说什么"
   });
 }
-
+function sourceTitleOrDefault(title, fallback) {
+  return clean(title || fallback, 48);
+}
 function sharePayload(world, event = null, dailyLetter = null) {
   const moment = shareMoment(world, event, dailyLetter);
   const serial = clean((((world || {}).reserve || {}).base || {}).serial || "0000", 8);
-  const shareId = `${serial}_${moment.day}_${moment.type}_${moment.individualId}`.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
+  const shareId = `${serial}_${moment.day}_${moment.relayKind}_${moment.type}_${moment.individualId}`.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
   const params = {
     share: "guardian",
     sid: shareId,
     kind: moment.kind,
     type: moment.type,
+    rk: moment.relayKind,
+    sk: moment.sourceKind,
+    iid: moment.individualId,
+    st: moment.sourceTitle,
     name: moment.name,
     species: moment.species,
     day: `${moment.day}`
@@ -176,7 +216,6 @@ function sharePayload(world, event = null, dailyLetter = null) {
   const query = Object.keys(params).map((key) => `${key}=${encodeURIComponent(params[key])}`).join("&");
   return Object.assign({}, moment, { shareId, query });
 }
-
 function parseShareInvite(options = {}) {
   const query = normalizeShareQuery(options);
   if (decodeShareValue(query.share) !== "guardian") return null;
@@ -186,46 +225,107 @@ function parseShareInvite(options = {}) {
     shareId,
     kind: clean(decodeShareValue(query.kind || "daily"), 16),
     type: clean(decodeShareValue(query.type || "daily"), 24),
+    relayKind: clean(decodeShareValue(query.rk || query.relayKind || ""), 24),
+    sourceKind: clean(decodeShareValue(query.sk || query.sourceKind || "animal"), 16),
+    individualId: clean(decodeShareValue(query.iid || query.individualId || ""), 36),
+    sourceTitle: clean(decodeShareValue(query.st || query.sourceTitle || ""), 48),
     name: clean(decodeShareValue(query.name || "森林居民"), 16),
     species: clean(decodeShareValue(query.species || "动物"), 12),
     day: Math.max(1, Math.min(99999, Math.round(Number(decodeShareValue(query.day)) || 1)))
   };
 }
-
 function hasAssistedShare(state, shareId) {
   return ((((state || {}).ui || {}).shareAssistances) || []).some((item) => item.shareId === shareId);
 }
-
 function applyShareAssistance(state, invite) {
   if (!state || !state.character || !invite || !invite.shareId) return { applied: false, reason: "not_ready" };
   state.ui = Object.assign({}, state.ui || {});
   state.ui.shareAssistances = (state.ui.shareAssistances || []).slice(-39);
   if (hasAssistedShare(state, invite.shareId)) return { applied: false, reason: "duplicate", invite };
   const reserve = state.world.reserve || {};
+  const day = state.world.day || 1;
+  const relayKind = invite.relayKind || (invite.kind === "rescue" ? "rescue_event" : "animal_letter");
+  const sourceKind = invite.sourceKind || "animal";
   const before = { reputation: reserve.reputation || 0, trust: 0 };
   reserve.reputation = Math.min(100, before.reputation + 1);
   let helpedAnimal = null;
-  state.world.knownCharacters = (state.world.knownCharacters || []).map((animal) => {
-    if (helpedAnimal || animal.species !== invite.species) return animal;
+  let helpedAnimalId = null;
+  let relationBefore = 0;
+  let relationAfter = 0;
+  const speciesMatches = (animal) => {
+    if (!animal) return false;
+    if (invite.individualId && [animal.id, animal.individualId].filter(Boolean).map(String).includes(String(invite.individualId))) return true;
+    const speciesId = animal.speciesId || "";
+    const knownName = speciesId && SPECIES_DB[speciesId] ? SPECIES_DB[speciesId].name : "";
+    return [animal.species, speciesId, knownName].filter(Boolean).some((value) => String(value) === String(invite.species));
+  };
+  const updateAnimal = (animal) => {
     const relation = Object.assign({}, animal.relation || {});
-    before.trust = relation.trust || 40;
-    relation.trust = Math.min(100, before.trust + 1);
-    helpedAnimal = animal.name || animal.shortName || invite.name;
-    return Object.assign({}, animal, { relation, memory: (animal.memory || []).concat(`第${state.world.day || 1}日：一位好友为${invite.name}留下了守护接力。`).slice(-5) });
+    const currentTrust = relation.trust || 40;
+    if (!helpedAnimal) {
+      relationBefore = currentTrust;
+      relationAfter = Math.min(100, currentTrust + 1);
+      helpedAnimal = animal.name || animal.shortName || invite.name;
+      helpedAnimalId = animal.id || animal.individualId || invite.individualId || null;
+    }
+    relation.trust = Math.min(100, currentTrust + 1);
+    relation.friendRelayCount = Math.max(0, Math.round(Number(relation.friendRelayCount) || 0)) + 1;
+    relation.lastFriendRelay = { day, relayKind, sourceTitle: invite.sourceTitle || invite.name };
+    const memoryLine = relayKind === "rescue_event"
+      ? `第${day}日：一位好友为${invite.name}的解救事件留下了守护接力。`
+      : relayKind === "real_event"
+        ? `第${day}日：一位好友为这次真实事件留下了守护接力。`
+        : `第${day}日：一位好友读过${invite.name}的来信，并留下了守护接力。`;
+    return Object.assign({}, animal, {
+      relation,
+      memory: (animal.memory || []).concat(memoryLine).slice(-5)
+    });
+  };
+  state.world.knownCharacters = (state.world.knownCharacters || []).map((animal) => {
+    if (!speciesMatches(animal)) return animal;
+    return updateAnimal(animal);
   });
-  const record = { shareId: invite.shareId, day: state.world.day || 1, sourceDay: invite.day, name: invite.name, species: invite.species, kind: invite.kind };
-  state.ui.shareAssistances.push(record);
-  state.ui.shareStats = Object.assign({}, state.ui.shareStats || {}, { received: ((state.ui.shareStats || {}).received || 0) + 1 });
-  state.world.shareHistory = ((state.world.shareHistory || []).concat(Object.assign({ direction: "received" }, record))).slice(-20);
   const lifeMemory = normalizeLifeMemory(state.world);
-  lifeMemory.memories.push({
-    id: `memory_share_${invite.shareId}`,
-    day: state.world.day || 1,
-    type: "friend_assist",
+  lifeMemory.individuals = (lifeMemory.individuals || []).map((animal) => {
+    if (!speciesMatches(animal)) return animal;
+    return updateAnimal(animal);
+  });
+  const record = {
+    shareId: invite.shareId,
+    day,
+    sourceDay: invite.day,
     name: invite.name,
     species: invite.species,
-    title: `好友为${invite.name}留下守护接力`,
-    body: `这次接力让共护关系提升 ${reserve.reputation - before.reputation}${helpedAnimal ? `，也让${helpedAnimal}更愿意相信人类` : ""}。`,
+    kind: invite.kind,
+    relayKind,
+    sourceKind,
+    sourceTitle: invite.sourceTitle || "",
+    guardianName: ((state.character || {}).name || "好友").slice(0, 24),
+    recordedAt: Date.now()
+  };
+  state.ui.shareAssistances.push(record);
+  state.ui.shareStats = Object.assign({}, state.ui.shareStats || {}, {
+    received: ((state.ui.shareStats || {}).received || 0) + 1,
+    guardianRelayReceived: ((state.ui.shareStats || {}).guardianRelayReceived || 0) + 1
+  });
+  state.world.shareHistory = ((state.world.shareHistory || []).concat(Object.assign({ direction: "received" }, record))).slice(-20);
+  state.world.guardianRelayHistory = ((state.world.guardianRelayHistory || []).concat(record)).slice(-40);
+  lifeMemory.memories.push({
+    id: `memory_share_${invite.shareId}`,
+    day,
+    type: "friend_assist",
+    individualId: helpedAnimalId || invite.individualId || "",
+    speciesId: invite.speciesId || "",
+    name: invite.name,
+    species: invite.species,
+    relayKind,
+    sourceTitle: invite.sourceTitle || "",
+    title: relayKind === "rescue_event"
+      ? `好友为${invite.name}的解救留下守护接力`
+      : relayKind === "real_event"
+        ? "好友为一次真实事件留下守护接力"
+        : `好友为${invite.name}的来信留下守护接力`,
+    body: `这次接力让共护关系提升 ${reserve.reputation - before.reputation}${helpedAnimal ? `，也让${helpedAnimal}的关系文本记下“好友参与过这次守护”` : ""}。`,
     tone: "warm"
   });
   lifeMemory.memories = lifeMemory.memories.slice(-240);
@@ -235,18 +335,17 @@ function applyShareAssistance(state, invite) {
     invite,
     helpedAnimal,
     before,
-    after: { reputation: reserve.reputation, trust: helpedAnimal ? before.trust + 1 : 0 }
+    after: { reputation: reserve.reputation, trust: helpedAnimal ? relationAfter : 0 },
+    relationship: helpedAnimal ? { before: relationBefore, after: relationAfter, delta: relationAfter - relationBefore } : null,
+    relayKind
   };
 }
-
 const SHARE_REWARD_LIMIT_PER_TYPE = 2;
 const SHARE_REWARD_LIMIT_PER_CHAPTER = SHARE_REWARD_LIMIT_PER_TYPE * 2;
 const SHARE_REWARD_RATES = [2, 3];
-
 function wholeCount(value, fallback = 0) {
   return Math.max(0, Math.round(Number(value) || fallback));
 }
-
 function normalizeChapterShareCounts(saved) {
   if (saved && typeof saved === "object" && !Array.isArray(saved)) {
     return {
@@ -260,11 +359,16 @@ function normalizeChapterShareCounts(saved) {
     animals: Math.min(SHARE_REWARD_LIMIT_PER_TYPE, legacy)
   };
 }
-
+function shareRewardChapter(reserve = {}) {
+  const progression = reserve.progression || {};
+  const displayed = Math.round(Number(progression.displayChapter) || 0);
+  const stage = Math.round(Number(progression.stage) || 0);
+  return Math.max(1, displayed || stage || 1);
+}
 function rewardState(input, payload = {}) {
   const state = input && input.world ? input : null;
   const reserve = state ? ((state.world || {}).reserve || {}) : (input || {});
-  const chapter = Math.max(1, Math.round(Number((reserve.progression || {}).stage || (reserve.progression || {}).displayChapter || 1)));
+  const chapter = shareRewardChapter(reserve);
   const chapterCounts = state && state.ui && state.ui.shareRewardChapters || {};
   const counts = normalizeChapterShareCounts(chapterCounts[chapter]);
   const rewardType = isAnimalShare(payload) ? "animals" : "visitors";
@@ -282,19 +386,14 @@ function rewardState(input, payload = {}) {
     totalRemaining: Math.max(0, SHARE_REWARD_LIMIT_PER_CHAPTER - counts.visitors - counts.animals)
   };
 }
-
 function animalTotal(reserve = {}) {
   return Math.max(0, Math.round(Number(livingAnimalTotal(reserve)) || 0));
 }
-
 function isAnimalShare(payload = {}) {
-  // 奖励类型只跟发起入口走：游客入口永远加游客，动物入口永远加动物。
-  // 邮件主动分享先随机盖章 rewardType，再走这里；不能靠 species/kind 猜测。
   if (payload.rewardType === "animals" || payload.sourceKind === "animal") return true;
   if (payload.rewardType === "visitors" || payload.sourceKind === "visitor") return false;
   return ["rare", "rescue", "return", "birth", "death", "injury", "departure", "memory"].includes(payload.kind);
 }
-
 function pickActiveShareRewardType(input, random = Math.random) {
   const animal = shareRewardPreview(input, { rewardType: "animals", sourceKind: "animal" });
   const visitor = shareRewardPreview(input, { rewardType: "visitors", sourceKind: "visitor" });
@@ -308,7 +407,24 @@ function pickActiveShareRewardType(input, random = Math.random) {
   }
   return options[Number(random()) < 0.5 ? 0 : 1];
 }
-
+function shareRewardBoardRow(preview = {}) {
+  const label = preview.label === "动物" ? "动物" : "游客";
+  const eligible = !!preview.eligible;
+  const used = Math.max(0, Number(preview.used) || 0);
+  const limit = Math.max(1, Number(preview.limit) || SHARE_REWARD_LIMIT_PER_TYPE);
+  const speciesLabel = preview.speciesLabel || "本章种群";
+  return {
+    eligible,
+    muted: !eligible,
+    title: eligible ? `获得${label} · +${preview.amount}${preview.unit || ""}` : `获得${label}`,
+    titleColor: eligible ? "#1c3325" : "#6b746f",
+    body: eligible
+      ? (preview.rewardType === "animals"
+        ? `截下第${preview.chapter || 1}章的${speciesLabel}。完成微信分享后增加 ${preview.amount}${preview.unit || ""}。本章还可 ${preview.remaining}/${limit} 次。`
+        : `把游客带到第${preview.chapter || 1}章的${speciesLabel}身边。完成微信分享后增加 ${preview.amount}${preview.unit || ""}。本章还可 ${preview.remaining}/${limit} 次。`)
+      : `本章获得${label}已用完 ${used}/${limit} 次。再分享无效，不会增加${label}。进入下一章后次数重置。`
+  };
+}
 function shareRewardPreview(input, payload = {}) {
   const context = rewardState(input, payload);
   const rewardType = context.rewardType;
@@ -316,6 +432,7 @@ function shareRewardPreview(input, payload = {}) {
   const percent = SHARE_REWARD_RATES[Math.min(context.used, SHARE_REWARD_RATES.length - 1)];
   const amount = Math.max(1, Math.round(base * percent / 100));
   const unit = rewardType === "animals" ? "只" : "人";
+  const featured = chapterFeaturedSpecies(context.chapter);
   const otherType = rewardType === "animals" ? "visitors" : "animals";
   return {
     rewardType,
@@ -326,6 +443,9 @@ function shareRewardPreview(input, payload = {}) {
     label: rewardType === "animals" ? "动物" : "游客",
     otherLabel: otherType === "animals" ? "动物" : "游客",
     chapter: context.chapter,
+    speciesId: featured.id,
+    speciesLabel: featured.label,
+    speciesName: featured.name,
     used: context.used,
     remaining: context.remaining,
     eligible: context.remaining > 0,
@@ -336,28 +456,10 @@ function shareRewardPreview(input, payload = {}) {
     otherRemaining: Math.max(0, SHARE_REWARD_LIMIT_PER_TYPE - context.counts[otherType])
   };
 }
-
 function addAnimalShareReward(reserve, amount) {
-  const ecology = reserve.ecology || (reserve.ecology = {});
-  const captive = chapterCaptiveSpeciesSet(reserve);
-  ["predators", "herbivores", "birds"].forEach((group) => { ecology[group] = ecology[group] || {}; });
-  const candidates = Object.keys(SPECIES_DB).map((id) => {
-    const species = SPECIES_DB[id] || {};
-    const group = speciesPopulationGroup(id);
-    const current = Math.max(0, Math.round(Number(ecology[group][id]) || 0));
-    const max = Math.max(current, Math.round(Number(species.maxPop) || current + amount));
-    return { id, group, current, max, unlocked: !(species.unlockChapter && species.unlockChapter > Number((reserve.progression || {}).stage || 1)) };
-  }).filter((item) => item.unlocked && !captive.has(item.id) && item.current > 0 && item.current < item.max)
-    .sort((a, b) => (b.current - a.current) || a.id.localeCompare(b.id));
-  if (!candidates.length) return { added: 0, before: animalTotal(reserve), after: animalTotal(reserve) };
-  const target = candidates[0];
-  const before = animalTotal(reserve);
-  const added = Math.min(Math.max(0, Math.round(Number(amount) || 0)), target.max - target.current);
-  ecology[target.group][target.id] = target.current + added;
-  if (added > 0) recordIncrease(reserve, "shared", added);
-  return { added, before, after: animalTotal(reserve), speciesId: target.id };
+  const { addLivingAnimals } = require("./animalSourceLedger");
+  return addLivingAnimals(reserve, amount, "shared");
 }
-
 function applyShareReward(state, payload = {}) {
   if (!state || !state.world || !payload) return { applied: false, reason: "not_ready" };
   state.ui = Object.assign({}, state.ui || {});
@@ -394,7 +496,6 @@ function applyShareReward(state, payload = {}) {
   });
   return { applied: true, reward };
 }
-
 function recordShareSent(state, payload) {
   if (!state || !payload) return { applied: false, reason: "not_ready" };
   state.ui = Object.assign({}, state.ui || {});
@@ -404,11 +505,22 @@ function recordShareSent(state, payload) {
   const shareStats = state.ui.shareStats || {};
   state.ui.shareStats = Object.assign({}, shareStats, { sent: Math.max(0, Math.round(Number(shareStats.sent) || 0)) + (duplicate ? 0 : 1) });
   const rewardResult = applyShareReward(state, payload);
-  const record = { direction: "sent", shareId: payload.shareId, day: (state.world && state.world.day) || 1, name: payload.name, species: payload.species, kind: payload.kind, recordedAt: now, reward: rewardResult.reward || null };
+  const record = {
+    direction: "sent",
+    shareId: payload.shareId,
+    day: (state.world && state.world.day) || 1,
+    name: payload.name,
+    species: payload.species,
+    kind: payload.kind,
+    relayKind: payload.relayKind || "",
+    sourceKind: payload.sourceKind || "",
+    sourceTitle: payload.sourceTitle || "",
+    recordedAt: now,
+    reward: rewardResult.reward || null
+  };
   state.world.shareHistory = ((state.world.shareHistory || []).concat(record)).slice(-20);
   return Object.assign({ applied: true }, rewardResult);
 }
-
 module.exports = {
   SHARE_IMAGES,
   decodeShareValue,
@@ -420,6 +532,7 @@ module.exports = {
   applyShareAssistance,
   recordShareSent,
   shareRewardPreview,
+  shareRewardBoardRow,
   pickActiveShareRewardType,
   applyShareReward,
   SHARE_REWARD_LIMIT_PER_TYPE,

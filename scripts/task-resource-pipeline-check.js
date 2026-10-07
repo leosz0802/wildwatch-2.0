@@ -2,6 +2,8 @@ const assert = require("assert");
 const { createCharacter } = require("../js/storage");
 const { simulateDay } = require("../js/simulator");
 const { applyGoalProgress, normalizeGoalState, buildGoalView, actionExecutable } = require("../js/goalSystem");
+const { chapterTargets, applyChapterVisitorDelta, chapterVisitorTotal, chapterAnimalTotal } = require("../js/chapterTargets");
+const { recordIncrease } = require("../js/animalSourceLedger");
 
 function fakeContext() {
   const gradient = { addColorStop() {} };
@@ -135,7 +137,7 @@ assert(!Object.prototype.hasOwnProperty.call(reserve, "actionPoints") && !Object
 
 state = suppressGoalRewards(fullySupplied("生态干预"));
 before = clone(state.world.reserve);
-result = run("执行许可内生态干预：麻醉转移过密鹿群", state);
+result = run("执行许可内生态干预：阻滞转移过密鹿群", state);
 reserve = result.world.reserve;
 assert.strictEqual(result.visual.actionType, "intervention");
 assert.strictEqual(reserve.supplies.tranquilizer, before.supplies.tranquilizer - 1);
@@ -171,7 +173,7 @@ const commands = [
   "修复水源和草场",
   "驱赶偷猎者：封锁可疑路线",
   "出售研究样本",
-  "执行许可内生态干预：麻醉转移过密鹿群"
+  "执行许可内生态干预：阻滞转移过密鹿群"
 ];
 let previousStep = 0;
 let previousAdvanceAction = -99;
@@ -232,7 +234,18 @@ Object.values((state.world.reserve.chapterRescue || {}).animals || {}).forEach((
   if (record) record.status = "rescued";
 });
 state.world.reserve.ecology.herbivores.deer = Math.max(200, Number(state.world.reserve.ecology.herbivores.deer) || 0);
-state.world.reserve.development.operations.totalVisitors = 100;
+state.world.reserve.ecology.herbivores.antelope = Math.max(1, Number(state.world.reserve.ecology.herbivores.antelope) || 0);
+state.world.reserve.development.operations.totalVisitors = Math.max(100, Number(state.world.reserve.development.operations.totalVisitors) || 0);
+applyChapterVisitorDelta(
+  state.world.reserve,
+  Math.max(0, chapterTargets(1).visitors - chapterVisitorTotal(state.world.reserve)),
+  "task"
+);
+recordIncrease(
+  state.world.reserve,
+  "tasked",
+  Math.max(0, chapterTargets(1).animals - chapterAnimalTotal(state.world.reserve) + 20)
+);
 result = run("驱赶偷猎者：封锁可疑路线", state, 0.99);
 state = Object.assign({}, state, { world: result.world, character: result.character, reports: result.reports });
 assert((state.world.reserve.eventChain.step || 0) >= 3, "进入后半章后剧情应从第3段继续，不能重置或卡住");

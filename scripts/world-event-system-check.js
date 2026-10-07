@@ -22,7 +22,7 @@ base.progression = Object.assign({}, base.progression || {}, {
 });
 function afterChapterRealEvent(reserve) {
   return Object.assign({}, reserve, {
-    emergency: Object.assign({}, reserve.emergency || {}, { realNatureChapter: 1 })
+    emergency: Object.assign({}, reserve.emergency || {}, { realNatureChapter: 1, realNatureChapterCount: 2 })
   });
 }
 assert(/^real_nature_/.test(worldEventTriggerType(Object.assign({}, base, { poacherPressure: 70 }), { name: "雨季" }, () => .99)), "chapter one must latch a real event even under poacher pressure");

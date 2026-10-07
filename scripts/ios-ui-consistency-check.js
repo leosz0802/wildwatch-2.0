@@ -49,6 +49,15 @@ function requireSource(fragment, message) {
   "leather: \"#173c2e\"",
   "paper: \"#f6efdd\"",
   "const UI_FONT_STACK",
+  "const UI_TEXT = Object.freeze",
+  "const UI_METRICS = Object.freeze",
+  "const UI_PILL = Object.freeze",
+  "label: 11",
+  "auxiliary: 10",
+  "modalButtonHeight: 44",
+  '["materialWarehouse", "fundRelief", "environmentMetric", "sandboxBrief"].includes(modal.kind)',
+  "const hiddenGlyphSize = this.normalizeTypeSize",
+  'this.text(ctx, row.mine ? "我的市值 ›" : "市值 ›", x + w - 14, y + rowH * 0.76, 10',
   "controlRole(fill, onTap)",
   "controlStyle(role, fill, color)",
   "drawPremiumParchmentPanel(ctx, x, y, w, h",
@@ -60,6 +69,9 @@ function requireSource(fragment, message) {
 [
   "#9adfc4", "#88d18b", "#78c7b3", "#f2ad79", "#82c9dc",
   "ctx.font = `700 ${layout.title.size}px sans-serif`",
+  "px sans-serif`",
+  'y + rowH * 0.76, 8, "#7a847e"',
+  "Math.round(size * .30)}px",
   "activeFill.addColorStop",
   "header.close.h, 12, \"#b76b63\""
 ].forEach((fragment) => {
@@ -70,6 +82,8 @@ requireSource('this.roundRect(ctx, 2, y, this.width - 4, navH + 8, 18, "#f5ecd7"
 requireSource('ctx.fillStyle = "rgba(12,18,15,.48)"', "modal veil is not standardized");
 requireSource('this.drawPremiumParchmentPanel(ctx, x, y, w, dockH, 18, { rivets: true })', "map information dock is not using the premium parchment surface");
 requireSource('this.roundRect(ctx, x, safeY, bubbleW, bubbleH, 8, "rgba(255,255,255,.94)"', "map dialogue bubbles are not standardized");
+requireSource('this.text(ctx, "待开放", cx + 19, y + 16, 9', "bottom navigation locked label is below the readable minimum");
+requireSource('const bodyInset = this.width <= 340 ? 12 : 16', "compact modal does not reclaim horizontal reading space");
 
 const game = new Game();
 if (game.stopLoop) game.stopLoop();
@@ -105,6 +119,10 @@ game.scrollY = 0;
   }
   const closeHit = game.hitAreas.find((area) => area.w >= 44 && area.h >= 44 && area.x > width * .68);
   if (!closeHit) throw new Error(`${width}x${height}: modal close target is smaller than the iOS 44pt target`);
+  game.hitAreas = [];
+  game.modalButton(ctx, 20, 200, width - 40, 36, "确认行动", "#1c3325", () => {});
+  const ctaHit = game.hitAreas.find((area) => area.w === width - 40 && area.h >= 44);
+  if (!ctaHit) throw new Error(`${width}x${height}: modal CTA is smaller than the shared 44pt control baseline`);
   game.infoDetailModal = null;
 });
 

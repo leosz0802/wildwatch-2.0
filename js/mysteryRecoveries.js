@@ -1,5 +1,4 @@
 const { addPendingRecovered } = require("./resourceLedger");
-
 const MYSTERY_RECOVERY_CATALOG = [
   {
     id: "whiteRhinoHornEvidence",
@@ -86,11 +85,9 @@ const MYSTERY_RECOVERY_CATALOG = [
     archive: "账本会把前面追回的零散证物连接成跨区案件，并开启更高强度的执法叙事。"
   }
 ];
-
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
-
 function normalizeMysteryEvidence(saved) {
   const base = saved || {};
   return {
@@ -102,12 +99,10 @@ function normalizeMysteryEvidence(saved) {
     lastDiscovery: base.lastDiscovery ? Object.assign({}, base.lastDiscovery) : null
   };
 }
-
 function mysteryEvidenceCount(reserve) {
   const state = normalizeMysteryEvidence(reserve && reserve.mysteryEvidence);
   return Object.keys(state.evidence).reduce((sum, key) => sum + Math.max(0, state.evidence[key] || 0), 0);
 }
-
 function recoveryEligibility(entry, reserve, context) {
   const progression = reserve.progression || {};
   const eventChain = reserve.eventChain || {};
@@ -130,7 +125,6 @@ function recoveryEligibility(entry, reserve, context) {
     enforcement
   };
 }
-
 function mysteryRecoveryChance(entry, eligibility, state) {
   const pressureBonus = clamp((eligibility.poacher - entry.minPoacher) * 0.0012, 0, 0.018);
   const enforcementBonus = clamp((eligibility.enforcement - entry.minEnforcement) * 0.0008, 0, 0.012);
@@ -138,7 +132,6 @@ function mysteryRecoveryChance(entry, eligibility, state) {
   const pityBonus = clamp(Math.max(0, state.failedEligibleChecks - 10) * 0.0015, 0, 0.055);
   return clamp(entry.baseChance + pressureBonus + enforcementBonus + storyBonus + pityBonus, entry.baseChance, 0.12);
 }
-
 function rollMysteryRecovery(reserve, context = {}, random = Math.random) {
   const state = normalizeMysteryEvidence(reserve.mysteryEvidence);
   state.checksSinceLast += 1;
@@ -146,12 +139,10 @@ function rollMysteryRecovery(reserve, context = {}, random = Math.random) {
     entry,
     gate: recoveryEligibility(entry, reserve, context)
   })).filter((candidate) => !state.discovered[candidate.entry.id] && candidate.gate.eligible);
-
   if (!candidates.length) {
     reserve.mysteryEvidence = state;
     return null;
   }
-
   const candidateIndex = Math.min(candidates.length - 1, Math.floor(clamp(random(), 0, 0.999999) * candidates.length));
   const chosen = candidates[candidateIndex];
   const chance = mysteryRecoveryChance(chosen.entry, chosen.gate, state);
@@ -162,7 +153,6 @@ function rollMysteryRecovery(reserve, context = {}, random = Math.random) {
     reserve.mysteryEvidence = state;
     return null;
   }
-
   const entry = chosen.entry;
   const day = Math.max(1, context.day || 1);
   const discovery = {
@@ -185,7 +175,6 @@ function rollMysteryRecovery(reserve, context = {}, random = Math.random) {
     poacherReduction: entry.poacherReduction,
     trigger: `第${chosen.gate.chapter}章·剧情${chosen.gate.storyStep} / 偷猎${chosen.gate.poacher} / 执法${chosen.gate.enforcement}`
   };
-
   state.evidence[entry.id] = (state.evidence[entry.id] || 0) + 1;
   state.discovered[entry.id] = true;
   state.history = state.history.concat(discovery).slice(-20);
@@ -202,11 +191,9 @@ function rollMysteryRecovery(reserve, context = {}, random = Math.random) {
   });
   return discovery;
 }
-
 function mysteryRecoveryById(id) {
   return MYSTERY_RECOVERY_CATALOG.find((entry) => entry.id === id) || null;
 }
-
 module.exports = {
   MYSTERY_RECOVERY_CATALOG,
   normalizeMysteryEvidence,

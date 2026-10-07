@@ -1,9 +1,8 @@
 "use strict";
-
 const { proposeAutoExchange, proposalWithWant, settleAutoExchange, wildernessTradeDailyUsage, wildernessFindById, sandboxExchangeIconReady, consumeSandboxExchangeIcon } = require("./wildernessKnowledge");
 const { chapterSpecialDef, applySpecialMetric, METRIC_LABELS, changeSummary } = require("./chapterSpecialSystem");
-
 const AID_FRACTION = 1 / 3;
+const FRIEND_AID_FALLBACK_MS = 24 * 60 * 60 * 1000;
 const LOCAL_ALLY = Object.freeze({ id: "npc_ache", name: "阿澈", simulated: true });
 const NPC_PARTNERS = Object.freeze([
   LOCAL_ALLY,
@@ -17,30 +16,26 @@ const ITEM_BY_METRIC = Object.freeze({
   visitors: "quartz_signal",
   fund: "gourd_container"
 });
-
 function n(value) {
   return Math.max(0, Math.round(Number(value) || 0));
 }
-
 function chapterOf(reserve = {}) {
   const progression = reserve.progression || {};
-  return Math.max(1, Math.min(20, n(progression.stage || progression.displayChapter || 1)));
+  return Math.max(1, Math.min(18, n(progression.stage || progression.displayChapter || 1)));
 }
-
 function emptyState(chapter) {
   return {
-    version: 2,
-    chapter: Math.max(1, Math.min(20, n(chapter) || 1)),
+    version: 3,
+    chapter: Math.max(1, Math.min(18, n(chapter) || 1)),
     request: null,
     incoming: null,
-    used: false
+    used: false,
+    history: []
   };
 }
-
 function namedAlly(friends = [], now = Date.now()) {
   return matchExchangePartner(friends, now);
 }
-
 function matchExchangePartner(friends = [], now = Date.now(), preferred = null) {
   if (preferred && preferred.id && preferred.simulated !== true && !preferred.mine) {
     return {
@@ -65,18 +60,15 @@ function matchExchangePartner(friends = [], now = Date.now(), preferred = null) 
   const npc = NPC_PARTNERS[0];
   return Object.assign({ channel: "friends" }, npc);
 }
-
 function itemForMetric(metric) {
   const id = ITEM_BY_METRIC[metric] || "resin_tinder";
   const item = wildernessFindById(id);
   return { id, label: (item && item.label) || "求援包裹" };
 }
-
 function aidAmount(def, metric) {
   const success = Math.abs(n((def.success || {})[metric]));
   return Math.max(1, Math.round(success * AID_FRACTION));
 }
-
 function normalizeParcel(entry, chapter) {
   if (!entry || typeof entry !== "object") return null;
   const status = ["sealed", "opened", "used"].includes(entry.status) ? entry.status : "sealed";
@@ -94,7 +86,7 @@ function normalizeParcel(entry, chapter) {
     itemLabel: String(entry.itemLabel || item.label).slice(0, 24),
     offerId: String(entry.offerId || "").slice(0, 40),
     offerLabel: String(entry.offerLabel || "").slice(0, 24),
-    chapter: Math.max(1, Math.min(20, n(entry.chapter) || chapter)),
+    chapter: Math.max(1, Math.min(18, n(entry.chapter) || chapter)),
     metric: metric || "",
     reason: String(entry.reason || "").slice(0, 180),
     createdAt: n(entry.createdAt) || Date.now(),
@@ -103,43 +95,58 @@ function normalizeParcel(entry, chapter) {
     source: ["sandbox", "league"].includes(entry.source) ? entry.source : "sandbox"
   };
 }
-
 function normalizeFriendAid(reserve = {}) {
   const chapter = chapterOf(reserve);
   const previous = reserve.friendAid || {};
+  const pendingRequest = !!(previous.request && typeof previous.request === "object"
+    && previous.request.status === "pending");
+  const exchangeInbox = !!(previous.incoming && typeof previous.incoming === "object"
+    && previous.incoming.kind === "exchange"
+    && ["sealed", "opened"].includes(previous.incoming.status));
   const sameChapter = n(previous.chapter) === chapter;
-  const state = sameChapter ? Object.assign(emptyState(chapter), previous, { chapter }) : emptyState(chapter);
+  const keepAcrossChapter = pendingRequest || exchangeInbox;
+  const state = (sameChapter || keepAcrossChapter)
+    ? Object.assign(emptyState(chapter), previous, { chapter })
+    : emptyState(chapter);
   state.used = !!state.used;
-  state.incoming = normalizeParcel(state.incoming, chapter);
-  if (state.incoming && state.incoming.chapter !== chapter) state.incoming = null;
+  const incomingOriginalChapter = n((state.incoming || {}).chapter) || chapter;
+  state.incoming = normalizeParcel(state.incoming, exchangeInbox ? incomingOriginalChapter : chapter);
+  if (state.incoming && state.incoming.chapter !== chapter && state.incoming.kind !== "exchange") state.incoming = null;
   if (state.request && typeof state.request === "object") {
     state.request = {
       id: String(state.request.id || `aid_req_${chapter}`).slice(0, 80),
-      status: state.request.status === "sent" ? "sent" : "waiting",
+      status: ["pending", "sent", "accepted", "fallback", "completed", "waiting"].includes(state.request.status)
+        ? state.request.status : "waiting",
       regionId: String(state.request.regionId || "meadow").slice(0, 24),
       friendId: String(state.request.friendId || "").slice(0, 48),
       friendName: String(state.request.friendName || "").slice(0, 16),
+      partnerKind: state.request.partnerKind === "npc" ? "npc" : "player",
       offerId: String(state.request.offerId || "").slice(0, 40),
       offerLabel: String(state.request.offerLabel || "").slice(0, 24),
       wantId: String(state.request.wantId || "").slice(0, 40),
       wantLabel: String(state.request.wantLabel || "").slice(0, 24),
       createdAt: n(state.request.createdAt) || Date.now(),
-      sentAt: n(state.request.sentAt) || 0
+      sentAt: n(state.request.sentAt) || 0,
+      fallbackAt: n(state.request.fallbackAt) || 0,
+      expiresAt: n(state.request.expiresAt) || 0,
+      resolvedAt: n(state.request.resolvedAt) || 0,
+      resolution: String(state.request.resolution || "").slice(0, 24)
     };
   } else {
     state.request = null;
   }
+  state.history = (Array.isArray(state.history) ? state.history : [])
+    .filter((entry) => entry && typeof entry === "object")
+    .slice(-24);
   if (state.used && state.incoming) state.incoming.status = "used";
   reserve.friendAid = state;
   return state;
 }
-
 function ensureFriendAid(reserve = {}, now = Date.now()) {
   const state = normalizeFriendAid(reserve);
   reserve.friendAid = state;
   return state;
 }
-
 function friendAidStatus(reserve = {}, now = Date.now()) {
   const state = ensureFriendAid(reserve, now);
   const incoming = state.incoming;
@@ -148,20 +155,25 @@ function friendAidStatus(reserve = {}, now = Date.now()) {
   const usage = wildernessTradeDailyUsage(reserve, day);
   const waitingResult = !!(incoming && incoming.status === "sealed");
   const specialParcel = !!(incoming && incoming.kind !== "exchange" && incoming.metric);
+  const waitingResponse = !!(state.request && state.request.status === "pending");
+  const fallbackReady = waitingResponse && (
+    !state.request.fallbackAt || Number(now) >= state.request.fallbackAt
+  );
   return {
     state,
     chapter: state.chapter,
     used: !!state.used,
     proposal,
     usage,
-    canRequest: !waitingResult && !!proposal && usage.remaining > 0,
+    canRequest: !waitingResult && !waitingResponse && !!proposal && usage.remaining > 0,
     canOpen: waitingResult,
     canUse: !state.used && !!(incoming && incoming.status === "opened" && specialParcel),
     incoming,
-    request: state.request
+    request: state.request,
+    waitingResponse,
+    fallbackReady
   };
 }
-
 function sendFriendAidRequest(reserve = {}, friends = [], now = Date.now(), options = {}) {
   const status = friendAidStatus(reserve, now);
   if (status.canOpen) return { ok: false, reason: "incoming", status };
@@ -174,6 +186,56 @@ function sendFriendAidRequest(reserve = {}, friends = [], now = Date.now(), opti
   const partner = matchExchangePartner(friends, stamp, options.partner || null);
   if (options.channel === "world" || options.channel === "friends") partner.channel = options.channel;
   const day = n(((reserve.guardianCycle || {}).day) || options.day || 1) || 1;
+  const state = status.state;
+  /*
+   * A named real friend is a real request now. Keep the offered item in the
+   * sender's stock until the friend confirms. The UI can fall back to a
+   * patrol NPC after the short timeout so a missing response never blocks
+   * the player.
+   */
+  if (options.deferRealFriend && partner.simulated !== true) {
+    const request = {
+      id: `aid_req_${state.chapter}_${stamp}`,
+      status: "pending",
+      regionId: "meadow",
+      friendId: partner.id,
+      friendName: partner.name,
+      partnerKind: "player",
+      offerId: proposal.offer.id,
+      offerLabel: proposal.offer.label,
+      wantId: proposal.want.id,
+      wantLabel: proposal.want.label,
+      createdAt: stamp,
+      sentAt: stamp,
+      fallbackAt: stamp + FRIEND_AID_FALLBACK_MS,
+      expiresAt: stamp + FRIEND_AID_FALLBACK_MS,
+      resolvedAt: 0,
+      resolution: ""
+    };
+    state.request = request;
+    state.incoming = null;
+    state.used = false;
+    state.history = (state.history || []).concat({
+      type: "request",
+      status: "pending",
+      id: request.id,
+      friendId: partner.id,
+      friendName: partner.name,
+      offerId: proposal.offer.id,
+      wantId: proposal.want.id,
+      createdAt: stamp
+    }).slice(-24);
+    reserve.friendAid = state;
+    return {
+      ok: true,
+      pending: true,
+      proposal,
+      partner: Object.assign({}, partner, { kind: "player", label: partner.name }),
+      request,
+      summary: `已发给${partner.name}，等待对方确认`,
+      status: friendAidStatus(reserve, stamp)
+    };
+  }
   const settled = settleAutoExchange(reserve, proposal, partner, {
     day,
     createdAt: stamp,
@@ -181,20 +243,35 @@ function sendFriendAidRequest(reserve = {}, friends = [], now = Date.now(), opti
   });
   if (!settled.ok) return { ok: false, reason: settled.reason || "settle", status };
   consumeSandboxExchangeIcon(reserve, stamp);
-  const state = status.state;
   state.request = {
     id: `aid_req_${state.chapter}_${stamp}`,
     status: "sent",
     regionId: "meadow",
     friendId: partner.id,
     friendName: settled.partner.label,
+    partnerKind: settled.partner.kind,
     offerId: proposal.offer.id,
     offerLabel: proposal.offer.label,
     wantId: proposal.want.id,
     wantLabel: proposal.want.label,
     createdAt: stamp,
-    sentAt: stamp
+    sentAt: stamp,
+    fallbackAt: 0,
+    expiresAt: 0,
+    resolvedAt: stamp,
+    resolution: partner.simulated === true ? "npc" : "immediate"
   };
+  state.history = (state.history || []).concat({
+    type: "settlement",
+    status: "completed",
+    id: state.request.id,
+    friendId: partner.id,
+    friendName: settled.partner.label,
+    partnerKind: partner.simulated === true ? "npc" : "player",
+    createdAt: stamp,
+    resolvedAt: stamp,
+    resolution: partner.simulated === true ? "npc" : "immediate"
+  }).slice(-24);
   state.incoming = {
     id: settled.tradeId,
     kind: "exchange",
@@ -225,7 +302,86 @@ function sendFriendAidRequest(reserve = {}, friends = [], now = Date.now(), opti
     status: friendAidStatus(reserve, stamp)
   };
 }
-
+function settlePendingFriendAid(reserve = {}, friends = [], now = Date.now(), options = {}) {
+  const status = friendAidStatus(reserve, now);
+  const request = status.request;
+  if (!request || request.status !== "pending") {
+    return { ok: false, reason: request ? "resolved" : "missing", status };
+  }
+  const stamp = Number(now) || Date.now();
+  const expired = !!options.forceFallback
+    || (request.fallbackAt && stamp >= request.fallbackAt)
+    || (request.expiresAt && stamp >= request.expiresAt);
+  if (!expired && options.accept !== true) {
+    return { ok: false, reason: "waiting", request, status };
+  }
+  const realPartner = !options.forceFallback && options.accept === true
+    ? matchExchangePartner(friends, stamp, { id: request.friendId, name: request.friendName, simulated: false })
+    : null;
+  const partner = realPartner || Object.assign({}, LOCAL_ALLY, { channel: "friends" });
+  const proposal = proposalWithWant(reserve, request.wantId);
+  if (!proposal || proposal.offer.id !== request.offerId) {
+    return { ok: false, reason: "stock_changed", request, status };
+  }
+  const day = n(((reserve.guardianCycle || {}).day) || 1) || 1;
+  const settled = settleAutoExchange(reserve, proposal, partner, {
+    day,
+    createdAt: stamp,
+    source: "league"
+  });
+  if (!settled.ok) return { ok: false, reason: settled.reason || "settle", request, status };
+  consumeSandboxExchangeIcon(reserve, stamp);
+  const state = status.state;
+  request.status = realPartner ? "accepted" : "fallback";
+  request.partnerKind = realPartner ? "player" : "npc";
+  request.resolvedAt = stamp;
+  request.resolution = realPartner ? "friend_confirmed" : "npc_fallback";
+  state.request = request;
+  state.history = (state.history || []).concat({
+    type: "settlement",
+    status: request.status,
+    id: request.id,
+    friendId: request.friendId,
+    friendName: request.friendName,
+    partnerKind: request.partnerKind,
+    createdAt: request.createdAt,
+    resolvedAt: stamp,
+    resolution: request.resolution
+  }).slice(-24);
+  state.incoming = {
+    id: settled.tradeId,
+    kind: "exchange",
+    status: "sealed",
+    friendId: request.friendId,
+    friendName: realPartner ? request.friendName : `${LOCAL_ALLY.name}（巡护员）`,
+    partnerKind: realPartner ? "player" : "npc",
+    itemId: proposal.want.id,
+    itemLabel: proposal.want.label,
+    offerId: proposal.offer.id,
+    offerLabel: proposal.offer.label,
+    chapter: state.chapter,
+    metric: "",
+    reason: realPartner
+      ? `${request.friendName}确认了这次交换。`
+      : `好友暂未回应，${LOCAL_ALLY.name}先代为完成这次交换。`,
+    createdAt: stamp,
+    openedAt: 0,
+    usedAt: 0,
+    source: "league"
+  };
+  state.used = false;
+  reserve.friendAid = state;
+  return {
+    ok: true,
+    fallback: !realPartner,
+    accepted: !!realPartner,
+    proposal,
+    partner: settled.partner,
+    parcel: state.incoming,
+    summary: settled.summary,
+    status: friendAidStatus(reserve, stamp)
+  };
+}
 function openFriendAidParcel(reserve = {}, now = Date.now()) {
   const status = friendAidStatus(reserve, now);
   const parcel = status.incoming;
@@ -235,7 +391,6 @@ function openFriendAidParcel(reserve = {}, now = Date.now()) {
   reserve.friendAid = status.state;
   return { ok: true, parcel, letter: parcelLetter(parcel), status: friendAidStatus(reserve, now) };
 }
-
 function parcelLetter(parcel = {}) {
   const name = parcel.friendName || LOCAL_ALLY.name;
   const got = parcel.itemLabel || "交换素材";
@@ -255,7 +410,6 @@ function parcelLetter(parcel = {}) {
     body: `${name}写来：\n\n你在沙盘上求援之后，我把${item}封进布包送过去。\n它帮不上整章过关，但特别任务里如果缺一口气，可以拿来补一截${metricLabel}。\n\n拆开后先收着。用不用，等特别任务自己决定。`
   };
 }
-
 function applyFriendAidOnSpecial(reserve = {}, now = Date.now()) {
   const status = friendAidStatus(reserve, now);
   if (status.used) return { ok: false, reason: "used", status };
@@ -285,7 +439,6 @@ function applyFriendAidOnSpecial(reserve = {}, now = Date.now()) {
     status: friendAidStatus(reserve, now)
   };
 }
-
 function friendAidMarkers(reserve = {}, now = Date.now()) {
   const status = friendAidStatus(reserve, now);
   if (status.canOpen && status.incoming) {
@@ -302,6 +455,26 @@ function friendAidMarkers(reserve = {}, now = Date.now()) {
       recommendAction: "openFriendAid",
       recommendLabel: "查看结果",
       intensity: 2,
+      focused: false,
+      visualKind: "friend-aid"
+    }];
+  }
+  if (status.waitingResponse && status.request) {
+    const request = status.request;
+    const ready = status.fallbackReady;
+    return [{
+      id: request.id,
+      type: "friendAidRequest",
+      kind: "friendAid",
+      regionId: request.regionId || "meadow",
+      title: ready ? `好友未回应 · 可由${LOCAL_ALLY.name}接手` : `等待${request.friendName || "好友"}确认`,
+      label: ready ? "转巡护员接手" : "等待好友确认",
+      impact: ready
+        ? "好友没有回应也不会卡住，点击后由巡护员完成并放入收件箱。"
+        : "请求已发出。对方确认后会进入收件箱；24小时后可转由巡护员接手。",
+      recommendAction: "pendingFriendAid",
+      recommendLabel: ready ? "转巡护员接手" : "查看请求",
+      intensity: ready ? 2 : 1,
       focused: false,
       visualKind: "friend-aid"
     }];
@@ -326,7 +499,6 @@ function friendAidMarkers(reserve = {}, now = Date.now()) {
   }
   return [];
 }
-
 module.exports = {
   AID_FRACTION,
   LOCAL_ALLY,
@@ -334,6 +506,7 @@ module.exports = {
   namedAlly,
   matchExchangePartner,
   aidAmount,
+  FRIEND_AID_FALLBACK_MS,
   normalizeFriendAid,
   ensureFriendAid,
   friendAidStatus,
@@ -341,5 +514,6 @@ module.exports = {
   openFriendAidParcel,
   parcelLetter,
   applyFriendAidOnSpecial,
-  friendAidMarkers
+  friendAidMarkers,
+  settlePendingFriendAid
 };

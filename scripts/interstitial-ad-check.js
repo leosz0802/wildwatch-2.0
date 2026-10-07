@@ -30,14 +30,15 @@ async function main() {
   };
   const controller = new InterstitialAdController(runtime, { now: () => now });
 
-  assert.strictEqual(createOptions.adUnitId, "adunit-00c6bce833409f4f", "必须使用已开通的 lucky 插屏广告位");
+  assert.strictEqual(createOptions, null, "构造插屏控制器时不得立刻拉广告");
+  assert.strictEqual(controller.shouldShow({ guardianNight: true, guardianDay: 1 }), true, "首个普通守护日应允许展示插屏");
+  assert.strictEqual(createOptions, null, "探测插屏资格不得创建广告实例");
   assert.strictEqual(INTERSTITIAL_AD_CONFIG.timeCooldownMs, 125 * 1000, "任务弹窗插屏两次曝光之间必须间隔125秒");
   assert.strictEqual(INTERSTITIAL_AD_CONFIG.dailyCap, 8, "同一自然日最多8次插屏");
   assert.strictEqual(INTERSTITIAL_AD_CONFIG.minActionCount, 2, "第2次有效行动即可进入曝光");
   assert.strictEqual(INTERSTITIAL_AD_CONFIG.minActionGap, 3, "两次插屏之间至少间隔3次有效行动");
   assert.strictEqual(INTERSTITIAL_AD_CONFIG.firstGuardianDay, 1, "第1个守护日就应允许插屏");
   assert.strictEqual(INTERSTITIAL_AD_CONFIG.guardianDayCooldown, 0, "不得按守护日再额外限次");
-  assert.strictEqual(controller.shouldShow({ guardianNight: true, guardianDay: 1 }), true, "首个普通守护日应允许展示插屏");
   assert.strictEqual(controller.shouldShow({ settlement: true, guardianDay: 1, actionCount: 2, activeSeconds: 30 }), true, "前三分钟只要达到行动门槛就应进入候选");
   assert.strictEqual(controller.shouldShow({ settlement: true, guardianDay: 1, actionCount: 1 }), false, "第1次有效行动不得立刻插屏");
   assert.strictEqual(controller.shouldShow({ settlement: true, guardianDay: 2, actionCount: 5 }), true, "达到行动门槛的普通结算应进入插屏候选");
@@ -55,6 +56,7 @@ async function main() {
     return result;
   });
   await flush();
+  assert.strictEqual(createOptions && createOptions.adUnitId, "adunit-00c6bce833409f4f", "必须使用已开通的 lucky 插屏广告位");
   assert.strictEqual(showCount, 1, "合格场景应调用一次 show");
   assert.strictEqual(resolved, false, "广告关闭前不得抢先弹出后续游戏消息");
   closeHandler();

@@ -6,7 +6,7 @@ const path = require("node:path");
 const { createInitialWorld, createReserveState } = require("../js/world");
 const { createCharacter, normalizeReserve } = require("../js/storage");
 const { Game, chapterCoreMetrics } = require("../js/game");
-const { chapterTargets, chapterVisitorTotal, applyChapterVisitorDelta, beginChapterVisitorCheckpoint } = require("../js/chapterTargets");
+const { chapterTargets, chapterVisitorCarryover, chapterVisitorTotal, chapterAnimalTotal, applyChapterVisitorDelta, beginChapterVisitorCheckpoint } = require("../js/chapterTargets");
 const { livingAnimalTotal } = require("../js/chapterRescueSystem");
 const { animalSourceSummary } = require("../js/animalSourceLedger");
 const { applyHarshNatureOutcome, isHarshNatureEvent } = require("../js/sandboxTaskCadence");
@@ -29,7 +29,7 @@ assert.ok(gameSource.includes("justEnteredPlayableGameUntil = Date.now() + 520")
 assert.ok(gameSource.includes("return 0.72 + 0.28 * Math.max(0, Math.min(1, dt / 280))"), "channel fade must not start from 0");
 assert.ok(gameSource.includes("skipsScreenFade()"), "HarmonyOS must skip the residual whole-page fade");
 assert.ok(gameSource.includes("parkIdleOpenDataOverlay()"), "leaving a channel must re-park the open-data overlay");
-assert.ok(gameSource.includes(', modal.explorationMode === "animalDice" ? 260 : 420)'), "archery settlement delay must stay 420ms");
+assert.ok(/rollMaterialExplorationDice[\s\S]*setArcheryConfirmationState/.test(gameSource), "archery must enter the shared manual confirmation state");
 assert.ok(gameSource.includes("if (options.skipInterstitial || options.preserveCurrentScreen)"), "material fill must skip interstitial lock");
 assert.ok(gameSource.includes("if (this.infoDetailModal || this.patrolTaskModal || this.chapterStoryModal"), "tryEnter must yield to open modals");
 assert.ok(gameSource.includes("drawPrologueMapHold"), "missing map must hold green grass, not yellow sand");
@@ -78,7 +78,8 @@ live.development.operations = Object.assign({}, live.development.operations, {
 });
 const hud = chapterCoreMetrics(live, 4);
 assert.equal(hud.visitors, chapterVisitorTotal(live), "HUD 游客必须读本章游客，不是生涯总数");
-assert.equal(hud.animals, livingAnimalTotal(live), "HUD 动物必须读在园存量");
+assert.equal(hud.animals, chapterAnimalTotal(live), "HUD 动物必须读本章账，不是在园存量");
+assert.ok(hud.animals < livingAnimalTotal(live), "本章动物不得把开局在园整笔写上 HUD");
 assert.equal(hud.visitors, 80, "生涯游客必须停在账本起点，HUD 只显示本章继承+流水");
 assert.ok(hud.visitors < 900, "本章游客不得把生涯游客整笔写上 HUD");
 
@@ -104,9 +105,9 @@ veteran.progression = Object.assign({}, veteran.progression, {
 });
 veteran.development.operations.totalVisitors = 4800;
 veteran.development.operations.visitorLedger = { totalVisitors: 4800, recruitedVisitors: 4800, lostVisitors: 0 };
-assert.equal(chapterVisitorTotal(veteran), chapterTargets(15).visitors, "老存档第15章不得显示游客 0");
+assert.equal(chapterVisitorTotal(veteran), chapterVisitorCarryover(chapterTargets(14).visitors, 15), "老存档第15章只显示可确认的跨章继承游客");
 assert.ok(chapterVisitorTotal(veteran) < 4800, "老存档不得把生涯游客倒进本章 HUD");
-assert.equal(chapterVisitorTotal(normalizeReserve(JSON.parse(JSON.stringify(veteran)))), chapterTargets(15).visitors);
+assert.equal(chapterVisitorTotal(normalizeReserve(JSON.parse(JSON.stringify(veteran)))), chapterVisitorCarryover(chapterTargets(14).visitors, 15));
 
 const fire = JSON.parse(JSON.stringify(live));
 const fireAnimalsBefore = livingAnimalTotal(fire);
@@ -117,7 +118,8 @@ assert.equal(chapterVisitorTotal(fire), fireVisitorsBefore, "火灾只伤草场/
 assert.ok(livingAnimalTotal(fire) < fireAnimalsBefore);
 assert.equal(animalSourceSummary(fire).breeding, fireBreedingBefore, "火灾不得记进繁殖剩余");
 assert.ok(animalSourceSummary(fire).died > 0, "火灾动物损失必须记死亡");
-assert.equal(chapterCoreMetrics(fire, 4).animals, livingAnimalTotal(fire));
+assert.equal(chapterCoreMetrics(fire, 4).animals, chapterAnimalTotal(fire));
+assert.ok(chapterAnimalTotal(fire) < chapterAnimalTotal(live) || animalSourceSummary(fire).died > 0, "火灾必须记入本章动物流出");
 assert.equal(chapterCoreMetrics(fire, 4).visitors, chapterVisitorTotal(fire));
 
 const flood = JSON.parse(JSON.stringify(live));

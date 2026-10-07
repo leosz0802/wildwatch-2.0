@@ -98,6 +98,8 @@ if (totalBytes < 4 * 1024 * 1024) pass(`总包低于项目自设 4 MiB 门槛：
 else warn(`总包未满足项目自设 4 MiB 门槛：${mib(totalBytes)} MiB`);
 
 const code = runtimeText();
+if (/\?\.(?!\d)/.test(code) || /\?\?/.test(code)) fail("生产 JS 含可选链或空值合并，真机 iOS 基础库会直接 SyntaxError");
+else pass("生产 JS 不含可选链和空值合并，兼容真机语法");
 const inputApis = /(?:showKeyboard|onKeyboardInput|onKeyboardConfirm|offKeyboardInput|chooseImage|chooseMedia|chooseMessageFile|getClipboardData)/;
 const nonFriendPrivacyApis = /(?:getUserProfile|getUserInfo|getPhoneNumber|getLocation|chooseLocation|startRecord)/;
 const relationFriendApi = /\.getRelationFriendList\s*\(/.test(code);

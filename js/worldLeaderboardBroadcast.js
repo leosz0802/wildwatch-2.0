@@ -1,7 +1,4 @@
-// 世界榜 Top 10 的轻量快照和差异计算。只比较榜单公开字段，避免把完整玩家资料
-// 写入本地消息；动物数量统一取整数，减少同步小数或格式变化造成的假提醒。
 function integer(value) { return Math.max(0, Math.round(Number(value) || 0)); }
-
 function top10Snapshot(rows = []) {
   return (Array.isArray(rows) ? rows : [])
     .filter((row) => row && row.id)
@@ -16,7 +13,6 @@ function top10Snapshot(rows = []) {
       valuation: integer(row.valuation || row.rating)
     }));
 }
-
 function compareTop10(previous = [], current = []) {
   const before = top10Snapshot(previous);
   const after = top10Snapshot(current);
@@ -31,26 +27,21 @@ function compareTop10(previous = [], current = []) {
     .map((row) => ({ id: row.id, name: row.name, before: beforeById[row.id].rank, after: row.rank }));
   return { changed: !!(entered.length || exited.length || animalChanges.length || moves.length), seeded: false, entered, exited, animalChanges, moves, before, after };
 }
-
 function formatTop10Broadcast(diff = {}) {
   const parts = [];
   if (diff.entered && diff.entered.length) diff.entered.forEach((row) => parts.push(`进榜：${row.name}（#${row.rank}）`));
   if (diff.exited && diff.exited.length) diff.exited.forEach((row) => parts.push(`出榜：${row.name}`));
   if (diff.animalChanges && diff.animalChanges.length) diff.animalChanges.forEach((row) => parts.push(`动物数量：${row.name} ${row.delta > 0 ? "+" : ""}${row.delta}只`));
   if (diff.moves && diff.moves.length && !parts.length) diff.moves.forEach((row) => parts.push(`名次变化：${row.name} #${row.before}→#${row.after}`));
-  // 收件箱正文按“每行一条变化”展示，避免多个榜单名称挤在同一行被截断。
   return parts.join("\n") || "Top 10 暂无变化";
 }
-
 function formatTop10List(rows = []) {
   const list = top10Snapshot(rows);
   if (!list.length) return "世界榜 Top 10 暂无数据";
   return list.map((row) => `#${row.rank} ${row.name} · 动物${row.animals}只 · 市值${row.valuation}`).join("\n");
 }
-
 function isWorldTop10Letter(letter = {}) {
   if (String(letter.openTarget || "") === "world") return true;
   return /^world_top10_/.test(String(letter.id || ""));
 }
-
 module.exports = { top10Snapshot, compareTop10, formatTop10Broadcast, formatTop10List, isWorldTop10Letter };

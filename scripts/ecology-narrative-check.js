@@ -251,4 +251,32 @@ assert.equal((fogGame.infoDetailModal.summaryItems || []).length, 2, "open-shelt
 assert((fogGame.infoDetailModal.summaryItems || []).some((item) => item.tag === "游客影响"), "open-shelter result must keep visitor impact");
 assert((fogGame.infoDetailModal.summaryItems || []).every((item) => String(item.title || "").length <= 12), "open-shelter result titles must be compact");
 
+const rotateReserve = createReserveState();
+rotateReserve.ecology.grass = 30;
+rotateReserve.ecology.herbivores = { hare: 90, deer: 40, zebra: 25, antelope: 20 };
+const firstGraze = resolveEcologyNarrativeEvent(rotateReserve, clone(rotateReserve), { day: 21, dayClosed: true, forceType: "overgrazing" });
+assert(firstGraze && applyEcologyNarrativeDecision(rotateReserve, firstGraze.id, "rest").ok, "first overgrazing must settle");
+const secondGraze = resolveEcologyNarrativeEvent(rotateReserve, clone(rotateReserve), { day: 25, dayClosed: true, forceType: "overgrazing" });
+assert(secondGraze, "second overgrazing must appear after cadence");
+assert.notEqual((secondGraze.actors[0] || {}).id, (firstGraze.actors[0] || {}).id, "透支草场不能连续绑定同一食草动物");
+assert.notEqual(secondGraze.title, firstGraze.title, "透支草场标题必须换种群");
+
+const grazeGame = new Game();
+grazeGame.stopLoop();
+grazeGame.render = () => {};
+grazeGame.state = createCharacter(null, "草场数字");
+grazeGame.screen = "home";
+const grazeReserve = grazeGame.state.world.reserve;
+grazeReserve.ecology.grass = 32;
+grazeReserve.ecology.herbivores = Object.assign({}, grazeReserve.ecology.herbivores, { hare: 80, deer: 36, zebra: 22 });
+const grazeEvent = resolveEcologyNarrativeEvent(grazeReserve, clone(grazeReserve), { day: 6, dayClosed: true, forceType: "overgrazing" });
+assert(grazeEvent && grazeGame.openPendingEcologyDecision(), "overgrazing result must open");
+grazeGame.infoDetailModal.choices[0].action();
+assert.equal(grazeGame.infoDetailModal.phase, "result");
+const grazeVisitor = (grazeGame.infoDetailModal.summaryItems || []).find((item) => item.tag === "游客影响");
+assert(grazeVisitor, "overgrazing result must keep visitor impact");
+assert.equal(grazeVisitor.title, "游客未变", "没有入场游客时不能写成游客0再配一条158→161");
+assert(!/\d+→\d+人/.test(String(grazeVisitor.body || "")), "结果卡不能把下次招募预报伪装成本次游客变化");
+assert(/需求/.test(String(grazeVisitor.body || grazeVisitor.detailBody || "")), "无即时客流变化时应展示需求升降");
+
 console.log("ecology narrative check ok (population causality, multi-animal voices, moral choices, artifacts, long threads)");

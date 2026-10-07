@@ -5,7 +5,7 @@ const { createCharacter } = require('../js/storage');
 const { Game, chapterCoreMetrics } = require('../js/game');
 const { simulateDay } = require('../js/simulator');
 const { reconcileSpeciesPopulations } = require('../js/animalWorld');
-const { chapterTargets, chapterVisitorTotal, beginChapterVisitorCheckpoint } = require('../js/chapterTargets');
+const { chapterTargets, chapterVisitorTotal, chapterAnimalTotal, beginChapterVisitorCheckpoint } = require('../js/chapterTargets');
 const {
   livingAnimalTotal,
   chapterCaptiveSpeciesSet,
@@ -43,9 +43,9 @@ game.settlementModal = null;
 const liveHud = game.reserveDynamicTargets(reserve).animalTotal;
 const prosperity = game.reserveProsperitySummary(reserve).animalTotal;
 const core = chapterCoreMetrics(reserve, 1).animals;
-assert.equal(liveHud, opening);
+assert.equal(liveHud, opening, 'home animal HUD must show the live opening herd');
 assert.equal(prosperity, opening);
-assert.equal(core, opening);
+assert.equal(core, 0, 'core animal metric ignores opening stock');
 assert.equal(game.reserveSpeciesTotal(reserve), opening);
 
 const ghost = JSON.parse(JSON.stringify(reserve));
@@ -93,7 +93,7 @@ orphanSnap.ecology.herbivores.antelope = 45;
 game.settlementModal = { pendingDisplayBefore: orphanSnap };
 const orphanHud = game.reserveDynamicTargets(reserve).animalTotal;
 game.settlementModal = null;
-assert.equal(orphanHud, opening, 'a snapshot missing rescue records must still count the captive as 1');
+assert.equal(orphanHud, livingAnimalTotal(orphanSnap), 'an incomplete snapshot must use its own live herd, not the current reserve');
 
 reserve.supplies = reserve.supplies || {};
 reserve.supplies.dogFood = 8;
@@ -106,9 +106,9 @@ const target = (normalizeChapterRescue(afterIdle, 1).targets || [])[0];
 (target.requiredItems || []).forEach((itemId) => addRescueItem(afterIdle, itemId));
 assert.equal(rescueAnimal(afterIdle, target.targetId).ok, true);
 assert.equal(afterIdle.ecology.herbivores.antelope, 45, 'rescuing the trapped antelope releases its starter herd, not the 1-count placeholder');
-assert.equal(livingAnimalTotal(afterIdle), beforeRescue + 44, 'HUD must gain the released herd minus the 1 already counted while trapped');
+assert.equal(livingAnimalTotal(afterIdle), beforeRescue + 44, 'the live herd must gain the released animals minus the 1 already counted while trapped');
 assert.ok(livingAnimalTotal(afterIdle) >= 120, 'rescuing antelope must add the starter herd into the live total');
-assert.ok(livingAnimalTotal(afterIdle) < chapterTargets(1).animals, 'a single rescue must not finish the chapter 1 animal total');
+assert.ok(chapterAnimalTotal(afterIdle) < chapterTargets(1).animals, 'a single rescue must not finish the chapter 1 animal total');
 assert.equal(chapterCoreMetrics(afterIdle, 1).met.animals, false, 'chapter 1 animal gate stays open after the antelope release');
 assert.equal(chapterCoreMetrics(afterIdle, 1).species, 7, 'rescuing antelope should complete the chapter 1 species goal');
 
@@ -123,8 +123,11 @@ assert.equal(Number(poach.ecology.herbivores.deer), deerBefore - 1, 'poaching mu
 assert.equal(livingAnimalTotal(poach), poachHud - 1, 'HUD animal total must fall while the poached animal is trapped');
 assert.equal(createPoacherRescue(poach, 'deer', 1, 2), null, 'a second same-day poaching trap must not stack');
 (trapped.requiredItems || []).forEach((itemId) => addRescueItem(poach, itemId));
-assert.equal(rescuePoacherAnimal(poach, trapped.targetId).ok, true);
-assert.equal(Number(poach.ecology.herbivores.deer), deerBefore, 'rescue must return the trapped animal to the herd');
-assert.equal(livingAnimalTotal(poach), poachHud, 'HUD animal total must rise again after the poached animal is rescued');
+const rescued = rescuePoacherAnimal(poach, trapped.targetId);
+const rescueBonus = Math.max(1, Math.round(poachHud * 0.03));
+assert.equal(rescued.ok, true);
+assert.equal(rescued.bonus, rescueBonus, 'a successful poacher rescue rewards 3% of the current animal total');
+assert.equal(Number(poach.ecology.herbivores.deer), deerBefore + rescueBonus, 'rescue returns the trapped animal and adds the 3% herd reward');
+assert.equal(livingAnimalTotal(poach), poachHud + rescueBonus, 'HUD animal total includes the returned animal and the 3% reward');
 
 console.log('animal total snap check ok');

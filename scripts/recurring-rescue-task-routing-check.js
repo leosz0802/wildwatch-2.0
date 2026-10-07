@@ -52,19 +52,17 @@ for (const width of [320, 375, 430]) {
   check(`recurring rescue primary button, width=${width}`, () => {
     const { g, target } = make(width);
     g.openChapterRescueTask(target.targetId);
-    tapButton(g, '继续收集');
     assert.equal(g.infoDetailModal.kind, 'materialExploration');
+    assert.equal(g.infoDetailModal.explorationMode, 'archery');
     assert.equal(g.infoDetailModal.targetId, target.requiredItems[0]);
     assert.equal(g.activeTaskLock.targetId, target.targetId);
     assert.deepEqual(g.messages, []);
   });
-  check(`recurring rescue material-card hit, width=${width}`, () => {
+  check(`recurring rescue opens archery directly, width=${width}`, () => {
     const { g, target } = make(width);
     g.openChapterRescueTask(target.targetId);
-    const card = g.hitAreas.find(h => h.h === 44 && h.w === width - 100);
-    assert(card, 'real material card hit must exist');
-    g.handleTap(card.x + card.w / 2, card.y + card.h / 2);
     assert.equal(g.infoDetailModal.kind, 'materialExploration');
+    assert.equal(g.infoDetailModal.targetId, target.requiredItems[0]);
     assert.deepEqual(g.messages, []);
   });
 }
@@ -73,7 +71,8 @@ check('real goal-card tap reports successful open', () => {
   g.sandboxGoalBarData = () => ({ chapter: 1, chapterTitle: '任务', title: '盗猎者困住鹿', progressText: '进行中', action: '前往沙盘解救', goal: { id: 'poacher-rescue:' + target.targetId, recommendedAction: 'rescueAnimal', animalId: target.targetId } });
   g.hitAreas = []; g.drawSandboxGoalBar(ctx, { x: 0, y: 100, w: 375, h: 640 });
   const hit = g.hitAreas[0]; g.handleTap(hit.x + hit.w / 2, hit.y + hit.h / 2);
-  assert.equal(g.infoDetailModal.kind, 'chapterRescueTask');
+  assert.equal(g.infoDetailModal.kind, 'materialExploration');
+  assert.equal(g.infoDetailModal.explorationMode, 'archery');
   assert.deepEqual(g.messages, [], 'opening a task must not display target-updated error');
 });
 check('same task accepts canonical/species aliases; second task is blocked', () => {
@@ -90,8 +89,8 @@ check('restart then continue recurring collection', () => {
   const { g, target } = make();
   g.state = JSON.parse(JSON.stringify(g.state)); g.activeTaskLock = null;
   g.openChapterRescueTask(target.targetId);
-  tapButton(g, '继续收集');
   assert.equal(g.infoDetailModal.kind, 'materialExploration');
+  assert.equal(g.infoDetailModal.explorationMode, 'archery');
   assert.equal(g.activeTaskLock.targetId, target.targetId);
 });
 check('recurring completion accepts map species ID and settles once', () => {

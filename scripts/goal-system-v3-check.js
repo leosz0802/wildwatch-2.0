@@ -41,9 +41,11 @@ assert(legacy.legacyArchive && legacy.legacyArchive.daily.id === "old", "旧目�
 
 state.world.goals = goals;
 let view = buildGoalView(state);
-assert(view.primary, "动物总数未达标时必须给出可执行的动物数量任务");
-assert.ok(["rescueAnimal", "habitat", "animalCare"].includes(view.primary.recommendedAction), "动物缺口任务必须指向解救、栖息地或安抚");
-assert.ok(/动物/.test(`${view.primary.title || ""}${view.primary.body || ""}`), "动物缺口任务文案必须点明动物总数");
+assert(view.primary, "动物总数未达标时必须给出可执行的章节或动物数量任务");
+const visibleAnimalGoal = [view.primary].concat(view.alternatives || [])
+  .find((goal) => goal && ["rescueAnimal", "habitat", "animalCare"].includes(goal.recommendedAction));
+assert(visibleAnimalGoal, "动物缺口任务必须指向解救、栖息地或安抚");
+assert.ok(/动物/.test(`${visibleAnimalGoal.title || ""}${visibleAnimalGoal.body || ""}`), "动物缺口任务文案必须点明动物总数");
 assert(view.alternatives.length <= 1, "第一章最多显示一张备选卡片");
 const chapterOneIds = [view.primary].concat(view.alternatives || []).filter(Boolean).map((goal) => goal.id);
 assert(!chapterOneIds.some((id) => /channel:discovery|story:animal|storyEvidence|rareRecovered|story:collection|development:.+:(build|upgrade)|facility:/.test(id)), "第一章不得塞入发现频道、听动物、案件证据或建设填空卡");
@@ -97,8 +99,8 @@ const discoveryGoals = [discoveryShortage.world.goals.active.primary].concat(dis
 const discoveryFollowup = discoveryGoals.find((goal) => goal && goal.storyAligned && goal.evidenceAligned);
 assert(discoveryFollowup, "附加收藏降级后仍必须保留剧情发现的因果上下文");
 assert.ok(["collection", "stage"].includes(discoveryShortage.world.goals.active.primary.kind), "真实剧情发现或缺动物数量任务都可以成为当前任务");
-assert.ok(discoveryGoals.some((goal) => goal && goal.kind === "collection" && goal.recommendedAction === "buySupplies"), "缺麻醉弹的剧情发现必须仍在任务位上");
-assert.strictEqual(discoveryFollowup.recommendedAction, "buySupplies", "缺麻醉弹的剧情发现应指向采购，不得改成无关观察");
+assert.ok(discoveryGoals.some((goal) => goal && goal.kind === "collection" && goal.recommendedAction === "buySupplies"), "缺阻滞弹的剧情发现必须仍在任务位上");
+assert.strictEqual(discoveryFollowup.recommendedAction, "buySupplies", "缺阻滞弹的剧情发现应指向采购，不得改成无关观察");
 assert.strictEqual(discoveryFollowup.purchaseId, "tranquilizer", "剧情采购必须精确指出所缺补给");
 assert.strictEqual(discoveryFollowup.intendedAction, "intervention", "补齐后必须能接回原剧情行动");
 
@@ -108,7 +110,7 @@ executableDiscovery.world.collection.discovery = Object.assign({}, executableDis
     id: "discovery_trap_loop",
     itemId: "c3_snare",
     caseId: "case_3",
-    title: "废弃陷阱",
+    title: "废弃机关",
     status: "hinted",
     actionId: "habitat",
     actionLabel: "修复水源和草场"
@@ -117,7 +119,7 @@ executableDiscovery.world.collection.discovery = Object.assign({}, executableDis
 executableDiscovery.world.goals = resolveGoals(executableDiscovery, executableDiscovery.world.goals, "executable_discovery");
 const executableDiscoveryCards = [executableDiscovery.world.goals.active.primary].concat(executableDiscovery.world.goals.active.alternatives || []).filter(Boolean);
 assert(executableDiscoveryCards.every((goal) => !/storyEvidence|rareRecovered|story:collection|discovery:c3_snare/.test(goal.id || "")), "可执行的陷阱发现不得做成强制卡片");
-assert(executableDiscoveryCards.every((goal) => !/找到案件主证据|陷阱证据/.test(`${goal.title || ""}${goal.body || ""}`)), "任务卡文案不得再循环案件主证据");
+assert(executableDiscoveryCards.every((goal) => !/找到案件主证据|隐踪器/.test(`${goal.title || ""}${goal.body || ""}`)), "任务卡文案不得再循环案件主证据");
 
 const futureAttempt = advance(state, "antiPoacher");
 assert(futureAttempt.goals.daily.objectives.every((item) => !item.complete), "未来任务操作不得提前完成其他每日任务");
@@ -170,7 +172,12 @@ const staleAction = stale.world.goals.active.primary.recommendedAction;
 const rerouted = resolveGoals(stale, stale.world.goals, "no_progress");
 const rerouteActions = [rerouted.active.primary].concat(rerouted.active.alternatives || []).filter(Boolean).map((item) => item.recommendedAction);
 if (new Set([staleAction].concat(rerouteActions)).size > 1) {
-  assert(rerouted.active.primary.recommendedAction !== staleAction || ["crisis", "recovery"].includes(rerouted.active.primary.kind), "连续两次无推进必须改派可替代目标");
+  assert(
+    rerouted.active.primary.recommendedAction !== staleAction
+      || ["crisis", "recovery"].includes(rerouted.active.primary.kind)
+      || rerouted.active.primary.themeTask,
+    "连续两次无推进必须改派可替代目标"
+  );
 }
 
 const beforeCheckpoint = createCharacter(null, "长线节点测试");

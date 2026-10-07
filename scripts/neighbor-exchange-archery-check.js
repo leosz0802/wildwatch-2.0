@@ -3,6 +3,7 @@ const { createReserveState } = require("../js/world");
 const { Game } = require("../js/game");
 const {
   worldEventDefinition,
+  isNeighborEventType,
   isNeighborExchangeEvent,
   neighborExchangeAdvantage,
   NEIGHBOR_EXCHANGE_SELF_MIN,
@@ -128,7 +129,8 @@ game.archeryScoreFor = () => 5;
 const uiOutcome = game.resolveNeighborEventDice();
 assert(uiOutcome && uiOutcome.success, "射箭5点必须完成交换");
 assert.strictEqual(uiOutcome.exchangeShare, "self", "5点必须判定为我方更得利");
-assert.strictEqual(game.infoDetailModal.phase, "rolling", "邻区交换结果必须等待箭矢动画结束后显示");
+assert.strictEqual(game.infoDetailModal.phase, "resolved", "邻区交换必须直接停在确认得分页");
+assert.strictEqual(game.infoDetailModal.actionLabel, "确认得分", "邻区交换必须由玩家确认得分后结束本轮");
 assert.strictEqual(game.state.world.reserve.emergency.active, null, "处理完成后必须清除交换事件");
 
 const twoPointReserve = primedExchangeReserve("neighbor_exchange_ui_2");
@@ -201,6 +203,121 @@ hijackGame.openReserveViewAction = function openReserveViewAction() {
 };
 assert(hijackGame.executeGoalAction({ id: "crisis:exchange", kind: "crisis", recommendedAction: "habitat" }), "旧的栖息地危机卡也必须改走射箭");
 assert(hijackGame.openedExchangeArchery, "邻区交换必须打开射箭判定");
+
+// A live neighbour event is drawn over the same map region as ordinary
+// recovery/task markers.  The event hit must win, otherwise the generic
+// habitat marker underneath opens the grassland repair modal.
+const hitRouteGame = Object.create(Game.prototype);
+hitRouteGame.screen = "home";
+hitRouteGame.chapterStoryModal = null;
+hitRouteGame.infoDetailModal = null;
+hitRouteGame.patrolTaskModal = null;
+let openedNeighbourEvent = false;
+let openedHabitat = false;
+hitRouteGame.mapEventGraphicHits = [{
+  x: 90, y: 90, w: 120, h: 90, map: true,
+  onTap() { openedNeighbourEvent = true; }
+}];
+const genericHabitatHit = { x: 100, y: 100, w: 100, h: 70, map: true, onTap() { openedHabitat = true; } };
+hitRouteGame.hitAreaAt = () => genericHabitatHit;
+hitRouteGame.tryEnterPlayableGame = () => false;
+hitRouteGame.shouldAbsorbArcheryFollowup = () => false;
+hitRouteGame.activateHitArea = function activate(item) {
+  if (item && typeof item.onTap === "function") item.onTap.call(this);
+};
+hitRouteGame.handleTap(120, 120);
+assert.strictEqual(openedNeighbourEvent, true, "邻区现场命中必须优先于底层草场任务");
+assert.strictEqual(openedHabitat, false, "邻区命中不得误打开草场修复");
+
+const migrationDefinition = worldEventDefinition("neighbor_migration");
+assert(isNeighborEventType("neighbor_migration"), "跨区迁徙必须被识别为邻区事件");
+const migrationGoalState = { world: { reserve: primedExchangeReserve("neighbor_migration_goal") } };
+migrationGoalState.world.reserve.emergency.active = {
+  id: "neighbor_migration_goal",
+  type: "neighbor_migration",
+  title: migrationDefinition.title,
+  recommendedAction: "habitat",
+  recommendLabel: migrationDefinition.recommendLabel,
+  progress: 0,
+  target: migrationDefinition.target,
+  daysRemaining: migrationDefinition.days
+};
+const migrationGoals = resolveGoals(migrationGoalState, null, "migration-goal-test");
+assert.strictEqual(migrationGoals.active.primary.recommendedAction, "neighborExchange", "跨区迁徙目标不得映射为草场修复");
+assert.strictEqual(migrationGoals.active.primary.buttonLabel, migrationDefinition.recommendLabel, "跨区迁徙入口应显示邻区处理文案");
+const migrationGoalRouteGame = Object.create(Game.prototype);
+migrationGoalRouteGame.state = migrationGoalState;
+migrationGoalRouteGame.infoDetailModal = null;
+migrationGoalRouteGame.openNeighborEventDice = function openNeighborEventDice(marker) {
+  this.openedMigrationArchery = marker;
+  return true;
+};
+migrationGoalRouteGame.openReserveViewAction = function openReserveViewAction() {
+  throw new Error("neighbor migration crisis cards must not open habitat repair");
+};
+assert(migrationGoalRouteGame.executeGoalAction(migrationGoals.active.primary), "跨区迁徙目标点击必须成功路由");
+assert(migrationGoalRouteGame.openedMigrationArchery, "跨区迁徙目标必须打开统一邻区判定");
+const migrationRouteGame = Object.create(Game.prototype);
+migrationRouteGame.state = {
+  world: {
+    reserve: {
+      emergency: {
+        active: {
+          id: "neighbor_migration_route",
+          type: "neighbor_migration",
+          title: migrationDefinition.title,
+          regionId: migrationDefinition.regionId,
+          recommendedAction: "habitat",
+          progress: 0,
+          target: migrationDefinition.target,
+          daysRemaining: migrationDefinition.days
+        }
+      }
+    }
+  }
+};
+migrationRouteGame.currentGoalView = () => ({});
+migrationRouteGame.openWorldEventDetail = function openWorldEventDetail(marker, definition) {
+  this.openedWorldEvent = { marker, definition };
+  return true;
+};
+assert(migrationRouteGame.openActiveWorldEventFromMap(migrationRouteGame.state.world.reserve.emergency.active), "跨区迁徙事件入口必须能打开");
+assert.strictEqual(migrationRouteGame.openedWorldEvent.definition.type, "neighbor_migration", "跨区迁徙入口不得退化为草场修复");
+
+const staleGoalState = createCharacter(null, "邻区旧任务迁移");
+const staleReserve = staleGoalState.world.reserve;
+staleReserve.emergency.active = {
+  id: "neighbor_migration_stale",
+  type: "neighbor_migration",
+  title: migrationDefinition.title,
+  recommendLabel: migrationDefinition.recommendLabel,
+  recommendedAction: "habitat",
+  progress: 0,
+  target: migrationDefinition.target,
+  daysRemaining: migrationDefinition.days
+};
+staleGoalState.world.goals = {
+  version: 3,
+  daily: { schemaVersion: 4, dateKey: "2099-01-01", objectives: [] },
+  active: {
+    generatedAtAction: 0,
+    primary: {
+      id: "crisis:neighbor_migration_stale",
+      kind: "crisis",
+      recommendedAction: "habitat",
+      buttonLabel: "修复栖息地"
+    },
+    alternatives: []
+  }
+};
+const staleGoalGame = Object.create(Game.prototype);
+staleGoalGame.state = staleGoalState;
+staleGoalGame.frameMemoStore = {};
+staleGoalGame.painting = false;
+staleGoalGame.invalidateGoalPresentationMemo = Game.prototype.invalidateGoalPresentationMemo;
+const refreshedStaleGoal = staleGoalGame.currentGoalView();
+assert.strictEqual(refreshedStaleGoal.primary.recommendedAction, "neighborExchange", "旧缓存的邻区目标必须自动迁移到统一判定");
+assert.strictEqual(refreshedStaleGoal.primary.buttonLabel, migrationDefinition.recommendLabel, "旧缓存不能继续显示草场修复入口");
 
 const missed = primedExchangeReserve("neighbor_exchange_missed");
 missed.emergency.active.daysRemaining = 1;

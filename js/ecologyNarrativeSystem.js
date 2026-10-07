@@ -8,15 +8,12 @@ const {
   speciesPopulation,
   speciesPopulationGroup
 } = require("./animalWorld");
-
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(Number(value) || 0)));
 }
-
 function boundedText(value, max = 180) {
   return String(value || "").replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, max);
 }
-
 function namedSpecies(speciesId) {
   const species = SPECIES_DB[speciesId] || { id: speciesId, name: "动物", representative: { name: "无名个体" } };
   return {
@@ -25,14 +22,12 @@ function namedSpecies(speciesId) {
     name: (species.representative && species.representative.name) || species.name
   };
 }
-
 function setPopulation(reserve, speciesId, value) {
   const group = speciesPopulationGroup(speciesId);
   reserve.ecology = reserve.ecology || {};
   reserve.ecology[group] = reserve.ecology[group] || {};
   reserve.ecology[group][speciesId] = Math.max(0, Math.round(Number(value) || 0));
 }
-
 function adjustPopulation(reserve, speciesId, delta, source) {
   const before = speciesPopulation(reserve, speciesId);
   setPopulation(reserve, speciesId, before + delta);
@@ -40,11 +35,9 @@ function adjustPopulation(reserve, speciesId, delta, source) {
   if (actual > 0) recordIncrease(reserve, source, actual, { speciesId });
   return actual;
 }
-
 function populationTotal(group = {}) {
   return Object.keys(group).reduce((sum, key) => sum + Math.max(0, Number(group[key]) || 0), 0);
 }
-
 function normalizeArtifact(value = {}) {
   return {
     id: boundedText(value.id, 80),
@@ -58,7 +51,6 @@ function normalizeArtifact(value = {}) {
     archived: value.archived === true
   };
 }
-
 function normalizeNarrativeBeat(value = {}) {
   const threshold = value.threshold && typeof value.threshold === "object"
     ? Object.assign({}, value.threshold)
@@ -76,7 +68,6 @@ function normalizeNarrativeBeat(value = {}) {
     permanence: boundedText(value.permanence || "none", 24)
   };
 }
-
 function normalizeEvent(value = {}) {
   const event = {
     id: boundedText(value.id, 80),
@@ -118,7 +109,6 @@ function normalizeEvent(value = {}) {
   });
   return event;
 }
-
 function normalizeEcologyNarrative(value = {}) {
   const artifacts = {};
   Object.keys(value.artifacts || {}).slice(0, 80).forEach((id) => { artifacts[id] = normalizeArtifact(value.artifacts[id]); });
@@ -128,12 +118,12 @@ function normalizeEcologyNarrative(value = {}) {
     serial: Math.max(0, Math.round(Number(value.serial) || 0)),
     lastEvent: value.lastEvent ? normalizeEvent(value.lastEvent) : null,
     pendingDecision: value.pendingDecision ? normalizeEvent(value.pendingDecision) : null,
+    snoozedEventId: boundedText(value.snoozedEventId, 80),
     history: (Array.isArray(value.history) ? value.history : []).map(normalizeEvent).filter((event) => event.id).slice(-24),
     artifacts,
     threads: Object.assign({}, value.threads || {})
   };
 }
-
 const ECOLOGY_NEXT_HOOKS = {
   predation: "下一次黄昏，确认捕食者是否绕向育幼地。",
   disease: "天亮后，确认哪一只仍没有回应。",
@@ -146,7 +136,6 @@ const ECOLOGY_NEXT_HOOKS = {
   symbiosis: "第三个物种出现时，再判断合作是否继续。",
   weather: "下一阵异常风来时，确认谁先离开。"
 };
-
 const ECOLOGY_DECISION_DEBTS = {
   "predation:rescue": "救下一只猎物，会把饥饿推向捕食者的巢。",
   "predation:observe": "保留自然过程，也要承担没有伸手的记录。",
@@ -169,25 +158,20 @@ const ECOLOGY_DECISION_DEBTS = {
   "weather:open_shelter": "阴凉和水点被打开，动物也会把这里记成下一次热压的集合点。",
   "weather:ride_it_out": "保留自然承压，掉队和病征会在下一阵异常天气里被重新点名。"
 };
-
 function ecologyDecisionDebt(eventType = "", choiceId = "", fallback = "") {
   return ECOLOGY_DECISION_DEBTS[`${eventType}:${choiceId}`] || fallback;
 }
-
 function ecologyEventIsIrreversible(event) {
   return Object.values((event && event.populationChanges) || {}).some((value) => Number(value) < 0);
 }
-
 function irreversibleEventInCycle(state, day) {
   const cycleStart = Math.floor((Math.max(1, day) - 1) / 7) * 7 + 1;
   return (state.history || []).some((event) => event.day >= cycleStart && event.day <= day && ecologyEventIsIrreversible(event));
 }
-
 function hasEcologyWarning(state, day) {
   const warningTypes = new Set(["disease", "overgrazing", "migration", "territorial", "competition"]);
   return (state.history || []).some((event) => event.day < day && event.day >= day - 6 && warningTypes.has(event.type));
 }
-
 function predatorPreyCandidates(reserve) {
   return Object.keys(SPECIES_RELATIONS).map((key) => {
     const relation = SPECIES_RELATIONS[key];
@@ -199,7 +183,6 @@ function predatorPreyCandidates(reserve) {
     return { predatorId, preyId, predatorPop, preyPop, strength: relation.strength || 1, score: (relation.strength || 1) * 4 + predatorPop * 1.4 - preyPop * 0.08 };
   }).filter(Boolean).sort((a, b) => b.score - a.score);
 }
-
 function territorialCandidates(reserve) {
   return Object.keys(SPECIES_RELATIONS).map((key) => {
     const relation = SPECIES_RELATIONS[key];
@@ -211,7 +194,6 @@ function territorialCandidates(reserve) {
     return { leftId, rightId, leftPop, rightPop, strength: relation.strength || 1, score: (relation.strength || 1) * 5 + Math.min(leftPop, rightPop) };
   }).filter(Boolean).sort((a, b) => b.score - a.score);
 }
-
 function relationCandidates(reserve, type) {
   return Object.keys(SPECIES_RELATIONS).map((key) => {
     const relation = SPECIES_RELATIONS[key];
@@ -223,7 +205,6 @@ function relationCandidates(reserve, type) {
     return { leftId, rightId, leftPop, rightPop, strength: relation.strength || 1, score: (relation.strength || 1) * 4 + Math.min(leftPop, rightPop) };
   }).filter(Boolean).sort((a, b) => b.score - a.score);
 }
-
 function eventArtifact(type, eventId, day, actors = []) {
   const names = actors.map((actor) => actor.name).join("与");
   const catalog = {
@@ -290,7 +271,6 @@ function eventArtifact(type, eventId, day, actors = []) {
   };
   return Object.assign({ id: `eco_artifact_${eventId}`, eventId, day, archived: false }, catalog[type] || catalog.predation);
 }
-
 function buildPredationEvent(reserve, beforeReserve, day, serial, candidate) {
   if (!candidate) return null;
   const predator = namedSpecies(candidate.predatorId);
@@ -326,11 +306,10 @@ function buildPredationEvent(reserve, beforeReserve, day, serial, candidate) {
     ]
   });
 }
-
 function buildDiseaseEvent(reserve, day, serial) {
   const eco = reserve.ecology || {};
-  const populated = Object.keys(SPECIES_DB).filter((id) => speciesPopulation(reserve, id) > 0).sort((a, b) => speciesPopulation(reserve, b) - speciesPopulation(reserve, a));
-  const primary = namedSpecies(populated[0] || "deer");
+  const populated = Object.keys(SPECIES_DB).filter((id) => speciesPopulation(reserve, id) > 0);
+  const primary = pickNarrativeSpecies(populated, reserve, "deer", day + serial);
   const observer = namedSpecies(populated.find((id) => ["vulture", "crow", "owl"].includes(id)) || "crow");
   const eventId = `eco_${day}_${serial}_disease_${primary.id}`;
   const actors = [Object.assign({}, primary, { stance: "把病弱个体留在队伍边缘，却不愿让它们独自面对夜晚。" }), Object.assign({}, observer, { stance: "从气味和沉默中判断扩散方向，不把死亡误认成食物充足。" })];
@@ -353,11 +332,10 @@ function buildDiseaseEvent(reserve, day, serial) {
     ]
   });
 }
-
 function buildOvergrazingEvent(reserve, day, serial) {
   const eco = reserve.ecology || {};
-  const herbivores = Object.keys(eco.herbivores || {}).filter((id) => speciesPopulation(reserve, id) > 0).sort((a, b) => speciesPopulation(reserve, b) - speciesPopulation(reserve, a));
-  const herd = namedSpecies(herbivores[0] || "deer");
+  const herbivores = Object.keys(eco.herbivores || {}).filter((id) => speciesPopulation(reserve, id) > 0);
+  const herd = pickNarrativeSpecies(herbivores, reserve, "deer", day + serial);
   const eventId = `eco_${day}_${serial}_overgrazing_${herd.id}`;
   const actors = [Object.assign({}, herd, { stance: "需要继续进食，也能察觉草根已经承受不起下一轮取食。" })];
   return normalizeEvent({
@@ -376,7 +354,6 @@ function buildOvergrazingEvent(reserve, day, serial) {
     ]
   });
 }
-
 function buildTerritorialEvent(reserve, day, serial, candidate) {
   if (!candidate) return null;
   const left = namedSpecies(candidate.leftId);
@@ -402,7 +379,6 @@ function buildTerritorialEvent(reserve, day, serial, candidate) {
     ]
   });
 }
-
 function buildBirthEvent(reserve, day, serial) {
   const candidates = Object.keys(SPECIES_DB).filter((id) => speciesPopulation(reserve, id) >= 2 && !["vulture", "crow"].includes(id));
   const speciesId = candidates[day % Math.max(1, candidates.length)] || "deer";
@@ -425,11 +401,10 @@ function buildBirthEvent(reserve, day, serial) {
     ]
   });
 }
-
 function buildMigrationEvent(reserve, day, serial) {
   const eco = reserve.ecology || {};
-  const populated = Object.keys(SPECIES_DB).filter((id) => speciesPopulation(reserve, id) > 0).sort((a, b) => speciesPopulation(reserve, b) - speciesPopulation(reserve, a));
-  const traveler = namedSpecies(populated[0] || "deer");
+  const populated = Object.keys(SPECIES_DB).filter((id) => speciesPopulation(reserve, id) > 0);
+  const traveler = pickNarrativeSpecies(populated, reserve, "deer", day + serial);
   const witnessId = populated.find((id) => ["crow", "eagle", "giraffe", "elephant"].includes(id) && id !== traveler.id);
   const witness = namedSpecies(witnessId || traveler.id);
   const migration = reserve.migration || {};
@@ -460,7 +435,6 @@ function buildMigrationEvent(reserve, day, serial) {
     ]
   });
 }
-
 function buildJuvenileLossEvent(reserve, beforeReserve, day, serial) {
   const candidates = Object.keys(SPECIES_DB).filter((id) => speciesPopulation(reserve, id) >= 3 && !["vulture", "crow"].includes(id));
   const speciesId = candidates[(day + serial) % Math.max(1, candidates.length)] || "deer";
@@ -496,7 +470,6 @@ function buildJuvenileLossEvent(reserve, beforeReserve, day, serial) {
     ]
   });
 }
-
 function buildCompetitionEvent(reserve, day, serial, candidate) {
   if (!candidate) return null;
   const left = namedSpecies(candidate.leftId);
@@ -525,7 +498,6 @@ function buildCompetitionEvent(reserve, day, serial, candidate) {
     ]
   });
 }
-
 function buildSymbiosisEvent(reserve, day, serial, candidate) {
   if (!candidate) return null;
   const left = namedSpecies(candidate.leftId);
@@ -554,7 +526,6 @@ function buildSymbiosisEvent(reserve, day, serial, candidate) {
     ]
   });
 }
-
 function weatherAnomalyKind(reserve = {}, context = {}) {
   const emergency = ((reserve.emergency || {}).active || {}).type || "";
   const pulse = String(((reserve.weatherPulse || {}).type) || "");
@@ -571,7 +542,6 @@ function weatherAnomalyKind(reserve = {}, context = {}) {
   if (/寒雾/.test(weather)) return "cold_fog";
   return "";
 }
-
 function buildWeatherEvent(reserve, day, serial, kind = "") {
   const eco = reserve.ecology || {};
   const populated = Object.keys(SPECIES_DB).filter((id) => speciesPopulation(reserve, id) > 0)
@@ -644,11 +614,47 @@ function buildWeatherEvent(reserve, day, serial, kind = "") {
     ]
   });
 }
-
-function selectEventType(reserve, context, random) {
+const ECOLOGY_TYPE_FALLBACKS = Object.freeze([
+  "overgrazing", "disease", "migration", "competition", "territorial", "weather", "predation", "birth", "symbiosis"
+]);
+function recentEcologyTypes(state = {}, count = 2) {
+  const types = [];
+  const history = Array.isArray(state.history) ? state.history : [];
+  history.slice(-Math.max(1, count)).forEach((event) => {
+    if (event && event.type) types.push(event.type);
+  });
+  if (state.lastEvent && state.lastEvent.type) types.push(state.lastEvent.type);
+  return types;
+}
+function skipEcologyTypes(state = {}) {
+  return new Set(recentEcologyTypes(state, 2));
+}
+function recentEcologySpecies(state = {}) {
+  const ids = [];
+  const rows = (Array.isArray(state.history) ? state.history : []).concat(state.lastEvent || []);
+  rows.slice(-6).forEach((event) => {
+    (event.actors || []).forEach((actor) => {
+      if (actor && actor.id) ids.push(actor.id);
+    });
+  });
+  return new Set(ids);
+}
+function pickNarrativeSpecies(ids, reserve, fallback, salt = 0) {
+  const state = normalizeEcologyNarrative(reserve.ecologyNarrative || {});
+  const populated = (ids || []).filter((id) => speciesPopulation(reserve, id) > 0);
+  const recent = recentEcologySpecies(state);
+  const unused = populated.filter((id) => !recent.has(id));
+  const pool = (unused.length ? unused : populated)
+    .slice()
+    .sort((a, b) => speciesPopulation(reserve, b) - speciesPopulation(reserve, a) || String(a).localeCompare(String(b)));
+  if (!pool.length) return namedSpecies(fallback);
+  const top = pool.slice(0, Math.min(4, pool.length));
+  return namedSpecies(top[Math.abs(Math.round(Number(salt) || 0)) % top.length]);
+}
+function selectEventType(reserve, context, random, skip = new Set()) {
   if (context.forceType) return context.forceType;
   const eco = reserve.ecology || {};
-  if (weatherAnomalyKind(reserve, context) && random() < 0.72) return "weather";
+  if (weatherAnomalyKind(reserve, context) && random() < 0.22 && !skip.has("weather")) return "weather";
   const disease = clamp(eco.disease);
   const herbivores = populationTotal(eco.herbivores || {});
   const grass = clamp(eco.grass);
@@ -657,35 +663,40 @@ function selectEventType(reserve, context, random) {
   const competition = relationCandidates(reserve, "competition")[0];
   const symbiosis = relationCandidates(reserve, "symbiotic")[0];
   const migration = reserve.migration || {};
-  if (Math.abs(Number(migration.delta) || 0) >= 3 && random() < 0.62) return "migration";
-  if ((disease >= ECOLOGY_THRESHOLDS.earlyDisease || grass <= ECOLOGY_THRESHOLDS.criticalGrass) && random() < 0.28) return "juvenile_loss";
-  if (disease >= ECOLOGY_THRESHOLDS.earlyDisease && random() < Math.min(0.92, 0.42 + disease / 150)) return "disease";
-  if ((grass <= ECOLOGY_THRESHOLDS.lowGrass || herbivores >= 300) && random() < 0.58) return "overgrazing";
-  if (competition && (grass <= ECOLOGY_THRESHOLDS.earlyGrass || clamp(eco.water) <= 50) && random() < 0.36) return "competition";
-  if (territorial && territorial.score >= 35 && random() < 0.34) return "territorial";
-  if (predation && random() < Math.min(0.62, 0.22 + predation.score / 180)) return "predation";
-  if (symbiosis && grass >= 52 && disease <= ECOLOGY_THRESHOLDS.earlyDisease && random() < 0.26) return "symbiosis";
-  if (clamp(eco.water) >= ECOLOGY_THRESHOLDS.earlyWater && grass >= ECOLOGY_THRESHOLDS.earlyGrass && disease <= ECOLOGY_THRESHOLDS.earlyDisease && random() < 0.32) return "birth";
+  if (Math.abs(Number(migration.delta) || 0) >= 3 && random() < 0.62 && !skip.has("migration")) return "migration";
+  if ((disease >= ECOLOGY_THRESHOLDS.earlyDisease || grass <= ECOLOGY_THRESHOLDS.criticalGrass) && random() < 0.28 && !skip.has("juvenile_loss")) return "juvenile_loss";
+  if (disease >= ECOLOGY_THRESHOLDS.earlyDisease && random() < Math.min(0.92, 0.42 + disease / 150) && !skip.has("disease")) return "disease";
+  if ((grass <= ECOLOGY_THRESHOLDS.lowGrass || herbivores >= 300) && random() < 0.58 && !skip.has("overgrazing")) return "overgrazing";
+  if (competition && (grass <= ECOLOGY_THRESHOLDS.earlyGrass || clamp(eco.water) <= 50) && random() < 0.36 && !skip.has("competition")) return "competition";
+  if (territorial && territorial.score >= 35 && random() < 0.34 && !skip.has("territorial")) return "territorial";
+  if (predation && random() < Math.min(0.62, 0.22 + predation.score / 180) && !skip.has("predation")) return "predation";
+  if (symbiosis && grass >= 52 && disease <= ECOLOGY_THRESHOLDS.earlyDisease && random() < 0.26 && !skip.has("symbiosis")) return "symbiosis";
+  if (clamp(eco.water) >= ECOLOGY_THRESHOLDS.earlyWater && grass >= ECOLOGY_THRESHOLDS.earlyGrass && disease <= ECOLOGY_THRESHOLDS.earlyDisease && random() < 0.32 && !skip.has("birth")) return "birth";
   return "";
 }
-
 function ecologyNarrativeCadence(reserve = {}) {
   const chapter = Math.max(1, Math.round(Number((reserve.progression || {}).stage) || 1));
-  return chapter >= 3 ? 2 : 2;
+  return chapter >= 3 ? 4 : 3;
 }
-
-function lateChapterEventType(reserve = {}) {
-  if (weatherAnomalyKind(reserve)) return "weather";
+function lateChapterEventType(reserve = {}, skip = new Set(), context = {}) {
+  const blocked = skip instanceof Set ? skip : new Set(skip || []);
+  if (weatherAnomalyKind(reserve, context) && !blocked.has("weather")) return "weather";
   const eco = reserve.ecology || {};
-  if (clamp(eco.disease) >= ECOLOGY_THRESHOLDS.earlyDisease) return "disease";
-  if (clamp(eco.grass) <= ECOLOGY_THRESHOLDS.earlyGrass || populationTotal(eco.herbivores || {}) >= 300) return "overgrazing";
-  if (Math.abs(Number((reserve.migration || {}).delta) || 0) >= 1) return "migration";
-  if (relationCandidates(reserve, "competition")[0]) return "competition";
-  if (territorialCandidates(reserve)[0]) return "territorial";
-  if (relationCandidates(reserve, "symbiotic")[0]) return "symbiosis";
-  return "birth";
+  if (clamp(eco.disease) >= ECOLOGY_THRESHOLDS.earlyDisease && !blocked.has("disease")) return "disease";
+  if ((clamp(eco.grass) <= ECOLOGY_THRESHOLDS.earlyGrass || populationTotal(eco.herbivores || {}) >= 300) && !blocked.has("overgrazing")) return "overgrazing";
+  if (Math.abs(Number((reserve.migration || {}).delta) || 0) >= 1 && !blocked.has("migration")) return "migration";
+  if (relationCandidates(reserve, "competition")[0] && !blocked.has("competition")) return "competition";
+  if (territorialCandidates(reserve)[0] && !blocked.has("territorial")) return "territorial";
+  if (relationCandidates(reserve, "symbiotic")[0] && !blocked.has("symbiosis")) return "symbiosis";
+  if (!blocked.has("birth")) return "birth";
+  return ECOLOGY_TYPE_FALLBACKS.find((type) => !blocked.has(type)) || "";
 }
-
+function pickEcologyType(preferred, skip, reserve, context = {}) {
+  if (preferred && !skip.has(preferred)) return preferred;
+  const late = lateChapterEventType(reserve, skip, context);
+  if (late && !skip.has(late)) return late;
+  return ECOLOGY_TYPE_FALLBACKS.find((type) => !skip.has(type)) || preferred || "overgrazing";
+}
 function resolveEcologyNarrativeEvent(reserve = {}, beforeReserve = {}, context = {}) {
   const state = normalizeEcologyNarrative(reserve.ecologyNarrative || {});
   const day = Math.max(1, Math.round(Number(context.day) || 1));
@@ -698,13 +709,17 @@ function resolveEcologyNarrativeEvent(reserve = {}, beforeReserve = {}, context 
     return null;
   }
   const random = typeof context.random === "function" ? context.random : Math.random;
-  let type = selectEventType(reserve, context, random);
+  const skip = context.forceType ? new Set() : skipEcologyTypes(state);
+  let type = selectEventType(reserve, context, random, skip);
   const chapter = Math.max(1, Math.round(Number((reserve.progression || {}).stage) || 1));
-  if (!type && chapter >= 3) type = lateChapterEventType(reserve);
+  if (!type && chapter >= 3) type = lateChapterEventType(reserve, skip, context);
   if (!context.forceType && (type === "birth" || type === "symbiosis")) {
-    const fallback = lateChapterEventType(reserve);
-    type = fallback === "birth" || fallback === "symbiosis" ? "overgrazing" : fallback;
+    const fallback = lateChapterEventType(reserve, new Set([type].concat(Array.from(skip))), context);
+    type = !fallback || fallback === "birth" || fallback === "symbiosis"
+      ? pickEcologyType("overgrazing", skip, reserve, context)
+      : fallback;
   }
+  if (!context.forceType) type = pickEcologyType(type, skip, reserve, context);
   if (!type) {
     reserve.ecologyNarrative = state;
     return null;
@@ -740,13 +755,13 @@ function resolveEcologyNarrativeEvent(reserve = {}, beforeReserve = {}, context 
   state.lastDay = day;
   state.lastEvent = event;
   state.pendingDecision = event;
+  state.snoozedEventId = "";
   state.history = state.history.concat(event).slice(-24);
   if (event.artifact) state.artifacts[event.artifact.id] = event.artifact;
   state.threads[event.threadId] = { id: event.threadId, type: event.type, openedDay: day, lastDay: day, status: "open", clue: event.foreshadow, eventIds: ((state.threads[event.threadId] || {}).eventIds || []).concat(event.id).slice(-8) };
   reserve.ecologyNarrative = state;
   return event;
 }
-
 function applyEcologyNarrativeDecision(reserve = {}, eventId = "", choiceId = "") {
   const state = normalizeEcologyNarrative(reserve.ecologyNarrative || {});
   const event = state.pendingDecision;
@@ -888,6 +903,7 @@ function applyEcologyNarrativeDecision(reserve = {}, eventId = "", choiceId = ""
   event.outcome = outcome;
   if (event.artifact && state.artifacts[event.artifact.id]) state.artifacts[event.artifact.id].archived = true;
   state.pendingDecision = null;
+  state.snoozedEventId = "";
   state.lastEvent = event;
   state.history = state.history.map((row) => row.id === event.id ? event : row).slice(-24);
   const thread = state.threads[event.threadId] || {};
@@ -897,7 +913,6 @@ function applyEcologyNarrativeDecision(reserve = {}, eventId = "", choiceId = ""
   const businessChange = applyNarrativeBusinessOutcome(reserve, event, choiceId);
   return { ok: true, event, choice: selectedChoice, changes, artifact: event.artifact, outcome, narrativeBeat: event.narrativeBeat, businessChange };
 }
-
 module.exports = {
   normalizeEcologyNarrative,
   resolveEcologyNarrativeEvent,

@@ -67,7 +67,7 @@ blockedEmergencyState.world.reserve.emergency.active = {
 };
 const blockedEmergencyGoals = resolveGoals(blockedEmergencyState, null, "blocked-emergency-test");
 assert.strictEqual(blockedEmergencyGoals.active.primary.kind, "crisis", "缺少猎犬物资时紧急事件仍必须保持主任务");
-assert.strictEqual(blockedEmergencyGoals.active.primary.recommendedAction, "houndScout", "紧急事件不能被无关的修复任务替换");
+assert.strictEqual(blockedEmergencyGoals.active.primary.recommendedAction, "neighborExchange", "邻区争议必须保持邻区交换入口，不能被无关的修复任务替换");
 blockedEmergencyState.world.goals = createGoalState(blockedEmergencyState);
 blockedEmergencyState.world.goals.active.primary = {
   id: "ecology-risk:grass",
@@ -115,7 +115,8 @@ const animalsBeforeSuccess = livingAnimalTotal(reserve);
 const outcome = game.resolveVisitorIncidentDice();
 Math.random = originalRandom;
 assert(outcome && outcome.kind === "resolved", "骰面4应判定为调节成功");
-assert.strictEqual(game.infoDetailModal.phase, "rolling", "游客事件结果必须等待骰子动画结束后显示");
+assert.strictEqual(game.infoDetailModal.phase, "resolved", "游客事件必须直接停在确认得分页");
+assert.strictEqual(game.infoDetailModal.actionLabel, "确认得分", "游客事件必须手动确认得分");
 assert.strictEqual(reserve.emergency.active, null, "处理完成后必须清除现场事件");
 assert(reserve.development.operations.today.visitors >= 20, "成功调节不应减少游客");
 assert(livingAnimalTotal(reserve) > animalsBeforeSuccess, "游客事件正向结果必须同时增加动物");
@@ -383,7 +384,7 @@ assert.strictEqual(leftoverReserve.emergency.active, null, "完成后必须清�
 assert(!(leftoverReserve.reserveView.mapMarkers || []).some((marker) => marker.type === "visitorIncident" || marker.recommendAction === "visitorAdjust"), "完成后文字型游客提示必须一并消失");
 assert(!(((leftoverGame.state.world || {}).mapEvents) || []).some((marker) => marker.type === "visitorIncident" || marker.recommendAction === "visitorAdjust"), "完成后地图事件队列不得残留游客提示");
 
-assert.strictEqual(CHAPTERS.length, 20, "主线必须包含20章");
+assert.strictEqual(CHAPTERS.length, 11, "主线必须包含11章");
 const VISITOR_SANDBOX_TYPES = ["visitor_conflict", "visitor_litter", "visitor_queue"];
 function visitorOverlayContext() {
   const gradient = { addColorStop() {} };

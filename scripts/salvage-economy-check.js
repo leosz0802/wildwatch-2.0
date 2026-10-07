@@ -30,6 +30,15 @@ function makeSalvageState(config = {}) {
     hideSalvage: 124,
     researchSample: 42
   });
+  reserve.dailySellFund = {
+    version: 1,
+    lastGuardianDay: Math.max(1, Math.round(Number((reserve.guardianCycle || {}).day) || 1)),
+    soldFund: 0,
+    unlockedBatches: 8,
+    unlockClaimCount: 0,
+    unlockClaimCountToday: 0,
+    lastUnlock: null
+  };
   reserve.league = Object.assign({}, reserve.league || {}, {
     rivals: (config.rivals || [
       { id: "neighbor_a", name: "邻区A", rating: 1120, shield: 40, animals: 30, material: 120, scope: "friends" },
@@ -41,7 +50,7 @@ function makeSalvageState(config = {}) {
 
 function runSalvage(config) {
   const state = makeSalvageState(config);
-  const result = withRandom(0.99, () => simulateDay("出售仓库里的脱落鹿角和研究样本", state));
+  const result = withRandom(0.99, () => simulateDay("出售仓库里的脱落岩角和研究样本", state));
   const sale = result.visual && result.visual.salvageEconomy;
   if (!sale || sale.sold.length !== 3) {
     throw new Error(`salvage should expose a three-item economy sale, got ${JSON.stringify(sale)}`);

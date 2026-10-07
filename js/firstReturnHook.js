@@ -8,7 +8,6 @@ const FIRST_RETURN_HOOK_COPY = Object.freeze({
   actionLabel: "辨认它为何靠近",
   actionId: "houndScout"
 });
-
 function localDateKey(now = Date.now()) {
   const date = now instanceof Date ? now : new Date(now);
   if (!Number.isFinite(date.getTime())) return "";
@@ -16,7 +15,6 @@ function localDateKey(now = Date.now()) {
   const day = `${date.getDate()}`.padStart(2, "0");
   return `${date.getFullYear()}-${month}-${day}`;
 }
-
 function nextLocalDateKey(now = Date.now()) {
   const date = now instanceof Date ? new Date(now.getTime()) : new Date(now);
   if (!Number.isFinite(date.getTime())) return "";
@@ -24,7 +22,6 @@ function nextLocalDateKey(now = Date.now()) {
   date.setDate(date.getDate() + 1);
   return localDateKey(date);
 }
-
 function normalizeFirstReturnHook(value) {
   if (!value || value.id !== FIRST_RETURN_HOOK_ID) return null;
   const status = ["pending", "revealed"].includes(value.status) ? value.status : "pending";
@@ -38,7 +35,6 @@ function normalizeFirstReturnHook(value) {
     revealedDateKey: String(value.revealedDateKey || "")
   };
 }
-
 function scheduleFirstReturnHook(value, guardianNight, now = Date.now()) {
   const existing = normalizeFirstReturnHook(value);
   if (existing) return existing;
@@ -53,13 +49,11 @@ function scheduleFirstReturnHook(value, guardianNight, now = Date.now()) {
     revealedDateKey: ""
   };
 }
-
 function firstReturnHookDue(value, now = Date.now()) {
   const hook = normalizeFirstReturnHook(value);
   const today = localDateKey(now);
   return !!(hook && hook.status === "pending" && hook.availableDateKey && today >= hook.availableDateKey);
 }
-
 function revealFirstReturnHook(value, now = Date.now()) {
   const hook = normalizeFirstReturnHook(value);
   if (!hook || hook.status !== "pending") return hook;
@@ -68,7 +62,6 @@ function revealFirstReturnHook(value, now = Date.now()) {
     revealedDateKey: localDateKey(now)
   });
 }
-
 module.exports = {
   FIRST_RETURN_HOOK_ID,
   FIRST_RETURN_HOOK_COPY,

@@ -94,6 +94,13 @@ for (const [width, height] of [[320, 568], [375, 667], [430, 932]]) {
           // The target keeps its pre-change position and responsive size.
           assert.strictEqual(stage.target.y, stage.y + 22);
           assert.strictEqual(stage.target.size, Math.min(132, stage.w - 24, Math.max(48, stage.h - 90)));
+          if (phase === "ready") {
+            const targetHits = game.hitAreas.filter((hit) => Math.abs(hit.x - stage.target.x) < 2
+              && Math.abs(hit.y - stage.target.y) < 2 && Math.abs(hit.w - stage.target.size) < 8);
+            assert.strictEqual(targetHits.length, 0, "解救射箭靶面不能绕过底部按钮直接发射");
+            const fireHits = game.hitAreas.filter((hit) => hit.x === fire.x && Math.abs(hit.y - fire.y) <= 8 && hit.w >= fire.w - 2);
+            assert(fireHits.length >= 1, "解救射箭底部发射按钮必须可点击");
+          }
         }
         if (eventLayout) {
           const graphics = eventLayout.graphics;
@@ -103,6 +110,12 @@ for (const [width, height] of [[320, 568], [375, 667], [430, 932]]) {
             assert(eventLayout.formula.y + eventLayout.formula.h + 8 <= eventLayout.result.y, `${kind}: result cards must clear score strip`);
             assert(eventLayout.result.statusY >= eventLayout.result.y + eventLayout.result.h + 14, `${kind}: status must clear result cards`);
             assert(eventLayout.result.statusY < frame.y + frame.h - 56, `${kind}: result must stay above bottom buttons`);
+          }
+          if (phase === "ready") {
+            const die = eventLayout.die;
+            const targetHits = game.hitAreas.filter((hit) => Math.abs(hit.x - die.x) < 2 && Math.abs(hit.y - die.y) < 2 && Math.abs(hit.w - die.size) < 8);
+            assert.strictEqual(targetHits.length, 0, `${kind}: footer-controlled target must not be a hidden fire button`);
+            assert(game.hitAreas.filter((hit) => hit.hud).length >= 2, `${kind}: footer buttons must use hud so WeChat cannot fire touchstart and touchend twice`);
           }
         }
         if (previewDir && face === 6 && ["materialExploration", "neighborEventDice"].includes(kind)) {
@@ -180,7 +193,18 @@ try {
       }
       assert.strictEqual(modal.displayRoll, 5);
       assert.strictEqual(modal.diceMotion, null);
-      assert.strictEqual(settlements, cancel ? 0 : 1, `${kind}: delayed result should settle once, or cancel on close`);
+      if (cancel) {
+        assert.strictEqual(settlements, 0, `${kind}: torn-down confirm page must not auto-settle`);
+        assert.equal(game.restoreResolvedArcheryOrDiceConfirm(), true, `${kind}: torn-down page must restore confirm`);
+        if (kind === "materialExploration") game.confirmArcheryScore();
+        else game.confirmResolvedArcheryOrDice();
+        assert.strictEqual(settlements, 1, `${kind}: 确认得分 must settle once after restore`);
+      } else {
+        assert.strictEqual(settlements, 0, `${kind}: 确认得分 must stay until the player confirms`);
+        if (kind === "materialExploration") game.confirmArcheryScore();
+        else game.confirmResolvedArcheryOrDice();
+        assert.strictEqual(settlements, 1, `${kind}: 确认得分 must settle once`);
+      }
     }
   }
 } finally {

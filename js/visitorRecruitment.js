@@ -1,37 +1,54 @@
+const { TOURISM_SCORE_CAP } = require("./progressionGates");
 const { recordFundChange } = require("./fundLedger");
 const { eventBusinessFactors, visitorContributionRate } = require("./eventEconomy");
 const { applyChapterVisitorDelta, normalizeVisitorFlowLedger: normalizeChapterVisitorLedger } = require("./chapterTargets");
-
-// 每个真实自然日默认可招募 2 次；广告仍按一次观看补 2 次机会。
-// 这样免费入口负责慢速经营，想快速冲章节需要主动看广告。
-const DAILY_FREE_RECRUITS = 2;
-const AD_RECRUIT_GRANT = 2;
-const DAILY_AD_WATCH_CAP = 8;
-const PLAYTIME_RECRUIT_RESTORE_SECONDS = 360;
+const { PACE_ECONOMY } = require("./balanceConfig");
+const { recordEcologyFlow } = require("./ledgerConsistency");
+const DAILY_FREE_RECRUITS = PACE_ECONOMY.visitorFreeRecruits;
+const AD_RECRUIT_GRANT = PACE_ECONOMY.visitorAdGrant;
+const DAILY_AD_WATCH_CAP = PACE_ECONOMY.visitorAdDailyCap;
+const PLAYTIME_RECRUIT_RESTORE_SECONDS = PACE_ECONOMY.visitorRestoreSeconds;
 const BASE_VISITOR_RECRUITMENT = 100;
 const MIN_RECRUITMENT = 20;
 const MAX_RECRUITMENT = 600;
-const RARE_SPECIES = new Set(["lion", "leopard", "giraffe", "owl", "elephant", "hippo", "crocodile", "wildDog", "mink", "fox", "rhino", "pangolin", "cheetah", "hyena"]);
+const RARE_SPECIES = new Set(["lion", "leopard", "giraffe", "owl", "elephant", "hippo", "crocodile", "wildDog", "mink", "fox", "rhino", "pangolin"]);
 const n = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const whole = (value, fallback = 0) => Math.max(0, Math.round(n(value, fallback)));
 const clamp = (value, min, max) => Math.max(min, Math.min(max, n(value, min)));
-
 function visitorRealDateKey(now = Date.now()) {
   const date = new Date(now);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
-
+function visitorAdChapter(reserve = {}) {
+  const progression = (reserve && reserve.progression) || {};
+  return Math.max(1, Math.round(Number(progression.displayChapter || progression.stage || 1)));
+}
 function defaultVisitorRecruitment(gameDay = 1, now = Date.now()) {
   return {
-    version: 3, day: Math.max(1, whole(gameDay, 1)), dateKey: visitorRealDateKey(now),
-    freeRemaining: DAILY_FREE_RECRUITS, adCredits: 0, adWatchedToday: 0,
+    version: 7, day: Math.max(1, whole(gameDay, 1)), dateKey: visitorRealDateKey(now),
+    freeRemaining: DAILY_FREE_RECRUITS, adCredits: 0, adWatchedToday: 0, adChapter: 0, lastAdGrantedAt: 0,
     totalRecruited: 0, publishCount: 0, lastResult: null,
     playtimeRestoreStarted: false, restoreAnchorSeconds: 0
   };
 }
-
-// 兼容旧调用名；免费次数只按真实自然日重置，不再按游戏守护日重置。
-function syncVisitorRecruitmentDay(recruitment, gameDay = 1, now = Date.now()) {
+function alignVisitorAdChapter(recruitment, reserve = {}) {
+  const chapter = visitorAdChapter(reserve);
+  const savedVersion = whole(recruitment.version, 1);
+  const savedChapter = whole(recruitment.adChapter);
+  const capReached = whole(recruitment.adWatchedToday) + AD_RECRUIT_GRANT > DAILY_AD_WATCH_CAP;
+  // Chapters 1–3 still have today's ad watches. From chapter 5 the same
+  // calendar-day counter is already full, so the recruit button switches to
+  // the playtime-restore label. Give each chapter the same ad quota.
+  if (savedVersion < 7 && chapter >= 5 && whole(recruitment.adCredits) <= 0 && capReached) {
+    recruitment.adWatchedToday = 0;
+  } else if (savedVersion >= 7 && savedChapter > 0 && savedChapter !== chapter) {
+    recruitment.adWatchedToday = 0;
+  }
+  recruitment.adChapter = chapter;
+  recruitment.version = 7;
+  return recruitment;
+}
+function syncVisitorRecruitmentDay(recruitment, gameDay = 1, now = Date.now(), reserve = {}) {
   const currentDate = visitorRealDateKey(now);
   if (!recruitment || typeof recruitment !== "object") return defaultVisitorRecruitment(gameDay, now);
   if (!recruitment.dateKey) recruitment.dateKey = currentDate;
@@ -40,16 +57,35 @@ function syncVisitorRecruitmentDay(recruitment, gameDay = 1, now = Date.now()) {
     recruitment.freeRemaining = DAILY_FREE_RECRUITS;
     recruitment.adCredits = 0;
     recruitment.adWatchedToday = 0;
+    recruitment.lastAdGrantedAt = 0;
     recruitment.playtimeRestoreStarted = false;
     recruitment.restoreAnchorSeconds = 0;
   } else if (whole(recruitment.version, 1) < 3 && whole(recruitment.publishCount) <= 0 && whole(recruitment.totalRecruited) <= 0) {
     recruitment.freeRemaining = Math.max(whole(recruitment.freeRemaining), DAILY_FREE_RECRUITS);
   }
-  recruitment.version = 3;
+  // Android could settle one completed video twice: the close tap starts
+  // another show, and the previous close is replayed as a second grant.
+  // Two real watches then filled the daily counter. Refund those two
+  // watches once; a later honest cap (version 5) stays full.
+  const savedVersion = whole(recruitment.version, 1);
+  if (savedVersion < 5 && whole(recruitment.adWatchedToday) >= DAILY_AD_WATCH_CAP) {
+    recruitment.adWatchedToday = Math.max(0, DAILY_AD_WATCH_CAP - AD_RECRUIT_GRANT * 2);
+  }
+  // A completed recruitment video can still leave the button on the
+  // playtime-restore label: the watch was counted, then the video-close
+  // tap published the new credits before the player saw them. Put the
+  // unspent credits back once. Watches that were actually published stay spent.
+  if (savedVersion >= 5 && savedVersion < 6 && whole(recruitment.adCredits) <= 0) {
+    const spentAdCredits = Math.max(0, whole(recruitment.publishCount) - DAILY_FREE_RECRUITS);
+    const lostCredits = whole(recruitment.adWatchedToday) - spentAdCredits;
+    if (lostCredits > 0) recruitment.adCredits = lostCredits;
+  }
   recruitment.day = Math.max(1, whole(gameDay, 1));
   recruitment.freeRemaining = clamp(whole(recruitment.freeRemaining, DAILY_FREE_RECRUITS), 0, DAILY_FREE_RECRUITS);
   recruitment.adCredits = whole(recruitment.adCredits);
   recruitment.adWatchedToday = clamp(whole(recruitment.adWatchedToday), 0, DAILY_AD_WATCH_CAP);
+  alignVisitorAdChapter(recruitment, reserve);
+  recruitment.lastAdGrantedAt = whole(recruitment.lastAdGrantedAt);
   recruitment.totalRecruited = whole(recruitment.totalRecruited);
   recruitment.publishCount = whole(recruitment.publishCount);
   recruitment.playtimeRestoreStarted = !!recruitment.playtimeRestoreStarted;
@@ -57,8 +93,7 @@ function syncVisitorRecruitmentDay(recruitment, gameDay = 1, now = Date.now()) {
   if (recruitment.publishCount <= 0 && recruitment.totalRecruited > 0) recruitment.publishCount = 1;
   return recruitment;
 }
-
-function normalizeVisitorRecruitment(saved = {}, gameDay = 1, now = Date.now()) {
+function normalizeVisitorRecruitment(saved = {}, gameDay = 1, now = Date.now(), reserve = {}) {
   const base = defaultVisitorRecruitment(gameDay, now);
   return syncVisitorRecruitmentDay(Object.assign(base, {
     version: Math.max(1, whole(saved.version, 1)),
@@ -67,18 +102,18 @@ function normalizeVisitorRecruitment(saved = {}, gameDay = 1, now = Date.now()) 
     freeRemaining: clamp(whole(saved.freeRemaining, DAILY_FREE_RECRUITS), 0, DAILY_FREE_RECRUITS),
     adCredits: whole(saved.adCredits),
     adWatchedToday: clamp(whole(saved.adWatchedToday), 0, DAILY_AD_WATCH_CAP),
+    adChapter: whole(saved.adChapter),
+    lastAdGrantedAt: whole(saved.lastAdGrantedAt),
     totalRecruited: whole(saved.totalRecruited),
     publishCount: whole(saved.publishCount),
     playtimeRestoreStarted: !!saved.playtimeRestoreStarted,
     restoreAnchorSeconds: whole(saved.restoreAnchorSeconds),
     lastResult: saved.lastResult && typeof saved.lastResult === "object" ? Object.assign({}, saved.lastResult) : null
-  }), gameDay, now);
+  }), gameDay, now, reserve);
 }
-
 function recruitmentPlaytimeSeconds(reserve = {}) {
   return Math.max(0, whole(((reserve.progression || {}).activeSeconds)));
 }
-
 function restoreVisitorRecruitmentByPlaytime(recruitment = {}, reserve = {}) {
   const cap = DAILY_FREE_RECRUITS;
   const activeSeconds = recruitmentPlaytimeSeconds(reserve);
@@ -104,24 +139,24 @@ function restoreVisitorRecruitmentByPlaytime(recruitment = {}, reserve = {}) {
   }
   return recruitment;
 }
-
 function nextPlaytimeRestoreSeconds(recruitment = {}, reserve = {}) {
   if (!recruitment.playtimeRestoreStarted || recruitment.freeRemaining >= DAILY_FREE_RECRUITS) return 0;
   return Math.max(0, PLAYTIME_RECRUIT_RESTORE_SECONDS - Math.max(0, recruitmentPlaytimeSeconds(reserve) - whole(recruitment.restoreAnchorSeconds)));
 }
-
 function syncVisitorOperationsRealDate(operations = {}, gameDay = 1, now = Date.now()) {
   const currentDate = visitorRealDateKey(now);
   const today = operations.today || (operations.today = {});
   const previousDate = String(today.realDateKey || ((operations.recruitment || {}).dateKey) || "");
   if (previousDate && previousDate !== currentDate) {
-    // 新的一天清空客流账本，但保留上一日的旅游评分作为缓慢晋级的起点。
-    // 评分属于保护区经营状态，不应因日期切换或招募入口刷新而突然归零。
     operations.today = {
       day: Math.max(1, whole(gameDay, 1)), realDateKey: currentDate,
       visitors: 0, recruitedVisitors: 0, recruitedIncome: 0, income: 0, survivalIncome: 0,
-      tourismScore: Math.max(0, Math.min(40, Number(today.tourismScore) || 0)),
-      tourismRawScore: Math.max(0, Math.min(40, Number(today.tourismRawScore) || 0)),
+      ecologyScore: Math.max(0, Math.min(100, whole(today.ecologyScore))),
+      safetyScore: Math.max(0, Math.min(100, whole(today.safetyScore))),
+      speciesCount: whole(today.speciesCount),
+      animalTotal: whole(today.animalTotal),
+      tourismScore: Math.max(0, Math.min(TOURISM_SCORE_CAP, Number(today.tourismScore) || 0)),
+      tourismRawScore: Math.max(0, Math.min(TOURISM_SCORE_CAP, Number(today.tourismRawScore) || 0)),
       trouble: "尚无明显麻烦"
     };
   } else {
@@ -129,7 +164,57 @@ function syncVisitorOperationsRealDate(operations = {}, gameDay = 1, now = Date.
   }
   return operations.today;
 }
-
+function resetVisitorOperationsDay(operations = {}, gameDay = 1, now = Date.now()) {
+  const currentDate = visitorRealDateKey(now);
+  const nextDay = Math.max(1, whole(gameDay, 1));
+  const today = operations.today || (operations.today = {});
+  const previousDay = whole(today.day);
+  if (previousDay <= 0) {
+    // Old saves often start with day 0 while the initial crowd is already
+    // accounted for in the chapter ledger. Mark the snapshot without
+    // touching that initial contribution.
+    today.day = nextDay;
+    today.realDateKey = currentDate;
+    return today;
+  }
+  if (nextDay <= previousDay) {
+    today.realDateKey = currentDate;
+    return today;
+  }
+  // A facility settlement is not guaranteed in chapter 1. Roll the daily
+  // attendance snapshot here as well, otherwise narrative pressure keeps
+  // consuming yesterday's recruited crowd on every later action. The
+  // chapter visitor ledger is already updated at recruitment time and must
+  // remain untouched.
+  operations.today = Object.assign({}, today, {
+    day: nextDay,
+    realDateKey: currentDate,
+    visitors: 0,
+    recruitedVisitors: 0,
+    hostedVisitors: 0,
+    hostedChapter: 0,
+    recruitedIncome: 0,
+    income: 0,
+    survivalIncome: 0,
+    buildingVisitors: 0,
+    buildingIncome: 0,
+    buildingIncomeRaw: 0,
+    buildingIncomeCap: 0,
+    buildingIncomeOverflow: 0,
+    incomeCapOverflow: 0,
+    buildingMaintenance: 0,
+    baseMaintenance: 0,
+    visitorServiceMaintenance: 0,
+    visitorWaterUse: 0,
+    recruitmentWaterUse: 0,
+    visitorWaterDelta: 0,
+    facilityChanges: [],
+    facilityAttendance: [],
+    chapterGained: 0,
+    trouble: "尚无明显麻烦"
+  });
+  return operations.today;
+}
 function populationSnapshot(reserve = {}) {
   const ecology = reserve.ecology || {};
   const groups = [ecology.predators || {}, ecology.herbivores || {}, ecology.birds || {}];
@@ -137,19 +222,26 @@ function populationSnapshot(reserve = {}) {
   groups.forEach((group) => Object.keys(group).forEach((id) => { const count = whole(group[id]); if (!count) return; animalTotal += count; speciesCount += 1; if (RARE_SPECIES.has(id)) rareTotal += count; }));
   return { animalTotal, rareTotal, speciesCount, rareRatio: animalTotal ? rareTotal / animalTotal : 0 };
 }
-
 function activeFacilitySnapshot(reserve = {}) {
   const nodes = ((reserve.development || {}).nodes) || {};
   const active = Object.values(nodes).filter((item) => ["operational", "managed"].includes(item.phase));
   const visitorFacilities = active.filter((item) => /visitor|boardwalk|story|border|forest_listening/.test(String(item.planId || ""))).length;
   return { activeCount: active.length, visitorFacilities };
 }
-
-function visitorWaterUseForCount(count) {
+const VISITOR_WATER_USE_CAP = 8;
+const VISITOR_WATER_CRISIS_LINE = 25;
+const VISITOR_WATER_WARNING_LINE = 35;
+function visitorWaterUseForCount(count, reserve) {
   const visitors = Math.max(0, Math.round(n(count)));
-  return visitors > 0 ? Math.min(8, Math.max(1, Math.ceil(visitors / 120))) : 0;
+  if (visitors <= 0) return 0;
+  const raw = Math.min(VISITOR_WATER_USE_CAP, Math.max(1, Math.ceil(visitors / 120)));
+  const water = Number((reserve && reserve.ecology || {}).water);
+  if (!Number.isFinite(water)) return raw;
+  if (water < VISITOR_WATER_CRISIS_LINE) return 0;
+  const availableBudget = Math.max(1, Math.floor(water - 20));
+  if (water < VISITOR_WATER_WARNING_LINE) return Math.min(1, raw, availableBudget);
+  return Math.min(VISITOR_WATER_USE_CAP, raw, availableBudget);
 }
-
 function visitorMigrationRatio(reserve = {}) {
   const ecology = reserve.ecology || {};
   const safety = clamp(reserve.safety, 0, 100);
@@ -163,11 +255,9 @@ function visitorMigrationRatio(reserve = {}) {
   if (safety < 45) ratio *= .72;
   return clamp(ratio, .08, .62);
 }
-
 function normalizeVisitorFlowLedger(saved = {}) {
   return normalizeChapterVisitorLedger(saved);
 }
-
 function visitorRecruitmentFactors(reserve = {}) {
   const population = populationSnapshot(reserve); const ecology = reserve.ecology || {};
   const safety = clamp(reserve.safety, 0, 100); const ecologyScore = clamp(reserve.ecologyScore || ((n(ecology.water) + n(ecology.grass)) / 2), 0, 100);
@@ -184,10 +274,11 @@ function visitorRecruitmentFactors(reserve = {}) {
   const migrationRatio = visitorMigrationRatio(reserve);
   return { base: BASE_VISITOR_RECRUITMENT, safetyFactor, populationFactor: clamp(.88 + Math.min(.62, population.animalTotal / 300) + Math.min(.2, population.speciesCount / 30) + population.rareRatio * .35, .7, 2.05), environmentFactor, facilityFactor: clamp(1 + Math.min(.18, facilities.visitorFacilities * .045) + Math.min(.08, facilities.activeCount * .015), 1, 1.26), population, safety, ecologyScore, water, grass, disease, poacherPressure, facilities, migrationRatio, lowSafety: safety < 45, risk: disease >= 70 || water <= 35 || grass <= 35 ? "critical" : disease >= 40 || water < 50 || grass < 48 ? "warning" : "stable", reason };
 }
-
 function visitorRecruitmentStatus(reserve = {}, gameDay = 1, now = Date.now()) {
   const development = reserve.development || (reserve.development = {}); const operations = development.operations || (development.operations = {});
-  syncVisitorOperationsRealDate(operations, gameDay, now); operations.recruitment = restoreVisitorRecruitmentByPlaytime(normalizeVisitorRecruitment(operations.recruitment, gameDay, now), reserve);
+  syncVisitorOperationsRealDate(operations, gameDay, now);
+  resetVisitorOperationsDay(operations, gameDay, now);
+  operations.recruitment = restoreVisitorRecruitmentByPlaytime(normalizeVisitorRecruitment(operations.recruitment, gameDay, now, reserve), reserve);
   const recruitment = operations.recruitment;
   const nextRestoreSeconds = nextPlaytimeRestoreSeconds(recruitment, reserve);
   return {
@@ -204,7 +295,6 @@ function visitorRecruitmentStatus(reserve = {}, gameDay = 1, now = Date.now()) {
     factors: visitorRecruitmentFactors(reserve)
   };
 }
-
 function previewVisitorRecruitment(reserve = {}, gameDay = 1, random = .5, now = Date.now()) {
   const status = visitorRecruitmentStatus(reserve, gameDay, now); const factors = status.factors;
   const wave = clamp(.9 + clamp(typeof random === "function" ? random() : random, 0, 1) * .2, .9, 1.1);
@@ -217,14 +307,11 @@ function previewVisitorRecruitment(reserve = {}, gameDay = 1, random = .5, now =
   const migrationRatio = factors.migrationRatio;
   return Object.assign({}, status, { visitors, wave, raw, firstStageRecruitment, migrationRatio });
 }
-
 function recruitmentYieldBand(stage = 1, publishCount = 0, disease = 0) {
   const crisis = n(disease) >= 70;
   const stageN = Math.max(1, whole(stage, 1));
   const wave = Math.max(0, whole(publishCount));
   if (crisis) return { factor: 0.12, min: 0, max: stageN <= 1 ? 8 : 12 };
-  // 每波上限压在「两次健康招募 < 本章需补量 < 三次常规招募」之间，
-  // 这样快玩必须看广告（或等价地立刻获得第三次），慢玩等 6 分钟恢复即可。
   if (stageN === 1 && wave <= 0) return { factor: 0.28, min: 8, max: 42 };
   if (stageN === 1) return { factor: 0.38, min: 16, max: 42 };
   if (stageN === 2) return { factor: 0.48, min: 20, max: 62 };
@@ -242,12 +329,10 @@ function recruitmentYieldBand(stage = 1, publishCount = 0, disease = 0) {
   if (stageN <= 19) return { factor: 1.72, min: 72, max: 322 };
   return { factor: 1.80, min: 72, max: 348 };
 }
-
 function scaleRecruitmentVisitors(raw, stage = 1, publishCount = 0, disease = 0) {
   const band = recruitmentYieldBand(stage, publishCount, disease);
   return Math.max(band.min, Math.min(band.max, Math.round(n(raw) * band.factor)));
 }
-
 function consumeVisitorRecruitment(reserve = {}, gameDay = 1, random = Math.random, now = Date.now()) {
   const status = visitorRecruitmentStatus(reserve, gameDay, now); const operations = reserve.development.operations; const recruitment = operations.recruitment;
   const free = recruitment.freeRemaining > 0;
@@ -263,8 +348,9 @@ function consumeVisitorRecruitment(reserve = {}, gameDay = 1, random = Math.rand
   const beforeFund = whole(reserve.fund); reserve.fund = Math.max(0, beforeFund + income); recordFundChange(reserve, beforeFund, reserve.fund, "游客消费贡献收入", gameDay, "游客消费贡献");
   const ecology = reserve.ecology || (reserve.ecology = {});
   const waterBefore = clamp(ecology.water, 0, 100);
-  const waterUse = visitorWaterUseForCount(result.visitors);
+  const waterUse = visitorWaterUseForCount(result.visitors, reserve);
   ecology.water = clamp(waterBefore - waterUse, 0, 100);
+  recordEcologyFlow(reserve, "water", ecology.water - waterBefore, "游客招募", gameDay);
   const today = syncVisitorOperationsRealDate(operations, gameDay, now); today.day = Math.max(1, whole(gameDay, 1)); today.recruitedIncome = whole(today.recruitedIncome) + income; today.income = whole(today.income) + income;
   today.recruitmentWaterUse = whole(today.recruitmentWaterUse) + waterUse;
   const applied = applyChapterVisitorDelta(reserve, result.visitors, "recruit");
@@ -277,12 +363,22 @@ function consumeVisitorRecruitment(reserve = {}, gameDay = 1, random = Math.rand
   result.visitorWater = { before: waterBefore, after: ecology.water, delta: ecology.water - waterBefore };
   return { ok: true, visitors: result.visitors, income, result, migratedVisitors: 0, recruitedVisitors: result.visitors, migrationRatio, visitorWaterUse: waterUse, chapterVisitors: applied, status: visitorRecruitmentStatus(reserve, gameDay, now) };
 }
-
 function grantVisitorRecruitmentAd(reserve = {}, gameDay = 1, now = Date.now()) {
-  const status = visitorRecruitmentStatus(reserve, gameDay, now); const recruitment = reserve.development.operations.recruitment;
-  if (!status.canWatchAd) return { ok: false, reason: status.freeRemaining > 0 ? "free_remaining" : status.adCredits > 0 ? "credits_remaining" : "daily_cap", status };
-  recruitment.adWatchedToday += AD_RECRUIT_GRANT; recruitment.adCredits += AD_RECRUIT_GRANT;
+  const status = visitorRecruitmentStatus(reserve, gameDay, now);
+  const recruitment = reserve.development.operations.recruitment;
+  if (recruitment.adCredits > 0) {
+    return { ok: true, granted: 0, reason: "already_granted", status };
+  }
+  const lastGrantedAt = whole(recruitment.lastAdGrantedAt);
+  if (lastGrantedAt && now >= lastGrantedAt && now - lastGrantedAt < 8000) {
+    return { ok: true, granted: 0, reason: "already_granted", status };
+  }
+  if (recruitment.adWatchedToday + AD_RECRUIT_GRANT > DAILY_AD_WATCH_CAP) {
+    return { ok: false, reason: "daily_cap", status };
+  }
+  recruitment.adWatchedToday += AD_RECRUIT_GRANT;
+  recruitment.adCredits += AD_RECRUIT_GRANT;
+  recruitment.lastAdGrantedAt = whole(now);
   return { ok: true, granted: AD_RECRUIT_GRANT, status: visitorRecruitmentStatus(reserve, gameDay, now) };
 }
-
-module.exports = { DAILY_FREE_RECRUITS, AD_RECRUIT_GRANT, DAILY_AD_WATCH_CAP, PLAYTIME_RECRUIT_RESTORE_SECONDS, BASE_VISITOR_RECRUITMENT, MIN_RECRUITMENT, MAX_RECRUITMENT, visitorRealDateKey, normalizeVisitorRecruitment, syncVisitorRecruitmentDay, syncVisitorOperationsRealDate, restoreVisitorRecruitmentByPlaytime, populationSnapshot, visitorWaterUseForCount, visitorMigrationRatio, normalizeVisitorFlowLedger, visitorRecruitmentFactors, visitorRecruitmentStatus, previewVisitorRecruitment, recruitmentYieldBand, scaleRecruitmentVisitors, consumeVisitorRecruitment, grantVisitorRecruitmentAd };
+module.exports = { DAILY_FREE_RECRUITS, AD_RECRUIT_GRANT, DAILY_AD_WATCH_CAP, PLAYTIME_RECRUIT_RESTORE_SECONDS, BASE_VISITOR_RECRUITMENT, MIN_RECRUITMENT, MAX_RECRUITMENT, VISITOR_WATER_USE_CAP, VISITOR_WATER_CRISIS_LINE, VISITOR_WATER_WARNING_LINE, visitorRealDateKey, normalizeVisitorRecruitment, syncVisitorRecruitmentDay, syncVisitorOperationsRealDate, resetVisitorOperationsDay, restoreVisitorRecruitmentByPlaytime, populationSnapshot, visitorWaterUseForCount, visitorMigrationRatio, normalizeVisitorFlowLedger, visitorRecruitmentFactors, visitorRecruitmentStatus, previewVisitorRecruitment, recruitmentYieldBand, scaleRecruitmentVisitors, consumeVisitorRecruitment, grantVisitorRecruitmentAd };

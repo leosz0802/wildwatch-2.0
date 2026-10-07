@@ -1,5 +1,4 @@
-const { BALANCE_V2, supplyPrice, supplyCapFor } = require("./balanceConfig");
-
+const { BALANCE_V2, supplyPrice, supplyCapFor, fundHealth, levelOf } = require("./balanceConfig");
 const SUPPLY_PURCHASES = [
   {
     id: "dogFood",
@@ -27,13 +26,13 @@ const SUPPLY_PURCHASES = [
   },
   {
     id: "tranquilizer",
-    label: "麻醉弹",
-    itemLabel: "麻醉弹",
+    label: "阻滞弹",
+    itemLabel: "阻滞弹",
     icon: "tranquilizer",
     amount: 2,
     cost: 75,
     target: 3,
-    command: "采购麻醉弹",
+    command: "采购阻滞弹",
     use: "生态干预",
     saleEnabled: true
   },
@@ -63,18 +62,17 @@ const SUPPLY_PURCHASES = [
   },
   {
     id: "evidenceTrap",
-    label: "证据陷阱",
-    itemLabel: "证据陷阱",
-    icon: "eye",
+    label: "诱迹机关",
+    itemLabel: "诱迹机关",
+    icon: "evidenceTrap",
     amount: 1,
     cost: 90,
     target: 2,
-    command: "采购证据陷阱",
+    command: "采购诱迹机关",
     use: "布设后固定偷猎证据",
     saleEnabled: true
   }
 ];
-
 const RESERVE_ACTIONS = [
   {
     id: "houndScout",
@@ -115,7 +113,7 @@ const RESERVE_ACTIONS = [
     icon: "salvage",
     template: "移交守护样本",
     hint: "把巡护中取得的样本交给科研站或执法部门，换回下一轮守护资源。",
-    placeholder: "例如：移交仓库里的脱落鹿角和研究样本",
+    placeholder: "例如：移交仓库里的脱落岩角和研究样本",
     effect: "移交库存 / 获得保护基金 / 支持下一轮巡护",
     rewardPreview: "保护基金+",
     cost: 0
@@ -126,8 +124,8 @@ const RESERVE_ACTIONS = [
     icon: "intervention",
     template: "执行许可内生态干预",
     hint: "控制数量或转移个体，避免生态失衡。",
-    placeholder: "例如：麻醉转移过度靠近水源的鹿，避免草场被啃空",
-    effect: "消耗麻醉弹 / 控制种群 / 稳草场",
+    placeholder: "例如：阻滞转移过度靠近水源的鹿，避免草场被啃空",
+    effect: "消耗阻滞弹 / 控制种群 / 稳草场",
     rewardPreview: "草场稳 · 信任波动",
     cost: 0
   },
@@ -141,16 +139,38 @@ const RESERVE_ACTIONS = [
     effect: "全部补齐或分项采购 / 消耗对应基金 / 扩大选择",
     rewardPreview: "指定补给+ · 猎犬体能",
     cost: 0
+  },
+  {
+    id: "rareAuction",
+    minChapter: 6,
+    label: "珍稀幼崽竞拍",
+    icon: "rare",
+    template: "参与珍稀幼崽竞拍",
+    hint: "第6章起每章一次。基础出价有上限，射箭得分决定最终出价。",
+    placeholder: "例如：参与本章珍稀幼崽竞拍",
+    effect: "冻结最高出价 · 守护日入夜公布，出价后最迟3个守护日一定获得",
+    rewardPreview: "竞拍成功获得珍稀幼崽",
+    cost: 0
+  },
+  {
+    id: "rareAnimalCare",
+    minChapter: 6,
+    label: "照护珍稀幼崽",
+    icon: "rare",
+    template: "照护珍稀幼崽",
+    hint: "每日一次，消耗水源2、草场2，维持健康和游客吸引力。",
+    placeholder: "例如：去珍稀物种居所喂食并记录健康",
+    effect: "水源-2 · 草场-2 · 健康+6",
+    rewardPreview: "维持珍稀物种居住",
+    cost: 0
   }
 ];
-
 const ACTION_SUPPLY_IDS = {
   houndScout: "dogFood",
   antiPoacher: "alarm",
   habitat: "fieldKit",
   intervention: "tranquilizer"
 };
-
 function actionSupplyRequirement(action, reserve = {}) {
   const emergencyType = ((((reserve.emergency || {}).active) || {}).type) || "";
   const diseaseCare = action === "intervention" && (((reserve.ecology || {}).disease || 0) >= 28
@@ -159,15 +179,15 @@ function actionSupplyRequirement(action, reserve = {}) {
   const item = id && SUPPLY_PURCHASES.find((entry) => entry.id === id);
   return item ? { id, label: item.itemLabel, use: diseaseCare ? "隔离救治" : item.use } : null;
 }
-
-function reserveActionCatalog() {
-  return RESERVE_ACTIONS.map((action) => Object.assign({}, action));
+function reserveActionCatalog(chapter = 1) {
+  const currentChapter = Math.max(1, Number(chapter) || 1);
+  return RESERVE_ACTIONS
+    .filter((action) => !action.minChapter || currentChapter >= action.minChapter)
+    .map((action) => Object.assign({}, action));
 }
-
 function reserveActionById(id) {
   return RESERVE_ACTIONS.find((action) => action.id === id) || null;
 }
-
 function reserveActionMeta(id) {
   const action = reserveActionById(id);
   if (!action) return { label: "巡护", icon: "trail", cost: 1 };
@@ -177,7 +197,6 @@ function reserveActionMeta(id) {
     cost: action.cost
   };
 }
-
 function supplySaleEnabled(item, storeConfig = null) {
   if (!item || item.saleEnabled !== true) return false;
   const items = storeConfig && storeConfig.items && typeof storeConfig.items === "object" ? storeConfig.items : {};
@@ -186,7 +205,6 @@ function supplySaleEnabled(item, storeConfig = null) {
   if (override && typeof override === "object" && override.saleEnabled === false) return false;
   return true;
 }
-
 function pricedSupply(item, reserveOrLevel, storeConfig = null) {
   if (!supplySaleEnabled(item, storeConfig)) return null;
   return Object.assign({}, item, {
@@ -195,19 +213,15 @@ function pricedSupply(item, reserveOrLevel, storeConfig = null) {
     cap: supplyCapFor(item.id, reserveOrLevel)
   });
 }
-
 function supplyPurchaseCatalog(reserveOrLevel, storeConfig = null) {
   return SUPPLY_PURCHASES.map((item) => pricedSupply(item, reserveOrLevel, storeConfig)).filter(Boolean);
 }
-
 function supplyPurchaseById(id, reserveOrLevel, storeConfig = null) {
   return pricedSupply(SUPPLY_PURCHASES.find((item) => item.id === id) || null, reserveOrLevel, storeConfig);
 }
-
 function roundPurchaseCost(value) {
   return Math.max(5, Math.round((Number(value) || 0) / 5) * 5);
 }
-
 function supplyPurchaseForQuantity(id, quantity, reserveOrLevel) {
   const purchase = supplyPurchaseById(id, reserveOrLevel);
   if (!purchase) return null;
@@ -222,32 +236,42 @@ function supplyPurchaseForQuantity(id, quantity, reserveOrLevel) {
     command: `采购${purchase.itemLabel} 数量:${amount}`
   });
 }
-
 const SAFETY_REPLENISH_LIMIT = 2;
-
 function supplyReplenishCount(reserve = {}) {
   const progression = (reserve && reserve.progression) || {};
   const stored = Number(progression.supplyReplenishCount);
-  if (Number.isFinite(stored) && stored >= 0) return Math.max(0, Math.round(stored));
-  // 旧存档没有计数：已经买过补给的玩家跳过新手两次安全线补货。
+  const ledgerCount = Array.isArray(reserve.fundLedger)
+    ? reserve.fundLedger.filter((entry) => entry && entry.type === "expense"
+      && entry.source === "补给采购" && Number(entry.amount) < 0).length
+    : 0;
+  if (Number.isFinite(stored) && stored >= 0) return Math.max(Math.round(stored), ledgerCount, 0);
+  if (ledgerCount > 0) return ledgerCount;
   if (progression.supplyCapUnlocked === true) return SAFETY_REPLENISH_LIMIT;
   const last = reserve && reserve.lastPurchase;
   if (last && !last.blocked && Number(last.amount) > 0) return 1;
   return 0;
 }
-
 function supplyReplenishUsesSafetyLine(reserve = {}) {
   return supplyReplenishCount(reserve) < SAFETY_REPLENISH_LIMIT;
 }
-
+function supplyReplenishFundFloor(reserve = {}) {
+  if (!supplyReplenishUsesSafetyLine(reserve)) return 0;
+  const health = fundHealth(levelOf(reserve)) || {};
+  const fund = Math.max(0, Number(reserve.fund) || 0);
+  const healthyMin = Math.max(0, Number(health.healthyMin) || 0);
+  const danger = Math.max(0, Number(health.danger) || 0);
+  if (fund > healthyMin) return healthyMin;
+  if (fund > danger) return danger;
+  return 0;
+}
 function supplyFillLine(purchaseOrId, reserve = {}) {
   const purchase = typeof purchaseOrId === "string"
     ? supplyPurchaseById(purchaseOrId, reserve)
     : purchaseOrId;
   if (!purchase) return 0;
-  return Math.max(0, Number(purchase.cap) || Number(purchase.target) || 0);
+  const line = supplyReplenishUsesSafetyLine(reserve) ? purchase.target : purchase.cap;
+  return Math.max(0, Number(line) || Number(purchase.cap) || 0);
 }
-
 function supplySafetyLineMet(reserve = {}) {
   const supplies = reserve.supplies || {};
   return supplyPurchaseCatalog(reserve).every((purchase) => {
@@ -256,54 +280,118 @@ function supplySafetyLineMet(reserve = {}) {
     return stock >= line;
   });
 }
-
 function purchaseCostForAmount(id, amount, reserve) {
   if (amount <= 0) return 0;
   const priced = supplyPurchaseForQuantity(id, amount, reserve);
   return priced && priced.amount === amount ? priced.cost : Infinity;
 }
-
-function evenFillToCap(desired, reserve, fund) {
-  const counts = {};
-  const blocked = {};
-  desired.forEach((item) => { counts[item.purchase.id] = 0; });
-  let remaining = Math.max(0, Number(fund) || 0);
-  const maxUnits = desired.reduce((sum, item) => sum + item.missing, 0);
-  for (let step = 0; step < maxUnits; step += 1) {
-    const next = desired
-      .filter((item) => !blocked[item.purchase.id] && counts[item.purchase.id] < item.missing)
-      .sort((a, b) => {
-        const ar = (a.stock + counts[a.purchase.id]) / Math.max(1, a.purchase.cap || 1);
-        const br = (b.stock + counts[b.purchase.id]) / Math.max(1, b.purchase.cap || 1);
-        if (ar !== br) return ar - br;
-        return (a.purchase.cost || 0) - (b.purchase.cost || 0);
-      })[0];
-    if (!next) break;
-    const id = next.purchase.id;
-    const qty = counts[id] + 1;
-    const nextCost = purchaseCostForAmount(id, qty, reserve);
-    const prevCost = purchaseCostForAmount(id, counts[id], reserve);
-    const delta = nextCost - prevCost;
-    if (!Number.isFinite(delta) || delta > remaining) {
-      blocked[id] = true;
-      continue;
-    }
-    counts[id] = qty;
-    remaining -= delta;
+function maxAffordableSupplyQuantity(id, reserve = {}, requested = Number.MAX_SAFE_INTEGER, availableFund = null) {
+  const purchase = supplyPurchaseById(id, reserve);
+  if (!purchase) return 0;
+  const stock = Math.max(0, Number(reserve.supplies && reserve.supplies[id]) || 0);
+  const room = Math.max(0, Number(purchase.cap || 0) - stock);
+  const limit = Math.max(0, Math.min(room, Math.round(Number(requested) || 0)));
+  const budget = availableFund == null
+    ? Math.max(0, Number(reserve.fund) || 0)
+    : Math.max(0, Number(availableFund) || 0);
+  let affordable = 0;
+  for (let quantity = 1; quantity <= limit; quantity += 1) {
+    const cost = purchaseCostForAmount(id, quantity, reserve);
+    if (!Number.isFinite(cost) || cost > budget) break;
+    affordable = quantity;
   }
-  return desired
-    .map((item) => supplyPurchaseForQuantity(item.purchase.id, counts[item.purchase.id], reserve))
-    .filter((purchase) => purchase && purchase.amount > 0);
+  return affordable;
 }
-
+function optimizeSupplyPlan(desired, reserve, fund) {
+  const budgetUnits = Math.max(0, Math.floor((Number(fund) || 0) / 5));
+  if (!desired.length || budgetUnits <= 0) return [];
+  let states = new Map([[0, { amount: 0, counts: [] }]]);
+  desired.forEach((item) => {
+    const choices = [{ amount: 0, costUnits: 0 }];
+    for (let quantity = 1; quantity <= item.missing; quantity += 1) {
+      const cost = purchaseCostForAmount(item.purchase.id, quantity, reserve);
+      if (!Number.isFinite(cost)) break;
+      choices.push({ amount: quantity, costUnits: Math.max(0, Math.ceil(cost / 5)) });
+    }
+    const next = new Map();
+    states.forEach((state, usedUnits) => {
+      choices.forEach((choice) => {
+        const totalCost = usedUnits + choice.costUnits;
+        if (totalCost > budgetUnits) return;
+        const candidate = {
+          amount: state.amount + choice.amount,
+          counts: state.counts.concat(choice.amount)
+        };
+        const previous = next.get(totalCost);
+        if (!previous || candidate.amount > previous.amount) next.set(totalCost, candidate);
+      });
+    });
+    states = next;
+  });
+  let best = null;
+  states.forEach((state, usedUnits) => {
+    if (!best || state.amount > best.amount || (state.amount === best.amount && usedUnits < best.usedUnits)) {
+      best = Object.assign({}, state, { usedUnits });
+    }
+  });
+  if (!best || !best.amount) return [];
+  return desired.map((item, index) => supplyPurchaseForQuantity(
+    item.purchase.id,
+    best.counts[index] || 0,
+    reserve
+  )).filter((purchase) => purchase && purchase.amount > 0);
+}
+function parseSupplyReplenishList(command, reserve) {
+  const match = String(command || "").match(/清单:([a-zA-Z0-9,=]+)/);
+  if (!match || !match[1]) return null;
+  const requestedItems = match[1].split(",").map((part) => {
+    const [id, raw] = part.split("=");
+    return supplyPurchaseForQuantity(String(id || "").trim(), Number(raw) || 0, reserve);
+  }).filter((item) => item && item.amount > 0);
+  if (!requestedItems.length) return null;
+  const requestedCost = requestedItems.reduce((sum, item) => sum + item.cost, 0);
+  const requestedAmount = requestedItems.reduce((sum, item) => sum + item.amount, 0);
+  const spendable = Math.max(0, (Number(reserve && reserve.fund) || 0) - supplyReplenishFundFloor(reserve));
+  const desired = requestedItems.map((purchase) => ({
+    purchase,
+    stock: Math.max(0, Number(reserve.supplies && reserve.supplies[purchase.id]) || 0),
+    missing: purchase.amount
+  }));
+  const items = requestedCost <= spendable ? requestedItems : optimizeSupplyPlan(desired, reserve, spendable);
+  const cost = items.reduce((sum, item) => sum + item.cost, 0);
+  const amount = items.reduce((sum, item) => sum + item.amount, 0);
+  return {
+    id: "all",
+    batch: true,
+    fillToCap: !supplyReplenishUsesSafetyLine(reserve),
+    label: "一键补齐",
+    itemLabel: "全部短缺补给",
+    icon: "buySupplies",
+    amount,
+    cost,
+    target: items.length,
+    cap: items.length,
+    items,
+    requestedAmount,
+    requestedCost,
+    maxAffordableAmount: amount,
+    partial: amount > 0 && amount < requestedAmount,
+    unaffordable: requestedAmount > 0 && amount === 0,
+    command: String(command)
+  };
+}
 function supplyReplenishmentPlan(reserveOrLevel) {
   const reserve = reserveOrLevel || {};
   const supplies = reserve.supplies || {};
   const fund = Math.max(0, Number(reserve.fund) || 0);
+  const spendable = Math.max(0, fund - supplyReplenishFundFloor(reserve));
   const catalog = supplyPurchaseCatalog(reserve);
+  const fillToCap = !supplyReplenishUsesSafetyLine(reserve);
   const desired = catalog.map((purchase) => {
     const stock = Math.max(0, Number(supplies[purchase.id]) || 0);
-    const line = Math.max(0, Number(purchase.cap) || 0);
+    const line = fillToCap
+      ? Math.max(0, Number(purchase.cap) || 0)
+      : Math.max(0, Number(purchase.target) || 0);
     const missing = Math.max(0, line - stock);
     return { purchase, stock, missing };
   }).filter((item) => item.missing > 0);
@@ -311,10 +399,8 @@ function supplyReplenishmentPlan(reserveOrLevel) {
     .map((item) => supplyPurchaseForQuantity(item.purchase.id, item.missing, reserve))
     .filter((purchase) => purchase && purchase.amount > 0);
   const fullCost = fullItems.reduce((sum, purchase) => sum + purchase.cost, 0);
-  let items = fullCost <= fund ? fullItems : evenFillToCap(desired, reserve, fund);
-  if (!items.length && desired.length) {
-    items = fullItems;
-  }
+  const requestedAmount = desired.reduce((sum, item) => sum + item.missing, 0);
+  let items = fullCost <= spendable ? fullItems : optimizeSupplyPlan(desired, reserve, spendable);
   items = items.map((purchase) => Object.assign({}, purchase, {
     target: Math.max(0, Number(supplies[purchase.id]) || 0) + Math.max(0, Number(purchase.amount) || 0)
   }));
@@ -324,20 +410,24 @@ function supplyReplenishmentPlan(reserveOrLevel) {
   return {
     id: "all",
     batch: true,
-    fillToCap: true,
+    fillToCap,
     label: "一键补齐",
     itemLabel: "全部短缺补给",
     icon: "buySupplies",
     amount,
-    cost,
+    cost: items.length ? cost : Math.max(fullCost, 1),
     target: items.length,
     cap: items.length,
     items,
+    requestedAmount,
+    requestedCost: fullCost,
+    maxAffordableAmount: amount,
+    partial: amount > 0 && amount < requestedAmount,
+    unaffordable: !!(desired.length && !items.length),
     command: `补齐全部短缺补给 清单:${list}`,
-    use: "按当前基金尽量平均补到仓库上限"
+    use: fillToCap ? "按当前基金购买可负担的最大数量" : "按当前基金补到巡护安全线"
   };
 }
-
 module.exports = {
   reserveActionCatalog,
   reserveActionById,
@@ -345,7 +435,9 @@ module.exports = {
   supplyPurchaseCatalog,
   supplyPurchaseById,
   supplyPurchaseForQuantity,
+  maxAffordableSupplyQuantity,
   supplyReplenishmentPlan,
+  parseSupplyReplenishList,
   supplyReplenishCount,
   supplyReplenishUsesSafetyLine,
   supplyFillLine,

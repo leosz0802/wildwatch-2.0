@@ -57,6 +57,8 @@ assert.strictEqual(game.renderedAnimalLetterChip, null, "first-stage home should
 game.screen = "collection";
 game.discoveryTab = "visitors";
 game.drawCollection(fakeContext());
+assert(game.renderedDiscoveryNetworkEntry && game.renderedDiscoveryNetworkEntry.friends && game.renderedDiscoveryNetworkEntry.world, "discovery should pin friend and world ranking entry above the tabs");
+assert(game.renderedDiscoveryTabs && game.renderedDiscoveryTabs.y > game.renderedDiscoveryNetworkEntry.y, "friend and world ranking entry must sit above Visitor Operations and Population Observation");
 assert(game.renderedVisitorTable && game.renderedVisitorTable.stageOneLight, "visitor page should report first-stage reduction");
 assert.strictEqual(game.renderedVisitorTable.visibleBuildings, 4, "visitor page should show all four building cards");
 assert.strictEqual(game.renderedVisitorTable.buildings, 4, "first-stage visitor page must preserve the full building model behind the reduced UI");

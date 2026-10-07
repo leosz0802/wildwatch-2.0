@@ -1,15 +1,12 @@
 const { FIRST_RETURN_HOOK_COPY } = require("./firstReturnHook");
-
 const PHASES = [
   { id: "morning", label: "上午", short: "晨", time: "08:20" },
   { id: "afternoon", label: "下午", short: "午", time: "13:40" },
   { id: "dusk", label: "黄昏", short: "暮", time: "18:10" }
 ];
-
 const SEASON_LENGTH = 12;
 const YEAR_LENGTH = 24;
 const MASTERY_THRESHOLDS = [0, 60, 150, 280, 450, 700, 1000, 1400, 1900, 2500];
-
 const MASTERY_DEFS = {
   patrol: {
     id: "patrol",
@@ -39,17 +36,15 @@ const MASTERY_DEFS = {
     }
   }
 };
-
 const SEVEN_DAY_BEATS = {
   1: { title: "干涸水点", prompt: "跟随晨角鹿，修复第一处水点。", actions: ["habitat"], highlight: "水面扩大，晨角鹿第一次回应。" },
   2: { title: "逆行脚印", prompt: "脚印属于陌生独狼，派猎犬确认它为何靠近水源。", actions: ["houndScout", "antiPoacher"], highlight: "独狼的来路被确认，泥岸留下第一件回收物。" },
   3: { title: "第一次周转", prompt: "移交回收物，再为巡护采购补给。", actions: ["salvage", "buySupplies"], highlight: "基金开始真正支撑巡护。" },
   4: { title: "水草取舍", prompt: "在修水源和保草场之间做出选择。", actions: ["habitat", "intervention"], highlight: "你的选择改变了动物路线。" },
   5: { title: "沉牙的危机", prompt: "找到沉牙，回应它正在面对的风险。", actions: ["houndScout", "antiPoacher", "intervention"], highlight: "沉牙记住了这次守护。" },
-  6: { title: "水边脚印", prompt: "跟随动物线索完成第一次收藏调查。", actions: ["collectionInvestigation"], highlight: "旧巡护站开始被清理。" },
+  6: { title: "巡护站启用", prompt: "去巡护站派出一次短巡。消耗狗粮和基金，立刻找回动物。", actions: ["facilityUse"], highlight: "巡护站开始工作。" },
   7: { title: "七日回望", prompt: "完成本周最后一次守护行动。", actions: ["houndScout", "habitat", "antiPoacher", "intervention"], highlight: "设施点亮，动物在沙盘中央重聚。" }
 };
-
 const MAIN_CAST = [
   { id: "npc_deer", chapter: 1, name: "晨角", rainRegion: "meadow", dryRegion: "river", arc: "第一次带鹿群靠近营地" },
   { id: "npc_wolf", chapter: 1, name: "沉牙", rainRegion: "center", dryRegion: "meadow", arc: "判断新巡护员是否值得信任" },
@@ -62,12 +57,10 @@ const MAIN_CAST = [
   { id: "npc_mink", chapter: 5, name: "霜脊", rainRegion: "lake", dryRegion: "river", arc: "见证浅滩属于谁" },
   { id: "npc_eagle", chapter: 5, name: "高旋", rainRegion: "north", dryRegion: "rocks", arc: "从高空看见共同守护的边界" }
 ];
-
 function clampInt(value, min, max, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.max(min, Math.min(max, Math.round(number))) : fallback;
 }
-
 function guardianSeason(day) {
   const safeDay = Math.max(1, Math.round(Number(day) || 1));
   const cycleDay = ((safeDay - 1) % YEAR_LENGTH) + 1;
@@ -80,7 +73,6 @@ function guardianSeason(day) {
     changed: cycleDay === 1 || cycleDay === SEASON_LENGTH + 1
   };
 }
-
 function seasonBeat(day) {
   const season = guardianSeason(day);
   const beats = {
@@ -92,7 +84,6 @@ function seasonBeat(day) {
   };
   return beats[season.day] || "普通守护日：按当前风险自由安排三次行动";
 }
-
 function createMasteryState() {
   return {
     version: 1,
@@ -101,7 +92,6 @@ function createMasteryState() {
     relationship: { xp: 0, level: 1, branches: {}, pendingChoice: null, lastGain: null }
   };
 }
-
 function masteryLevel(xp) {
   let level = 1;
   MASTERY_THRESHOLDS.forEach((threshold, index) => {
@@ -109,7 +99,6 @@ function masteryLevel(xp) {
   });
   return Math.min(10, level);
 }
-
 function normalizeMastery(saved) {
   const base = createMasteryState();
   const source = saved || {};
@@ -127,7 +116,6 @@ function normalizeMastery(saved) {
   });
   return base;
 }
-
 function createGuardianCycle() {
   return {
     version: 1,
@@ -141,7 +129,6 @@ function createGuardianCycle() {
     sevenDay: { completed: {}, progress: {}, highlights: [] }
   };
 }
-
 function normalizeGuardianCycle(saved, totalActions = 0) {
   const source = Object.assign(createGuardianCycle(), saved || {});
   const inferredCompleted = Math.floor(Math.max(0, Number(totalActions) || 0) / 3);
@@ -156,12 +143,9 @@ function normalizeGuardianCycle(saved, totalActions = 0) {
   source.sevenDay.highlights = Array.isArray(source.sevenDay.highlights) ? source.sevenDay.highlights.slice(-7) : [];
   return source;
 }
-
 function guardianContext(reserve) {
   const totalActions = (((reserve || {}).progression || {}).totalActions) || 0;
   const cycle = normalizeGuardianCycle((reserve || {}).guardianCycle, totalActions);
-  // 旧版即时出售绕过了巡护结算。只凭第3日的真实出售流水恢复移交进度，
-  // 不重新发钱、不把别日或其他收入误记为本次任务。
   if (cycle.day === 3 && !cycle.sevenDay.completed[3]) {
     const soldToday = ((reserve || {}).fundLedger || []).some((entry) =>
       Number(entry.day) === 3 && entry.source === "样本出售收入" && Number(entry.amount) > 0);
@@ -184,7 +168,6 @@ function guardianContext(reserve) {
     sevenDayBeat: SEVEN_DAY_BEATS[cycle.day] || null
   };
 }
-
 function deltaSummary(before, after) {
   const beforeEco = (before && before.ecology) || {};
   const afterEco = (after && after.ecology) || {};
@@ -197,7 +180,6 @@ function deltaSummary(before, after) {
   if (!candidates.length) return "保护区维持住了今天的平衡";
   return candidates.slice(0, 2).map((item) => `${item.label}${item.value > 0 ? "+" : ""}${item.value}`).join(" · ");
 }
-
 function animalResponseFor(action, after) {
   const water = (((after || {}).ecology || {}).water) || 0;
   const grass = (((after || {}).ecology || {}).grass) || 0;
@@ -212,13 +194,11 @@ function animalResponseFor(action, after) {
   };
   return responses[action] || "林间的动静渐渐恢复。";
 }
-
 function tomorrowText(nextDay) {
   const season = guardianSeason(nextDay);
   const beat = seasonBeat(nextDay);
   return `第${nextDay}日 · ${season.name}${season.day}/12：${beat}`;
 }
-
 function recordSevenDayProgress(reserve, action) {
   const cycle = (reserve && reserve.guardianCycle) || guardianContext(reserve).cycle;
   cycle.sevenDay = Object.assign({ completed: {}, progress: {}, highlights: [] }, cycle.sevenDay || {});
@@ -239,7 +219,6 @@ function recordSevenDayProgress(reserve, action) {
   reserve.guardianCycle = cycle;
   return { matched: true, completed, day: cycle.day, highlight: completed ? beat.highlight : "" };
 }
-
 function advanceGuardianCycle(reserve, action, before, after, options = {}) {
   const context = guardianContext(reserve);
   const cycle = context.cycle;
@@ -281,11 +260,9 @@ function advanceGuardianCycle(reserve, action, before, after, options = {}) {
   reserve.seasonDay = reserve.seasonState.day;
   return { context, cycle, night, actionRecord, next: guardianContext(reserve) };
 }
-
 function masteryTrackForAction(action) {
   return Object.keys(MASTERY_DEFS).find((id) => MASTERY_DEFS[id].actions.includes(action)) || null;
 }
-
 function awardMastery(reserve, trackId, amount, reason) {
   if (!MASTERY_DEFS[trackId] || !amount) return null;
   reserve.mastery = normalizeMastery(reserve.mastery);
@@ -302,12 +279,10 @@ function awardMastery(reserve, trackId, amount, reason) {
   track.lastGain = { amount: track.xp - beforeXp, reason, beforeLevel, level: track.level, levelUp };
   return Object.assign({ trackId, label: MASTERY_DEFS[trackId].label }, track.lastGain);
 }
-
 function awardKeyActionMastery(reserve, action) {
   const trackId = masteryTrackForAction(action);
   return trackId ? awardMastery(reserve, trackId, 20, "关键行动") : null;
 }
-
 function chooseMasteryBranch(reserve, trackId, level, branchId) {
   const def = MASTERY_DEFS[trackId];
   const milestone = Number(level);
@@ -322,7 +297,6 @@ function chooseMasteryBranch(reserve, trackId, level, branchId) {
   track.pendingChoice = track.level >= 10 && !track.branches[10] ? 10 : track.level >= 5 && !track.branches[5] ? 5 : null;
   return { ok: true, trackId, level: milestone, branch };
 }
-
 function masteryView(reserve) {
   const mastery = normalizeMastery((reserve || {}).mastery);
   return Object.keys(MASTERY_DEFS).map((id) => {
@@ -342,7 +316,6 @@ function masteryView(reserve) {
     };
   });
 }
-
 function applyNamedAnimalSchedule(animals, reserve) {
   const context = guardianContext(reserve || {});
   const chapter = Math.max(1, Math.min(7, Math.ceil(((((reserve || {}).progression || {}).stage) || 1) / 2)));
@@ -367,7 +340,6 @@ function applyNamedAnimalSchedule(animals, reserve) {
     });
   });
 }
-
 module.exports = {
   PHASES,
   SEASON_LENGTH,

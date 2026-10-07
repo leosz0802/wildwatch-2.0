@@ -177,12 +177,12 @@ if (noTransferGame.state.ui.firstPatrolRecovery || noTransferGame.patrolTaskModa
 
 const materialPatrolScreen = makeGame("role");
 materialPatrolScreen.openPatrolOperationScreen("houndScout");
-if (materialPatrolScreen.screen !== "action" || materialPatrolScreen.actionScreenOrigin !== "role") {
-  throw new Error("materials patrol shortcut should remember the materials page as its close destination");
+if (materialPatrolScreen.screen !== "role" || !materialPatrolScreen.patrolTaskModal || materialPatrolScreen.patrolTaskModal.id !== "houndScout") {
+  throw new Error("materials patrol shortcut should open the task on the materials page");
 }
 materialPatrolScreen.closePatrolOperationScreen();
-if (materialPatrolScreen.screen !== "role" || materialPatrolScreen.actionScreenOrigin) {
-  throw new Error("patrol close button should return to the materials page and clear the saved origin");
+if (materialPatrolScreen.screen !== "role") {
+  throw new Error("closing the task should stay on the materials page");
 }
 
 const homePatrolScreen = makeGame("home");
@@ -200,6 +200,12 @@ for (const width of [320, 375, 430]) {
     blockedGame.state.world.reserve.supplies[supply] = 0;
     blockedGame.selectedReserveAction = action;
     blockedGame.openPatrolTaskModal(blockedGame.reserveActionOptions().find(item => item.id === action));
+    if (action === "antiPoacher") {
+      if (blockedGame.screen !== "role" || blockedGame.patrolTaskModal) {
+        throw new Error(`${width}/${action}: blocked 驱赶偷猎 must go to materials without an intermediate page`);
+      }
+      continue;
+    }
     const buttons = [];
     const drawButton = blockedGame.modalButton.bind(blockedGame);
     blockedGame.modalButton = (...args) => { buttons.push({ label: args[5], onTap: args[7] }); return drawButton(...args); };

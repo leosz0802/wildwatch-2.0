@@ -1,4 +1,3 @@
-// 三物种试点：信件依据真实状态选段，动物与游客分别提供感官和现场观察。
 const STORIES = {
   鹿: { id: 'deer_water', name: '泥岸上的第一串脚印', metric: 'water', target: 65, action: 'habitat', label: '去修复水源',
     opening: ['风先到了，狼的气味随后才到。', '我停在泥岸上，耳朵转向身后的草。幼鹿还想往前走，水就在几步之外；可是喝水必须低头，低头就看不见岸上的动静。狼也要活下去。真正把我们困住的，是所有脚印都通向这一个水口。'],
@@ -16,6 +15,48 @@ const STORIES = {
     recovery: ['母马回头时，幼驹就在身旁。', '这一段路没有车横过来，草也能让我们多停一会儿。有人吃草，有人抬头；远处的猎手没有消失，队伍却不必被迫拉长。我们暂时留下。留下不是承诺，是今天的草、水和退路一起给出的答案。'],
     visitor: ['游车停下来让斑马先过。幼驹循着母马的叫声追上去，我才看懂队尾那一点距离有多重要。', '今天没有追着迁出的斑马拍照。草场和通道需要恢复，追逐只会让它们走得更远。', '我们从固定观察点看斑马吃草。最好的变化不是它们靠得更近，而是队伍终于不用一直走。'] }
 };
+function hash(text) {
+  let value = 2166136261;
+  String(text || "").split("").forEach((char) => {
+    value ^= char.charCodeAt(0);
+    value = Math.imul(value, 16777619);
+  });
+  return Math.abs(value >>> 0);
+}
+function reserveContext(reserve = {}) {
+  const progression = reserve.progression || {};
+  const ecology = reserve.ecology || {};
+  const operations = ((reserve.development || {}).operations) || {};
+  const today = operations.today || {};
+  const chapter = Math.max(1, Math.round(Number(progression.displayChapter || progression.stage || 1)));
+  const level = Math.max(1, Math.round(Number(progression.level || chapter)));
+  return {
+    chapter,
+    level,
+    water: Math.round(Number(ecology.water) || 0),
+    grass: Math.round(Number(ecology.grass) || 0),
+    disease: Math.round(Number(ecology.disease) || 0),
+    safety: Math.round(Number(reserve.safety == null ? reserve.stability : reserve.safety) || 0),
+    visitors: Math.round(Number(today.visitors == null ? reserve.visitors : today.visitors) || 0)
+  };
+}
+function visitorLetterBody(species, phase, detail, context, rotation) {
+  const focus = context.water <= context.grass
+    ? `水源${context.water}`
+    : `草场${context.grass}`;
+  const lead = [
+    `第${context.chapter}章·等级${context.level}的今天，我在固定观察点等了很久。`,
+    `这一轮游客记录里，${focus}比上一段路线更值得留意。`,
+    `我们没有追着动物走，先把游客留在能看见变化、又不会挤进现场的位置。`,
+    `这次回信记下了数值：安全${context.safety}、游客${context.visitors}人。`
+  ][Math.abs(Number(rotation) || 0) % 4];
+  const suffix = phase === "pressure"
+    ? `当前疾病${context.disease}，我们希望下一次回来时能少一点拥挤。`
+    : phase === "recovery"
+      ? `路线已经能容下选择，下一次还想看见它们自己决定靠近还是离开。`
+      : `这份记录先留在邮箱里，等你把本章的下一步走完。`;
+  return `${lead} ${detail} ${suffix}`;
+}
 function storyView(reserve, species, previous) {
   const story = STORIES[species]; if (!story) return null;
   const value = Number(story.metric === 'safety' ? reserve.safety : (reserve.ecology || {})[story.metric]) || 0;
@@ -30,14 +71,31 @@ function animalStoryLetter(reserve, letter, history) {
 }
 function visitorStoryLetter(reserve, day, history) {
   const ecology = reserve.ecology || {};
+  const context = reserveContext(reserve);
+  const rotation = Math.floor(Math.max(0, Number(day) - 1) / 3);
   for (const species of Object.keys(STORIES)) {
     const key = { 鹿: 'deer', 乌鸦: 'crow', 斑马: 'zebra' }[species];
     if (!Number((ecology.herbivores || {})[key] || (ecology.birds || {})[key])) continue;
     const prior = history.find(item => item.id && item.id.startsWith(`vs_${key}_`));
     const view = storyView(reserve, species, prior);
-    const id = `vs_${key}_${view.phase}`;
+    const variant = (rotation + context.chapter + context.level + hash(`${key}|${view.phase}`)) % view.story.visitor.length;
+    const id = `vs_${key}_${view.phase}_${rotation}_${context.chapter}_${context.level}`;
     if (history.some(item => item.id === id)) continue;
-    return { id, day, readAt: 0, title: `游客手记 · ${species}`, body: view.story.visitor[{opening:0,pressure:1,recovery:2}[view.phase]], trouble: view.phase === 'pressure' };
+    return {
+      id,
+      day,
+      readAt: 0,
+      title: `游客手记 · ${species}`,
+      body: visitorLetterBody(species, view.phase, view.story.visitor[variant], context, rotation),
+      trouble: view.phase === 'pressure',
+      sourceKind: "visitor",
+      species,
+      chapter: context.chapter,
+      level: context.level,
+      values: { water: context.water, grass: context.grass, disease: context.disease, safety: context.safety, visitors: context.visitors },
+      rotation,
+      contentKey: `${id}|${variant}`
+    };
   }
   return null;
 }

@@ -69,6 +69,18 @@ onMessage({ type: 'friend_rank_show', width: 340, height: 420, reload: true });
 const failed = callbacks.pop();
 failed.fail({ errMsg: 'getFriendCloudStorage:fail concurrent' });
 assert.equal(callbacks.length, before + 1, 'a collided friend-storage read should retry after the hosted write');
+onMessage({ type: 'friend_rank_hide' });
+text.length = 0;
+onMessage({ type: 'friend_rank_show', width: 340, height: 420 });
+for (const name of names) assert(text.includes(name + '的自然'), 'parking the overlay must not wipe cached WeChat friends: ' + name);
+onMessage({ type: 'friend_rank_show', width: 340, height: 420, reload: true });
+const selfFallback = callbacks.pop();
+text.length = 0;
+selfFallback.success({ data: [{
+  nickname: '我',
+  KVDataList: [{ key: 'wild_guardian_rank_v1', value: JSON.stringify({ name: '自然保护区', valuation: 1, level: 1, animals: 1 }) }]
+}] });
+for (const name of names) assert(text.includes(name + '的自然'), 'self-only fallback must not replace cached WeChat friends: ' + name);
 const controller = new WechatFriendController({ getOpenDataContext: () => ({ canvas, postMessage: msg => messages.push(msg) }) });
 controller.drawWorldRows(context, 0, 0, 340, 192, world.map(row => ({ ...row, name: row.title })));
 assert.equal(messages.at(-1).type, 'world_rank_show');

@@ -1,6 +1,8 @@
 const { createCharacter } = require("../js/storage");
 const { BALANCE_V2, supplyPrice, fundHealth } = require("../js/balanceConfig");
 const { reserveProgressionFor } = require("../js/simulator");
+const { chapterTargets, beginChapterAnimalCheckpoint, chapterAnimalTotal } = require("../js/chapterTargets");
+const { recordIncrease } = require("../js/animalSourceLedger");
 const { populationYieldMultiplier } = require("../js/ecologyEconomy");
 const { FACILITIES } = require("../js/reserveFacilities");
 
@@ -38,6 +40,8 @@ reserve.ecology.grass = 100;
 reserve.ecology.herbivores.deer = 1000;
 reserve.development.operations.totalVisitors = 1000;
 reserve.development.operations.visitorLedger = { totalVisitors: 1000 };
+beginChapterAnimalCheckpoint(reserve, 1, 0);
+recordIncrease(reserve, "tasked", Math.max(0, chapterTargets(1).animals - chapterAnimalTotal(reserve)));
 reserve.guardianRun.score = 100;
 reserve.progression = Object.assign({}, reserve.progression, {
   level: 1,
@@ -58,8 +62,22 @@ reserve.eventChain = { chapterLevel: 1, step: 2, length: 7, completed: false };
 const advanced = reserveProgressionFor(reserve);
 assert(advanced.stage === 2 && advanced.level === 1, "stage 1 should advance without an online-time requirement once real goals are met");
 
-assert(supplyPrice("dogFood", 1) === 80 && supplyPrice("dogFood", 5) === 95, "dog-food chapter price curve mismatch");
-assert(supplyPrice("alarm", 5) === 150 && supplyPrice("tranquilizer", 5) === 175 && supplyPrice("fieldKit", 5) === 125, "late supply prices must round to five");
+Object.keys(BALANCE_V2.supplyBasePrices).forEach((id) => {
+  let previous = 0;
+  for (let chapter = 1; chapter <= 20; chapter += 1) {
+    const expected = 5 * Math.round((
+      BALANCE_V2.supplyBasePrices[id]
+      * BALANCE_V2.tuning.supplyPriceScale
+      * Math.pow(1 + BALANCE_V2.tuning.supplyChapterGrowth, chapter - 1)
+    ) / 5);
+    const actual = supplyPrice(id, chapter);
+    assert(actual === expected, `${id} chapter ${chapter} must follow the exact 5% chapter curve`);
+    assert(actual > previous, `${id} displayed price must increase at chapter ${chapter}`);
+    previous = actual;
+  }
+});
+const chapterTenReserve = { progression: { level: 1, stage: 10, displayChapter: 10 } };
+assert(supplyPrice("dogFood", chapterTenReserve) === supplyPrice("dogFood", 10), "supply pricing must use the actual chapter instead of the seven-level story rank");
 const richReserve = { progression: { level: 5 }, guardianCycle: { day: 18 }, fund: 6400, supplies: { dogFood: 8 } };
 assert(supplyPrice("dogFood", richReserve) > supplyPrice("dogFood", 5), "late stocked reserves should pay a controlled scarcity premium");
 assert(populationYieldMultiplier(100, 1) === 0.75, "low carrying yield mismatch");

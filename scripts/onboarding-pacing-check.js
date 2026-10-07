@@ -95,7 +95,7 @@ assert(game.renderedPlayablePrologue.stage === "fog"
   && game.renderedPlayablePrologue.avoidsDoubleExposure
   && /解救 1 只动物/.test(game.renderedPlayablePrologue.dialogue.line)
   && /招募 95 名游客/.test(game.renderedPlayablePrologue.dialogue.line)
-  && /扩大到 180 只/.test(game.renderedPlayablePrologue.dialogue.line)
+  && /扩大到 58 只/.test(game.renderedPlayablePrologue.dialogue.line)
   && /没有无代价的善意/.test(game.renderedPlayablePrologue.dialogue.rule)
   && game.renderedPlayablePrologue.dialogue.layeredCloud,
 "first frame should foreground chapter-one goals without showing a premature fake button");
@@ -213,8 +213,12 @@ const resumedAfterFirst = prepareGame();
 resumedAfterFirst.state = JSON.parse(JSON.stringify(game.state));
 assert(resumedAfterFirst.onboardingHomeGuide() && resumedAfterFirst.onboardingHomeGuide().stage === "second_action", "the generated next task must survive save-and-reload");
 game.activateOnboardingGuide(nextGuide);
-assert(game.patrolTaskModal, "the generated second task must open a real patrol action");
+assert(game.screen === "home"
+  && game.infoDetailModal
+  && game.infoDetailModal.kind === "facilityConstruction",
+  "the generated second task must open the chapter-one patrol-station action");
 game.patrolTaskModal = null;
+game.infoDetailModal = null;
 game.setScreen("home");
 
 game.selectedReserveAction = "habitat";

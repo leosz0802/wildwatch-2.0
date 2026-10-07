@@ -62,6 +62,15 @@ iosGame.canvasShadowsUnsafe = usesFragileCanvas(iosGame.info);
 iosGame.ctx = fakeContext();
 assert.equal(iosGame.allowsCanvasShadows(), true, 'iOS may keep decorative shadows');
 assert.equal(iosGame.lockUnsafeCanvasShadows(iosGame.ctx), false, 'iOS must not lock shadows off');
+const lateIos = Object.create(Game.prototype);
+lateIos.info = { platform: 'ios' };
+lateIos.canvasShadowsUnsafe = false;
+lateIos.state = { world: { reserve: { progression: { displayChapter: 12 } } } };
+lateIos.ctx = fakeContext();
+assert.equal(lateIos.allowsCanvasShadows(), false, 'chapter 12 iOS must drop shadowBlur before the memory warning');
+assert.equal(lateIos.lockUnsafeCanvasShadows(lateIos.ctx), true, 'chapter 12 iOS locks shadowBlur off');
+lateIos.ctx.shadowBlur = 46;
+assert.equal(lateIos.ctx.shadowBlur, 0, 'chapter 12 shadowBlur writes must not allocate another buffer');
 
 const texture = Object.create(Game.prototype);
 texture.art = { premiumUi: { loaded: true, failed: false, width: 0, height: 0 } };
@@ -134,25 +143,10 @@ archery.playSfx = () => {};
 archery.playArcheryImpact = () => {};
 archery.render = () => {};
 archery.executeMaterialExploration = () => { archery.settled = true; };
-const delays = [];
-const timers = [];
-const originalTimeout = global.setTimeout;
-global.setTimeout = (fn, ms) => {
-  timers.push({ fn, ms });
-  return timers.length;
-};
-try {
-  Game.prototype.rollMaterialExplorationDice.call(archery, 'lamp');
-  while (timers.length) {
-    const next = timers.shift();
-    delays.push(next.ms);
-    next.fn();
-  }
-} finally {
-  global.setTimeout = originalTimeout;
-}
-assert.ok(delays.some((ms) => ms === 420), `archery settle delay must be 420ms, got ${delays.join(',')}`);
-assert.ok(!delays.some((ms) => ms >= 1800), 'archery must not sit on 结算中 for 1.8s');
-assert.equal(archery.settled, true, 'archery must settle after the short hold');
+Game.prototype.rollMaterialExplorationDice.call(archery, 'lamp');
+assert.equal(archery.settled, undefined, 'short hold must stop at the manual confirmation page');
+assert.equal(Game.prototype.waitingArcheryOrDiceConfirm.call(archery), true, 'archery must wait for 确认得分');
+assert.equal(Game.prototype.confirmArcheryScore.call(archery), true, 'manual confirmation must settle the arrow');
+assert.equal(archery.settled, true, 'archery must settle after 确认得分');
 
 console.log('device canvas hardening check ok (android/harmony shadows, map hold, enter guard, archery delay)');

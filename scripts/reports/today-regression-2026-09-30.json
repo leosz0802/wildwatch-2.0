@@ -1,0 +1,429 @@
+{
+  "startedAt": "2026-09-30T07:24:26.053Z",
+  "results": [
+    {
+      "test": "patrol-task-visual-distinction-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 382,
+      "stdout": "patrol task visual distinction check ok: footprints, anti-poacher, and ordinary hound routes use separate task cards\n",
+      "stderr": ""
+    },
+    {
+      "test": "chapter-theme-task-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 299,
+      "stdout": "chapter theme task check ok (chapters 1 and 2, 3 steps each)\n",
+      "stderr": ""
+    },
+    {
+      "test": "chapter-theme-execution-path-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 451,
+      "stdout": "chapter theme execution path check ok (real water settlement + visitor reception)\n",
+      "stderr": ""
+    },
+    {
+      "test": "chapter-theme-mid-chapters-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 438,
+      "stdout": "mid chapter theme check ok (chapters 3-5, one-shot task chains)\n",
+      "stderr": ""
+    },
+    {
+      "test": "chapter-theme-auto-guide-once-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 354,
+      "stdout": "chapter theme auto-guide once check ok (chapters 1 and 2, six steps)\n",
+      "stderr": ""
+    },
+    {
+      "test": "system-recommendation-once-all-chapters-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 701,
+      "stdout": "system recommendation once check ok: all chapters, current target suppression, strict one-shot chapter ledger\n",
+      "stderr": ""
+    },
+    {
+      "test": "system-recommendation-dedup-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 289,
+      "stdout": "system recommendation dedup check ok: one completion card, fresh goal, chapter-2 visitor suppression\n",
+      "stderr": ""
+    },
+    {
+      "test": "current-goal-entry-consistency-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 220,
+      "stdout": "current goal and entry consistency check ok\n",
+      "stderr": ""
+    },
+    {
+      "test": "goal-ui-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 431,
+      "stdout": "goal ui check ok\n",
+      "stderr": ""
+    },
+    {
+      "test": "task-story-alignment-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 665,
+      "stdout": "task/story alignment check ok\n",
+      "stderr": ""
+    },
+    {
+      "test": "task-story-resource-match-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 283,
+      "stdout": "task/story/resource match check ok\n",
+      "stderr": ""
+    },
+    {
+      "test": "sandbox-task-sync-check.js",
+      "status": "fail",
+      "exitCode": 1,
+      "durationMs": 381,
+      "stdout": "",
+      "stderr": "node:internal/assert/utils:146\n  throw error;\n  ^\n\nAssertionError [ERR_ASSERTION]: first task push should remain available\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/sandbox-task-sync-check.js:26:1)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: false,\n  expected: true,\n  operator: '==',\n  diff: 'simple'\n}\n\nNode.js v26.4.0\n"
+    },
+    {
+      "test": "sandbox-task-navigation-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 356,
+      "stdout": "sandbox task navigation check ok\n",
+      "stderr": ""
+    },
+    {
+      "test": "mission-push-check.js",
+      "status": "fail",
+      "exitCode": 1,
+      "durationMs": 321,
+      "stdout": "",
+      "stderr": "/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/mission-push-check.js:128\n  throw new Error(\"chapter advance must not impose a longer wait than the automatic system-push interval\");\n  ^\n\nError: chapter advance must not impose a longer wait than the automatic system-push interval\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/mission-push-check.js:128:9)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v26.4.0\n"
+    },
+    {
+      "test": "facility-use-guidance-once-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 324,
+      "stdout": "facility use guidance once check ok\n",
+      "stderr": ""
+    },
+    {
+      "test": "patrol-single-step-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 3555,
+      "stdout": "patrol single-step check ok: 20 chapters x 4 actions, real settlement, no duplicate execution, confirmation releases values, stale draft reset\n",
+      "stderr": ""
+    },
+    {
+      "test": "patrol-station-hit-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 276,
+      "stdout": "patrol station hit check ok\n",
+      "stderr": ""
+    },
+    {
+      "test": "patrol-trigger-policy-check.js",
+      "status": "fail",
+      "exitCode": 1,
+      "durationMs": 281,
+      "stdout": "",
+      "stderr": "node:internal/assert/utils:146\n  throw error;\n  ^\n\nAssertionError [ERR_ASSERTION]: chapter 1: score generated a patrol\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/patrol-trigger-policy-check.js:51:7)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: false,\n  expected: true,\n  operator: '==',\n  diff: 'simple'\n}\n\nNode.js v26.4.0\n"
+    },
+    {
+      "test": "today-five-issues-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 495,
+      "stdout": "today five issues check ok: confirm stays, habitat feedback, anti-poacher settles, purchase leftover unlocked\n",
+      "stderr": ""
+    },
+    {
+      "test": "android-three-round-settlement-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 482,
+      "stdout": "android three-round settlement check ok: 3 archery + 3 dice rounds, real touch handlers, no stale overlay/pending lock\n",
+      "stderr": ""
+    },
+    {
+      "test": "archery-confirm-stay-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 509,
+      "stdout": "archery confirm stay check ok: confirm page stays, button settles, torn-down page restores confirm\n",
+      "stderr": ""
+    },
+    {
+      "test": "archery-multi-round-reentry-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 665,
+      "stdout": "archery multi-round re-entry check ok: every shot survives close, reopen, restart, and cumulative ledger reconciliation\n",
+      "stderr": ""
+    },
+    {
+      "test": "archery-reopen-persistence-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 599,
+      "stdout": "archery reopen persistence check ok: latest cumulative score survives settlement, reserve cloning, stale record recovery, and re-entry\n",
+      "stderr": ""
+    },
+    {
+      "test": "archery-vivo-confirm-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 457,
+      "stdout": "archery vivo confirm check ok: visible score is persisted, confirm works during absorb, multi-round re-entry keeps the ledger\n",
+      "stderr": ""
+    },
+    {
+      "test": "non-rescue-archery-result-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 315,
+      "stdout": "non-rescue archery result check ok: result cards stay visible and settle once\n",
+      "stderr": ""
+    },
+    {
+      "test": "dice-ui-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 326,
+      "stdout": "dice UI check ok (5 dialogs, 3 viewports, ready/rolling/result, all 6 faces, repeat taps and cancellation)\n",
+      "stderr": ""
+    },
+    {
+      "test": "harmony-archery-settlement-recovery-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 387,
+      "stdout": "Harmony archery settlement recovery ok: modal loss, item-only pending shot and re-entry retain cumulative score\n",
+      "stderr": ""
+    },
+    {
+      "test": "harmony-archery-touch-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 241,
+      "stdout": "harmony archery touch check ok: in-range physical coords convert, HUD backdrop drag stays, all archery kinds footer-only, stalled flight recovers\n",
+      "stderr": ""
+    },
+    {
+      "test": "harmony-habitat-touch-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 480,
+      "stdout": "harmony habitat touch check ok: physical-pixel taps execute grass and water repair tasks\n",
+      "stderr": ""
+    },
+    {
+      "test": "harmony-overlay-footer-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 367,
+      "stdout": "harmony overlay footer check ok: settlement, supply and archery footers catch nav-band taps\n",
+      "stderr": ""
+    },
+    {
+      "test": "harmony-supply-confirmation-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 395,
+      "stdout": "harmony supply confirmation check ok: single and batch settlement survive physical-only touch reports\n",
+      "stderr": ""
+    },
+    {
+      "test": "harmony-android-purchase-action-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 371,
+      "stdout": "harmony/android purchase action check ok: mixed coordinates, pointer-only confirmations, no duplicate purchase, cancel recovery\n",
+      "stderr": ""
+    },
+    {
+      "test": "android-purchase-shortage-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 462,
+      "stdout": "android purchase shortage check ok: leftover+interstitial cannot block 执行结算, later purchases stay writable\n",
+      "stderr": ""
+    },
+    {
+      "test": "supply-quantity-picker-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 257,
+      "stdout": "supply quantity picker check ok (fixed-modal hit areas, bounds, single submit)\n",
+      "stderr": ""
+    },
+    {
+      "test": "supply-purchase-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 863,
+      "stdout": "supply purchase check ok\n",
+      "stderr": ""
+    },
+    {
+      "test": "materials-scroll-purchase-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 277,
+      "stdout": "materials scroll purchase check ok: swipe scrolls, tap still opens picker\n",
+      "stderr": ""
+    },
+    {
+      "test": "rewarded-supply-ad-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 1243,
+      "stdout": "[EmergencyFundAd] 未发放 { completed: false, reason: 'closed_early' }\n[EmergencyFundAd] 未发放 { completed: false, reason: 'error' }\n[EmergencySupplyAd] 完播结算 {\n  completed: true,\n  reason: 'completed',\n  ok: true,\n  items: [\n    { id: 'dogFood', before: 0, after: 4, amount: 4 },\n    { id: 'alarm', before: 0, after: 2, amount: 2 },\n    { id: 'tranquilizer', before: 0, after: 2, amount: 2 },\n    { id: 'fieldKit', before: 0, after: 2, amount: 2 },\n    { id: 'medicalKit', before: 0, after: 2, amount: 2 }\n  ],\n  reasonAfterApply: ''\n}\n[EmergencyFundAd] 完播结算 {\n  completed: true,\n  reason: 'completed',\n  ok: true,\n  amount: 1000,\n  before: 520,\n  after: 1520,\n  reasonAfterApply: ''\n}\n[SellUnlockAd] 完播结算 {\n  completed: true,\n  ok: true,\n  unlocked: 2,\n  soldTimes: 2,\n  freeSellsLeft: 2,\n  reason: ''\n}\n[RewardedAd] onClose 缺少 isEnded，按兼容层完播处理\n[AnimalTotalAd] 完播结算 {\n  completed: true,\n  reason: '',\n  ok: true,\n  amount: 6,\n  before: 81,\n  after: 87\n}\n[AnimalTotalAd] 未发放 { completed: false, reason: 'closed_early' }\nrewarded supply ad check ok\n",
+      "stderr": ""
+    },
+    {
+      "test": "share-reward-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 187,
+      "stdout": "share reward check ok (2 visitor + 2 animal per chapter, 2% then 3% each, live ledgers, duplicate callback protection)\n",
+      "stderr": ""
+    },
+    {
+      "test": "sell-fund-cap-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 271,
+      "stdout": "sell fund cap check ok\n",
+      "stderr": ""
+    },
+    {
+      "test": "rescue-map-direct-release-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 2487,
+      "stdout": "rescue map direct release check ok\n",
+      "stderr": ""
+    },
+    {
+      "test": "rescue-daily-entry-regression-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 245,
+      "stdout": "rescue/daily entry regression ok: rescue priority, separate daily access, overlap hit order, post-rescue daily routing\n",
+      "stderr": ""
+    },
+    {
+      "test": "chapter6-auction-promotion-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 409,
+      "stdout": "chapter 6 auction promotion check passed\n",
+      "stderr": ""
+    },
+    {
+      "test": "chapter-gate-order-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 300,
+      "stdout": "chapter gate order check ok: 20 chapters × forward/reverse rescue order; no premature promotion, no blocked completed gate, final chapter completion\n",
+      "stderr": ""
+    },
+    {
+      "test": "chapter-core-latch-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 233,
+      "stdout": "chapter core latch check ok\n",
+      "stderr": ""
+    },
+    {
+      "test": "chapter-animal-hud-check.js",
+      "status": "fail",
+      "exitCode": 1,
+      "durationMs": 235,
+      "stdout": "",
+      "stderr": "node:internal/assert/utils:146\n  throw error;\n  ^\n\nAssertionError [ERR_ASSERTION]: old living stock that already cleared 180 must mark the new gate complete\n\n0 !== 58\n\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/chapter-animal-hud-check.js:80:8)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: 0,\n  expected: 58,\n  operator: 'strictEqual',\n  diff: 'simple'\n}\n\nNode.js v26.4.0\n"
+    },
+    {
+      "test": "material-label-compliance-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 357,
+      "stdout": "material label compliance check ok\n",
+      "stderr": ""
+    },
+    {
+      "test": "button-coordinate-alignment-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 174,
+      "stdout": "button coordinate alignment check ok: menu rect, precise HUD projection, gesture space lock\n",
+      "stderr": ""
+    },
+    {
+      "test": "platform-touch-matrix-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 304,
+      "stdout": "platform touch matrix ok: ios/android/ohos/devtools, official clientX, physical overflow, lock reset, visitor HUD\n",
+      "stderr": ""
+    },
+    {
+      "test": "performance-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 234,
+      "stdout": "performance check ok\n",
+      "stderr": ""
+    },
+    {
+      "test": "startup-performance-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 372,
+      "stdout": "startup performance check ok (first-frame assets, deferred SDKs, compact reports, serial remote queue)\n",
+      "stderr": ""
+    },
+    {
+      "test": "cache-first-startup-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 186,
+      "stdout": "cache-first startup check ok\n",
+      "stderr": ""
+    },
+    {
+      "test": "asset-reference-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 99,
+      "stdout": "asset reference check ok\n",
+      "stderr": ""
+    },
+    {
+      "test": "package-size-check.js",
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 88,
+      "stdout": "package size check ok (main 3.959MiB, total 3.959MiB)\n",
+      "stderr": ""
+    }
+  ]
+}

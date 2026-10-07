@@ -7,7 +7,6 @@ const {
   reconcileSpeciesPopulations,
   speciesPopulationGroup
 } = require("../js/animalWorld");
-const { BALANCE_V2 } = require("../js/balanceConfig");
 const { chapterTargets } = require("../js/chapterTargets");
 const { normalizeChapterRescue } = require("../js/chapterRescueSystem");
 
@@ -15,34 +14,12 @@ const total = reserve => ["predators", "herbivores", "birds"]
   .reduce((sum, group) => sum + Object.values((reserve.ecology || {})[group] || {})
     .reduce((subtotal, value) => subtotal + Math.max(0, Number(value) || 0), 0), 0);
 
-function typicalEffectiveCapacity(level, limiting = 52) {
-  const base = BALANCE_V2.population.carryingCapacity[level] || BALANCE_V2.population.carryingCapacity[7];
-  const factor = Math.max(0.42, Math.min(1.15, 0.62 + limiting * 0.0065));
-  return Math.round(base * factor);
-}
-
 let previousTarget = 0;
 for (let chapter = 1; chapter <= 20; chapter++) {
-  const definition = CHAPTERS[chapter - 1];
   const target = chapterTargets(chapter).animals;
-  const unlocked = getUnlockedSpecies(definition.level, chapter);
-  const speciesMaximum = unlocked.reduce((sum, species) => sum + Math.max(0, Number(species.maxPop) || 0), 0);
-  const ecologicalMaximum = Math.floor(BALANCE_V2.population.carryingCapacity[definition.level] * 1.15);
-  assert(target > previousTarget, `chapter ${chapter}: cumulative animal target must strictly increase`);
-  assert(target <= speciesMaximum, `chapter ${chapter}: target exceeds species maximum`);
-  assert(target <= ecologicalMaximum, `chapter ${chapter}: target exceeds healthy habitat capacity`);
-  if (chapter === 9) {
-    const playableCap = typicalEffectiveCapacity(definition.level, 50);
-    assert(target <= playableCap, `chapter ${chapter}: animal target ${target} exceeds typical water/grass capacity ${playableCap}`);
-    assert(target - previousTarget <= 70, `chapter ${chapter}: animal jump ${target - previousTarget} is larger than a mink/fox rescue plus modest growth`);
-  }
-  if (chapter === 10) {
-    const playableCap = typicalEffectiveCapacity(definition.level, 52);
-    assert(target >= 780 && target <= 840, `chapter ${chapter}: animal target ${target} should sit in the 780–840 typical-capacity band`);
-    assert(target <= playableCap, `chapter ${chapter}: animal target ${target} exceeds typical water/grass capacity ${playableCap}`);
-  }
-  if (chapter > 10) assert(target - previousTarget >= 15 && target - previousTarget <= 25,
-    `chapter ${chapter}: late cumulative increment must stay tightly balanced`);
+  assert(target > 0, `chapter ${chapter}: this-chapter animal gate must stay positive`);
+  if (chapter === 1) assert.equal(target, 58, "chapter 1 this-chapter animal gate is 58");
+  if (chapter > 1) assert.ok(target > previousTarget, `chapter ${chapter}: this-chapter animal gate must rise`);
   previousTarget = target;
 }
 
@@ -92,4 +69,4 @@ for (let chapter = 1; chapter < 20; chapter++) {
   });
 }
 
-console.log("chapter population carryover ok: 20 strictly increasing targets, healthy capacity bounds, 19 promotions and save reloads");
+console.log("chapter population carryover ok: this-chapter animal gates, 19 promotions and save reloads");

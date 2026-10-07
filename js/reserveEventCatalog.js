@@ -1,4 +1,3 @@
-// Additional stories share the existing map → response → result interaction.
 const response = (action, label, gain, preview) => ({ action, label, gain, preview });
 const event = (title, source, regionId, visualKind, story, impact, responses, effects) => ({
   title, source, regionId, visualKind, startBody: story, impact, responses,
@@ -8,7 +7,6 @@ const event = (title, source, regionId, visualKind, story, impact, responses, ef
   resolvedBody: effects.resolvedBody, failedBody: effects.failedBody,
   pressureEffects: effects.pressure, resolvedEffects: effects.resolved, failedEffects: effects.failed
 });
-
 module.exports = {
   animal_water_conflict: event("兽群争占饮水点", "nature", "river", "animal-conflict",
     "旱水把象群和小型食草动物挤到同一片浅滩，幼兽无法靠近，观赏线路暂时关闭。",

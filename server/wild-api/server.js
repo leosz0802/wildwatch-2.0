@@ -36,6 +36,11 @@ const TRADE_MATERIALS = Object.freeze({
 });
 const TRADE_DAILY_LIMIT = 3;
 const TRADE_MOTIVES = new Set(["surplus", "shortfall", "rare", "risk", "time"]);
+const HOUND_PATROL_DELAY_MS = 5 * 60 * 1000;
+const HOUND_PATROL_DAILY_LIMIT = 8;
+const HOUND_PATROL_INCOMING_DAILY_LIMIT = 5;
+const HOUND_PATROL_COST_MIN = 100;
+const HOUND_PATROL_COST_MAX = 1000;
 
 function json(res, status, body, extraHeaders = {}) {
   const payload = JSON.stringify(body);
@@ -206,6 +211,9 @@ function openDatabase(dbPath) {
       level INTEGER NOT NULL DEFAULT 1 CHECK(level BETWEEN 1 AND 7),
       animals INTEGER NOT NULL DEFAULT 0 CHECK(animals BETWEEN 0 AND 99999),
       shield INTEGER NOT NULL DEFAULT 0 CHECK(shield BETWEEN 0 AND 100),
+      safety INTEGER NOT NULL DEFAULT 50 CHECK(safety BETWEEN 0 AND 100),
+      visitors INTEGER NOT NULL DEFAULT 0 CHECK(visitors BETWEEN 0 AND 999999),
+      fund INTEGER NOT NULL DEFAULT 0 CHECK(fund BETWEEN 0 AND 100000000),
       style TEXT NOT NULL DEFAULT '综合守护',
       profile_version INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL
@@ -268,6 +276,49 @@ function openDatabase(dbPath) {
     );
     CREATE INDEX IF NOT EXISTS trade_offers_match_idx ON trade_offers(status, scope, offered_item_id, wanted_item_id, created_at);
     CREATE INDEX IF NOT EXISTS trade_offers_actor_idx ON trade_offers(actor_user_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS friend_contracts (
+      id TEXT PRIMARY KEY,
+      actor_user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+      target_user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+      objective_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'completed', 'expired')),
+      client_contract_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      completed_at INTEGER,
+      UNIQUE(actor_user_id, client_contract_id),
+      CHECK(actor_user_id <> target_user_id)
+    );
+    CREATE INDEX IF NOT EXISTS friend_contract_actor_idx ON friend_contracts(actor_user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS friend_contract_target_idx ON friend_contracts(target_user_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS world_hound_patrols (
+      id TEXT PRIMARY KEY,
+      actor_user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+      target_user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+      cost INTEGER NOT NULL CHECK(cost BETWEEN 100 AND 1000),
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'settled', 'cancelled')),
+      created_at INTEGER NOT NULL,
+      settle_at INTEGER NOT NULL,
+      settled_at INTEGER NOT NULL DEFAULT 0,
+      target_safety INTEGER NOT NULL DEFAULT 50 CHECK(target_safety BETWEEN 0 AND 100),
+      target_fund INTEGER NOT NULL DEFAULT 0 CHECK(target_fund >= 0),
+      target_visitors INTEGER NOT NULL DEFAULT 0 CHECK(target_visitors >= 0),
+      target_animals INTEGER NOT NULL DEFAULT 0 CHECK(target_animals >= 0),
+      fund_floor INTEGER NOT NULL DEFAULT 0 CHECK(fund_floor >= 0),
+      visitor_floor INTEGER NOT NULL DEFAULT 0 CHECK(visitor_floor >= 0),
+      animal_floor INTEGER NOT NULL DEFAULT 0 CHECK(animal_floor >= 0),
+      reward_fund INTEGER NOT NULL DEFAULT 0 CHECK(reward_fund >= 0),
+      reward_visitors INTEGER NOT NULL DEFAULT 0 CHECK(reward_visitors >= 0),
+      reward_animals INTEGER NOT NULL DEFAULT 0 CHECK(reward_animals >= 0),
+      loss_fund INTEGER NOT NULL DEFAULT 0 CHECK(loss_fund >= 0),
+      loss_visitors INTEGER NOT NULL DEFAULT 0 CHECK(loss_visitors >= 0),
+      loss_animals INTEGER NOT NULL DEFAULT 0 CHECK(loss_animals >= 0),
+      actor_chapter INTEGER NOT NULL DEFAULT 1 CHECK(actor_chapter BETWEEN 1 AND 20),
+      UNIQUE(actor_user_id, id),
+      CHECK(actor_user_id <> target_user_id)
+    );
+    CREATE INDEX IF NOT EXISTS world_hound_patrol_actor_idx ON world_hound_patrols(actor_user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS world_hound_patrol_target_idx ON world_hound_patrols(target_user_id, created_at DESC);
     CREATE TABLE IF NOT EXISTS moderation_actions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       target_user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
@@ -293,6 +344,9 @@ function openDatabase(dbPath) {
   if (!scoreColumns.includes("level")) db.exec("ALTER TABLE scores ADD COLUMN level INTEGER NOT NULL DEFAULT 1");
   if (!scoreColumns.includes("animals")) db.exec("ALTER TABLE scores ADD COLUMN animals INTEGER NOT NULL DEFAULT 0");
   if (!scoreColumns.includes("shield")) db.exec("ALTER TABLE scores ADD COLUMN shield INTEGER NOT NULL DEFAULT 0");
+  if (!scoreColumns.includes("safety")) db.exec("ALTER TABLE scores ADD COLUMN safety INTEGER NOT NULL DEFAULT 50");
+  if (!scoreColumns.includes("visitors")) db.exec("ALTER TABLE scores ADD COLUMN visitors INTEGER NOT NULL DEFAULT 0");
+  if (!scoreColumns.includes("fund")) db.exec("ALTER TABLE scores ADD COLUMN fund INTEGER NOT NULL DEFAULT 0");
   if (!scoreColumns.includes("style")) db.exec("ALTER TABLE scores ADD COLUMN style TEXT NOT NULL DEFAULT '综合守护'");
   if (!scoreColumns.includes("profile_version")) {
     db.exec("ALTER TABLE scores ADD COLUMN profile_version INTEGER NOT NULL DEFAULT 0");
@@ -316,6 +370,10 @@ function openDatabase(dbPath) {
     const hasProfile = Number(row.profileVersion) > 0;
     migrateValuation.run(calculateReserveValuation(hasProfile ? row.level : 1, hasProfile ? row.animals : 0), row.userId);
   });
+  const patrolColumns = db.prepare("PRAGMA table_info(world_hound_patrols)").all().map((column) => column.name);
+  if (patrolColumns.length && !patrolColumns.includes("actor_chapter")) {
+    db.exec("ALTER TABLE world_hound_patrols ADD COLUMN actor_chapter INTEGER NOT NULL DEFAULT 1");
+  }
   return db;
 }
 
@@ -389,6 +447,8 @@ function publicPlayer(row = {}, viewerId = "") {
     level: Math.max(1, Math.min(7, Math.round(Number(row.level) || 1))),
     animals: profileComplete ? Math.max(0, Math.min(99999, Math.round(Number(row.animals) || 0))) : null,
     shield: profileComplete ? Math.max(0, Math.min(100, Math.round(Number(row.shield) || 0))) : null,
+    safety: profileComplete ? Math.max(0, Math.min(100, Math.round(Number(row.safety) || 0))) : null,
+    visitors: profileComplete ? Math.max(0, Math.min(999999, Math.round(Number(row.visitors) || 0))) : null,
     style: profileComplete ? serverOwnedStyle(row.style) : "",
     profileComplete,
     updatedAt: Math.max(0, Number(row.updatedAt || row.updated_at) || 0),
@@ -437,6 +497,96 @@ function publicTradeOffer(row = {}) {
   }, "sent");
 }
 
+function publicFriendContract(row = {}, viewerId = "") {
+  const actor = String(row.actorUserId || row.actor_user_id || "");
+  const target = String(row.targetUserId || row.target_user_id || "");
+  return {
+    contractId: String(row.id || "").slice(0, 80),
+    clientContractId: String(row.clientContractId || row.client_contract_id || "").slice(0, 80),
+    direction: viewerId && viewerId === target ? "received" : "sent",
+    partnerId: String(viewerId && viewerId === target ? actor : target).slice(0, 20),
+    partnerName: sanitizeDisplayName(row.partnerName || (viewerId && viewerId === target ? row.actorName : row.targetName) || "好友"),
+    objectiveId: String(row.objectiveId || row.objective_id || "").slice(0, 40),
+    status: ["pending", "completed", "expired"].includes(row.status) ? row.status : "pending",
+    createdAt: Math.max(0, Number(row.createdAt || row.created_at) || 0),
+    expiresAt: Math.max(0, Number(row.expiresAt || row.expires_at) || 0),
+    completedAt: Math.max(0, Number(row.completedAt || row.completed_at) || 0)
+  };
+}
+
+function houndPatrolChapterNeed(chapter = 1) {
+  const targets = [
+    [7, 58, 95], [7, 70, 145], [9, 84, 315], [11, 98, 405], [12, 114, 495],
+    [14, 132, 595], [16, 152, 820], [18, 174, 920], [20, 198, 1100], [22, 224, 1240],
+    [24, 252, 1380], [24, 282, 1600], [25, 314, 1760], [25, 348, 1920], [25, 384, 2180],
+    [27, 422, 2360], [29, 462, 2540], [31, 504, 2840], [33, 548, 3020], [33, 596, 3240]
+  ];
+  const stage = Math.max(1, Math.min(20, Math.round(Number(chapter) || 1)));
+  const row = targets[stage - 1];
+  return { chapter: stage, animals: row[1], visitors: row[2], fund: row[2] * 4 };
+}
+
+function houndPatrolOutcome(row = {}) {
+  const cost = Math.max(HOUND_PATROL_COST_MIN, Math.min(HOUND_PATROL_COST_MAX, Math.round(Number(row.cost) || HOUND_PATROL_COST_MIN)));
+  const rawSafety = row.targetSafety === undefined ? row.target_safety : row.targetSafety;
+  const safetyValue = Number(rawSafety);
+  const safety = Math.max(0, Math.min(100, Math.round(Number.isFinite(safetyValue) ? safetyValue : 50)));
+  const risk = 1 - safety / 100;
+  const rate = 0.04 + risk * 0.12;
+  const safetyShare = 0.45 + risk * 0.55;
+  const stakeShare = cost >= 1000 ? 1 : cost >= 600 ? 0.75 : cost >= 300 ? 0.5 : 0.25;
+  const need = houndPatrolChapterNeed(row.actorChapter === undefined ? row.actor_chapter : row.actorChapter);
+  const fund = Math.max(0, Math.round(Number(row.targetFund === undefined ? row.target_fund : row.targetFund) || 0));
+  const visitors = Math.max(0, Math.round(Number(row.targetVisitors === undefined ? row.target_visitors : row.targetVisitors) || 0));
+  const animals = Math.max(0, Math.round(Number(row.targetAnimals === undefined ? row.target_animals : row.targetAnimals) || 0));
+  const fundFloor = Math.max(0, Number(row.fundFloor === undefined ? row.fund_floor : row.fundFloor) || 0);
+  const visitorFloor = Math.max(0, Number(row.visitorFloor === undefined ? row.visitor_floor : row.visitorFloor) || 0);
+  const animalFloor = Math.max(0, Number(row.animalFloor === undefined ? row.animal_floor : row.animalFloor) || 0);
+  const fundLoss = Math.min(Math.max(0, fund - fundFloor), Math.max(0, Math.round(fund * rate)));
+  const visitorLoss = Math.min(Math.max(0, visitors - visitorFloor), Math.max(0, Math.floor(visitors * rate)));
+  const animalLoss = Math.min(Math.max(0, animals - animalFloor), Math.max(0, Math.floor(animals * rate * 0.75)));
+  return {
+    safety,
+    risk: Number(risk.toFixed(4)),
+    transferRate: Number(rate.toFixed(4)),
+    rewardFund: Math.max(0, Math.round(need.fund * stakeShare * safetyShare)),
+    rewardVisitors: Math.max(0, Math.round(need.visitors * stakeShare * safetyShare * 0.7)),
+    rewardAnimals: Math.max(0, Math.round(need.animals * stakeShare * safetyShare * 0.7)),
+    lossFund: fundLoss,
+    lossVisitors: visitorLoss,
+    lossAnimals: animalLoss
+  };
+}
+
+function publicHoundPatrol(row = {}, viewerId = "") {
+  const actor = String(row.actorUserId || row.actor_user_id || "");
+  const target = String(row.targetUserId || row.target_user_id || "");
+  const isTarget = viewerId && viewerId === target;
+  const outcome = houndPatrolOutcome(row);
+  return {
+    patrolId: String(row.id || "").slice(0, 80),
+    direction: isTarget ? "received" : "sent",
+    partnerId: String(isTarget ? actor : target).slice(0, 20),
+    partnerName: sanitizeDisplayName(isTarget ? (row.actorName || "巡逻者") : (row.targetName || "远方保护区")),
+    status: ["pending", "settled", "cancelled"].includes(row.status) ? row.status : "pending",
+    cost: Math.max(HOUND_PATROL_COST_MIN, Math.min(HOUND_PATROL_COST_MAX, Math.round(Number(row.cost) || HOUND_PATROL_COST_MIN))),
+    createdAt: Math.max(0, Number(row.createdAt || row.created_at) || 0),
+    settleAt: Math.max(0, Number(row.settleAt || row.settle_at) || 0),
+    settledAt: Math.max(0, Number(row.settledAt || row.settled_at) || 0),
+    targetSafety: Math.max(0, Math.min(100, Math.round(Number(row.targetSafety || row.target_safety) || 0))),
+    actorChapter: Math.max(1, Math.round(Number(row.actorChapter === undefined ? row.actor_chapter : row.actorChapter) || 1)),
+    reward: { fund: outcome.rewardFund, visitors: outcome.rewardVisitors, animals: outcome.rewardAnimals },
+    loss: { fund: outcome.lossFund, visitors: outcome.lossVisitors, animals: outcome.lossAnimals },
+    risk: outcome.risk,
+    transferRate: outcome.transferRate,
+    protectedFloors: {
+      fund: Math.max(0, Math.round(Number(row.fundFloor || row.fund_floor) || 0)),
+      visitors: Math.max(0, Math.round(Number(row.visitorFloor || row.visitor_floor) || 0)),
+      animals: Math.max(0, Math.round(Number(row.animalFloor || row.animal_floor) || 0))
+    }
+  };
+}
+
 function createApiServer(options = {}) {
   const dbPath = options.dbPath || process.env.WILD_DB_PATH || path.join(__dirname, "data", "wild.sqlite");
   const configPath = options.configPath || process.env.WILD_CONFIG_PATH || path.join(__dirname, "config", "default.json");
@@ -459,18 +609,19 @@ function createApiServer(options = {}) {
       ON CONFLICT(user_id) DO NOTHING`),
     userActivation: db.prepare("SELECT activated_at AS activatedAt FROM users WHERE user_id=?"),
     userModeration: db.prepare("SELECT moderation_status AS status FROM users WHERE user_id=?"),
-    score: db.prepare("SELECT score, level, animals, profile_version AS profileVersion FROM scores WHERE user_id=?"),
-    upsertScoreProfile: db.prepare(`INSERT INTO scores(user_id, score, level, animals, shield, style, profile_version, updated_at) VALUES (?, ?, ?, ?, ?, ?, 2, ?)
+    score: db.prepare("SELECT score, level, animals, shield, safety, visitors, fund, profile_version AS profileVersion FROM scores WHERE user_id=?"),
+    upsertScoreProfile: db.prepare(`INSERT INTO scores(user_id, score, level, animals, shield, safety, visitors, fund, style, profile_version, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 2, ?)
       ON CONFLICT(user_id) DO UPDATE SET score=excluded.score, level=excluded.level, animals=excluded.animals,
-      shield=excluded.shield, style=excluded.style, profile_version=excluded.profile_version, updated_at=excluded.updated_at`),
+      shield=excluded.shield, safety=excluded.safety, visitors=excluded.visitors, fund=excluded.fund,
+      style=excluded.style, profile_version=excluded.profile_version, updated_at=excluded.updated_at`),
     upsertScoreBasic: db.prepare(`INSERT INTO scores(user_id, score, updated_at) VALUES (?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET score=excluded.score, updated_at=excluded.updated_at`),
-    leaderboard: db.prepare(`SELECT u.user_id AS userId, u.display_name AS displayName, u.friend_match_key AS matchKey, s.score, s.level, s.animals, s.shield, s.style, s.profile_version AS profileVersion, s.updated_at AS updatedAt
+    leaderboard: db.prepare(`SELECT u.user_id AS userId, u.display_name AS displayName, u.friend_match_key AS matchKey, s.score, s.level, s.animals, s.shield, s.safety, s.visitors, s.style, s.profile_version AS profileVersion, s.updated_at AS updatedAt
       FROM scores s JOIN users u ON u.user_id=s.user_id WHERE u.moderation_status='active' ORDER BY s.score DESC, s.updated_at ASC LIMIT ?`),
     userByPublicId: db.prepare("SELECT user_id AS userId, display_name AS displayName FROM users WHERE substr(user_id, 1, 20)=? AND moderation_status='active' LIMIT 2"),
     anyUserByPublicId: db.prepare("SELECT user_id AS userId, display_name AS displayName, moderation_status AS moderationStatus, moderation_reason AS moderationReason, moderated_at AS moderatedAt FROM users WHERE substr(user_id, 1, 20)=? LIMIT 2"),
     friendRows: db.prepare(`SELECT u.user_id AS userId, u.display_name AS displayName, COALESCE(s.score, 0) AS score,
-      COALESCE(s.level, 1) AS level, COALESCE(s.animals, 0) AS animals, COALESCE(s.shield, 0) AS shield,
+      COALESCE(s.level, 1) AS level, COALESCE(s.animals, 0) AS animals, COALESCE(s.safety, 50) AS safety, COALESCE(s.visitors, 0) AS visitors, COALESCE(s.shield, 0) AS shield,
       COALESCE(s.style, '综合守护') AS style, COALESCE(s.profile_version, 0) AS profileVersion, COALESCE(s.updated_at, u.updated_at) AS updatedAt, u.activated_at AS activatedAt,
       f.match_key AS matchKey
       FROM friend_links f JOIN users u ON u.user_id=f.friend_user_id LEFT JOIN scores s ON s.user_id=u.user_id
@@ -504,6 +655,52 @@ function createApiServer(options = {}) {
       t.created_at AS createdAt, t.claimed_at AS claimedAt, u.display_name AS partnerName, substr(t.actor_user_id, 1, 20) AS partnerId
       FROM trade_receipts t JOIN users u ON u.user_id=t.actor_user_id
       WHERE t.target_user_id=? ORDER BY t.created_at DESC LIMIT ?`),
+    patrolById: db.prepare(`SELECT p.*, au.display_name AS actorName, tu.display_name AS targetName
+      FROM world_hound_patrols p JOIN users au ON au.user_id=p.actor_user_id JOIN users tu ON tu.user_id=p.target_user_id WHERE p.id=?`),
+    updatePatrolTarget: db.prepare("UPDATE scores SET score=?, animals=?, visitors=?, fund=?, updated_at=? WHERE user_id=?"),
+    patrolDailyCount: db.prepare("SELECT COUNT(*) AS count FROM world_hound_patrols WHERE actor_user_id=? AND created_at>=? AND created_at<?"),
+    patrolIncomingDay: db.prepare("SELECT COUNT(*) AS count FROM world_hound_patrols WHERE target_user_id=? AND created_at>=? AND created_at<?"),
+    patrolTargetDay: db.prepare("SELECT id FROM world_hound_patrols WHERE actor_user_id=? AND target_user_id=? AND created_at>=? AND created_at<? LIMIT 1"),
+    insertPatrol: db.prepare(`INSERT INTO world_hound_patrols(id, actor_user_id, target_user_id, cost, status, created_at, settle_at, target_safety, target_fund, target_visitors, target_animals, fund_floor, visitor_floor, animal_floor, actor_chapter)
+      VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+    pendingPatrols: db.prepare(`SELECT p.*, au.display_name AS actorName, tu.display_name AS targetName
+      FROM world_hound_patrols p JOIN users au ON au.user_id=p.actor_user_id JOIN users tu ON tu.user_id=p.target_user_id
+      WHERE p.status='pending' AND p.settle_at<=?`),
+    settlePatrol: db.prepare(`UPDATE world_hound_patrols SET status='settled', settled_at=?, reward_fund=?, reward_visitors=?, reward_animals=?, loss_fund=?, loss_visitors=?, loss_animals=? WHERE id=? AND status='pending'`),
+    sentPatrolHistory: db.prepare(`SELECT p.*, au.display_name AS actorName, tu.display_name AS targetName FROM world_hound_patrols p
+      JOIN users au ON au.user_id=p.actor_user_id JOIN users tu ON tu.user_id=p.target_user_id WHERE p.actor_user_id=? ORDER BY p.created_at DESC LIMIT ?`),
+    receivedPatrolHistory: db.prepare(`SELECT p.*, au.display_name AS actorName, tu.display_name AS targetName FROM world_hound_patrols p
+      JOIN users au ON au.user_id=p.actor_user_id JOIN users tu ON tu.user_id=p.target_user_id WHERE p.target_user_id=? ORDER BY p.created_at DESC LIMIT ?`),
+    friendContractByClientId: db.prepare(`SELECT c.id, c.actor_user_id AS actorUserId, c.target_user_id AS targetUserId,
+      c.objective_id AS objectiveId, c.status, c.client_contract_id AS clientContractId,
+      c.created_at AS createdAt, c.expires_at AS expiresAt, c.completed_at AS completedAt,
+      u.display_name AS partnerName
+      FROM friend_contracts c JOIN users u ON u.user_id=c.target_user_id
+      WHERE c.actor_user_id=? AND c.client_contract_id=?`),
+    activeFriendContractsByActor: db.prepare("SELECT COUNT(*) AS count FROM friend_contracts WHERE actor_user_id=? AND status='pending' AND expires_at>?"),
+    insertFriendContract: db.prepare(`INSERT INTO friend_contracts(id, actor_user_id, target_user_id, objective_id, status, client_contract_id, created_at, expires_at)
+      VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)
+      ON CONFLICT(actor_user_id, client_contract_id) DO NOTHING`),
+    friendContractById: db.prepare(`SELECT c.id, c.actor_user_id AS actorUserId, c.target_user_id AS targetUserId,
+      c.objective_id AS objectiveId, c.status, c.client_contract_id AS clientContractId,
+      c.created_at AS createdAt, c.expires_at AS expiresAt, c.completed_at AS completedAt,
+      actor.display_name AS actorName, target.display_name AS targetName
+      FROM friend_contracts c JOIN users actor ON actor.user_id=c.actor_user_id
+      JOIN users target ON target.user_id=c.target_user_id WHERE c.id=?`),
+    expireFriendContracts: db.prepare("UPDATE friend_contracts SET status='expired', completed_at=? WHERE status='pending' AND expires_at<=?"),
+    completeFriendContract: db.prepare("UPDATE friend_contracts SET status='completed', completed_at=? WHERE id=? AND target_user_id=? AND status='pending' AND expires_at>?"),
+    sentFriendContracts: db.prepare(`SELECT c.id, c.actor_user_id AS actorUserId, c.target_user_id AS targetUserId,
+      c.objective_id AS objectiveId, c.status, c.client_contract_id AS clientContractId,
+      c.created_at AS createdAt, c.expires_at AS expiresAt, c.completed_at AS completedAt,
+      target.display_name AS partnerName
+      FROM friend_contracts c JOIN users target ON target.user_id=c.target_user_id
+      WHERE c.actor_user_id=? ORDER BY c.created_at DESC LIMIT ?`),
+    receivedFriendContracts: db.prepare(`SELECT c.id, c.actor_user_id AS actorUserId, c.target_user_id AS targetUserId,
+      c.objective_id AS objectiveId, c.status, c.client_contract_id AS clientContractId,
+      c.created_at AS createdAt, c.expires_at AS expiresAt, c.completed_at AS completedAt,
+      actor.display_name AS partnerName
+      FROM friend_contracts c JOIN users actor ON actor.user_id=c.actor_user_id
+      WHERE c.target_user_id=? ORDER BY c.created_at DESC LIMIT ?`),
     insertTradeOffer: db.prepare(`INSERT INTO trade_offers(id, actor_user_id, scope, offered_item_id, offered_item_label, offered_value,
       wanted_item_id, wanted_item_label, wanted_value, motive, client_trade_id, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -567,6 +764,49 @@ function createApiServer(options = {}) {
       return false;
     }
     return true;
+  };
+
+  const settleDueHoundPatrols = (now = Date.now()) => {
+    const due = statements.pendingPatrols.all(now);
+    due.forEach((row) => {
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        // The target snapshot is fixed when the patrol starts, so the preview
+        // shown to the player and the eventual settlement are deterministic.
+        // The current row is still read below to cap the actual debit if the
+        // target changed its published values during the five-minute window.
+        const current = statements.score.get(row.target_user_id) || row;
+        const outcome = houndPatrolOutcome(row);
+        const settled = statements.settlePatrol.run(now, outcome.rewardFund, outcome.rewardVisitors, outcome.rewardAnimals,
+          outcome.lossFund, outcome.lossVisitors, outcome.lossAnimals, row.id);
+        if (settled.changes) {
+          const level = Math.max(1, Math.min(7, Math.round(Number(current.level) || 1)));
+          const animalFloor = Math.max(0, Number(row.animal_floor) || 0);
+          const visitorFloor = Math.max(0, Number(row.visitor_floor) || 0);
+          const fundFloor = Math.max(0, Number(row.fund_floor) || 0);
+          const currentAnimals = Math.max(0, Number(current.animals) || 0);
+          const currentVisitors = Math.max(0, Number(current.visitors) || 0);
+          const currentFund = Math.max(0, Number(current.fund) || 0);
+          const afterAnimals = currentAnimals > animalFloor ? Math.max(animalFloor, currentAnimals - Math.min(outcome.lossAnimals, currentAnimals - animalFloor)) : currentAnimals;
+          const afterVisitors = currentVisitors > visitorFloor ? Math.max(visitorFloor, currentVisitors - Math.min(outcome.lossVisitors, currentVisitors - visitorFloor)) : currentVisitors;
+          const afterFund = currentFund > fundFloor ? Math.max(fundFloor, currentFund - Math.min(outcome.lossFund, currentFund - fundFloor)) : currentFund;
+          statements.updatePatrolTarget.run(calculateReserveValuation(level, afterAnimals), afterAnimals, afterVisitors, afterFund, now, row.target_user_id);
+          const actor = statements.score.get(row.actor_user_id);
+          if (actor && Number(actor.profileVersion) > 0) {
+            const actorLevel = Math.max(1, Math.min(7, Math.round(Number(actor.level) || 1)));
+            const actorAnimals = Math.max(0, Number(actor.animals) || 0) + Math.max(0, Number(outcome.rewardAnimals) || 0);
+            const actorVisitors = Math.max(0, Number(actor.visitors) || 0) + Math.max(0, Number(outcome.rewardVisitors) || 0);
+            const actorFund = Math.max(0, Number(actor.fund) || 0) + Math.max(0, Number(outcome.rewardFund) || 0);
+            statements.updatePatrolTarget.run(calculateReserveValuation(actorLevel, actorAnimals), actorAnimals, actorVisitors, actorFund, now, row.actor_user_id);
+          }
+        }
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    });
+    return due.length;
   };
 
   const server = http.createServer(async (req, res) => {
@@ -684,6 +924,70 @@ function createApiServer(options = {}) {
         return json(res, 200, { ok: true, friends });
       }
 
+      if (req.method === "POST" && url.pathname === "/v1/friend-contracts") {
+        const rate = limiter.consume(`friend-contract:${ip}`, 30, 60000);
+        if (!rate.allowed) return json(res, 429, { ok: false, code: "RATE_LIMITED" }, { "retry-after": "60" });
+        const token = verifyToken(sessionSecret, bearer(req));
+        if (!token) return json(res, 401, { ok: false, code: "UNAUTHORIZED" });
+        const body = await readJson(req, 8192);
+        const targetId = String(body.targetId || "");
+        const objectiveId = String(body.objectiveId || "").slice(0, 40);
+        const clientContractId = String(body.clientContractId || "");
+        if (!/^[a-zA-Z0-9_-]{1,20}$/.test(targetId)
+          || !/^[a-zA-Z0-9_.:-]{1,40}$/.test(objectiveId)
+          || !/^[a-zA-Z0-9_-]{8,80}$/.test(clientContractId)) {
+          return json(res, 400, { ok: false, code: "INVALID_FRIEND_CONTRACT" });
+        }
+        const targets = statements.userByPublicId.all(targetId);
+        if (targets.length !== 1 || targets[0].userId === token.sub) return json(res, 404, { ok: false, code: "TARGET_NOT_FOUND" });
+        const target = targets[0];
+        if (!statements.isFriend.get(token.sub, target.userId)) return json(res, 403, { ok: false, code: "FRIEND_REQUIRED" });
+        const now = Date.now();
+        statements.expireFriendContracts.run(now, now);
+        const existing = statements.friendContractByClientId.get(token.sub, clientContractId);
+        if (existing) return json(res, 200, { ok: true, contract: publicFriendContract(existing, token.sub) });
+        const active = Number((statements.activeFriendContractsByActor.get(token.sub, now) || {}).count) || 0;
+        if (active >= 5) return json(res, 409, { ok: false, code: "FRIEND_CONTRACT_LIMIT", limit: 5 });
+        const contractId = crypto.randomUUID();
+        const expiresAt = now + 48 * 60 * 60 * 1000;
+        statements.insertFriendContract.run(contractId, token.sub, target.userId, objectiveId, clientContractId, now, expiresAt);
+        const stored = statements.friendContractByClientId.get(token.sub, clientContractId);
+        return json(res, 200, { ok: true, contract: publicFriendContract(stored, token.sub) });
+      }
+
+      if (req.method === "POST" && /^\/v1\/friend-contracts\/[a-zA-Z0-9_-]+\/complete$/.test(url.pathname)) {
+        const rate = limiter.consume(`friend-contract-complete:${ip}`, 30, 60000);
+        if (!rate.allowed) return json(res, 429, { ok: false, code: "RATE_LIMITED" }, { "retry-after": "60" });
+        const token = verifyToken(sessionSecret, bearer(req));
+        if (!token) return json(res, 401, { ok: false, code: "UNAUTHORIZED" });
+        const contractId = url.pathname.split("/")[3];
+        const now = Date.now();
+        statements.expireFriendContracts.run(now, now);
+        const existing = statements.friendContractById.get(contractId);
+        if (!existing) return json(res, 404, { ok: false, code: "CONTRACT_NOT_FOUND" });
+        if (existing.targetUserId !== token.sub) return json(res, 403, { ok: false, code: "CONTRACT_RECIPIENT_REQUIRED" });
+        if (existing.status === "completed") return json(res, 200, { ok: true, contract: publicFriendContract(existing, token.sub), alreadyCompleted: true });
+        if (existing.status === "expired" || Number(existing.expiresAt) <= now) return json(res, 409, { ok: false, code: "CONTRACT_EXPIRED" });
+        statements.completeFriendContract.run(now, contractId, token.sub, now);
+        const completed = statements.friendContractById.get(contractId);
+        return json(res, 200, { ok: true, contract: publicFriendContract(completed, token.sub) });
+      }
+
+      if (req.method === "GET" && url.pathname === "/v1/friend-contracts") {
+        const token = verifyToken(sessionSecret, bearer(req));
+        if (!token) return json(res, 401, { ok: false, code: "UNAUTHORIZED" });
+        const now = Date.now();
+        statements.expireFriendContracts.run(now, now);
+        const limit = Math.max(1, Math.min(100, Math.round(Number(url.searchParams.get("limit")) || 50)));
+        return json(res, 200, {
+          ok: true,
+          sent: statements.sentFriendContracts.all(token.sub, limit).map((row) => publicFriendContract(row, token.sub)),
+          received: statements.receivedFriendContracts.all(token.sub, limit).map((row) => publicFriendContract(row, token.sub)),
+          maxActive: 5,
+          expiryHours: 48
+        });
+      }
+
       if (req.method === "GET" && url.pathname === "/v1/trades/history") {
         const token = verifyToken(sessionSecret, bearer(req));
         if (!token) return json(res, 401, { ok: false, code: "UNAUTHORIZED" });
@@ -785,6 +1089,59 @@ function createApiServer(options = {}) {
         return json(res, 200, { ok: true, trades });
       }
 
+      if (req.method === "POST" && url.pathname === "/v1/world-patrols") {
+        const rate = limiter.consume(`hound-patrol:${ip}`, 20, 60000);
+        if (!rate.allowed) return json(res, 429, { ok: false, code: "RATE_LIMITED" }, { "retry-after": "60" });
+        const token = verifyToken(sessionSecret, bearer(req));
+        if (!token) return json(res, 401, { ok: false, code: "UNAUTHORIZED" });
+        const body = await readJson(req, 8192);
+        const targetId = String(body.targetId || "").replace(/^cloud_/, "").slice(0, 20);
+        const clientPatrolId = String(body.clientPatrolId || "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 80);
+        const cost = Math.round(Number(body.cost));
+        if (!/^[a-zA-Z0-9_-]{1,20}$/.test(targetId) || !clientPatrolId || !Number.isInteger(cost) || cost < HOUND_PATROL_COST_MIN || cost > HOUND_PATROL_COST_MAX) {
+          return json(res, 400, { ok: false, code: "INVALID_PATROL" });
+        }
+        const targets = statements.userByPublicId.all(targetId);
+        if (targets.length !== 1 || targets[0].userId === token.sub) return json(res, 404, { ok: false, code: "TARGET_NOT_FOUND" });
+        const targetUser = targets[0];
+        const score = db.prepare("SELECT score, level, animals, safety, visitors, fund, profile_version AS profileVersion FROM scores WHERE user_id=?").get(targetUser.userId);
+        if (!score || Number(score.profileVersion) <= 0) return json(res, 409, { ok: false, code: "TARGET_PROFILE_NOT_READY" });
+        const actorScore = statements.score.get(token.sub);
+        if (actorScore && Number(actorScore.profileVersion) > 0 && Math.max(0, Number(actorScore.fund) || 0) < cost) {
+          return json(res, 409, { ok: false, code: "INSUFFICIENT_FUND" });
+        }
+        const now = Date.now();
+        const dayStart = new Date(now); dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = dayStart.getTime() + 86400000;
+        if (statements.patrolDailyCount.get(token.sub, dayStart.getTime(), dayEnd).count >= HOUND_PATROL_DAILY_LIMIT) return json(res, 409, { ok: false, code: "DAILY_LIMIT" });
+        if (statements.patrolTargetDay.get(token.sub, targetUser.userId, dayStart.getTime(), dayEnd)) return json(res, 409, { ok: false, code: "TARGET_ALREADY_PATROLLED" });
+        if (statements.patrolIncomingDay.get(targetUser.userId, dayStart.getTime(), dayEnd).count >= HOUND_PATROL_INCOMING_DAILY_LIMIT) return json(res, 409, { ok: false, code: "TARGET_DAILY_FULL" });
+        const existing = statements.patrolById.get(clientPatrolId);
+        if (existing) {
+          if (existing.actor_user_id !== token.sub) return json(res, 409, { ok: false, code: "PATROL_ID_CONFLICT" });
+          return json(res, 200, { ok: true, patrol: publicHoundPatrol(existing, token.sub) });
+        }
+        const floors = body.floors && typeof body.floors === "object" ? body.floors : {};
+        const actorChapter = Math.max(1, Math.min(20, Math.round(Number(body.actorChapter) || Number(floors.actorChapter) || 1)));
+        statements.insertPatrol.run(clientPatrolId, token.sub, targetUser.userId, cost, now, now + HOUND_PATROL_DELAY_MS,
+          Math.max(0, Math.min(100, Math.round(Number.isFinite(Number(score.safety)) ? Number(score.safety) : 50))), Math.max(0, Math.round(Number(score.fund) || 0)),
+          Math.max(0, Math.round(Number(score.visitors) || 0)), Math.max(0, Math.round(Number(score.animals) || 0)),
+          Math.max(0, Math.round(Number(floors.fund) || 0)), Math.max(0, Math.round(Number(floors.visitors) || 0)), Math.max(0, Math.round(Number(floors.animals) || 0)),
+          actorChapter);
+        const patrol = statements.patrolById.get(clientPatrolId);
+        return json(res, 201, { ok: true, patrol: publicHoundPatrol(patrol, token.sub) });
+      }
+
+      if (req.method === "GET" && url.pathname === "/v1/world-patrols") {
+        const token = verifyToken(sessionSecret, bearer(req));
+        if (!token) return json(res, 401, { ok: false, code: "UNAUTHORIZED" });
+        settleDueHoundPatrols(Date.now());
+        const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit")) || 50));
+        const sent = statements.sentPatrolHistory.all(token.sub, limit).map((row) => publicHoundPatrol(row, token.sub));
+        const received = statements.receivedPatrolHistory.all(token.sub, limit).map((row) => publicHoundPatrol(row, token.sub));
+        return json(res, 200, { ok: true, sent, received });
+      }
+
       if (req.method === "GET" && url.pathname === "/v1/leaderboard") {
         const rate = limiter.consume(`leaderboard:${ip}`, 60, 60000);
         if (!rate.allowed) return json(res, 429, { ok: false, code: "RATE_LIMITED" }, { "retry-after": "60" });
@@ -868,13 +1225,16 @@ function createApiServer(options = {}) {
         const level = Math.max(1, Math.min(7, Math.round(Number(body.level) || 1)));
         const animals = Math.max(0, Math.min(99999, Math.round(Number(body.animals) || 0)));
         const shield = Math.max(0, Math.min(100, Math.round(Number(body.shield) || 0)));
+        const safety = Math.max(0, Math.min(100, Math.round(Number(body.safety) || 0)));
+        const visitors = Math.max(0, Math.min(999999, Math.round(Number(body.visitors) || 0)));
+        const fund = Math.max(0, Math.min(100000000, Math.round(Number(body.fund) || 0)));
         const style = serverOwnedStyle(body.style);
         statements.upsertActiveUser.run(token.sub, displayName, now, now, now);
         const previous = statements.score.get(token.sub);
         const storedLevel = !hasProfile && previous && Number(previous.profileVersion) > 0 ? previous.level : level;
         const storedAnimals = !hasProfile && previous && Number(previous.profileVersion) > 0 ? previous.animals : animals;
         const serverScore = calculateReserveValuation(storedLevel, storedAnimals);
-        if (hasProfile) statements.upsertScoreProfile.run(token.sub, serverScore, level, animals, shield, style, now);
+        if (hasProfile) statements.upsertScoreProfile.run(token.sub, serverScore, level, animals, shield, safety, visitors, fund, style, now);
         else statements.upsertScoreBasic.run(token.sub, serverScore, now);
         const stored = statements.score.get(token.sub) || { score: 0 };
         const moderation = statements.userModeration.get(token.sub) || { status: "active" };

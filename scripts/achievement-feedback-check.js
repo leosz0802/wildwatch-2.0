@@ -62,6 +62,7 @@ function assertChapterSandbox(chapter, options = {}) {
   game.state.world.reserve.progression.displayChapter = chapter;
   game.state.world.reserve.progression.stage = chapter;
   game.sandboxAnimalRosterCache = null;
+  game.frameMemoStore = {};
   if (options.lateReady) {
     game.art.animalMapSprites = Object.assign({}, game.art.animalMapSprites || {}, { loaded: true, failed: false, source: "remote" });
     if (!(game.remoteAssetCompleted instanceof Set)) game.remoteAssetCompleted = new Set();
@@ -73,7 +74,8 @@ function assertChapterSandbox(chapter, options = {}) {
   fullRoster.concat(visible).forEach((name) => {
     assert(allowed.has(name), `chapter ${chapter} sandbox must not show ${name}`);
   });
-  assert(visible.length <= Math.min(14, Math.max(8, 6 + chapter)), `chapter ${chapter} sandbox must keep the herd cap`);
+  const herdCap = game.sandboxVisibleHerdCap(fullRoster.length, chapter);
+  assert(visible.length <= herdCap, `chapter ${chapter} sandbox must keep the herd cap`);
   return { allowed, fullRoster, visible };
 }
 
@@ -93,10 +95,13 @@ assert(chapterFive.fullRoster.includes("狼"), "wolf stays on the sandbox in lat
 const chapterFourteen = assertChapterSandbox(14, { lateReady: true });
 assert(chapterFourteen.fullRoster.includes("狼"), "chapter 14 sandbox can show the wolf once that chapter is unlocked");
 game.state.world.reserve.progression.level = 7;
-game.state.world.reserve.progression.displayChapter = 20;
+game.state.world.reserve.progression.displayChapter = 18;
+game.state.world.reserve.progression.stage = 18;
 game.sandboxAnimalRosterCache = null;
+game.frameMemoStore = {};
 const lateRoster = game.visibleSandAnimals(game.state.world);
-assert(lateRoster.length <= 14, "late chapters must still cap sandbox herds so animals stay tappable");
+const lateCap = game.sandboxVisibleHerdCap(game.sandboxAnimalRoster(game.state.world).length, 18);
+assert(lateRoster.length <= lateCap, "late chapters must still cap sandbox herds so animals stay tappable");
 assert(new Set(lateRoster.map((animal) => game.sandboxSpeciesKey(animal))).size === lateRoster.length, "late-chapter sandbox herds must stay unique");
 
 const camera = game.mapCameraInfo(0, 0, 375, 500);

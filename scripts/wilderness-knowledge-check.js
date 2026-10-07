@@ -339,10 +339,15 @@ async function checkWechatFriendTradeBridge() {
   const stockBefore = wildernessKnowledgeSummary(game.state.world.reserve).state.tradeStock[exploration.survivalFind.id];
   const pickedWant = game.infoDetailModal.wantOptions[1] || game.infoDetailModal.wantOptions[0];
   assert(game.selectFriendExchangeWant(pickedWant.id));
-  assert(game.confirmFriendAidRequest(), "named friend request should complete after a shortage is chosen");
-  assert(game.state.world.reserve.friendAid.incoming.itemId === pickedWant.id, "named request must send the chosen shortage");
-  assert(game.infoDetailModal && game.infoDetailModal.kind === "friendAidLetter" && /交换结果/.test(game.infoDetailModal.kicker), "matched exchange should show the result letter");
-  assert(wildernessKnowledgeSummary(game.state.world.reserve).state.tradeStock[exploration.survivalFind.id] === stockBefore - 1, "auto request must spend one owned item");
+  assert(game.confirmFriendAidRequest(), "named friend request should be sent after a shortage is chosen");
+  assert(game.state.world.reserve.friendAid.request.status === "pending", "named request should wait for the friend confirmation");
+  assert(game.state.world.reserve.friendAid.request.wantId === pickedWant.id, "named request must preserve the chosen shortage");
+  assert(game.infoDetailModal && game.infoDetailModal.kind === "friendAidPending", "pending request should show the waiting guidance");
+  assert(wildernessKnowledgeSummary(game.state.world.reserve).state.tradeStock[exploration.survivalFind.id] === stockBefore, "pending request must not spend stock before confirmation");
+  assert(game.resolvePendingFriendAid(), "the no-response path should allow a patrol fallback");
+  assert(game.state.world.reserve.friendAid.incoming.itemId === pickedWant.id, "fallback must deliver the chosen shortage");
+  assert(game.infoDetailModal && game.infoDetailModal.kind === "friendAidLetter" && /交换结果/.test(game.infoDetailModal.kicker), "fallback should show the result letter");
+  assert(wildernessKnowledgeSummary(game.state.world.reserve).state.tradeStock[exploration.survivalFind.id] === stockBefore - 1, "fallback settlement must spend one owned item");
 
   assert(game.confirmOpenFriendAidParcel(), "confirming the result should clear the received parcel");
   cloud.friendRows = [];

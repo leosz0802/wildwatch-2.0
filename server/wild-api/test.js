@@ -233,6 +233,56 @@ async function main() {
     assert(publicWorld.leaderboard.every(entry => !entry.friendMatchKey), "anonymous requests must never receive friend match keys");
     assert(worldAfterFriendImport.leaderboard.filter((entry) => entry.friend === true).length === 1, "world friend markers must only identify the viewer's linked accounts");
 
+    response = await fetch(`${base}/v1/friend-contracts`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${userOneToken}` },
+      body: JSON.stringify({ targetId: imported.friends[0].id, objectiveId: "patrol_note", clientContractId: "friend-contract-api-001" })
+    });
+    assert.equal(response.status, 200);
+    const sentContract = (await response.json()).contract;
+    assert.equal(sentContract.direction, "sent");
+    assert.equal(sentContract.status, "pending");
+    response = await fetch(`${base}/v1/friend-contracts`, { headers: { authorization: `Bearer ${userTwoToken}` } });
+    const receiverContracts = await response.json();
+    assert.equal(receiverContracts.received.length, 1, "真实好友应在收件箱看到发来的合同");
+    assert.equal(receiverContracts.received[0].status, "pending");
+    response = await fetch(`${base}/v1/friend-contracts/${sentContract.contractId}/complete`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${userTwoToken}` },
+      body: "{}"
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).contract.status, "completed");
+    response = await fetch(`${base}/v1/friend-contracts`, { headers: { authorization: `Bearer ${userOneToken}` } });
+    const senderContracts = await response.json();
+    assert.equal(senderContracts.sent[0].status, "completed", "发起方历史应同步好友执行结果");
+    response = await fetch(`${base}/v1/friend-contracts/${sentContract.contractId}/complete`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${userOneToken}` },
+      body: "{}"
+    });
+    assert.equal(response.status, 403, "发起方不能代替好友执行收到的合同");
+    response = await fetch(`${base}/v1/friend-contracts`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ targetId: imported.friends[0].id, objectiveId: "patrol_note", clientContractId: "friend-contract-not-friend" })
+    });
+    assert.equal(response.status, 403, "非好友不能发起好友合同");
+    for (let index = 0; index < 5; index += 1) {
+      response = await fetch(`${base}/v1/friend-contracts`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${userOneToken}` },
+        body: JSON.stringify({ targetId: imported.friends[0].id, objectiveId: "patrol_note", clientContractId: `friend-contract-limit-${index}` })
+      });
+      assert.equal(response.status, 200, "五份进行中的好友合同都应允许发起");
+    }
+    response = await fetch(`${base}/v1/friend-contracts`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${userOneToken}` },
+      body: JSON.stringify({ targetId: imported.friends[0].id, objectiveId: "patrol_note", clientContractId: "friend-contract-limit-six" })
+    });
+    assert.equal(response.status, 409, "第六份进行中的好友合同必须被限制");
+
     const clientTradeId = "client-trade-real-1";
     const tradeBody = { targetId: imported.friends[0].id, scope: "friends", itemId: "resin_tinder", itemLabel: "伪造高价值素材", valuePoints: 20, clientTradeId };
     response = await fetch(`${base}/v1/trades/exchange`, {

@@ -43,6 +43,7 @@ game.settlementModal = { presentationScreen: "home" };
 toast = "";
 assert(game.setScreen("role") === false, "沙盘结算弹窗期间不应进入物资频道");
 assert(game.screen === "home" && game.settlementModal, "结算弹窗拦截后应保持在沙盘");
-assert(/当前有巡护任务/.test(toast), "结算弹窗拦截也应给出明确提示");
+assert(/结算/.test(toast) && /再继续/.test(toast), "结算弹窗拦截应提示先看完结算");
+assert(game.setScreen("home") === true, "结算展示中仍必须能留在沙盘");
 
 console.log("sandbox task navigation check ok");

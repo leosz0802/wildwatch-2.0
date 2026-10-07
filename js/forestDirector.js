@@ -1,16 +1,13 @@
 function clamp(value) {
   return Math.max(0, Math.min(100, Math.round(value || 0)));
 }
-
 function totalAnimals(group) {
   return Object.keys(group || {}).reduce((sum, key) => sum + ((group && group[key]) || 0), 0);
 }
-
 function regionNameById(id, world) {
   const region = ((world && world.regions) || []).find((item) => item.id === id);
   return region ? region.name : "保护区";
 }
-
 function regionForSpecies(species) {
   return {
     鹿: "meadow",
@@ -37,13 +34,11 @@ function regionForSpecies(species) {
     刺猬: "rocks"
   }[species] || "center";
 }
-
 function pressureLevel(value, high, medium) {
   if ((value || 0) >= high) return "high";
   if ((value || 0) >= medium) return "medium";
   return "low";
 }
-
 function buildFacts(input) {
   const world = input.world || {};
   const before = input.beforeReserve || {};
@@ -59,7 +54,6 @@ function buildFacts(input) {
   const grassDelta = (eco.grass || 0) - (beforeEco.grass || 0);
   const poacherDelta = (reserve.poacherPressure || 0) - (before.poacherPressure || 0);
   const facts = [];
-
   facts.push({
     id: "time_weather",
     type: "time",
@@ -69,7 +63,6 @@ function buildFacts(input) {
     severity: input.weather === "晴" ? "medium" : input.weather === "小雨" ? "low" : "info",
     evidence: `第 ${input.day || world.day || 1} 日，森林时间 ${(input.time && input.time.hour) || "--"}:00。`
   });
-
   facts.push({
     id: "water",
     type: "resource",
@@ -80,7 +73,6 @@ function buildFacts(input) {
     severity: pressureLevel(100 - (eco.water || 0), 55, 35),
     evidence: waterDelta >= 0 ? `水源恢复 ${waterDelta}` : `水源下降 ${Math.abs(waterDelta)}`
   });
-
   facts.push({
     id: "grass",
     type: "resource",
@@ -91,7 +83,6 @@ function buildFacts(input) {
     severity: pressureLevel(100 - (eco.grass || 0), 55, 35),
     evidence: grassDelta >= 0 ? `草场恢复 ${grassDelta}` : `草场减少 ${Math.abs(grassDelta)}`
   });
-
   facts.push({
     id: "poachers",
     type: "human_threat",
@@ -102,7 +93,6 @@ function buildFacts(input) {
     severity: pressureLevel(reserve.poacherPressure || 0, 58, 42),
     evidence: poacherDelta >= 0 ? `偷猎压力 +${poacherDelta}` : `偷猎压力 ${poacherDelta}`
   });
-
   facts.push({
     id: "migration",
     type: "movement",
@@ -113,7 +103,6 @@ function buildFacts(input) {
     severity: (migration.delta || 0) < 0 ? "high" : (migration.delta || 0) > 0 ? "positive" : "info",
     evidence: migration.reason || "动物保持观望"
   });
-
   facts.push({
     id: "population",
     type: "population",
@@ -124,7 +113,6 @@ function buildFacts(input) {
     severity: deerDelta < 0 ? "high" : herbivores > 360 ? "medium" : "info",
     evidence: `鹿群 ${deerDelta >= 0 ? "+" : ""}${deerDelta}，食草总量 ${herbivores}`
   });
-
   facts.push({
     id: "predator_pressure",
     type: "predator",
@@ -135,7 +123,6 @@ function buildFacts(input) {
     severity: predators * 5 > herbivores ? "high" : "medium",
     evidence: `食肉 ${predators} / 食草 ${herbivores}`
   });
-
   facts.push({
     id: "disease",
     type: "disease",
@@ -146,10 +133,8 @@ function buildFacts(input) {
     severity: pressureLevel(eco.disease || 0, 30, 18),
     evidence: `病虫害指数 ${eco.disease || 0}`
   });
-
   return facts;
 }
-
 function dominantFactForSpecies(species, facts) {
   const byId = {};
   facts.forEach((fact) => { byId[fact.id] = fact; });
@@ -167,7 +152,6 @@ function dominantFactForSpecies(species, facts) {
   if (["斑马", "羚羊", "长颈鹿"].indexOf(species) >= 0) return byId.migration.severity === "high" ? byId.migration : byId.predator_pressure.severity === "high" ? byId.predator_pressure : byId.water;
   return facts.find((fact) => fact.severity === "high") || facts[0];
 }
-
 function animalMood(npc, facts, input) {
   const fact = dominantFactForSpecies(npc.species, facts);
   const reserve = input.reserve || {};
@@ -188,7 +172,6 @@ function animalMood(npc, facts, input) {
     memory: "",
     tone: "克制"
   };
-
   if (npc.species === "鹿") {
     common.summary = (migration.delta || 0) < 0 ? "鹿群变薄，正在重新排列逃跑路线" : "鹿群保持警觉，优先确认饮水窗口";
     common.livedEvent = (migration.delta || 0) < 0
@@ -318,10 +301,8 @@ function animalMood(npc, facts, input) {
     common.imageCue = "地图上出现新的活动痕迹";
     common.memory = `${input.day}日：${common.livedEvent}`;
   }
-
   return common;
 }
-
 function visualState(facts, input) {
   const byId = {};
   facts.forEach((fact) => { byId[fact.id] = fact; });
@@ -337,7 +318,6 @@ function visualState(facts, input) {
     animalFocusRegionIds: ["meadow", "center", "north", "rocks", "lake"]
   };
 }
-
 const NARRATIVE_FACT_RULES = {
   water: {
     actionId: "habitat", threshold: { metric: "water", operator: ">=", value: 52, label: "水源恢复至52" },
@@ -388,7 +368,6 @@ const NARRATIVE_FACT_RULES = {
     hook: "风向改变前，确认最边缘的动物还在不在。"
   }
 };
-
 function narrativeFact(facts) {
   return facts.find((fact) => fact.severity === "high")
     || facts.find((fact) => fact.severity === "medium" && fact.id !== "time_weather")
@@ -396,7 +375,6 @@ function narrativeFact(facts) {
     || facts.find((fact) => fact.id === "water")
     || facts[0];
 }
-
 function narrativeSpeaker(fact, characters) {
   const preferred = {
     water: ["水貂", "大象", "鹿", "河马"],
@@ -411,7 +389,6 @@ function narrativeSpeaker(fact, characters) {
     || (characters || [])[0]
     || { id: "forest", name: "森林", shortName: "森林", species: "森林" };
 }
-
 function narrativeAnimalLine(fact, speaker, input) {
   const lines = {
     water: "幼崽今天还没有喝到水。",
@@ -427,7 +404,6 @@ function narrativeAnimalLine(fact, speaker, input) {
   if (fact && fact.id === "migration" && migrationDelta < 0) return "队伍少了，但幼崽还得继续走。";
   return lines[(fact && fact.id) || "time_weather"] || lines.time_weather;
 }
-
 function immediateNarrativeConsequence(input, fact) {
   const delta = input.delta || {};
   const action = input.action || "seed";
@@ -442,7 +418,6 @@ function immediateNarrativeConsequence(input, fact) {
   if (delta.fund) return `基金${delta.fund > 0 ? "+" : ""}${delta.fund}；下一次守护能动用的余地已经改变。`;
   return "行动已经写入保护区，真正的回声要等到下一次巡线。";
 }
-
 function buildNarrativeBeat(input = {}, factsInput = null, charactersInput = null) {
   const facts = factsInput || buildFacts(input);
   const fact = narrativeFact(facts);
@@ -479,7 +454,6 @@ function buildNarrativeBeat(input = {}, factsInput = null, charactersInput = nul
     factDelta: fact.delta || 0
   };
 }
-
 function runForestDirector(input) {
   const world = input.world || {};
   const reserveView = input.reserveView || (world && world.reserveView) || (input.reserve && input.reserve.reserveView) || null;
@@ -531,7 +505,6 @@ function runForestDirector(input) {
   };
   return { director, knownCharacters };
 }
-
 module.exports = {
   runForestDirector,
   buildNarrativeBeat

@@ -1,15 +1,13 @@
 const { habitatCapacitySnapshot } = require("./ecologyConsistency");
 const { recordFundChange } = require("./fundLedger");
-
+const { recordIncrease } = require("./animalSourceLedger");
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(Number(value) || 0)));
 }
-
 function facilityStage(reserve, id) {
   const site = ((((reserve || {}).facilityConstruction || {}).sites || {})[id]) || {};
   return Math.max(site.buildStage || 0, site.collectionStage || 0);
 }
-
 function syncCoreResources(reserve, options = {}) {
   const previous = reserve.coreResources || {};
   const capacity = habitatCapacitySnapshot(reserve);
@@ -31,14 +29,10 @@ function syncCoreResources(reserve, options = {}) {
   };
   return reserve.coreResources;
 }
-
 function prepareCoreAction(reserve, action) {
   const core = syncCoreResources(reserve);
   return { energySpent: 1, chanceBonus: 0 };
 }
-
-// 第一阶段的行动成本必须和预览、结算共用同一套章节经济配置。
-// 目前只有会直接改造环境的两类行动消耗保护基金；侦察、驱赶和探索仍只消耗对应补给。
 function applyChapterActionCost(reserve, action) {
   const chapter = Math.max(1, Math.round((((reserve || {}).progression || {}).level) || 1));
   const economy = require("./balanceConfig").chapterEconomy(chapter);
@@ -52,7 +46,6 @@ function applyChapterActionCost(reserve, action) {
   }
   return { action, chapter, cost, fundBefore: before, fundAfter: after, insufficient: before < cost };
 }
-
 function settleCoreResources(reserve, action, context = {}) {
   const core = syncCoreResources(reserve, { afterAction: true });
   if (context.dayClosed) core.energy = core.energyMax;
@@ -69,7 +62,6 @@ function settleCoreResources(reserve, action, context = {}) {
   reserve.coreResources = core;
   return core;
 }
-
 function resolveEcologyChain(reserve, beforeReserve, context = {}) {
   const old = reserve.ecologyChain || { id: "water_food_predator", stage: 0, history: [] };
   const beforeEco = (beforeReserve || {}).ecology || {};
@@ -84,18 +76,23 @@ function resolveEcologyChain(reserve, beforeReserve, context = {}) {
   const herbivoreGain = capacity.herbivores - beforeCapacity.herbivores;
   const predatorGain = capacity.predators - beforeCapacity.predators;
   const observationReady = facilityStage(reserve, "migration_watch") >= 2;
-
   if (stage === 0 && waterGain >= 3) {
     stage = 1; title = "水源恢复"; message = "新水线开始吸引食草动物；下一守护日留意种群增长。";
   } else if (context.dayClosed && stage === 1) {
     const herd = eco.herbivores || {};
     const key = Object.keys(herd).sort((a, b) => (herd[b] || 0) - (herd[a] || 0))[0];
-    if (key) herd[key] = (herd[key] || 0) + 1;
+    if (key) {
+      herd[key] = (herd[key] || 0) + 1;
+      recordIncrease(reserve, "immigrated", 1, { speciesId: key });
+    }
     stage = 2; title = "食草动物回流"; message = "水源带回了食草动物，充足猎物正在吸引捕食者。";
   } else if (context.dayClosed && stage === 2) {
     const predators = eco.predators || {};
     const key = Object.keys(predators).sort((a, b) => (predators[b] || 0) - (predators[a] || 0))[0];
-    if (key) predators[key] = (predators[key] || 0) + 1;
+    if (key) {
+      predators[key] = (predators[key] || 0) + 1;
+      recordIncrease(reserve, "immigrated", 1, { speciesId: key });
+    }
     stage = 3; title = "捕食者迁入"; message = "捕食者沿猎物路线进入，巡护盲区与冲突风险开始增加。";
   } else if (context.dayClosed && stage === 3) {
     pressure = Math.min(10, pressure + 4);
@@ -117,5 +114,4 @@ function resolveEcologyChain(reserve, beforeReserve, context = {}) {
   reserve.ecologyChain = chain;
   return chain;
 }
-
 module.exports = { syncCoreResources, prepareCoreAction, applyChapterActionCost, settleCoreResources, resolveEcologyChain };

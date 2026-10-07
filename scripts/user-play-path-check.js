@@ -191,6 +191,9 @@ function resolveOpenedWork(game) {
     game.archeryScoreFor = () => 5;
     game.resolveChapterSpecialTask();
   }
+  if (typeof game.waitingArcheryOrDiceConfirm === "function" && game.waitingArcheryOrDiceConfirm()) {
+    game.confirmResolvedArcheryOrDice();
+  }
   if (game.settlementModal) game.finishSettlement("home");
   if (game.infoDetailModal && game.infoDetailModal.phase === "result") {
     if (game.infoDetailModal.kind === "animalComfort") game.advanceAnimalCareProcess();
@@ -257,8 +260,8 @@ function spamAnimalAds(game, label) {
   }
   const afterStatus = animalTotalAdStatus(reserve);
   assert(claims >= 1, `${label}: lucky animal ads never applied`);
-  assert.equal(afterStatus.eligible, false, `${label}: lucky animal ads must stop after the daily cap`);
-  assert(afterStatus.claimedToday <= REWARDED_ANIMAL_AD_CONFIG.dailyCap, `${label}: animal ads exceeded daily cap`);
+  assert.equal(afterStatus.eligible, false, `${label}: lucky animal ads must stop after the chapter cap`);
+  assert(afterStatus.claimedChapter <= REWARDED_ANIMAL_AD_CONFIG.chapterCap, `${label}: animal ads exceeded the chapter cap`);
   assert(livingAnimalTotal(reserve) >= before, `${label}: animal ads reduced living total`);
   assertHealthy(game, `${label}-after-animal-ads`);
 }

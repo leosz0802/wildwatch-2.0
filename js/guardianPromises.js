@@ -1,5 +1,4 @@
 const { addPendingRecovered, consumeProjectPreparation } = require("./resourceLedger");
-
 const GUARDIAN_PROMISES = [
   {
     chapter: 1,
@@ -243,20 +242,16 @@ const GUARDIAN_PROMISES = [
     ]
   }
 ];
-
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(value || 0)));
 }
-
 function promiseByChapter(chapter) {
   return GUARDIAN_PROMISES.find((item) => item.chapter === Number(chapter)) || null;
 }
-
 function promiseChoice(chapter, choiceId) {
   const promise = promiseByChapter(chapter);
   return promise && promise.choices.find((choice) => choice.id === choiceId) || null;
 }
-
 function normalizeGuardianPromises(saved) {
   const source = saved || {};
   const choices = {};
@@ -283,7 +278,6 @@ function normalizeGuardianPromises(saved) {
     lastActionEffects: (source.lastActionEffects || []).slice(-5)
   };
 }
-
 function maybePrepareGuardianPromise(reserve, context = {}) {
   const state = normalizeGuardianPromises(reserve.guardianPromises);
   if (state.pending) {
@@ -312,7 +306,6 @@ function maybePrepareGuardianPromise(reserve, context = {}) {
   reserve.guardianPromises = state;
   return state.pending;
 }
-
 function selectGuardianPromiseChoice(reserve, chapter, choiceId) {
   const state = normalizeGuardianPromises(reserve.guardianPromises);
   if (!state.pending || Number(state.pending.chapter) !== Number(chapter) || !promiseChoice(chapter, choiceId)) return null;
@@ -320,7 +313,6 @@ function selectGuardianPromiseChoice(reserve, chapter, choiceId) {
   reserve.guardianPromises = state;
   return state.pending;
 }
-
 function addMetric(reserve, key, amount) {
   if (!amount) return;
   if (["water", "grass", "disease"].includes(key)) {
@@ -345,7 +337,6 @@ function addMetric(reserve, key, amount) {
   const max = 100;
   reserve[key] = clamp((reserve[key] || 0) + amount, 0, max);
 }
-
 function metricSnapshot(reserve) {
   const eco = reserve.ecology || {};
   const supplies = reserve.supplies || {};
@@ -364,15 +355,12 @@ function metricSnapshot(reserve) {
     supplyTotal: Object.keys(supplies).reduce((sum, id) => sum + (supplies[id] || 0), 0)
   };
 }
-
 function applyEffects(reserve, effects) {
   Object.keys(effects || {}).forEach((key) => addMetric(reserve, key, effects[key]));
 }
-
 function changesBetween(before, after) {
   return Object.keys(after).map((key) => ({ key, before: before[key], after: after[key], delta: after[key] - before[key] })).filter((item) => item.delta !== 0);
 }
-
 function applyGuardianPromiseChoice(reserve, chapter, choiceId, context = {}) {
   const state = normalizeGuardianPromises(reserve.guardianPromises);
   const promise = promiseByChapter(chapter);
@@ -398,7 +386,6 @@ function applyGuardianPromiseChoice(reserve, chapter, choiceId, context = {}) {
   reserve.guardianPromises = state;
   return { promise, choice, record, before, after, changes: changesBetween(before, after) };
 }
-
 function chosenPromiseChoices(reserve) {
   const state = normalizeGuardianPromises((reserve || {}).guardianPromises);
   return Object.keys(state.choices).sort((a, b) => Number(a) - Number(b)).map((chapter) => {
@@ -406,13 +393,11 @@ function chosenPromiseChoices(reserve) {
     return { promise: promiseByChapter(chapter), choice: promiseChoice(chapter, record.choiceId), record };
   }).filter((item) => item.promise && item.choice);
 }
-
 function actionEffectsForChoice(choice, action, season) {
   const fixed = Object.assign({}, ((choice.actionEffects || {})[action]) || {});
   const seasonal = ((((choice.seasonalActionEffects || {})[action]) || {})[season]) || {};
   return Object.assign(fixed, seasonal);
 }
-
 function applyGuardianPromiseAction(reserve, action, context = {}) {
   const before = metricSnapshot(reserve);
   const applied = [];
@@ -429,7 +414,6 @@ function applyGuardianPromiseAction(reserve, action, context = {}) {
   reserve.guardianPromises = state;
   return { applied, before, after, changes };
 }
-
 function relationshipModifierFor(reserve, action) {
   const result = { security: 0, wildness: 0, reasons: [] };
   chosenPromiseChoices(reserve).forEach(({ choice }) => {
@@ -441,7 +425,6 @@ function relationshipModifierFor(reserve, action) {
   });
   return result;
 }
-
 function lifeCycleModifiers(reserve) {
   return chosenPromiseChoices(reserve).reduce((result, { choice }) => {
     result.independenceThreshold += choice.independenceThreshold || 0;
@@ -449,7 +432,6 @@ function lifeCycleModifiers(reserve) {
     return result;
   }, { independenceThreshold: 0, wildVisitDelay: 0 });
 }
-
 module.exports = {
   GUARDIAN_PROMISES,
   promiseByChapter,

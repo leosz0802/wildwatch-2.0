@@ -127,6 +127,8 @@ async function verifyNewPlayerFirstEntryArt() {
   assert(wechatHome.some((src) => /core-map-anime-v1\.jpg$/.test(src)), "WeChat first sandbox frame must still load the packed map");
   assert(wechatHome.some((src) => /animal-map-sprites-atlas-v2\.png$/.test(src)), "WeChat first sandbox frame must still load packed animal sprites");
   assert(!wechatHome.some((src) => /facility-sprites-atlas|collection-items|animal-portraits-atlas|core-sprites-atlas/.test(src)), "WeChat first sandbox frame should download facilities later and keep collection/portraits off the first home paint");
+  assert(wechatGame.remoteAssetQueue.length === 0 && !wechatGame.remoteAssetActive,
+    "WeChat first home paint must not queue or decode any non-essential remote atlas");
 
   Object.keys(storageValues).forEach((key) => { delete storageValues[key]; });
   images.length = 0;
@@ -147,7 +149,8 @@ async function verifyStartupBoundaries() {
   const game = new Game();
   assert(game.screen === "choose", "an empty install should enter the single-image prologue");
   assert(images.length === 1 && /prologue-fog-v1\.jpg$/.test(images[0].src), "before the first frame a new install should request only prologue frame one");
-  assert(writes.length === 0, "boot should not rewrite the save before the player changes state");
+  assert(writes.every((entry) => entry.key === "forest_kingdom_minigame_favorite_logins"), "boot should not rewrite the save before the player changes state");
+  assert(writes.filter((entry) => entry.key === "forest_kingdom_minigame_favorite_logins").length === 1, "boot counts one login toward the five favorite-button appearances");
   assert(sdkCalls.interstitial === 0 && sdkCalls.rewarded === 0 && sdkCalls.custom === 0,
     "ads must stay cold before the first frame");
   assert(sdkCalls.openData === 1 && openDataCanvas.width === 1 && openDataCanvas.height === 1
@@ -174,8 +177,8 @@ async function verifyStartupBoundaries() {
   game.stopLoop();
   game.prologueStageRuntime("fog").startedAt = Date.now() - 900;
   assert(game.advancePlayablePrologue(), "enter-game should leave the prologue");
-  assert(sdkCalls.interstitial === 1 && sdkCalls.rewarded === 3 && sdkCalls.openData >= 1 && sdkCalls.custom === 0,
-    "leaving prologue may warm interstitial/rewarded/open-data, but home must not create a custom-ad touch layer");
+  assert(sdkCalls.interstitial === 0 && sdkCalls.rewarded === 0 && sdkCalls.openData >= 1 && sdkCalls.custom === 0,
+    "leaving prologue must not warm ad SDKs; home must not create a custom-ad touch layer");
   assert(openDataCanvas.width === 1 && openDataCanvas.style.top === "-9999px",
     "first home frame must still park the open-data overlay instead of restoring a full-screen touch layer");
 
@@ -184,7 +187,8 @@ async function verifyStartupBoundaries() {
   writes.length = 0;
   const returningGame = new Game();
   assert(returningGame.screen === "home", "a returning player should boot directly into the sandbox");
-  assert(writes.length === 0, "returning-player boot bookkeeping must stay in memory until an action or app-hide checkpoint");
+  assert(writes.every((entry) => entry.key === "forest_kingdom_minigame_favorite_logins"), "returning-player boot bookkeeping must stay in memory until an action or app-hide checkpoint");
+  assert(writes.filter((entry) => entry.key === "forest_kingdom_minigame_favorite_logins").length === 1, "returning boot counts one login and does not rewrite the reserve save");
   const returningSources = images.map((image) => image.src);
   assert(returningSources.some((src) => /core-map-anime-v1\.jpg$/.test(src)), "the current sandbox should load its compatible local map before unrelated pages");
   assert(!returningSources.some((src) => /prologue|collection-items|chapter-assets|core-sprites-atlas/.test(src)), "returning boot should not load prologue, collection, chapter art or the retired core atlas");
@@ -236,44 +240,13 @@ async function verifyRemoteQueue() {
   game.remoteAssetQueued = new Set();
   game.remoteAssetCompleted = new Set();
   game.remoteAssetActive = "";
-  const queueFrames = [];
-  game.raf = (callback) => queueFrames.push(callback);
-
-  const started = [];
-  const finishes = [];
-  let active = 0;
-  let peak = 0;
-  const loader = (name) => () => new Promise((resolve) => {
-    started.push(name);
-    active += 1;
-    peak = Math.max(peak, active);
-    finishes.push(() => { active -= 1; resolve(true); });
-  });
-  game.prepareRemoteWildernessMaterialAtlas = loader("wilderness");
-  game.prepareRemoteAnimalPortraitAtlas = loader("animals");
-  game.prepareRemotePremiumUiAtlas = loader("premium");
-  game.prepareRemoteArtAtlas = loader("art");
-
+  game.remoteAssetManifestReady = false;
   game.queueRemoteAssetsForScreen("survival");
-  await flushMicrotasks();
-  assert(started.join(",") === "wilderness" && active === 1, "the survival atlas should be first and should be the only active decode");
   game.queueRemoteAssetsForScreen("collection");
-  finishes.shift()();
-  await flushMicrotasks();
-  assert(active === 0 && queueFrames.length === 1, "the next atlas should wait for a render frame after decoding");
-
-  while (queueFrames.length || finishes.length || game.remoteAssetQueue.length || game.remoteAssetActive) {
-    if (queueFrames.length) {
-      queueFrames.shift()();
-      await flushMicrotasks();
-    }
-    if (finishes.length) {
-      finishes.shift()();
-      await flushMicrotasks();
-    }
-  }
-  assert(started.join(",") === "wilderness,premium,art", `screen priority order drifted: ${started.join(",")}`);
-  assert(peak === 1, `remote atlases decoded concurrently: peak ${peak}`);
+  assert(game.remoteAssetQueue.length === 0
+    && game.remoteAssetActive === ""
+    && game.remoteAssetQueued.size === 0,
+  "remote art downloads should stay disabled when local/canvas fallbacks are used");
 }
 
 (async () => {
@@ -283,7 +256,7 @@ async function verifyRemoteQueue() {
   await verifyRemoteQueue();
   const root = path.resolve(__dirname, "..");
   assert(!fs.existsSync(path.join(root, "js/recommendSystem.js")), "recommendation runtime should be removed from the package");
-  console.log("startup performance check ok (first-frame assets, deferred SDKs, compact reports, serial remote queue)");
+  console.log("startup performance check ok (first-frame assets, deferred SDKs, compact reports, remote art disabled)");
 })().catch((error) => {
   console.error(error.stack || error);
   process.exit(1);

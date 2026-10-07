@@ -119,6 +119,16 @@ function assertLandedOnMaterialTable(game, materialId, message) {
   assert(materialHit && typeof materialHit.onTap === "function", "missing-material copy must be tappable");
   materialHit.onTap();
   assertLandedOnMaterialTable(game, "reed_cord", "tapping the material line");
+  const reedChoiceDef = choiceById("reed_refuge", "river_shallows");
+  const reedGuide = game.developmentShortageGuide(reedChoiceDef, choiceAvailability(game.state.world.reserve, reedChoiceDef));
+  assert(/尚未获得芦苇纤维束、松果湿度标/.test(reedGuide.summary), `unowned materials must explain where to collect: ${reedGuide.summary}`);
+  assert(/东部河岸湿地/.test(reedGuide.summary), "the jump must name the first missing material's region");
+  if (reedGuide.actionLabel !== "去收集 ›") throw new Error("missing materials must offer a collect jump");
+  const board = choiceById("visitor_boardwalk", "river_shallows");
+  const fundGuide = game.developmentShortageGuide(board, choiceAvailability(game.state.world.reserve, board));
+  if (!/保护基金还差/.test(fundGuide.summary) || fundGuide.actionLabel !== "去筹集 ›") {
+    throw new Error(`fund shortage must explain the fund jump: ${fundGuide.summary}`);
+  }
 }
 
 {

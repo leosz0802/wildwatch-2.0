@@ -89,7 +89,7 @@ const alarmDetail = game.buildMaterialDetail("supply", "alarm");
 const dartDetail = game.buildMaterialDetail("supply", "tranquilizer");
 const alarmPurchase = require("../js/actions").supplyPurchaseById("alarm");
 assert(alarmDetail.actionLabel === "采购警报器", "alarm detail should replenish a specific supply from material page");
-assert(dartDetail.actionLabel === "采购麻醉弹", "tranquilizer detail should replenish a specific supply from material page");
+assert(dartDetail.actionLabel === "采购阻滞弹", "tranquilizer detail should replenish a specific supply from material page");
 assert(alarmDetail.items.some((item) => item.tag === "执行后" && item.title.indexOf("警报器 +1") >= 0 && item.title.indexOf(`基金 -${alarmPurchase.cost}`) >= 0), "supply detail should preview item-specific data changes");
 
 game.useMaterialAction("buySupplies", "alarm");

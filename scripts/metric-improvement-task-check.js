@@ -93,4 +93,42 @@ for (const type of ['water', 'grass']) {
   if (type === 'grass') assert.doesNotMatch(settlementText, /水重新流过浅滩/, 'grass: water narrative leaked into settlement');
 }
 
+// Chapter 9 exposes the same repair entry from the chapter risk task. Those
+// goals use riskMetric (rather than metricFocus), so exercise the real goal
+// route for both water and grass instead of only testing the metric detail.
+for (const riskMetric of ['water', 'grass']) {
+  const game = makeGame();
+  game.state.ui = {};
+  const reserve = game.state.world.reserve;
+  reserve.progression.stage = 9;
+  reserve.progression.displayChapter = 9;
+  reserve.progression.level = 5;
+  reserve.ecology.water = riskMetric === 'water' ? 35 : 70;
+  reserve.ecology.grass = riskMetric === 'grass' ? 35 : 70;
+  const goal = {
+    id: `ecology-risk:${riskMetric}`,
+    kind: 'recovery',
+    recommendedAction: 'habitat',
+    riskMetric,
+    title: riskMetric === 'water' ? '水源严重不足' : '草场严重不足'
+  };
+  const before = reserve.ecology[riskMetric];
+  assert.equal(game.executeGoalAction(goal), true, `${riskMetric}: chapter risk goal did not open`);
+  assert(game.patrolTaskModal, `${riskMetric}: chapter risk goal did not open a task card`);
+  assert.equal(game.patrolTaskModal.metricFocus, riskMetric, `${riskMetric}: risk goal lost its metric focus`);
+  const oldRandom = Math.random;
+  Math.random = () => 0;
+  try {
+    assert.equal(game.confirmPatrolTask(game.patrolTaskModal), true, `${riskMetric}: focused task did not settle`);
+  } finally {
+    Math.random = oldRandom;
+  }
+  assert(game.settlementModal, `${riskMetric}: focused task missing settlement`);
+  assert.equal(game.settlementModal.metricFocus, riskMetric, `${riskMetric}: settlement focus drifted`);
+  assert(game.state.world.reserve.ecology[riskMetric] > before, `${riskMetric}: focused task did not improve the selected metric`);
+  game.settlementModal.revealAt = 0;
+  game.finishSettlement('home');
+  assert.equal(game.activeTaskLock, null, `${riskMetric}: closing settlement left the chapter task locked`);
+}
+
 console.log('metric improvement task check ok: water and grass details open focused repair tasks and settle a real increase');

@@ -88,7 +88,8 @@ for (const [width, height] of [[320,568], [375,812], [430,932]]) {
   assert.equal(JSON.stringify(target), rescueBefore, 'reading mail must not modify flamingo rescue points');
   for (let i = 0; i < 3; i++) { game.openReserveLetterInbox({ unreadOnly: true }); close(game); }
   game.openChapterRescueTask(target.targetId);
-  assert.equal(game.infoDetailModal.kind, 'chapterRescueTask', 'rescue must still open after reading mail');
+  assert.equal(game.infoDetailModal.kind, 'materialExploration', 'rescue must still open archery after reading mail');
+  assert.equal(game.infoDetailModal.explorationMode, 'archery');
   close(game);
   saveState(game.state); game.state = loadState();
   game.openReserveLetterInbox({ unreadOnly: true });

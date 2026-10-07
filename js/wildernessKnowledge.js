@@ -1,6 +1,5 @@
 const { recordFundChange } = require("./fundLedger");
 const { surplusTradeAmount } = require("./reserveDevelopment");
-
 const RAW_WILDERNESS_FIND_CATALOG = Object.freeze([
   Object.freeze({ id: "resin_tinder", label: "松脂火绒片", icon: "berry", rarity: "常见", minLevel: 1, minQuality: 5, region: "北部针叶林", material: "自然脱落、带松脂的枯木薄片", knowledge: "松脂能帮助薄木片在潮湿环境中较稳定地点燃，但真正维持火焰仍需要逐级加入细枝和干柴。", use: "潮湿天气的引火教学样本", safety: "只取落地枯木，不剥活树；仅在允许用火且具备灭火条件的区域使用。", tradeValue: 1, storyHook: "营地取暖与雨季失温事件的环境旁证", reserveEffect: { key: "safety", label: "安全", delta: 1 } }),
   Object.freeze({ id: "reed_cord", label: "芦苇纤维束", icon: "trail", rarity: "常见", minLevel: 1, minQuality: 5, region: "东部河岸湿地", material: "自然倒伏后仍有韧性的长纤维", knowledge: "数股短纤维同向搓紧，再反向合股，会因为彼此回弹而不容易散开。", use: "捆扎路标、固定轻量遮挡物", safety: "不能用于攀爬、吊挂人员或承受救援重量。", tradeValue: 1, storyHook: "失踪巡护员与临时路线标记的调查旁证", reserveEffect: { key: "safety", label: "安全", delta: 1 } }),
@@ -15,7 +14,6 @@ const RAW_WILDERNESS_FIND_CATALOG = Object.freeze([
   Object.freeze({ id: "reed_whistle", label: "芦管定位哨", icon: "signal", rarity: "罕见", minLevel: 4, minQuality: 9, region: "东部河岸湿地", material: "清洁、干燥的空心芦段", knowledge: "空心管的长度和开口会改变音高，规律的三声短哨比连续吹奏更适合表达求援位置。", use: "低能见度环境的队伍定位", safety: "不把来源不明的空心植物当吸管，也不在动物繁殖区反复鸣哨。", tradeValue: 3, storyHook: "大雾搜救与边界联合巡护剧情的声音暗号", reserveEffect: { key: "poacherPressure", label: "偷猎压力", delta: -2, inverse: true } }),
   Object.freeze({ id: "bark_route_tag", label: "落皮路线牌", icon: "trail", rarity: "罕见", minLevel: 4, minQuality: 10, region: "中央混交林", material: "自然脱落树皮、炭笔和可回收挂绳", knowledge: "清晰路标应记录方向、时间和队伍标记；只画箭头而没有时间，很容易把后来者引向已经失效的路线。", use: "临时撤离路线的信息标记", safety: "不刻伤活树；离开时回收路牌，避免长期污染或误导他人。", tradeValue: 3, storyHook: "山火、洪水与兽群迁徙剧情中的撤离路线档案", reserveEffect: { key: "safety", label: "安全", delta: 2 } })
 ]);
-
 const WILDERNESS_NARRATIVE_LAYERS = Object.freeze({
   resin_tinder: {
     acquisition: "只在巡护路面收取一小片自然落地枯木，不剥取活树树皮或新鲜树脂。",
@@ -78,13 +76,11 @@ const WILDERNESS_NARRATIVE_LAYERS = Object.freeze({
     easterEgg: "炭笔箭头下还有一层更旧方向，指向迁徙图故意留白的北端。"
   }
 });
-
 const WILDERNESS_TRADE_KINDS = Object.freeze({
   basic: Object.freeze({ id: "basic", label: "生存物资", description: "补足日常巡护与照料缺口" }),
   rare: Object.freeze({ id: "rare", label: "稀有素材", description: "换取本区不易取得的高阶素材" }),
   clue: Object.freeze({ id: "clue", label: "线索", description: "用已验证迹象降低探索风险" })
 });
-
 const WILDERNESS_TRADE_KIND_BY_ID = Object.freeze({
   resin_tinder: "basic",
   reed_cord: "basic",
@@ -99,22 +95,16 @@ const WILDERNESS_TRADE_KIND_BY_ID = Object.freeze({
   track_cast: "clue",
   pinecone_humidity: "clue"
 });
-
 const WILDERNESS_TRADE_DAILY_LIMIT = 3;
 const EXCHANGE_ICON_GAP_MS = 3 * 60 * 1000;
-
-// 探索总点数 = 骰子1–6 + floor(等级/2) + 关系0–2。
-// 收藏门槛只按“掷出6、关系为0”能达到的分数封顶，避免本章最后一件永远差1点。
 function maxObtainableQualityScore(level = 1) {
   const lv = Math.max(1, Math.round(Number(level) || 1));
   return 6 + Math.floor(lv / 2);
 }
-
 function capCollectibleMinQuality(minLevel, minQuality) {
   const desired = Math.max(1, Math.round(Number(minQuality) || 1));
   return Math.min(desired, maxObtainableQualityScore(minLevel));
 }
-
 const WILDERNESS_FIND_CATALOG = Object.freeze(RAW_WILDERNESS_FIND_CATALOG.map((item) => {
   const layer = WILDERNESS_NARRATIVE_LAYERS[item.id] || {};
   const tradeKind = WILDERNESS_TRADE_KIND_BY_ID[item.id] || "basic";
@@ -129,29 +119,23 @@ const WILDERNESS_FIND_CATALOG = Object.freeze(RAW_WILDERNESS_FIND_CATALOG.map((i
     easterEgg: layer.easterEgg || "样本上仍有一处无法由当前记录解释的痕迹。"
   }));
 }));
-
 const WILDERNESS_TRADE_CHANNELS = Object.freeze({
   friends: Object.freeze({ id: "friends", label: "微信好友", multiplier: 1, focus: "好友托管池" }),
   world: Object.freeze({ id: "world", label: "世界玩家", multiplier: 1, focus: "世界托管池" })
 });
-
 function clampMetric(value) {
   return Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
 }
-
 function boundedCount(value, max = 999) {
   return Math.min(max, Math.max(0, Math.round(Number(value) || 0)));
 }
-
 function metricValue(reserve = {}, key = "") {
   if (key === "water" || key === "grass" || key === "disease") return clampMetric(((reserve.ecology || {})[key]));
   return clampMetric(reserve[key]);
 }
-
 function metricAfter(value, delta) {
   return clampMetric(value + delta);
 }
-
 function normalizeTradeRecord(entry = {}) {
   const channel = (entry.channel || entry.scope) === "friends" ? "friends" : "world";
   return {
@@ -185,7 +169,6 @@ function normalizeTradeRecord(entry = {}) {
     claimed: entry.claimed === true || Number(entry.claimedAt) > 0
   };
 }
-
 function normalizeStoryLink(value = null) {
   if (!value || typeof value !== "object") return null;
   const title = String(value.title || "").slice(0, 40);
@@ -199,7 +182,6 @@ function normalizeStoryLink(value = null) {
     chapter: Math.max(1, Math.min(7, Math.round(Number(value.chapter) || 1)))
   };
 }
-
 function applyWildernessReserveEffect(reserve = {}, item = null) {
   const effect = item && item.reserveEffect;
   if (!effect) return null;
@@ -225,7 +207,6 @@ function applyWildernessReserveEffect(reserve = {}, item = null) {
     summary: `${effect.label} ${before}→${after}（${after - before >= 0 ? "+" : ""}${after - before}）`
   };
 }
-
 function normalizeExchangeIcon(value = {}) {
   return {
     pendingKey: String(value.pendingKey || "").slice(0, 80),
@@ -237,7 +218,6 @@ function normalizeExchangeIcon(value = {}) {
     shownAt: Math.max(0, Math.round(Number(value.shownAt) || 0))
   };
 }
-
 function noteSandboxExchangeItem(reserve = {}, itemId = "", now = Date.now()) {
   const item = wildernessFindById(itemId);
   if (!item) return null;
@@ -255,7 +235,6 @@ function noteSandboxExchangeItem(reserve = {}, itemId = "", now = Date.now()) {
   reserve.wildernessKnowledge = state;
   return state.exchangeIcon;
 }
-
 function consumeSandboxExchangeIcon(reserve = {}, now = Date.now()) {
   const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
   const icon = normalizeExchangeIcon(state.exchangeIcon);
@@ -266,7 +245,6 @@ function consumeSandboxExchangeIcon(reserve = {}, now = Date.now()) {
   reserve.wildernessKnowledge = state;
   return icon;
 }
-
 function sandboxExchangeIconReady(reserve = {}, now = Date.now()) {
   const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
   const icon = normalizeExchangeIcon(state.exchangeIcon);
@@ -295,7 +273,6 @@ function sandboxExchangeIconReady(reserve = {}, now = Date.now()) {
   reserve.wildernessKnowledge = state;
   return true;
 }
-
 function normalizeWildernessKnowledge(value = {}) {
   const discoveries = {};
   Object.keys(value.discoveries || {}).forEach((id) => {
@@ -326,11 +303,9 @@ function normalizeWildernessKnowledge(value = {}) {
     exchangeIcon: normalizeExchangeIcon(value.exchangeIcon)
   };
 }
-
 function wildernessFindById(id) {
   return WILDERNESS_FIND_CATALOG.find((item) => item.id === id) || null;
 }
-
 function wildernessStoryProgress(reserve = {}, context = {}) {
   const level = Math.max(1, Math.min(7, Math.round(Number(((reserve.progression || {}).level)) || 1)));
   const chain = context.eventChain || reserve.eventChain || {};
@@ -343,7 +318,6 @@ function wildernessStoryProgress(reserve = {}, context = {}) {
     progressChapter: Math.max(level, chainChapter, displayChapter)
   };
 }
-
 function wildernessActivation(item, reserve = {}, context = {}) {
   if (!item) return { active: false, storyReady: false, metricReady: false, statusText: "没有待激活素材" };
   const { level, chain, chainChapter, progressChapter } = wildernessStoryProgress(reserve, context);
@@ -365,7 +339,6 @@ function wildernessActivation(item, reserve = {}, context = {}) {
   const active = storyReady && metricReady;
   return { active, storyReady, metricReady, requiredStep, storyStep, storyText, metricText, statusText: !storyReady ? storyText : !metricReady ? metricText : "剧情与保护区数值已激活" };
 }
-
 function survivalFindForExploration(preview = {}, roll = 1, targetId = "", context = {}) {
   const qualityScore = Math.max(0, Number(preview.qualityScore) || (Number(roll) || 0));
   const level = Math.max(1, Math.min(7, Math.round(Number(preview.level) || 1)));
@@ -397,7 +370,6 @@ function survivalFindForExploration(preview = {}, roll = 1, targetId = "", conte
   const selected = eligible[0];
   return Object.assign({}, selected, { activation: wildernessActivation(selected, reserve, context) });
 }
-
 function recordWildernessFind(reserve = {}, find = null, day = 0, context = {}) {
   if (!find || !wildernessFindById(find.id)) return null;
   const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
@@ -441,7 +413,6 @@ function recordWildernessFind(reserve = {}, find = null, day = 0, context = {}) 
   noteSandboxExchangeItem(reserve, find.id, Date.now());
   return record;
 }
-
 function unlockWildernessCatalog(reserve = {}, itemId = "", day = 0, source = "exchange") {
   const item = wildernessFindById(itemId);
   if (!item) return null;
@@ -461,7 +432,6 @@ function unlockWildernessCatalog(reserve = {}, itemId = "", day = 0, source = "e
   reserve.wildernessKnowledge = state;
   return state.discoveries[item.id];
 }
-
 function wildernessKnowledgeSummary(reserve = {}) {
   const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
   const unlocked = Object.keys(state.discoveries).filter((id) => (state.discoveries[id] || {}).count > 0);
@@ -469,7 +439,6 @@ function wildernessKnowledgeSummary(reserve = {}) {
   const recent = state.history.slice().reverse().map((entry) => wildernessFindById(entry.id)).filter(Boolean);
   return { total: WILDERNESS_FIND_CATALOG.length, unlocked: unlocked.length, tradeCount, recent, state, readiness: wildernessStockReadiness(reserve, state) };
 }
-
 function wildernessTradeOffer(reserve = {}, id = "", amount = 1) {
   const item = wildernessFindById(id);
   const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
@@ -488,7 +457,6 @@ function wildernessTradeOffer(reserve = {}, id = "", amount = 1) {
     ready: !!item && available >= requested
   };
 }
-
 function wildernessTradePurpose(reserve = {}, item = null) {
   if (!item) return "用于后续生存行动";
   const effect = item.reserveEffect || {};
@@ -498,7 +466,6 @@ function wildernessTradePurpose(reserve = {}, item = null) {
   if (effect.key === "safety") return current < 52 ? "补足当前安全短板" : "减少高风险行动消耗";
   return "用于后续生存行动";
 }
-
 function wildernessTradeMotive(reserve = {}, offeredItem = null, wantedItem = null) {
   if (offeredItem && surplusTradeAmount(reserve, offeredItem.id) > 0) return "消化溢出库存";
   if (wantedItem && Number(wantedItem.tradeValue) > Number((offeredItem || {}).tradeValue)) return "获取稀有素材";
@@ -506,7 +473,6 @@ function wildernessTradeMotive(reserve = {}, offeredItem = null, wantedItem = nu
   if (/风险|巡查/.test(purpose)) return "降低探索风险";
   return "补足当前短板";
 }
-
 function wildernessTradeMotiveId(motive = "") {
   if (/溢出/.test(motive)) return "surplus";
   if (/稀有/.test(motive)) return "rare";
@@ -514,7 +480,6 @@ function wildernessTradeMotiveId(motive = "") {
   if (/时间/.test(motive)) return "time";
   return "shortfall";
 }
-
 function wildernessTradeRecommendations(reserve = {}, offeredId = "") {
   const offered = wildernessFindById(offeredId);
   if (!offered) return [];
@@ -533,14 +498,12 @@ function wildernessTradeRecommendations(reserve = {}, offeredId = "") {
   }
   return selected.slice(0, 3);
 }
-
 function wildernessTradeDailyUsage(reserve = {}, day = 1) {
   const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
   const today = Math.max(1, Math.round(Number(day) || 1));
   const used = state.tradeHistory.filter((entry) => Number(entry.day) === today && entry.escrow).length;
   return { used, remaining: Math.max(0, WILDERNESS_TRADE_DAILY_LIMIT - used), limit: WILDERNESS_TRADE_DAILY_LIMIT };
 }
-
 function wildernessStockReadiness(reserve = {}, normalizedState = null) {
   const state = normalizedState || normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
   const weightedStock = WILDERNESS_FIND_CATALOG.reduce((sum, item) => {
@@ -556,13 +519,11 @@ function wildernessStockReadiness(reserve = {}, normalizedState = null) {
     label: support >= 6 ? "保障充足" : support >= 3 ? "可应急" : support > 0 ? "保障偏薄" : "暂无保障"
   };
 }
-
 function bestWildernessTradeItem(reserve = {}) {
   const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
   return WILDERNESS_FIND_CATALOG.filter((item) => surplusTradeAmount(reserve, item.id, state.tradeStock[item.id]) > 0)
     .sort((a, b) => (b.tradeValue || 0) - (a.tradeValue || 0) || surplusTradeAmount(reserve, b.id, state.tradeStock[b.id]) - surplusTradeAmount(reserve, a.id, state.tradeStock[a.id]))[0] || null;
 }
-
 function wildernessTradePreview(reserve = {}, id = "", channelId = "friends", partner = {}, wantedId = "") {
   const item = wildernessFindById(id);
   const wantedItem = wildernessFindById(wantedId);
@@ -628,7 +589,6 @@ function wildernessTradePreview(reserve = {}, id = "", channelId = "friends", pa
       : `基金+${fundDelta} · ${effect.label || "保护区"}${after - before >= 0 ? "+" : ""}${after - before}`
   };
 }
-
 function applyTradeMetric(reserve = {}, key = "", value = 0) {
   if (key === "water" || key === "grass" || key === "disease") {
     reserve.ecology = Object.assign({}, reserve.ecology || {}, { [key]: clampMetric(value) });
@@ -636,7 +596,6 @@ function applyTradeMetric(reserve = {}, key = "", value = 0) {
     reserve[key] = clampMetric(value);
   }
 }
-
 function proposeFriendExchangeChoices(reserve = {}) {
   const base = proposeAutoExchange(reserve);
   if (!base) return null;
@@ -675,7 +634,6 @@ function proposeFriendExchangeChoices(reserve = {}) {
     defaultWantId: options[0].id
   };
 }
-
 function proposalWithWant(reserve = {}, wantId = "") {
   const base = proposeAutoExchange(reserve);
   if (!base) return null;
@@ -694,7 +652,6 @@ function proposalWithWant(reserve = {}, wantId = "") {
     motive: wildernessTradeMotive(reserve, base.offer, want)
   };
 }
-
 function proposeAutoExchange(reserve = {}) {
   const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
   const level = Math.max(1, Math.min(7, Math.round(Number(((reserve.progression || {}).level)) || 1)));
@@ -724,7 +681,6 @@ function proposeAutoExchange(reserve = {}) {
     motive: wildernessTradeMotive(reserve, offer, want)
   };
 }
-
 function settleAutoExchange(reserve = {}, proposal = null, partner = {}, receipt = {}) {
   if (!proposal || !proposal.offer || !proposal.want) return { ok: false, reason: "no_proposal" };
   const day = Math.max(1, Math.round(Number(receipt.day) || 1));
@@ -800,7 +756,6 @@ function settleAutoExchange(reserve = {}, proposal = null, partner = {}, receipt
     summary: `拿出${proposal.offer.label}，换回${proposal.want.label} · ${partnerLabel}`
   };
 }
-
 function settleWildernessTrade(reserve = {}, preview = null, receipt = {}) {
   if (!preview || !preview.ready || !preview.item) return { ok: false, reason: "not_ready" };
   const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
@@ -886,7 +841,6 @@ function settleWildernessTrade(reserve = {}, preview = null, receipt = {}) {
     summary: `${preview.item.label} -1 · ${preview.channel.label} · ${preview.valueText}`
   };
 }
-
 function applyWildernessTradeInbox(reserve = {}, receipts = []) {
   const state = normalizeWildernessKnowledge(reserve.wildernessKnowledge || {});
   const seen = new Set(state.incomingTradeIds);
@@ -934,7 +888,6 @@ function applyWildernessTradeInbox(reserve = {}, receipts = []) {
     receivedAmount: applied.reduce((sum, entry) => sum + entry.receivedAmount, 0)
   };
 }
-
 module.exports = {
   maxObtainableQualityScore,
   capCollectibleMinQuality,

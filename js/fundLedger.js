@@ -1,14 +1,11 @@
 const MAX_FUND_LEDGER_ENTRIES = 500;
-
 function finite(value, fallback = 0) {
   return Number.isFinite(Number(value)) ? Number(value) : fallback;
 }
-
 function dayKey(value) {
   const number = Math.round(finite(value, NaN));
   return Number.isFinite(number) && number > 0 ? String(number) : String(value || "");
 }
-
 function normalizeFundEntry(entry = {}, fallbackDay = 0) {
   const rawAmount = Math.round(finite(entry.amount, 0));
   const type = entry.type === "expense" || rawAmount < 0 ? "expense" : "income";
@@ -27,7 +24,6 @@ function normalizeFundEntry(entry = {}, fallbackDay = 0) {
     timestamp: Math.max(0, Math.round(finite(entry.timestamp, Date.now())))
   };
 }
-
 function ensureFundLedger(reserve = {}) {
   const current = Array.isArray(reserve.fundLedger) ? reserve.fundLedger : [];
   reserve.fundLedger = current
@@ -36,7 +32,6 @@ function ensureFundLedger(reserve = {}) {
     .slice(-MAX_FUND_LEDGER_ENTRIES);
   return reserve.fundLedger;
 }
-
 function appendFundLedgerEntry(reserve = {}, entry = {}) {
   const normalized = normalizeFundEntry(entry, entry.day || ((reserve.guardianCycle || {}).day || 0));
   if (!normalized.amount) return null;
@@ -45,7 +40,6 @@ function appendFundLedgerEntry(reserve = {}, entry = {}) {
   reserve.fundLedger = ledger.slice(-MAX_FUND_LEDGER_ENTRIES);
   return normalized;
 }
-
 function recordFundChange(reserve = {}, before, after, source = "其他收入", day, note = "") {
   const previous = Math.round(finite(before, 0));
   const next = Math.round(finite(after, previous));
@@ -61,7 +55,6 @@ function recordFundChange(reserve = {}, before, after, source = "其他收入", 
     note
   });
 }
-
 function ledgerFromEconomy(reserve = {}) {
   const ledger = reserve.economyLedger || {};
   const sources = ledger.sources || {};
@@ -93,7 +86,6 @@ function ledgerFromEconomy(reserve = {}) {
   });
   return result;
 }
-
 function ensureRecoverableFundLedger(reserve = {}) {
   const ledger = ensureFundLedger(reserve);
   if (ledger.length || !reserve.economyLedger) return ledger;
@@ -110,7 +102,6 @@ function ensureRecoverableFundLedger(reserve = {}) {
   });
   return reserve.fundLedger;
 }
-
 function mergedFundLedgerView(reserve = {}, currentDay) {
   ensureRecoverableFundLedger(reserve);
   const day = dayKey(currentDay || ((reserve.guardianCycle || {}).day || 0));
@@ -141,8 +132,6 @@ function mergedFundLedgerView(reserve = {}, currentDay) {
       }
     }
   });
-  // 即使同类历史收入与支出最终净额为 0，也保留“历史合并”行。
-  // 否则玩家会看到过流水，跨日后却误以为记录被系统擦除。
   const merged = Array.from(groups.values());
   merged.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
   return {
@@ -153,7 +142,6 @@ function mergedFundLedgerView(reserve = {}, currentDay) {
     rawCount: source.length
   };
 }
-
 module.exports = {
   MAX_FUND_LEDGER_ENTRIES,
   normalizeFundEntry,

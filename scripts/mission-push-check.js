@@ -83,8 +83,8 @@ if (!daily || !daily.story || !daily.recommendedAction || !daily.buttonLabel) {
 }
 
 const opened = game.maybeOpenMissionPush("login");
-if (opened || game.infoDetailModal) {
-  throw new Error("routine daily records must not auto-push a task card");
+if (!opened || !game.infoDetailModal) {
+  throw new Error("the first chapter/system recommendation should auto-push once after the opening minute");
 }
 
 game.infoDetailModal = null;
@@ -94,7 +94,7 @@ if (reopened) {
 }
 
 // After three minutes of active play, automatic mission cards must leave a
-// real-time browsing window of more than 57 seconds. The queue remains
+// real-time browsing window of more than 82 seconds. The queue remains
 // available; only the unsolicited popup is delayed.
 game.state.world.reserve.progression.activeSeconds = 181;
 game.state.world.reserve.ecology.water = 5;
@@ -104,15 +104,15 @@ game.state.ui.lastMissionAutoAction = 0;
 game.state.ui.lastMissionAutoPushAt = Date.now();
 game.state.ui.lastSystemTaskTriggerAt = Date.now();
 if (game.maybeOpenMissionPush("home")) {
-  throw new Error("experienced players should not receive another automatic mission within 57 seconds");
+  throw new Error("experienced players should not receive another automatic mission within 82 seconds");
 }
-game.state.ui.lastMissionAutoPushAt = Date.now() - 80001;
-game.state.ui.lastSystemTaskTriggerAt = Date.now() - 80001;
-game.state.ui.lastUserTaskTriggerAt = Date.now() - 80001;
+game.state.ui.lastMissionAutoPushAt = Date.now() - 105001;
+game.state.ui.lastSystemTaskTriggerAt = Date.now() - 105001;
+game.state.ui.lastUserTaskTriggerAt = Date.now() - 105001;
 game.state.ui.missionPushSeenKey = "";
 game.state.world.reserve.progression.totalActions = 20;
-if (!game.maybeOpenMissionPush("home")) {
-  throw new Error("the automatic mission should resume after the 57-second quiet window and chapter cadence");
+if (game.maybeOpenMissionPush("home")) {
+  throw new Error("the same non-exception system task must stay retired after the quiet window");
 }
 game.infoDetailModal = null;
 game.state.ui.missionPushSeenKey = "";
@@ -122,10 +122,10 @@ game.state.ui.lastUserTaskTriggerAt = 0;
 if (game.maybeOpenMissionPush("chapter")) {
   throw new Error("the extra system-push interval must still apply after chapter advance");
 }
-game.state.ui.lastMissionAutoPushAt = Date.now() - 57001;
-game.state.ui.lastSystemTaskTriggerAt = Date.now() - 57001;
-if (!game.maybeOpenMissionPush("chapter")) {
-  throw new Error("chapter advance must not impose a longer wait than the system-push interval");
+game.state.ui.lastMissionAutoPushAt = Date.now() - 82001;
+game.state.ui.lastSystemTaskTriggerAt = Date.now() - 82001;
+if (game.maybeOpenMissionPush("chapter")) {
+  throw new Error("a previously recommended non-exception task must not repeat after the quiet window");
 }
 game.infoDetailModal = null;
 // Restore the short synthetic timeline used by the legacy action-gap checks.
@@ -188,8 +188,8 @@ if (!game.infoDetailModal || typeof game.infoDetailModal.action !== "function") 
 const routed = game.selectedGoalFromModal() || {};
 game.infoDetailModal.action();
 if (["houndScout", "antiPoacher", "habitat", "intervention"].includes(routed.recommendedAction)) {
-  if (game.screen !== "action") {
-    throw new Error("mission action should take the player to patrol command page");
+  if (game.screen !== "action" && (!game.patrolTaskModal || game.patrolTaskModal.id !== routed.recommendedAction)) {
+    throw new Error("mission action should open the recommended patrol task");
   }
   if (!game.patrolTaskModal || game.patrolTaskModal.id !== routed.recommendedAction) {
     throw new Error("mission action should open the recommended patrol task directly");

@@ -11,7 +11,7 @@ game.currentGoalView = () => ({ primary: { id: 'goal:2', kind: 'daily', recommen
 let opened = 0; game.openGoalCenter = () => { opened += 1; return true; };
 const realNow = Date.now; let now = 1_000_000; Date.now = () => now;
 try {
-  const gapMs = 57 * 1000;
+  const gapMs = 82 * 1000;
   game.markUserTaskTrigger();
   assert.strictEqual(game.maybeOpenMissionPush('settlement', { force: true }), false, '系统任务必须等待用户任务结束后的全局间隔');
   now += gapMs;
@@ -26,4 +26,4 @@ try {
   now += 2;
   assert(game.maybeOpenMissionPush('settlement', { force: true }), '超过间隔后后续系统任务可以继续按既有任务键策略判断');
 } finally { Date.now = realNow; }
-console.log('system task cooldown check ok: user/system triggers keep a 57-second gap');
+console.log('system task cooldown check ok: user/system triggers keep an 82-second automatic gap');

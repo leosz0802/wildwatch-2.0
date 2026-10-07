@@ -14,6 +14,11 @@ Endpoints:
 - `POST /v1/moderation/leaderboard/status`（复核、屏蔽、下架或恢复榜单账号；仅服务端管理员）
 - `POST /v1/friends/import`（服务器解密互动好友关系；不保存原始 OpenID，并为尚未登录服务器的真实好友创建待激活交换席位）
 - `GET /v1/friends`
+- `POST /v1/friend-contracts`（从好友列表向真实好友发起合同，最多 5 份，48 小时有效）
+- `GET /v1/friend-contracts`（好友合同发件箱、收件箱与结束状态）
+- `POST /v1/friend-contracts/:id/complete`（合同接收方执行一次并完成合同）
+- `POST /v1/world-patrols`（从世界榜向其他真实保护区发起猎犬巡逻；100–1000 基金，5 分钟后结算，每日每个目标一次、最多 5 次）
+- `GET /v1/world-patrols`（当前玩家发起与收到的巡逻历史及结算结果）
 - `POST /v1/trades/exchange`（幂等真实玩家交换）
 - `GET /v1/trades/history`（当前玩家最近的收件箱与发件箱记录）
 - `POST /v1/trades/inbox/claim`
@@ -53,6 +58,8 @@ Production paths:
 - database: `/var/lib/wild-guard-api/wild.sqlite`
 - secrets: `/etc/wild-guard-api.env`
 - service: `wild-guard-api.service`
+
+`GET /v1/friend-contracts` and `GET /v1/world-patrols` ship with this `server.js`. The client calls them only after `/v1/config` sets `features.friendContracts` and `features.worldPatrols` to true. Deploy `server.js` and `config/default.json` together, then restart `wild-guard-api.service`. An older process on `/opt/wild-guard-api` returns 404 for both routes; the client treats that 404 as “not deployed” and does not retry it for the rest of the session. There is no automated rsync or SSH publish script in this repo.
 
 World friend identity display uses opaque account matches. After importing verified WeChat friend relations, the authenticated world leaderboard includes `friendMatchKey` only for that viewer's linked accounts. The client sends world rows into the open data domain, which matches accounts and draws the actual WeChat nickname/avatar without returning those details to the main domain. Score/level/animal values are never used to identify a person. Login also returns `publicId`, saved in the player's friend-cloud record for future matching.
 

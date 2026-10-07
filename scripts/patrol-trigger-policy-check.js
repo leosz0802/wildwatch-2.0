@@ -40,6 +40,7 @@ for (let stage = 1; stage <= 20; stage++) {
       const state = fixture(stage, history);
       state.world.reserve.progression.objectives[1].id = metric;
       const goals = resolveGoals(state, state.world.goals);
+      state.world.goals = goals;
       const guard = goals.daily.objectives.find(item => item.kind === 'guard');
       if (guard) {
         assert.notEqual(guard.recommendedAction, 'exploreMaterials', `chapter ${stage}: daily guard must not force Survival`);
@@ -48,8 +49,10 @@ for (let stage = 1; stage <= 20; stage++) {
       assert(goals.daily.objectives.every(item => ['visitor', 'ecology'].includes(item.kind)), `chapter ${stage}: daily tasks must stay visitor/ecology`);
       assert(goals.daily.objectives.every(item => item.recommendedAction !== 'exploreMaterials' && item.targetScreen !== 'survival'));
       const candidates = [goals.active.primary, ...goals.active.alternatives].filter(Boolean);
-      assert(candidates.every(item => !PATROL_ACTIONS.includes(item.recommendedAction) || /^metric:animals:/.test(item.id || '')), `chapter ${stage}: ${metric} generated a patrol`);
-      assert.equal(gameFor(state).recommendedPatrolAction(state.world.reserve), '');
+      assert(candidates.every(item => item.themeTask || !PATROL_ACTIONS.includes(item.recommendedAction) || /^metric:animals:/.test(item.id || '')), `chapter ${stage}: ${metric} generated a patrol outside the chapter theme`);
+      const recommended = gameFor(state).recommendedPatrolAction(state.world.reserve);
+      const themeActions = candidates.filter(item => item.themeTask).map(item => item.recommendedAction);
+      assert(themeActions.includes(recommended) || recommended === '', `chapter ${stage}: patrol entry must match a visible chapter theme or be empty`);
       stableCases++;
     }
   }
@@ -108,6 +111,11 @@ for (const action of PATROL_ACTIONS) {
   const game = gameFor(state);
   const before = JSON.stringify(reserve);
   assert(game.openPatrolOperationScreen(action), 'explicit player choice must remain available');
+  if (action === 'antiPoacher') {
+    assert.equal(game.patrolTaskModal, null, '驱赶偷猎必须跳过中间页');
+    assert.ok(game.settlementOccupiesFlow(), '驱赶偷猎必须直接结算');
+    continue;
+  }
   assert.equal(game.patrolTaskModal.id, action);
   game.activeTaskLock = { id: `manual:${action}` };
   game.closePatrolOperationScreen();
@@ -117,7 +125,9 @@ for (const action of PATROL_ACTIONS) {
 }
 
 const idle = gameFor(fixture());
-assert.equal(idle.openPatrolOperationScreen(), false, 'generic entry must not pick the first patrol');
+assert.equal(idle.openPatrolOperationScreen(), true, 'player-initiated generic entry may open the current chapter patrol');
+assert(idle.patrolTaskModal, 'generic player entry should expose the current chapter patrol card');
+idle.cancelPatrolTaskModal();
 assert.equal(idle.openPatrolOperationScreen('retired-action'), false, 'invalid action must not become a hound patrol');
 assert(!idle.patrolTaskModal);
 

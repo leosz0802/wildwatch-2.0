@@ -106,8 +106,11 @@ card = drawPopulationPage();
 const tapPoint = { x: card.x + card.w / 2, y: card.y + card.h / 2 };
 touchHandlers.start({ touches: [{ clientX: tapPoint.x, clientY: tapPoint.y }] });
 touchHandlers.end();
-const expectedKind = card.rescueStatus === "captive" ? "chapterRescueTask" : "speciesProfile";
-assert(game.infoDetailModal && game.infoDetailModal.kind === expectedKind, "轻触动物卡必须打开对应的解救任务或种群档案");
-if (card.rescueStatus === "captive") assert.strictEqual(game.infoDetailModal.rescueRecord.speciesId, card.id, "被困种群必须路由到自己的解救记录");
+const expectedKind = card.rescueStatus === "captive" ? "materialExploration" : "speciesProfile";
+assert(game.infoDetailModal && game.infoDetailModal.kind === expectedKind, "轻触动物卡必须打开对应的射箭解救或种群档案");
+if (card.rescueStatus === "captive") {
+  assert.strictEqual(game.infoDetailModal.explorationMode, "archery", "被困种群必须进入射箭");
+  assert.strictEqual(game.activeTaskLock.animalId, card.id, "被困种群必须路由到自己的解救记录");
+}
 
 console.log("population interaction check ok (ecology relation, detail, vertical scroll, horizontal paging)");

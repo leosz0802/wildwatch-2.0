@@ -53,6 +53,11 @@ for (const [width, height] of [[320, 568], [375, 667], [430, 932]]) {
   assert(modal.goals.length >= 1 && modal.goals.length <= 3, "目标中心只显示1–3项");
   game.hitAreas = [];
   game.drawInfoDetailModal();
+  assert.strictEqual((modal.passGoals || []).length, 3, "当前目标必须同时给出3个过关任务");
+  assert.deepStrictEqual((modal.passGoals || []).map((item) => item.passMetric), ["species", "visitors", "animals"]);
+  assert((modal.passGoals || []).every((item) => item.label && item.eventTitle), "过关任务必须带解锁动物/游客/动物标签和最近事件");
+  assert.strictEqual((modal.renderedPassGoals || []).length, 3, "过关任务必须画成3个可点进度条");
+  assert.deepStrictEqual((modal.renderedPassGoals || []).map((item) => item.metric), ["species", "visitors", "animals"]);
   assert.strictEqual((modal.renderedGoalCards || []).length, 1, "默认只应展示唯一当前目标");
   assert.strictEqual(modal.renderedGoalCards[0].id, modal.currentGoalId, "默认卡片必须是当前追踪目标");
   assert.deepStrictEqual((modal.renderedGoalGuides || []).map((item) => item.id), ["guideSandbox", "viewFund", "viewVisitors", "viewSurvival"], "目标卡下方必须提供低打扰的主动查看入口");
@@ -108,6 +113,34 @@ for (let frame = 0; frame < 180; frame += 1) {
   assert.strictEqual(stableGame.state.world.goals, storedGoals, "纯绘制不得替换目标状态");
 }
 stableGame.stopLoop();
+
+// The map is painted before the top HUD on home. The current-goal strip must
+// use the deterministic dock height on its first frame, otherwise its fallback
+// hit area overlaps the HUD and steals taps from nearby controls.
+const overlapGame = new Game();
+overlapGame.stopLoop();
+overlapGame.state = createCharacter(null, "HUD命中区测试");
+overlapGame.state.ui = { onboarding: { version: 2, completed: true, seen: {} } };
+overlapGame.screen = "home";
+overlapGame.mapCamera = { cx: 0.52, cy: 0.48 };
+overlapGame.mapCameraFrame = overlapGame.mapCameraInfo(0, 100, 375, 500);
+overlapGame.renderedSandboxInfoDock = null;
+overlapGame.hitAreas = [];
+overlapGame.drawSandboxGoalBar(overlapGame.ctx, overlapGame.mapCameraFrame);
+const goalHit = overlapGame.hitAreas[overlapGame.hitAreas.length - 1];
+assert(goalHit && goalHit.hud, "当前目标条必须保留 HUD 点击属性");
+assert(goalHit.y >= 100 + overlapGame.sandboxInfoDockHeight() - 2 - 6, "当前目标条命中区不得落入上方 HUD");
+const hudButton = {
+  x: 24,
+  y: 100,
+  w: 100,
+  h: 36
+};
+assert(!(goalHit.x < hudButton.x + hudButton.w
+  && goalHit.x + goalHit.w > hudButton.x
+  && goalHit.y < hudButton.y + hudButton.h
+  && goalHit.y + goalHit.h > hudButton.y), "当前目标条不得覆盖 HUD 按钮");
+overlapGame.stopLoop();
 
 // Navigation suggestions must be inspection-only: they open the requested
 // channel without creating a patrol task or consuming an action.

@@ -1,27 +1,30 @@
 const assert = require("assert");
-const { chapterTargets, CHAPTER_TARGETS, beginChapterVisitorCheckpoint, chapterVisitorTotal, chapterVisitorCarryover } = require("../js/chapterTargets");
+const { chapterTargets, CHAPTER_TARGETS, beginChapterVisitorCheckpoint, beginChapterAnimalCheckpoint, chapterVisitorTotal, chapterVisitorCarryover, chapterAnimalCarryover, chapterAnimalTotal } = require("../js/chapterTargets");
 const { createReserveState } = require("../js/world");
 const { createCharacter } = require("../js/storage");
 const { Game } = require("../js/game");
-const { livingAnimalTotal } = require("../js/chapterRescueSystem");
+const { recordIncrease } = require("../js/animalSourceLedger");
 const { consumeVisitorRecruitment } = require("../js/visitorRecruitment");
 const { applyChapterSpecialReward, UNLOCK_DELAY_MS } = require("../js/chapterSpecialSystem");
 const { buildReserveDevelopmentPlan, settleReserveDevelopmentDay } = require("../js/reserveDevelopment");
 
-assert.strictEqual(CHAPTER_TARGETS.length, 20, "there must be one target row per chapter");
-for (let chapter = 1; chapter <= 20; chapter += 1) {
+assert.strictEqual(CHAPTER_TARGETS.length, 11, "there must be one target row per chapter");
+for (let chapter = 1; chapter <= 11; chapter += 1) {
   const current = chapterTargets(chapter);
   assert(current.species > 0 && current.animals > 0 && current.visitors > 0, `chapter ${chapter} target is empty`);
   if (chapter > 1) assert.ok(current.visitors > chapterTargets(chapter - 1).visitors, `chapter ${chapter} visitor target must keep rising`);
   if (chapter === 9) {
-    assert.ok(current.animals <= 760, "chapter 9 animal gate must stay under typical level-5 habitat capacity");
-    assert.ok(current.animals - chapterTargets(8).animals <= 70, "chapter 9 must not ask for a 100+ animal jump after a 3–12 rescue");
+    assert.ok(current.animals <= 300, "chapter 9 this-chapter animal gate must stay a session-scale target");
+    assert.ok(current.animals - chapterTargets(8).animals <= 80, "chapter 9 must not ask for a 100+ this-chapter animal jump");
   }
   if (chapter === 10) {
-    assert.ok(current.animals >= 780 && current.animals <= 840, "chapter 10 animal gate must sit under typical water/grass carrying");
-    assert.ok(current.animals - chapterTargets(9).animals <= 100, "chapter 10 must not jump +200 animals above the typical cap");
+    assert.ok(current.animals >= 240 && current.animals <= 280, "chapter 10 this-chapter animal gate must stay a session-scale target");
+    assert.ok(current.animals - chapterTargets(9).animals <= 50, "chapter 10 must not jump +100 this-chapter animals");
   }
   if (chapter > 1) {
+    const animalInherit = chapterAnimalCarryover(chapterTargets(chapter - 1).animals, chapter);
+    assert.strictEqual(animalInherit, Math.round(chapterTargets(chapter - 1).animals * 0.1), `chapter ${chapter} animal inherit must stay at 10%`);
+    assert.ok(current.animals - animalInherit > animalInherit, `chapter ${chapter} animal gate must be earned mostly in this chapter`);
     const inherit = chapterVisitorCarryover(chapterTargets(chapter - 1).visitors, chapter);
     assert.strictEqual(inherit, Math.round(chapterTargets(chapter - 1).visitors * 0.1), `chapter ${chapter} inherit must stay at 10%`);
     const need = current.visitors - inherit;
@@ -64,10 +67,9 @@ function readyChapterOneReserve() {
     targets: [freed]
   };
   reserve.ecology.herbivores.antelope = 45;
-  const remaining = Math.max(0, chapterTargets(1).animals - livingAnimalTotal(reserve));
-  if (remaining) {
-    reserve.ecology.herbivores.deer = Math.max(0, Number(reserve.ecology.herbivores.deer) || 0) + remaining;
-  }
+  beginChapterAnimalCheckpoint(reserve, 1, 0);
+  const remaining = Math.max(0, chapterTargets(1).animals - chapterAnimalTotal(reserve));
+  if (remaining) recordIncrease(reserve, "rescued", remaining);
   return reserve;
 }
 
@@ -108,8 +110,8 @@ assert.strictEqual(chapterVisitorCarryover(100, 20), 10, "final chapter inherit 
   legacy.development.operations.totalVisitors = 36764;
   legacy.development.operations.visitorLedger.totalVisitors = 36764;
   const repairedVisitors = chapterVisitorTotal(legacy);
-  assert.strictEqual(repairedVisitors, chapterTargets(7).visitors, "legacy cumulative visitors must meet the current gate without becoming the HUD number");
-  assert.ok(repairedVisitors < 36764, "legacy cumulative visitor count must not become chapter 7 progress");
+  assert.strictEqual(repairedVisitors, chapterVisitorCarryover(chapterTargets(6).visitors, 7), "legacy cumulative visitor count must fall back to the normal chapter carryover");
+  assert.ok(repairedVisitors < chapterTargets(7).visitors, "legacy cumulative visitor count must not satisfy the current chapter gate");
   assert.strictEqual(legacy.development.operations.totalVisitors, 36764, "repair must preserve lifetime visitor history");
 
   const oldStageCheckpoint = createReserveState();
@@ -119,7 +121,34 @@ assert.strictEqual(chapterVisitorCarryover(100, 20), 10, "final chapter inherit 
   oldStageCheckpoint.progression.stageStart = { stage: 1, totalVisitors: 0 };
   oldStageCheckpoint.development.operations.totalVisitors = 36764;
   oldStageCheckpoint.development.operations.visitorLedger.totalVisitors = 36764;
-  assert.strictEqual(chapterVisitorTotal(oldStageCheckpoint), chapterTargets(7).visitors, "old stage-only checkpoints must keep a late-chapter veteran at the current gate");
+  assert.strictEqual(chapterVisitorTotal(oldStageCheckpoint), chapterVisitorCarryover(chapterTargets(6).visitors, 7), "old stage-only checkpoints must use the chapter carryover instead of lifetime visitors");
+}
+
+// A chapter-5 save that already contains the old synthetic legacySeed must
+// keep only the real carryover, while preserving the lifetime total used by
+// economy and historical reports.
+{
+  const chapterFiveCarry = chapterVisitorCarryover(chapterTargets(4).visitors, 5);
+  const chapterFive = createReserveState();
+  chapterFive.progression.stage = 5;
+  chapterFive.progression.displayChapter = 5;
+  chapterFive.progression.chapterStart = {
+    stage: 5,
+    totalVisitors: 495,
+    inheritedVisitors: chapterFiveCarry,
+    visitorLedger: { totalVisitors: 495 }
+  };
+  chapterFive.development.operations.totalVisitors = 495;
+  chapterFive.development.operations.visitorLedger = { totalVisitors: 495 };
+  chapterFive.development.operations.chapterVisitors = {
+    stage: 5,
+    inherited: chapterFiveCarry,
+    legacySeed: 454,
+    start: { totalVisitors: 495 },
+    startLifetime: 495
+  };
+  assert.strictEqual(chapterVisitorTotal(chapterFive), chapterFiveCarry, "chapter 5 HUD must show the inherited carryover, not the lifetime 495");
+  assert.strictEqual(chapterFive.development.operations.totalVisitors, 495, "chapter 5 migration must preserve lifetime visitors");
 }
 
 // Visitor progress is chapter-local: a new chapter starts at 10% of the
@@ -134,15 +163,24 @@ beginChapterVisitorCheckpoint(chapterVisitors, 2, 100);
 chapterVisitors.progression.stage = 2;
 chapterVisitors.progression.displayChapter = 2;
 const visitorBefore = game.reserveProgression(chapterVisitors).coreMetrics.visitors;
-assert.strictEqual(visitorBefore, 10, "new chapter should start at 10% of the previous chapter total");
+assert.strictEqual(visitorBefore, chapterVisitorCarryover(chapterTargets(1).visitors, 2), "new chapter should start at 10% of the previous chapter gate when that floor is higher than the raw total");
 beginChapterVisitorCheckpoint(chapterVisitors, 14, 100);
 chapterVisitors.progression.stage = 14;
 chapterVisitors.progression.displayChapter = 14;
+const lateVisitorFloor = chapterVisitorCarryover(chapterTargets(13).visitors, 14);
 const lateVisitorBefore = game.reserveProgression(chapterVisitors).coreMetrics.visitors;
-assert.strictEqual(lateVisitorBefore, 10, "every chapter should start at 10% of the previous chapter total");
+assert.strictEqual(lateVisitorFloor, chapterVisitorCarryover(chapterTargets(13).visitors, 14), `chapter 13 visitor gate ${chapterTargets(13).visitors} floors chapter 14 inherit at ${lateVisitorFloor}`);
+assert.strictEqual(lateVisitorBefore, lateVisitorFloor, "late-chapter HUD floors to 10% of the previous visitor gate when the raw carryover is smaller");
+function visitorMixBody(detail) {
+  const items = (((detail || {}).metricDetails || {}).visitors || {}).items || [];
+  const mix = items.find((item) => item.title === "当前游客构成") || items[0] || {};
+  return mix.body || "";
+}
+
 game.state = { character: { name: "本章游客" }, world: { reserve: chapterVisitors } };
-const lateMix = game.buildChapterProgressDetail().metricDetails.visitors.items[0].body;
-assert(/上一章只把结束时游客总数的10%带入/.test(lateMix), "visitor mix must state that only 10% carries over");
+const lateMix = visitorMixBody(game.buildChapterProgressDetail());
+assert(new RegExp(`继承 ${lateVisitorFloor} 人`).test(lateMix), "visitor mix must show the floored inherit, not the hidden carryover rule");
+assert(!/%带入|10%|15%|1%—3%/.test(lateMix), "visitor mix must not explain the system percentage");
 beginChapterVisitorCheckpoint(chapterVisitors, 2, 100);
 chapterVisitors.progression.stage = 2;
 chapterVisitors.progression.displayChapter = 2;
@@ -154,7 +192,7 @@ assert.strictEqual(visitorAfter, 14, "chapter visitor metric should add only thi
 const previousState = game.state;
 game.state = { character: { name: "本章游客" }, world: { reserve: chapterVisitors } };
 const visitorDetail = game.buildChapterProgressDetail();
-const mix = visitorDetail.metricDetails.visitors.items[0].body;
+const mix = visitorMixBody(visitorDetail);
 assert(/继承 10 人/.test(mix) && /招募 4 人/.test(mix), "visitor mix must use this chapter's inherited and new counts");
 assert(!/招募 64 人/.test(mix), "visitor mix must not show lifetime recruitment");
 game.state = previousState;
@@ -172,13 +210,13 @@ game.state = previousState;
   recruitHud.progression.stage = 2;
   recruitHud.progression.displayChapter = 2;
   const hudBefore = chapterVisitorTotal(recruitHud);
-  assert.strictEqual(hudBefore, 10, "chapter 2 HUD starts at 10% inherit");
+  assert.strictEqual(hudBefore, chapterVisitorCarryover(chapterTargets(1).visitors, 2), "chapter 2 HUD starts at 10% of the previous visitor gate");
   const wave = consumeVisitorRecruitment(recruitHud, 2, 0.5, Date.now());
   game.commitReserveProgression(recruitHud);
   assert.strictEqual(chapterVisitorTotal(recruitHud), hudBefore + wave.visitors, "recruitment must add the displayed count after progression commit");
   const recruitMix = (() => {
     game.state = { character: { name: "招募计入" }, world: { reserve: recruitHud } };
-    return game.buildChapterProgressDetail().metricDetails.visitors.items[0].body;
+    return visitorMixBody(game.buildChapterProgressDetail());
   })();
   assert(new RegExp(`招募 ${wave.visitors} 人`).test(recruitMix), "mix must attribute the full recruit wave to this chapter");
 }
@@ -207,17 +245,17 @@ game.state = previousState;
   buildingHud.progression.displayChapter = 2;
   assert(buildReserveDevelopmentPlan(buildingHud, "river_shallows", "visitor_boardwalk", 1).ok);
   const hudBefore = chapterVisitorTotal(buildingHud);
-  assert.strictEqual(hudBefore, 10, "building settlement must start from this chapter's 10% inherit");
+  assert.strictEqual(hudBefore, chapterVisitorCarryover(chapterTargets(1).visitors, 2), "building settlement must start from the previous chapter visitor floor");
   const settlement = settleReserveDevelopmentDay(buildingHud, 2, { weather: "阴" });
   assert(settlement && settlement.visitors > 0, "visitor buildings should produce this chapter's facility visits");
   game.commitReserveProgression(buildingHud);
   assert.strictEqual(chapterVisitorTotal(buildingHud), hudBefore + settlement.visitors, "facility visits must add to the chapter HUD after progression commit");
   const buildingMix = (() => {
     game.state = { character: { name: "建筑到访" }, world: { reserve: buildingHud } };
-    return game.buildChapterProgressDetail().metricDetails.visitors.items[0].body;
+    return visitorMixBody(game.buildChapterProgressDetail());
   })();
   assert(new RegExp(`到访 ${settlement.visitors} 人`).test(buildingMix), "mix must attribute facility visits to this chapter");
-  assert(/继承 10 人/.test(buildingMix), "building visits must not replace the 10% inherit");
+  assert(new RegExp(`继承 ${chapterVisitorCarryover(chapterTargets(1).visitors, 2)} 人`).test(buildingMix), "building visits must not replace the chapter inherit");
 }
 
 const incompleteVisitorSnap = {
@@ -272,10 +310,25 @@ assert.strictEqual(opening.renderedAdvance.speaker, "第2章目标", "chapter ad
 assert.strictEqual((opening.renderedAdvance.goals || []).length, 3, "chapter advance must keep three icon rows");
 assert(/解救/.test(opening.renderedAdvance.goals[0]) && /招募/.test(opening.renderedAdvance.goals[1]) && /种群/.test(opening.renderedAdvance.goals[2]), "chapter advance rows must stay 解救/招募/种群");
 assert(/无代价的善意/.test(opening.renderedAdvance.rule), "chapter advance must keep the prologue rule line");
+assert.strictEqual((opening.renderedAdvance.metrics || []).length, 3, "chapter advance must render three numeric goal cards");
+assert(opening.renderedAdvance.metrics.every((item) => item.target > 0 && item.progress >= 0 && item.progress <= 1), "chapter numeric cards must expose bounded progress");
+assert.strictEqual(opening.renderedAdvance.style, "shared-prologue-goal-screen", "chapter advance must reuse the shared prologue goal screen style");
+assert.strictEqual(opening.renderedAdvance.theme, "dark-prologue", "chapter advance must reuse the original dark prologue theme");
+assert.strictEqual(opening.renderedAdvance.sharedImage, "prologue-fog-v1.jpg", "chapter advance must reuse the same chapter background image");
 assert.strictEqual(opening.buttonLabel, "进入游戏", "later chapter start must keep the gold enter-game action");
 assert.strictEqual(opening.renderedAdvance.headerLabel, "荒野守望 · 第2章", "chapter 2 header must keep a single chapter title");
 assert.strictEqual(opening.renderedAdvance.guideLabel, "引导", "chapter 2 must keep one guide chip");
 assert.strictEqual(opening.renderedAdvance.prologueChrome, false, "chapter 2 must not also draw the prologue 序章/引导 labels");
+game.screen = "home";
+const enterHit = game.hitAreas.find((hit) => hit.modalAction && hit.y > game.height * 0.7);
+const guideHit = game.hitAreas.find((hit) => hit.guideChip);
+assert(enterHit, "进入游戏 must stay tappable above the locked nav band");
+assert(guideHit, "引导 must have its own hit");
+game.hitAreas.push({ x: enterHit.x, y: enterHit.y - 10, w: 80, h: 80, animal: true, map: true, hud: false, onTap() { throw new Error("animal under the chapter card"); } });
+const enterTap = game.hitAreaAt(enterHit.x + enterHit.w / 2, enterHit.y + enterHit.h / 2);
+const guideTap = game.hitAreaAt(guideHit.x + 8, guideHit.y + 8);
+assert(enterTap === enterHit, "an animal under the chapter card must not take 进入游戏");
+assert(guideTap === guideHit, "引导 must win its own tap");
 const ending = game.buildChapterStory(5, "end");
 game.chapterStoryModal = ending;
 game.drawChapterStoryModal();
@@ -293,12 +346,15 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
   game.chapterStoryModal = story;
   game.drawChapterStoryModal();
   assert.strictEqual(story.renderedAdvance.headerLabel, `荒野守望 · 第${chapter}章`, `chapter ${chapter} opening must show the chapter title once`);
+  assert.strictEqual((story.renderedAdvance.metrics || []).length, 3, `chapter ${chapter} opening must keep three numeric goal cards`);
   assert.strictEqual(story.renderedAdvance.guideLabel, "引导", `chapter ${chapter} opening must keep one guide chip`);
+  assert.strictEqual(story.renderedAdvance.theme, "dark-prologue", `chapter ${chapter} opening must keep the original dark prologue theme`);
   assert.strictEqual(story.renderedAdvance.prologueChrome, false, `chapter ${chapter} opening must not stack 序章 labels`);
   const close = game.buildChapterStory(chapter, "end");
   game.chapterStoryModal = close;
   game.drawChapterStoryModal();
   assert.strictEqual(close.renderedAdvance.headerLabel, `荒野守望 · 第${chapter}章`, `chapter ${chapter} ending must show the chapter title once`);
+  assert.strictEqual(close.renderedAdvance.theme, "dark-prologue", `chapter ${chapter} ending must keep the original dark prologue theme`);
   assert.strictEqual(close.renderedAdvance.prologueChrome, false, `chapter ${chapter} ending must not stack 序章 labels`);
 }
 const chapterDetail = game.buildChapterProgressDetail();
@@ -306,8 +362,34 @@ assert.strictEqual(chapterDetail.kind, "chapterProgress", "chapter title should 
 assert(chapterDetail.metricDetails && chapterDetail.metricDetails.visitors && chapterDetail.metricDetails.species && chapterDetail.metricDetails.animals, "all three core metrics need click-through details");
 assert(/下一章/.test(chapterDetail.metricDetails.visitors.kicker), "visitor detail should describe the next chapter gate");
 assert(Array.isArray(chapterDetail.speciesNeeded), "species detail should expose the species still to unlock");
-assert(chapterDetail.metricDetails.animals.items.length >= 3
-  && chapterDetail.metricDetails.animals.items.slice(0, 3).map((item) => item.tag).join("") === "123"
+const animalSourceStrip = chapterDetail.metricDetails.animals.items.find((item) => item.sourceStrip);
+assert(animalSourceStrip
+  && animalSourceStrip.parts.map((part) => part.label).join("") === "解救迁入繁殖剩余"
   && chapterDetail.metricDetails.animals.items.some((item) => item.tag === "幸运")
-  && /动物.*如何增加/.test(chapterDetail.metricDetails.animals.title), "animal detail should expose three ways to increase animals plus the daily rewarded-ad slot");
-console.log("chapter goals check ok (20 chapters, six-chapter onboarding pacing, live-core promotion)");
+  && /动物.*如何增加/.test(chapterDetail.metricDetails.animals.title), "animal detail should show rescue, migration and breeding in one strip plus the daily rewarded-ad slot");
+assert.strictEqual((chapterDetail.passGoals || []).length, 3, "chapter progress must expose the three pass tasks");
+assert.deepStrictEqual((chapterDetail.passGoals || []).map((item) => item.passMetric), ["species", "visitors", "animals"]);
+assert((chapterDetail.passGoals || []).every((item) => item.eventTitle), "each pass task must name a nearest event");
+const visitorHowTo = chapterDetail.metricDetails.visitors.items;
+assert.strictEqual(visitorHowTo[0].tag, "最近");
+assert(visitorHowTo[0].title, "visitor how-to must lead with a concrete nearest event");
+assert.strictEqual(visitorHowTo[1].title, "当前游客构成");
+assert.strictEqual(visitorHowTo[2].title, "完成地图事件");
+assert.strictEqual(visitorHowTo[3].title, "改善保护区并招募");
+assert(!/都按本章重新计算/.test(visitorHowTo[1].body), "visitor mix must not bury the next card under a long recap");
+assert(visitorHowTo.every((item) => !/%带入|游客目标的|1%—3%|约\d+%|的 \d+% 计算/.test(`${item.title} ${item.body}`)), "visitor how-to must keep results and hide the percentage rules");
+assert.strictEqual(chapterDetail.metricDetails.animals.items[1].tag, "最近");
+assert.strictEqual(chapterDetail.metricDetails.species.items[0].tag, "最近");
+game.info = { windowWidth: 375, windowHeight: 667, pixelRatio: 1, safeArea: { top: 0, bottom: 667 } };
+game.width = 375;
+game.height = 667;
+game.dpr = 1;
+game.scrollY = 0;
+game.hitAreas = [];
+game.infoDetailModal = Object.assign({}, chapterDetail.metricDetails.visitors, { kind: "visitorMetricDetail" });
+game.drawInfoDetailModal();
+const paintedVisitorCards = (game.infoDetailModal.renderedInfoItems || []).filter((row) => row.layout);
+assert(paintedVisitorCards.length >= 4, "visitor how-to must show the nearest event plus cards 1-3");
+assert.strictEqual(paintedVisitorCards[3].item.title, "改善保护区并招募");
+assert(paintedVisitorCards[3].y - (paintedVisitorCards[2].y + paintedVisitorCards[2].h) <= 12, "card 3 must sit immediately under card 2");
+console.log("chapter goals check ok (11 chapters, six-chapter onboarding pacing, live-core promotion)");

@@ -65,12 +65,13 @@ async function main() {
   const shownAd = lastAd;
   controller.setVisible(false);
   assert.strictEqual(shownAd.hideCount, 1, "离开物资页必须隐藏原生层");
-  assert.strictEqual(shownAd.destroyCount, 1, "离开物资页必须销毁原生层，不能只移出屏幕");
-  assert.strictEqual(controller.instance, null, "隐藏后不得留下透明触控层");
+  assert.strictEqual(shownAd.destroyCount || 0, 0, "离开物资页不得销毁原生层，避免后台拆控件卡顿");
+  assert.ok(controller.instance, "隐藏后应保留已创建实例，返回时不再 getadvert");
+  assert.ok(shownAd.style.top > 667, "隐藏后必须移出屏幕，不能留下透明触控层");
   controller.setVisible(true);
   await flush();
-  assert.strictEqual(createCount, 2, "返回物资页应重新创建广告");
-  assert.strictEqual(lastAd.showCount, 1, "新实例应展示一次");
+  assert.strictEqual(createCount, 1, "返回物资页应复用已有广告");
+  assert.strictEqual(lastAd.showCount, 2, "复用实例只需再次 show");
   assert.strictEqual(lastAd.style.top, 184, "重新显示广告时必须恢复到最后一个有效页面槽位");
 
   let deferredShowCount = 0;
@@ -98,12 +99,13 @@ async function main() {
   deferredController.setVisible(true);
   deferredController.setVisible(false);
   deferredController.setVisible(true);
-  assert.strictEqual(deferredShowCount, 2, "隐藏时销毁实例后，再次展示应走新的 show");
-  assert.strictEqual(deferredAds[0].destroyCount, 1, "快速关闭必须拆掉第一块原生层");
+  assert.strictEqual(deferredShowCount, 2, "隐藏后再展示应再次调用 show");
+  assert.strictEqual(deferredAds.length, 1, "快速关闭不得拆掉再新建原生层");
+  assert.strictEqual(deferredAds[0].destroyCount || 0, 0, "快速关闭只隐藏，不销毁");
   deferredResolvers[0]();
   await flush();
   assert.strictEqual(deferredController.requestedVisible, true, "出售弹窗关闭后应保留最新的展示请求");
-  assert.strictEqual(deferredController.shown, false, "过期的 show Promise 不得把已销毁实例标成已展示");
+  assert.strictEqual(deferredController.shown, false, "过期的 show Promise 不得把已隐藏实例标成已展示");
   deferredResolvers[1]();
   await flush();
   assert.strictEqual(deferredController.shown, true, "最新一次展示完成后才算真正露出");

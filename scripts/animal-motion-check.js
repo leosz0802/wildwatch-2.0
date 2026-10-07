@@ -341,6 +341,53 @@ for (let frame = 1; frame <= 40; frame += 1) {
 }
 if (previousGait == null) throw new Error("gait smoothness check never observed a walking frame");
 
+const { buildReserveDevelopmentPlan } = require("../js/reserveDevelopment");
+const clusterGame = new Game();
+clusterGame.state = createCharacter(null, "浅滩散开");
+clusterGame.screen = "home";
+clusterGame.animalMotionStates = {};
+clusterGame.settlementModal = null;
+clusterGame.patrolTaskModal = null;
+clusterGame.infoDetailModal = null;
+clusterGame.gesture = null;
+clusterGame.anim = { t: 0 };
+const clusterReserve = clusterGame.state.world.reserve;
+clusterReserve.ecology.water = 42;
+clusterReserve.progression.stage = 9;
+clusterReserve.progression.displayChapter = 9;
+if (!buildReserveDevelopmentPlan(clusterReserve, "river_shallows", "visitor_boardwalk", 2).ok) {
+  throw new Error("浅滩观景建筑应能建成");
+}
+const clusterAnimals = ["鹿", "羚羊", "斑马", "野兔"].map((species, index) => ({
+  id: `cluster_${species}`,
+  species,
+  name: species
+}));
+const clusterLayout = clusterGame.animalMapLayoutContext(clusterAnimals, clusterGame.state.world);
+const nearShallows = clusterAnimals.filter((animal, index) => {
+  const pos = clusterGame.animalMapLayoutPosition(animal, index, clusterAnimals, clusterLayout);
+  return Math.abs(pos.x - 0.70) < 0.07 && Math.abs(pos.y - 0.47) < 0.07;
+});
+if (nearShallows.length > 1) {
+  throw new Error(`too many grazers parked on the river building: ${nearShallows.map((item) => item.species).join(",")}`);
+}
+clusterAnimals.forEach((animal, index) => {
+  const habitat = clusterGame.animalMapLayoutPosition(animal, index, clusterAnimals, clusterLayout);
+  clusterGame.movingAnimalPosition(animal, index, habitat);
+});
+let walkedAway = 0;
+for (let frame = 1; frame <= 80; frame += 1) {
+  clusterGame.anim.t = frame * 120;
+  clusterAnimals.forEach((animal, index) => {
+    const habitat = clusterGame.animalMapLayoutPosition(animal, index, clusterAnimals, clusterLayout);
+    const motion = clusterGame.movingAnimalPosition(animal, index, habitat);
+    if (Math.sqrt((motion.x - 0.70) ** 2 + (motion.y - 0.47) ** 2) > 0.08) walkedAway += 1;
+  });
+}
+if (walkedAway < 8) {
+  throw new Error("grazers should leave the river building and keep walking");
+}
+
 ["河马", "鳄鱼", "火烈鸟", "鹰", "秃鹫", "斑马", "羚羊"].forEach((species) => {
   const animal = animals.find((item) => item.species === species) || game.state.world.knownCharacters.find((item) => item.species === species);
   if (!animal) return;

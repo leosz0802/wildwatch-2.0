@@ -2,7 +2,6 @@ function safeNumber(value, fallback = 0) {
   const next = Number(value);
   return Number.isFinite(next) ? next : fallback;
 }
-
 class WechatGameClubController {
   constructor(runtime, options = {}) {
     this.runtime = runtime || {};
@@ -12,7 +11,6 @@ class WechatGameClubController {
     this.shown = false;
     this.slot = null;
   }
-
   readViewport(info = {}) {
     try {
       const system = info && (info.windowWidth || info.width)
@@ -26,15 +24,12 @@ class WechatGameClubController {
       return { width: 375, height: 667 };
     }
   }
-
   isSupported() {
     return typeof this.runtime.createGameClubButton === "function";
   }
-
   offscreenTop() {
-    return Math.max(1, safeNumber(this.viewport.height, 667)) + 96;
+    return -9999;
   }
-
   styleForSlot(slot = this.slot, park = false) {
     const width = Math.max(72, Math.round(safeNumber(slot && slot.w, 148)));
     const height = Math.max(32, Math.round(safeNumber(slot && slot.h, 36)));
@@ -53,7 +48,6 @@ class WechatGameClubController {
       textAlign: "center"
     };
   }
-
   createOptions(park = true) {
     return {
       type: "text",
@@ -61,7 +55,6 @@ class WechatGameClubController {
       style: this.styleForSlot(this.slot, park)
     };
   }
-
   create() {
     if (this.instance || !this.isSupported()) return this.instance;
     try {
@@ -80,7 +73,6 @@ class WechatGameClubController {
       return null;
     }
   }
-
   applyStyle(park = !this.requestedVisible) {
     if (!this.instance || !this.instance.style) return;
     const style = this.styleForSlot(this.slot, park);
@@ -88,7 +80,6 @@ class WechatGameClubController {
       this.instance.style[key] = style[key];
     });
   }
-
   setViewportSlot(slot = null) {
     if (!slot) {
       this.slot = null;
@@ -105,12 +96,15 @@ class WechatGameClubController {
     };
     this.applyStyle(!this.requestedVisible);
   }
-
   setVisible(visible) {
     const next = !!visible;
     if (!next) {
       this.requestedVisible = false;
-      this.destroy();
+      this.shown = false;
+      this.applyStyle(true);
+      if (this.instance && typeof this.instance.hide === "function") {
+        try { this.instance.hide(); } catch (error) { /* 隐藏失败时停在屏幕外即可。 */ }
+      }
       return;
     }
     this.requestedVisible = true;
@@ -122,7 +116,6 @@ class WechatGameClubController {
     }
     this.shown = true;
   }
-
   destroy() {
     this.requestedVisible = false;
     this.shown = false;
@@ -139,7 +132,6 @@ class WechatGameClubController {
     try { if (typeof instance.destroy === "function") instance.destroy(); } catch (error) { /* destroy 失败不阻断。 */ }
   }
 }
-
 module.exports = {
   WechatGameClubController
 };

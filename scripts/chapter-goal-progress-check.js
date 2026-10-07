@@ -38,7 +38,7 @@ const {
 const COMMANDS = {
   exploreMaterials: '跟随动物探索物资 掷骰:6',
   habitat: '修复水源和草场',
-  intervention: '执行许可内生态干预：麻醉转移过密鹿群',
+  intervention: '执行许可内生态干预：阻滞转移过密鹿群',
   houndScout: '派猎犬侦察：确认边界脚印',
   antiPoacher: '驱赶偷猎者：封锁可疑路线',
   salvage: '出售研究样本',
@@ -90,10 +90,10 @@ let days = 0;
 for (let chapter = 1; chapter <= 20; chapter++) {
   let state = fixture(chapter);
   const visible = cards(state);
-  assert(visible.length <= 2, `chapter ${chapter}: must keep at most 2 triggered task cards`);
+  assert(visible.length <= 3, `chapter ${chapter}: must keep at most 3 triggered task cards`);
   assert(visible.every(item => item && item.executable && actionExecutable(state, item.recommendedAction)), `chapter ${chapter}: visible cards must be executable`);
   assert(visible.every(item => !/channel:discovery|story:animal|development:.+:(build|upgrade)|facility:/.test(item.id || '')), `chapter ${chapter}: filler cards returned`);
-  assert(visible.every(item => !/storyEvidence|rareRecovered|story:collection/.test(item.id || '') && !/找到案件主证据|陷阱证据|回收珍稀物品/.test(`${item.title || ''}${item.body || ''}`)), `chapter ${chapter}: trap-evidence cards must not be forced`);
+  assert(visible.every(item => !/storyEvidence|rareRecovered|story:collection/.test(item.id || '') && !/找到案件主证据|隐踪器|回收珍稀物品/.test(`${item.title || ''}${item.body || ''}`)), `chapter ${chapter}: trap-evidence cards must not be forced`);
   if (!visible.length) continue;
 
   const game = makeGame(state);
