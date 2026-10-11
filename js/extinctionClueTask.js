@@ -6,24 +6,24 @@ const CLUE_ITEMS = [
     id: "old_fish_scale",
     name: "旧鱼鳞",
     clue: "白鲟曾在这段河道活动。",
-    x: 0.27,
-    y: 0.56,
+    x: 0.20,
+    y: 0.27,
     color: "#6e9f9a"
   },
   {
     id: "broken_river_marker",
     name: "断掉的河道标记",
     clue: "原来的洄游路线被改变。",
-    x: 0.54,
-    y: 0.47,
+    x: 0.62,
+    y: 0.73,
     color: "#c39a4d"
   },
   {
     id: "old_fishing_net",
     name: "旧渔网残片",
     clue: "误捕曾增加了白鲟的风险。",
-    x: 0.76,
-    y: 0.62,
+    x: 0.78,
+    y: 0.69,
     color: "#8b72a7"
   }
 ];
@@ -42,7 +42,8 @@ function emptyTask() {
     drops: [],
     activatedAt: 0,
     completedAt: 0,
-    lastCollection: null
+    lastCollection: null,
+    layoutVersion: 2
   };
 }
 
@@ -68,7 +69,7 @@ function normalizeExtinctionClueTask(input = {}) {
         name: item.name,
         clue: item.clue,
         color: item.color
-      }, drop, { id: item.id });
+      }, drop, { id: item.id, x: item.x, y: item.y });
     })
     .filter(Boolean);
   const status = source.status === "completed"
@@ -89,10 +90,12 @@ function normalizeExtinctionClueTask(input = {}) {
     drops: validDrops,
     activatedAt: Math.max(0, Number(source.activatedAt) || 0),
     completedAt: Math.max(0, Number(source.completedAt) || 0),
+    layoutVersion: 2,
     lastCollection: source.lastCollection && typeof source.lastCollection === "object"
       ? Object.assign({}, source.lastCollection)
       : null
   });
+  if (Number(source.layoutVersion) !== 2) validDrops.forEach((drop) => { delete drop.renderX; delete drop.renderY; });
   if (task.status === "completed") {
     task.spawned = true;
     task.drops = [];

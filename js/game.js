@@ -108,6 +108,7 @@ const { AudioSystem, normalizeAudioSettings } = require("./audioSystem");
 const { promiseByChapter, normalizeGuardianPromises, selectGuardianPromiseChoice, applyGuardianPromiseChoice, chosenPromiseChoices } = require("./guardianPromises");
 const { FRAGMENT_CATALOG, normalizeEcologyEconomy, collectEcologyDrop, ecologyCompetitionReward } = require("./ecologyEconomy");
 const { ensureExtinctionClueTask, extinctionClueVisibleDrops, collectExtinctionClue, extinctionClueTaskView } = require("./extinctionClueTask");
+const { recordSpeciesArchiveItem, speciesArchiveView, synthesizeSpeciesArchive } = require("./speciesArchiveBox");
 const { BALANCE_V2, ECOLOGY_THRESHOLDS, chapterEconomy, supplyCapFor } = require("./balanceConfig");
 const {
   sellFundCapStatus,
@@ -20870,6 +20871,7 @@ class Game {
     y += 364;
     this.drawRecoveredGoods(ctx, 12, y, this.width - 24, reserve);
     y += this.recoveredGoodsHeight(reserve);
+    y += this.drawSpeciesArchiveBox(ctx, 12, y, this.width - 24, reserve) + 10;
     y += this.drawFriendContractHistoryPanel(ctx, 12, y, this.width - 24, reserve) + 10;
     const beforeAdY = y;
     y = this.drawNativeTemplateAdSlot(ctx, 12, y, this.width - 24);
@@ -21631,6 +21633,49 @@ class Game {
       this.drawSmallGlyph(ctx, "leaf", x, y, color, 1.3 * scale);
     }
     ctx.restore();
+  }
+  drawSpeciesArchiveBox(ctx, x, y, w, reserve) {
+    const view = speciesArchiveView(reserve);
+    const h = 206;
+    this.roundRect(ctx, x, y + 4, w, h, 14, "rgba(20,16,8,.10)");
+    this.roundRect(ctx, x, y, w, h, 14, "rgba(255,253,245,.98)", "rgba(36,64,46,.18)");
+    this.drawSectionMarker(ctx, x + 18, y + 24, view.synthesized ? "#d7a832" : "#5cb87a");
+    this.text(ctx, "物种档案盒", x + 34, y + 29, this.fitTextSize(ctx, "物种档案盒", w - 170, 18, 14, "700"), "#1c3325", "700");
+    this.text(ctx, "收集线索，整理成完整物种记录", x + 34, y + 48, 10, "#66715f", "600");
+    const buttonW = 94;
+    const buttonX = x + w - buttonW - 12;
+    const canSynthesize = view.canSynthesize;
+    this.drawPremiumBrassPlate(ctx, buttonX, y + 10, buttonW, 28, 10, { muted: !canSynthesize });
+    this.text(ctx, canSynthesize ? "合成档案" : `已合成 ${view.synthesized}`, buttonX + buttonW / 2, y + 29, 10, canSynthesize ? "#173b2a" : "#66715f", "700", "center");
+    this.addHit(buttonX, y + 10 - this.scrollY, buttonW, 28, () => {
+      if (!canSynthesize) return this.toast(view.missing.length ? `还缺少${view.missing.map((id) => (view.items.find((item) => item.id === id) || {}).name || "线索").join("、")}` : "暂无可合成档案");
+      const result = synthesizeSpeciesArchive(reserve);
+      if (!result.ok) return this.toast("线索还不完整，暂时不能合成");
+      saveState(this.state);
+      this.playSfx("success");
+      this.toast("已合成白鲟消失档案");
+      this.render();
+    });
+    const cols = 3;
+    const gap = 7;
+    const cardW = (w - 28 - gap * 2) / cols;
+    const cardH = 110;
+    view.items.forEach((item, index) => {
+      const cx = x + 14 + (index % cols) * (cardW + gap);
+      const cy = y + 62;
+      this.roundRect(ctx, cx, cy, cardW, cardH, 10, item.count ? "#edf7eb" : "#f1f0e7", "rgba(47,125,98,.20)");
+      this.drawExtinctionClueIcon(ctx, item, cx + cardW / 2, cy + 31, 29);
+      this.text(ctx, this.truncateTextToWidth(ctx, item.name, cardW - 8, 10, "700"), cx + cardW / 2, cy + 59, 10, item.count ? "#1f4f3a" : "#6f786f", "700", "center");
+      this.text(ctx, item.count ? `已收集 ×${item.count}` : "尚未收集", cx + cardW / 2, cy + 78, 9, item.count ? "#2f765c" : "#8b9187", "700", "center");
+      this.text(ctx, this.truncateTextToWidth(ctx, item.note, cardW - 8, 8, "600"), cx + cardW / 2, cy + 96, 8, "#788177", "600", "center");
+      this.addHit(cx, cy - this.scrollY, cardW, cardH, () => {
+        this.toast(item.count ? `${item.name} · ${item.note}` : `还没有${item.name}`);
+      });
+    });
+    this.roundRect(ctx, x + 14, y + 178, w - 28, 20, 8, view.synthesized ? "#e7f6ea" : "#f4efde", "rgba(139,111,42,.18)");
+    this.text(ctx, view.synthesized ? `已整理白鲟消失档案 ×${view.synthesized}` : "收齐三件线索后，可合成白鲟消失档案", x + w / 2, y + 192, 9, view.synthesized ? "#1f7a52" : "#78683f", "700", "center");
+    this.renderedSpeciesArchiveBox = { x, y, w, h, items: view.items, synthesized: view.synthesized, canSynthesize, recipeId: view.recipe.id };
+    return h;
   }
   drawRecoveredGoods(ctx, x, y, w, reserve) {
     const inventory = reserve.inventory || {};
@@ -25629,6 +25674,7 @@ class Game {
       if (result.reason === "already_collected") this.toast("这条线索已经收录");
       return false;
     }
+    recordSpeciesArchiveItem(reserve, result.item.id);
     saveState(this.state);
     this.playSfx("success");
     this.startMapHarvestFlight({ id: result.item.id, amount: 1, type: "extinctionClue" }, { color: result.item.color, short: "线索" }, origin);

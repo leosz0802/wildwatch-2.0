@@ -22,6 +22,7 @@ const { normalizeChapterRescue, reconcileRescueArcheryLedger, chapterDefinition,
 const { OBSOLETE_GENERIC_NATURE_TYPES } = require("./worldEventSystem");
 const { normalizeRareAnimalState, ensureRareAnimalPopulation } = require("./rareAnimalSystem");
 const { normalizeExtinctionClueTask } = require("./extinctionClueTask");
+const { normalizeSpeciesArchiveBox } = require("./speciesArchiveBox");
 const { normalizeDailySellFund } = require("./sellFundCap");
 const { BALANCE_V2, supplyCapFor } = require("./balanceConfig");
 const STORAGE_KEY = "forest_kingdom_wechat_game_state";
@@ -271,6 +272,10 @@ function normalizeReserve(saved, fallback) {
   reserve.ecologyEconomy = normalizeEcologyEconomy((saved && saved.ecologyEconomy) || base.ecologyEconomy, reserve);
   reserve.extinctionClueTask = normalizeExtinctionClueTask(
     (saved && saved.extinctionClueTask) || base.extinctionClueTask
+  );
+  reserve.speciesArchiveBox = normalizeSpeciesArchiveBox(
+    (saved && saved.speciesArchiveBox) || base.speciesArchiveBox,
+    reserve
   );
   reserve.lastMaterialExploration = saved && saved.lastMaterialExploration
     ? JSON.parse(JSON.stringify(saved.lastMaterialExploration))

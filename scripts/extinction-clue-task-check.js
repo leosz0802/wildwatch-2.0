@@ -7,6 +7,7 @@ const {
   collectExtinctionClue,
   normalizeExtinctionClueTask
 } = require("../js/extinctionClueTask");
+const { speciesArchiveView, synthesizeSpeciesArchive } = require("../js/speciesArchiveBox");
 
 function snapshotEconomy(reserve) {
   return JSON.stringify({
@@ -34,6 +35,13 @@ CLUE_ITEMS.forEach((item, index) => {
   assert.strictEqual(result.progress, `${index + 1}/${CLUE_ITEMS.length}`);
   assert.strictEqual(collectExtinctionClue(reserve, item.id).ok, false, "重复点击不应重复结算");
 });
+
+const archive = speciesArchiveView(reserve);
+assert.strictEqual(archive.canSynthesize, true, "三条线索应开放档案合成");
+const synthesis = synthesizeSpeciesArchive(reserve);
+assert.strictEqual(synthesis.ok, true, "档案应可合成");
+assert.strictEqual(speciesArchiveView(reserve).synthesized, 1);
+assert.strictEqual(speciesArchiveView(reserve).canSynthesize, false, "同一组线索只能合成一次");
 
 assert.strictEqual(reserve.extinctionClueTask.status, "completed");
 assert.strictEqual(extinctionClueVisibleDrops(reserve).length, 0);
