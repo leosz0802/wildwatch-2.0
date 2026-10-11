@@ -8,6 +8,7 @@ const {
   speciesPopulation,
   speciesPopulationGroup
 } = require("./animalWorld");
+const { chapterEcologyPlan } = require("./chapterEcologyDesign");
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(Number(value) || 0)));
 }
@@ -663,6 +664,19 @@ function selectEventType(reserve, context, random, skip = new Set()) {
   const competition = relationCandidates(reserve, "competition")[0];
   const symbiosis = relationCandidates(reserve, "symbiotic")[0];
   const migration = reserve.migration || {};
+  const chapter = Math.max(1, Math.round(Number((reserve.progression || {}).stage) || 1));
+  const plan = chapterEcologyPlan(chapter);
+  // Chapter design is a bias, not a hard lock: an urgent disease or weather
+  // event can still override it, while ordinary days follow the local theme.
+  for (const preferred of plan.preferredTypes || []) {
+    if (skip.has(preferred)) continue;
+    const available = preferred === "predation" ? predation : preferred === "competition" ? competition
+      : preferred === "territorial" ? territorial : preferred === "symbiosis" ? symbiosis
+      : preferred === "migration" ? Math.abs(Number(migration.delta) || 0) >= 1
+      : preferred === "disease" ? disease >= ECOLOGY_THRESHOLDS.earlyDisease
+      : preferred === "weather" ? weatherAnomalyKind(reserve, context) : false;
+    if (available && random() < 0.34) return preferred;
+  }
   if (Math.abs(Number(migration.delta) || 0) >= 3 && random() < 0.62 && !skip.has("migration")) return "migration";
   if ((disease >= ECOLOGY_THRESHOLDS.earlyDisease || grass <= ECOLOGY_THRESHOLDS.criticalGrass) && random() < 0.28 && !skip.has("juvenile_loss")) return "juvenile_loss";
   if (disease >= ECOLOGY_THRESHOLDS.earlyDisease && random() < Math.min(0.92, 0.42 + disease / 150) && !skip.has("disease")) return "disease";
@@ -676,7 +690,7 @@ function selectEventType(reserve, context, random, skip = new Set()) {
 }
 function ecologyNarrativeCadence(reserve = {}) {
   const chapter = Math.max(1, Math.round(Number((reserve.progression || {}).stage) || 1));
-  return chapter >= 3 ? 4 : 3;
+  return chapterEcologyPlan(chapter).cadenceDays;
 }
 function lateChapterEventType(reserve = {}, skip = new Set(), context = {}) {
   const blocked = skip instanceof Set ? skip : new Set(skip || []);

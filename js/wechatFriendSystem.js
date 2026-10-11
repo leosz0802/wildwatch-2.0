@@ -353,6 +353,21 @@ class WechatFriendController {
     }
     if (signature) this.lastOpenDataMessageSignature = signature;
     if (this.androidOpenDataBridge || this.deferOpenDataBridge) {
+      // Pointer move events can arrive faster than Android WeChat can flush
+      // postMessage. Replaying every stale move makes the shared rank list
+      // lag behind the finger and then jump after release. Keep the latest
+      // move in the queue while preserving start/end and non-pointer messages.
+      if (this.androidOpenDataBridge && payload.type === "friend_rank_pointer" && payload.phase === "move") {
+        for (let index = this.androidOpenDataQueue.length - 1; index >= 0; index -= 1) {
+          const queued = this.androidOpenDataQueue[index];
+          if (!queued || !queued.payload || queued.payload.type !== "friend_rank_pointer") continue;
+          if (queued.payload.phase === "move") {
+            this.androidOpenDataQueue[index] = { payload, options };
+            return true;
+          }
+          break;
+        }
+      }
       this.androidOpenDataQueue.push({ payload, options });
       if (this.androidOpenDataQueue.length > 32) this.androidOpenDataQueue.shift();
       this.scheduleAndroidOpenDataFlush();
@@ -461,6 +476,21 @@ class WechatFriendController {
     }
     parkSharedCanvasOverlay(canvas, { shrink: false });
   }
+  contractFriendSignature() {
+    const rows = (Array.isArray(this.contractFriendRows) ? this.contractFriendRows : []).map((row) => {
+      const friendMatchKey = /^[a-f0-9]{64}$/.test(String(row && row.friendMatchKey || "")) ? String(row.friendMatchKey) : "";
+      if (!friendMatchKey) return null;
+      return {
+        friendMatchKey,
+        id: String(row.worldPlayerId || row.id || "").replace(/^cloud_/, "").slice(0, 32),
+        valuation: Math.max(0, Math.round(Number(row && row.valuation != null ? row.valuation : row.rating) || 0)),
+        level: Math.max(1, Math.min(7, Math.round(Number(row && row.level) || 1))),
+        animals: Math.max(0, Math.round(Number(row && row.animals) || 0)),
+        title: String(row && (row.name || row.owner) || "微信好友").slice(0, 40)
+      };
+    }).filter(Boolean).slice(0, 100);
+    return JSON.stringify(rows);
+  }
   refresh(width, height, options = {}) {
     if (!this.openDataContext || typeof this.openDataContext.postMessage !== "function") return false;
     this.clearOverlayReppark();
@@ -470,6 +500,7 @@ class WechatFriendController {
     this.surfaceMode = "rank";
     this.lastLayoutSignature = `${w}x${h}@${this.dpr}`;
     this.lastWorldRowsSignature = JSON.stringify(this.worldLeaderboardRows || []);
+    this.lastContractSignature = this.contractFriendSignature();
     this.resize(w, h);
     const payload = {
       type: "friend_rank_show",
@@ -478,7 +509,8 @@ class WechatFriendController {
       pixelRatio: this.dpr,
       key: FRIEND_RANK_KEY,
       scoreKey: FRIEND_SCORE_KEY,
-      worldRowsJson: this.lastWorldRowsSignature
+      worldRowsJson: this.lastWorldRowsSignature,
+      contractFriendsJson: this.lastContractSignature
     };
     if (options.reload === true) payload.reload = true;
     return this.postRankMessage(payload);
@@ -514,7 +546,8 @@ class WechatFriendController {
     this.overlayParked = false;
     const layoutSignature = `${Math.round(width)}x${Math.round(height)}@${this.dpr}`;
     const worldRowsJson = JSON.stringify(this.worldLeaderboardRows || []);
-    if (this.surfaceMode !== "rank" || layoutSignature !== this.lastLayoutSignature || worldRowsJson !== this.lastWorldRowsSignature) {
+    const contractSignature = this.contractFriendSignature();
+    if (this.surfaceMode !== "rank" || layoutSignature !== this.lastLayoutSignature || worldRowsJson !== this.lastWorldRowsSignature || contractSignature !== this.lastContractSignature) {
       this.refresh(width, height);
     }
     if (this.pendingResize || this.surfaceMode !== "rank") return false;

@@ -576,11 +576,13 @@ function facilityUseEffectLabel(profile = {}) {
 }
 function scaledFacilityUse(profile = {}, chapter = 1, facilityId = "") {
   const n = chapterMatchedValue(chapter);
+  const rewardScale = Math.max(0.1, Math.min(2, Number((PACE_ECONOMY.facilityRewardScaleById || {})[facilityId]) || 1));
   const effects = {};
   Object.keys(profile.effects || {}).forEach((key) => {
     const raw = Number(profile.effects[key]) || 0;
     if (!raw) return;
-    effects[key] = raw < 0 ? -n : n;
+    const scaled = Math.max(1, Math.round(n * rewardScale));
+    effects[key] = raw < 0 ? -scaled : scaled;
   });
   return Object.assign({}, profile, {
     animals: !profile.animals ? 0 : (profile.scaleAnimalsByChapter ? n : facilityAnimalGain(chapter)),

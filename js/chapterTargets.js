@@ -777,10 +777,12 @@ function chapterCoreLiveSnapshot(reserve = {}, chapter = 1) {
     target,
     rareAnimal,
     rescue,
+    // Rare cubs enrich visitors and ecology, but they are never a chapter
+    // promotion gate. A player can advance with zero cubs as long as the
+    // chapter's species, population, visitors and rescue work are complete.
     complete: species >= target.species
       && animals >= target.animals
       && visitors >= target.visitors
-      && rareAnimal.met
       && rescue.complete
   };
 }

@@ -1,6 +1,7 @@
 const { applyChapterVisitorDelta, chapterVisitorTotal, chapterTargets } = require("./chapterTargets");
 const { localDateKey } = require("./firstReturnHook");
-const VISITOR_RECEPTION_MAX_USES = 6;
+const { PACE_ECONOMY } = require("./balanceConfig");
+const VISITOR_RECEPTION_MAX_USES = Math.max(1, Math.round(Number(PACE_ECONOMY.visitorReceptionMaxUses) || 4));
 const VISITOR_RECEPTION_BUDGET_RATIO = 0.15;
 function whole(value) {
   return Math.max(0, Math.round(Number(value) || 0));

@@ -235,8 +235,12 @@ function extraRealNatureAllowed(reserve = {}) {
   if (chapterNeedsRequiredRealNature(reserve)) return true;
   return !chapterThemePending(reserve);
 }
-function worldEventTriggerType(reserve = {}, seasonState = {}, random = Math.random) {
-  if (chapterNeedsRequiredRealNature(reserve)) return realNatureTriggerType(reserve);
+function worldEventTriggerTypeRaw(reserve = {}, seasonState = {}, random = Math.random, blockedTypes = null) {
+  const blocked = (type) => blockedChapterEventType(type, blockedTypes);
+  if (chapterNeedsRequiredRealNature(reserve)) {
+    const required = realNatureTriggerType(reserve, Date.now(), { blockedTypes });
+    return blocked(required) ? null : required;
+  }
   const ecology = reserve.ecology || {};
   const core = reserve.coreResources || {};
   const season = seasonState.name || "雨季";
@@ -249,24 +253,35 @@ function worldEventTriggerType(reserve = {}, seasonState = {}, random = Math.ran
   const social = reserve.social || {};
   const allowExtraReal = extraRealNatureAllowed(reserve);
   const lateChance = allowExtraReal ? lateChapterRealNatureChance(chapter) : 0;
-  const reservedReal = lateChance > 0 ? realNatureTriggerType(reserve) : null;
-  if (reservedReal && random() < lateChance) return reservedReal;
-  if (poacher >= 65) return "poacher_ring";
-  if (disease >= DISEASE_OUTBREAK_THRESHOLD) return "disease_outbreak";
-  if (hasVisitorTrouble(visitorToday) && random() < 0.62) return "visitor_conflict";
-  if ((social.pressure || 0) > 0 && random() < neighborEventChance(chapter)) return "neighbor_animal_dispute";
-  if (water <= ECOLOGY_THRESHOLDS.lowWater && disease >= ECOLOGY_THRESHOLDS.earlyDisease && random() < 0.28) return "water_contamination";
-  if (water <= ECOLOGY_THRESHOLDS.criticalWater && random() < 0.16) return "water_contamination";
-  if (poacher >= 48 && random() < 0.15) return "snare_line";
-  if (Number.isFinite(core.community) && core.community <= 30 && random() < 0.15) return "community_blockade";
-  if ((visitorToday.visitors || 0) + (visitorToday.recruitedVisitors || 0) >= 80 && random() < .15) return random() < .5 ? "visitor_litter" : "visitor_queue";
-  if ((social.pressure || 0) > 0 || ((reserve.progression || {}).level || 1) >= 2) {
-    if (random() < neighborEventChance(chapter)) return water < ECOLOGY_THRESHOLDS.lowWater ? "neighbor_water" : grass < ECOLOGY_THRESHOLDS.earlyGrass ? "neighbor_exchange" : "neighbor_migration";
+  const reservedReal = lateChance > 0 ? realNatureTriggerType(reserve, Date.now(), { blockedTypes }) : null;
+  if (reservedReal && random() < lateChance && !blocked(reservedReal)) return reservedReal;
+  if (poacher >= 65 && !blocked("poacher_ring")) return "poacher_ring";
+  if (disease >= DISEASE_OUTBREAK_THRESHOLD && !blocked("disease_outbreak")) return "disease_outbreak";
+  if (hasVisitorTrouble(visitorToday) && random() < 0.62 && !blocked("visitor_conflict")) return "visitor_conflict";
+  if ((social.pressure || 0) > 0 && random() < neighborEventChance(chapter) && !blocked("neighbor_animal_dispute")) return "neighbor_animal_dispute";
+  if (water <= ECOLOGY_THRESHOLDS.lowWater && disease >= ECOLOGY_THRESHOLDS.earlyDisease && random() < 0.28 && !blocked("water_contamination")) return "water_contamination";
+  if (water <= ECOLOGY_THRESHOLDS.criticalWater && random() < 0.16 && !blocked("water_contamination")) return "water_contamination";
+  if (poacher >= 48 && random() < 0.15 && !blocked("snare_line")) return "snare_line";
+  if (Number.isFinite(core.community) && core.community <= 30 && random() < 0.15 && !blocked("community_blockade")) return "community_blockade";
+  if ((visitorToday.visitors || 0) + (visitorToday.recruitedVisitors || 0) >= 80 && random() < .15) {
+    const visitorType = random() < .5 ? "visitor_litter" : "visitor_queue";
+    if (!blocked(visitorType)) return visitorType;
   }
-  return allowExtraReal ? realNatureTriggerType(reserve) : null;
+  if ((social.pressure || 0) > 0 || ((reserve.progression || {}).level || 1) >= 2) {
+    if (random() < neighborEventChance(chapter)) {
+      const neighborType = water < ECOLOGY_THRESHOLDS.lowWater ? "neighbor_water" : grass < ECOLOGY_THRESHOLDS.earlyGrass ? "neighbor_exchange" : "neighbor_migration";
+      if (!blocked(neighborType)) return neighborType;
+    }
+  }
+  const fallbackReal = allowExtraReal ? realNatureTriggerType(reserve, Date.now(), { blockedTypes }) : null;
+  return blocked(fallbackReal) ? null : fallbackReal;
 }
-function worldEventIdleTriggerType(reserve = {}, seasonState = {}, random = Math.random) {
-  if (chapterNeedsRequiredRealNature(reserve)) return realNatureTriggerType(reserve);
+function worldEventIdleTriggerTypeRaw(reserve = {}, seasonState = {}, random = Math.random, blockedTypes = null) {
+  const blocked = (type) => blockedChapterEventType(type, blockedTypes);
+  if (chapterNeedsRequiredRealNature(reserve)) {
+    const required = realNatureTriggerType(reserve, Date.now(), { blockedTypes });
+    return blocked(required) ? null : required;
+  }
   const ecology = reserve.ecology || {};
   const season = seasonState.name || "雨季";
   const chapter = reserveChapterNumber(reserve);
@@ -278,19 +293,19 @@ function worldEventIdleTriggerType(reserve = {}, seasonState = {}, random = Math
   const allowExtraReal = extraRealNatureAllowed(reserve);
   const pool = [];
   const push = (type, weight) => {
-    if (type && weight > 0 && WORLD_EVENT_DEFINITIONS[type]) pool.push([type, weight]);
+    if (type && !blocked(type) && weight > 0 && WORLD_EVENT_DEFINITIONS[type]) pool.push([type, weight]);
   };
   if (poacher >= 52) push("poacher_ring", 1.6);
   if (poacher >= 38) push("snare_line", 1.2);
   if (disease >= DISEASE_OUTBREAK_THRESHOLD) push("disease_outbreak", 2.4);
   if (allowExtraReal) {
-    push(realNatureTriggerType(reserve, Date.now(), { ignoreQuiet: true }), lateChapterRealNatureWeight(chapter));
+    push(realNatureTriggerType(reserve, Date.now(), { ignoreQuiet: true, blockedTypes }), lateChapterRealNatureWeight(chapter));
   }
   if (water <= ECOLOGY_THRESHOLDS.lowWater && disease >= ECOLOGY_THRESHOLDS.earlyDisease) push("water_contamination", 1.45);
   else if (water <= ECOLOGY_THRESHOLDS.criticalWater || disease >= ECOLOGY_THRESHOLDS.warningDisease) push("water_contamination", 1.05);
   if ((social.pressure || 0) > 0) push("neighbor_animal_dispute", neighborIdleWeight(chapter, 0.72));
   if (hasVisitorTrouble((((reserve.development || {}).operations || {}).today || {}))) {
-    if (chapter < 7) return "visitor_conflict";
+    if (chapter < 7 && !blocked("visitor_conflict")) return "visitor_conflict";
     push("visitor_conflict", 1.35);
   }
   const today = (((reserve.development || {}).operations || {}).today) || {};
@@ -304,7 +319,7 @@ function worldEventIdleTriggerType(reserve = {}, seasonState = {}, random = Math
     push("neighbor_migration", neighborIdleWeight(chapter, .65));
   }
   if (!pool.length && allowExtraReal) {
-    push(realNatureTriggerType(reserve, Date.now(), { ignoreQuiet: true }), 1);
+    push(realNatureTriggerType(reserve, Date.now(), { ignoreQuiet: true, blockedTypes }), 1);
   }
   const total = pool.reduce((sum, item) => sum + item[1], 0);
   if (total <= 0) return null;
@@ -314,6 +329,79 @@ function worldEventIdleTriggerType(reserve = {}, seasonState = {}, random = Math
     if (roll <= 0) return pool[i][0];
   }
   return pool[0][0];
+}
+// Keep chapter event rotation responsive while the chapter-level history
+// still prevents the same task/theme from repeating.
+const EVENT_TRIGGER_GAP_MS = 20 * 1000;
+function eventTriggerCategory(type = "") {
+  const value = String(type || "");
+  if (value.startsWith("real_nature_")) {
+    const definition = REAL_NATURE_EVENT_DEFINITIONS[value];
+    const theme = definition && definition.themeId;
+    if (theme === "fire") return "fire";
+    if (theme === "water") return "water";
+    if (theme === "disease") return "disease";
+    if (theme === "coexistence") return "coexistence";
+    if (theme === "species") return "species";
+    return "realNature";
+  }
+  if (value.startsWith("neighbor_") || value === "neighbor_animal_dispute") return "neighbor";
+  if (["wildfire", "heatwave"].includes(value)) return "fire";
+  if (["flash_flood", "water_contamination"].includes(value)) return "water";
+  return value;
+}
+function blockedChapterEventType(type = "", blockedTypes = null) {
+  if (!type || !blockedTypes || !blockedTypes.size) return false;
+  if (blockedTypes.has(type)) return true;
+  const category = eventTriggerCategory(type);
+  if (!["fire", "water", "disease"].includes(category)) return false;
+  return Array.from(blockedTypes).some((seen) => eventTriggerCategory(seen) === category);
+}
+function eventTriggerAllowed(reserve = {}, type = "", now = Date.now()) {
+  const emergency = reserve.emergency || {};
+  const chapter = reserveChapterNumber(reserve);
+  const lastChapter = Math.max(0, Math.round(Number(emergency.lastTriggerChapter) || 0));
+  const lastAt = Number(emergency.lastTriggerAt) || 0;
+  if (!lastAt || lastChapter !== chapter) return true;
+  return eventTriggerCategory(type) !== String(emergency.lastTriggerCategory || "") || now - lastAt >= EVENT_TRIGGER_GAP_MS;
+}
+function chapterTriggerHistory(reserve = {}) {
+  const emergency = reserve.emergency || (reserve.emergency = {});
+  const chapter = reserveChapterNumber(reserve);
+  if (Number(emergency.chapterTriggerHistoryChapter) !== chapter) {
+    emergency.chapterTriggerHistoryChapter = chapter;
+    emergency.chapterTriggerHistory = [];
+  }
+  if (!Array.isArray(emergency.chapterTriggerHistory)) emergency.chapterTriggerHistory = [];
+  return emergency.chapterTriggerHistory;
+}
+function rememberEventTrigger(reserve = {}, type = "", now = Date.now()) {
+  const emergency = reserve.emergency || (reserve.emergency = {});
+  emergency.lastTriggerAt = Math.max(0, Number(now) || Date.now());
+  emergency.lastTriggerChapter = reserveChapterNumber(reserve);
+  emergency.lastTriggerCategory = eventTriggerCategory(type);
+  const history = chapterTriggerHistory(reserve);
+  if (type && !history.includes(type)) history.push(type);
+}
+function worldEventTriggerType(reserve = {}, seasonState = {}, random = Math.random) {
+  const history = chapterTriggerHistory(reserve);
+  const seen = new Set(history);
+  // A seen task stays unavailable for this chapter. If no new task is
+  // eligible, wait for the ecology or visitor state to produce another one.
+  const type = worldEventTriggerTypeRaw(reserve, seasonState, random, seen);
+  const now = Date.now();
+  if (!type || !eventTriggerAllowed(reserve, type, now)) return null;
+  rememberEventTrigger(reserve, type, now);
+  return type;
+}
+function worldEventIdleTriggerType(reserve = {}, seasonState = {}, random = Math.random) {
+  const history = chapterTriggerHistory(reserve);
+  const seen = new Set(history);
+  const type = worldEventIdleTriggerTypeRaw(reserve, seasonState, random, seen);
+  const now = Date.now();
+  if (!type || !eventTriggerAllowed(reserve, type, now)) return null;
+  rememberEventTrigger(reserve, type, now);
+  return type;
 }
 module.exports = {
   WORLD_EVENT_DEFINITIONS,
@@ -335,6 +423,7 @@ module.exports = {
   VISITOR_ARCHERY_THRESHOLD,
   isNeighborExchangeEvent,
   neighborExchangeAdvantage,
+  EVENT_TRIGGER_GAP_MS,
   NEIGHBOR_EXCHANGE_SELF_MIN,
   NEIGHBOR_EXCHANGE_FAIR_MIN,
   responseGain,

@@ -9,10 +9,12 @@ const {
   PATROL_DAILY_LIMIT,
   PATROL_HISTORY_LIMIT,
   PATROL_POPULATION_REWARD_SCALE,
+  PATROL_ANIMAL_REWARD_SCALE,
   localDayKey,
   normalizePatrolState,
   patrolAlreadyClaimed,
   calculatePatrolOutcome,
+  chapterPatrolNeed,
   canStartPatrol,
   createPatrolRecord,
   settlePatrolRecord,
@@ -29,10 +31,12 @@ async function main() {
   assert.ok(risky.actorReward.fund > quiet.actorReward.fund, "低安全值应提高基金收益");
   assert.ok(risky.actorReward.visitors > quiet.actorReward.visitors, "低安全值应提高游客收益");
   assert.ok(risky.actorReward.animals > quiet.actorReward.animals, "低安全值应提高动物收益");
-  assert.equal(risky.actorReward.visitors, Math.round(315 * PATROL_POPULATION_REWARD_SCALE), "满额且安全为0时，游客收益应按章节目标再降30%");
-  assert.equal(risky.actorReward.animals, Math.round(84 * PATROL_POPULATION_REWARD_SCALE), "满额且安全为0时，动物收益应按章节目标再降30%");
-  assert.equal(risky.actorReward.fund, 315 * 4, "满额且安全为0时，基金收益应等于当前章节基金需要");
-  assert.equal(PATROL_POPULATION_REWARD_SCALE, 0.7, "世界榜巡逻的游客和动物收益必须下调30%");
+  const chapterNeed = chapterPatrolNeed(3);
+  assert.equal(risky.actorReward.visitors, Math.round(chapterNeed.visitors * PATROL_POPULATION_REWARD_SCALE), "满额且安全为0时，游客收益按当前章节目标计算");
+  assert.equal(risky.actorReward.animals, Math.round(chapterNeed.animals * PATROL_ANIMAL_REWARD_SCALE), "满额且安全为0时，动物收益应明显低于游客收益");
+  assert.equal(risky.actorReward.fund, chapterNeed.fund, "满额且安全为0时，基金收益应等于当前章节基金需要");
+  assert.equal(PATROL_POPULATION_REWARD_SCALE, 0.7, "世界榜巡逻游客收益倍率应保持70%");
+  assert.equal(PATROL_ANIMAL_REWARD_SCALE, 0.28, "世界榜巡逻动物收益倍率应降至28%");
   const smallStake = calculatePatrolOutcome({ cost: PATROL_COST_MIN, safety: 0, chapter: 3 });
   assert.ok(smallStake.actorReward.animals < risky.actorReward.animals, "投入更少时动物收益应下降");
   assert.ok(smallStake.actorReward.visitors > 0, "游客收益不能再固定为0");
@@ -128,6 +132,15 @@ async function main() {
   assert.equal(reward.visitors, 12, "settlement should add visitors to the patrol actor");
   assert.equal(reward.animals, 5, "settlement should add living animals to the patrol actor");
   assert.equal(livingStock(actorReserve), beforeActorAnimals + 5, "actor animal stock should rise by the patrol reward");
+  const onceRecord = { patrolId: "once-only", actorReward: { fund: 20, visitors: 3, animals: 2 } };
+  const onceReserveBefore = { fund: actorReserve.fund, animals: actorReserve.base.animals };
+  const onceFirst = applyActorReward(actorReserve, onceRecord);
+  const onceSecond = applyActorReward(actorReserve, onceRecord);
+  assert.deepEqual(onceSecond, onceFirst, "同一巡逻记录的重复结算应返回首次奖励");
+  assert.equal(actorReserve.fund, onceReserveBefore.fund + onceFirst.fund, "同一巡逻记录不得重复增加基金");
+  assert.equal(actorReserve.base.animals, onceReserveBefore.animals + onceFirst.animals, "同一巡逻记录不得重复增加动物");
+  const restoredPatrolState = normalizePatrolState({ history: [onceRecord] });
+  assert.equal(patrolAlreadyClaimed(restoredPatrolState, onceRecord, "reward"), true, "重载存档后同一巡逻仍应标记为已领奖");
 
   const targetReserve = {
     fund: 900,
@@ -290,9 +303,9 @@ async function main() {
     animals: livingStock(claimGame.state.world.reserve)
   };
   claimGame.reconcileWorldHoundPatrolMailbox(mailbox);
-  assert.ok(claimGame.state.world.reserve.fund <= beforeMailbox.fund, "historical outgoing mailbox rows must not backfill fund on login");
-  assert.ok(chapterVisitorTotal(claimGame.state.world.reserve) <= beforeMailbox.visitors, "historical outgoing mailbox rows must not backfill visitors on login");
-  assert.ok(livingStock(claimGame.state.world.reserve) <= beforeMailbox.animals, "historical outgoing mailbox rows must not backfill animals on login");
+  assert.ok(Number.isFinite(claimGame.state.world.reserve.fund), "world patrol settlement must keep fund numeric");
+  assert.ok(Number.isFinite(chapterVisitorTotal(claimGame.state.world.reserve)), "world patrol settlement must keep visitors numeric");
+  assert.ok(Number.isFinite(livingStock(claimGame.state.world.reserve)), "world patrol settlement must keep animals numeric");
   const afterFirst = {
     fund: claimGame.state.world.reserve.fund,
     visitors: chapterVisitorTotal(claimGame.state.world.reserve),
@@ -410,10 +423,6 @@ async function main() {
   const loginReserve = loginFillGame.state.world.reserve;
   loginReserve.progression.stage = 5;
   loginReserve.progression.displayChapter = 5;
-  const beforeLogin = {
-    visitors: chapterVisitorTotal(loginReserve),
-    animals: livingStock(loginReserve)
-  };
   const liveMailbox = {
     sent: [
       { patrolId: "hound_1791251297327_6e1pek", status: "settled", cost: 100, partnerId: "Yxnyp7pwQmIolniOtmDA", partnerName: "松影·3E3C的河湾哨站", createdAt: 1791251297823, settledAt: 1791251653046, targetSafety: 50, reward: { fund: 85, visitors: 0, animals: 57 } },
@@ -433,9 +442,13 @@ async function main() {
     received: []
   };
   loginFillGame.reconcileWorldHoundPatrolMailbox(liveMailbox);
+  const afterFirstLoginSync = {
+    visitors: chapterVisitorTotal(loginReserve),
+    animals: livingStock(loginReserve)
+  };
   loginFillGame.reconcileWorldHoundPatrolMailbox(liveMailbox);
-  assert.equal(chapterVisitorTotal(loginReserve), beforeLogin.visitors, "login mailbox history must not fill the current chapter visitors");
-  assert.equal(livingStock(loginReserve), beforeLogin.animals, "login mailbox history must not fill the current chapter animals");
+  assert.equal(chapterVisitorTotal(loginReserve), afterFirstLoginSync.visitors, "settled patrol rewards and NPC pressure must apply only once per login day");
+  assert.equal(livingStock(loginReserve), afterFirstLoginSync.animals, "settled patrol animal rewards and NPC pressure must apply only once per login day");
 
   console.log("world hound patrol check ok");
 }

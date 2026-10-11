@@ -346,6 +346,15 @@ function normalizeReserve(saved, fallback) {
     received: Array.isArray(friendLetters.received) ? friendLetters.received.filter((letter) => letter && letter.id).slice(-50) : []
   };
   reserve.safety = ((saved && typeof saved.safety === "number") ? saved.safety : base.safety);
+  // 旧版本把未开始经营的新档固定在 68。仅迁移这类“还没有任何经营动作”的
+  // 初始档，避免覆盖已经通过经营获得的安全值。
+  const savedProgressionForSafety = (saved && saved.progression) || {};
+  const untouchedLegacyOpening = saved
+    && Number(saved.safety) === 68
+    && Math.max(0, Number(savedProgressionForSafety.totalActions) || 0) === 0
+    && Math.max(0, Number(savedProgressionForSafety.daysManaged) || 0) === 0
+    && Math.max(1, Number(savedProgressionForSafety.stage || savedProgression.displayChapter || 1)) === 1;
+  if (untouchedLegacyOpening) reserve.safety = base.safety;
   reserve.migration = Object.assign({}, base.migration, (saved && saved.migration) || {});
   if (reserve.migration.reason === "保护区安全等级稳定") {
     reserve.migration.reason = "水源与草场暂时稳定";
@@ -454,6 +463,12 @@ function normalizeReserve(saved, fallback) {
     reserve.emergency.cooldown = 0;
   }
   reserve.emergency.history = ((saved && saved.emergency && saved.emergency.history) || []).slice(-8);
+  reserve.emergency.chapterTriggerHistoryChapter = Math.max(0, Number(
+    saved && saved.emergency && saved.emergency.chapterTriggerHistoryChapter
+  ) || Number(reserve.emergency.chapterTriggerHistoryChapter) || 0);
+  reserve.emergency.chapterTriggerHistory = Array.isArray(saved && saved.emergency && saved.emergency.chapterTriggerHistory)
+    ? saved.emergency.chapterTriggerHistory.slice(-24)
+    : Array.isArray(reserve.emergency.chapterTriggerHistory) ? reserve.emergency.chapterTriggerHistory.slice(-24) : [];
   reserve.weatherPulse = normalizeWeatherPulse((saved && saved.weatherPulse) || base.weatherPulse || null);
   const { normalizeSandboxTaskRhythm, normalizeDisasterDrain } = require("./sandboxTaskCadence");
   reserve.sandboxTaskRhythm = normalizeSandboxTaskRhythm((saved && saved.sandboxTaskRhythm) || base.sandboxTaskRhythm || {});

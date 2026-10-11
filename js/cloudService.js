@@ -432,6 +432,14 @@ class CloudServiceController {
               this.clearNetworkFailure();
               finish(resolve, result);
             }
+            else if (Array.isArray(options.businessErrorCodes)
+              && options.businessErrorCodes.includes(String(result.data && result.data.code || ""))) {
+              // Expected business rejections (for example a daily limit) are
+              // not transport failures. Keep them out of network backoff and
+              // return the response to the feature-specific handler.
+              this.clearNetworkFailure();
+              finish(resolve, Object.assign({}, result, { businessError: true }));
+            }
             else {
               const error = new Error(String((result.data && result.data.code) || `HTTP_${statusCode}`));
               error.statusCode = statusCode;
@@ -799,6 +807,7 @@ class CloudServiceController {
       if (!ok) throw new Error("AUTH_REQUIRED");
       return this.request("/v1/world-patrols", {
         method: "POST", auth: true,
+        businessErrorCodes: ["DAILY_LIMIT", "TARGET_DAILY_FULL", "TARGET_ALREADY_PATROLLED", "INSUFFICIENT_FUND", "TARGET_NOT_FOUND", "TARGET_PROFILE_NOT_READY"],
         body: {
           targetId: String(targetId || "").replace(/^cloud_/, "").slice(0, 20),
           cost: Math.round(Number(cost) || 0),
@@ -808,6 +817,13 @@ class CloudServiceController {
         }
       });
     }).then((response) => {
+      if (response && response.businessError) {
+        const error = new Error(String((response.data && response.data.code) || "WORLD_PATROL_REJECTED"));
+        error.statusCode = response.statusCode;
+        error.data = response.data;
+        error.businessError = true;
+        throw error;
+      }
       if (this.remoteConfig && this.remoteConfig.value) {
         const features = Object.assign({}, this.remoteConfig.value.features || {}, { worldPatrols: true });
         this.remoteConfig.value = Object.assign({}, this.remoteConfig.value, { features });
@@ -862,14 +878,18 @@ class CloudServiceController {
     return force || before !== `${record.displayName}|${record.score}|${record.level}|${record.animals}|${record.shield}|${record.safety}|${record.visitors}|${record.fund}|${record.style}`;
   }
   track(event, properties = {}) {
-    if (!this.feature("telemetry")) return Promise.resolve(false);
+    const eventName = String(event || "").slice(0, 64);
+    // 守护行动是后台核心经营数据。即使远程配置暂时没有打开完整遥测，
+    // 也必须上传这类事件，否则后台只能看到打开游戏，看不到真实行动。
+    const coreBehaviorEvent = eventName === "reserve.action_completed" || eventName === "chapter.enter";
+    if (!this.feature("telemetry") && !coreBehaviorEvent) return Promise.resolve(false);
     if (this.networkBackoffActive()) return Promise.resolve(false);
-    const sampleRate = this.config().balance.eventUploadSampleRate;
+    const sampleRate = coreBehaviorEvent ? 1 : this.config().balance.eventUploadSampleRate;
     if (this.random() > sampleRate) return Promise.resolve(false);
     return this.request("/v1/events", {
       method: "POST",
       auth: true,
-      body: { event: String(event || "").slice(0, 64), installId: this.installId, properties }
+      body: { event: eventName, installId: this.installId, properties }
     }).then(() => true).catch(() => false);
   }
   bootstrap(reserve = {}, valuation) {

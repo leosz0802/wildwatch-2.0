@@ -51,6 +51,20 @@ for (const type of realTypes.concat(["poacher_ring", "neighbor_animal_dispute"])
   });
 }
 
+// The emergency task balloon is a tappable prompt, so its anchor must remain
+// fixed while the warning artwork continues to animate underneath it.
+const anchoredType = realTypes[0];
+world.reserve.emergency.active = Object.assign({ id: "anchored_prompt", type: anchoredType }, worldEventDefinition(anchoredType), { progress: 0, target: 3, daysRemaining: 3 });
+game.animT = () => 1200;
+game.drawActiveWorldEventOverlay(game.ctx, { scale: 1 }, false);
+const firstBalloon = game.renderedWorldEventOverlay.features.find((feature) => feature.type === "event-balloon");
+game.animT = () => 2200;
+game.drawActiveWorldEventOverlay(game.ctx, { scale: 1 }, false);
+const secondBalloon = game.renderedWorldEventOverlay.features.find((feature) => feature.type === "event-balloon");
+assert(firstBalloon && secondBalloon, "anchored emergency prompt must render a balloon");
+assert.strictEqual(secondBalloon.x, firstBalloon.x, "emergency prompt must keep a stable x anchor");
+assert.strictEqual(secondBalloon.y, firstBalloon.y, "emergency prompt must keep a stable y anchor");
+
 game.mapViewport = { x: 0, y: 0, w: 375, h: 600 };
 game.scrollY = 0;
 game.mapTaskPromptRects = [];

@@ -283,10 +283,10 @@ function runLinear() {
   assertHealthy(game, "linear-after-tactical");
 
   const active = spawnAnimalStory(game);
-  assert.equal((active.choices || []).length, 1, "linear: spawned animal story is not single-choice");
+  assert.equal((active.choices || []).length, 3, "linear: animal story should expose three relationship outcomes");
   closeLayers(game);
   game.infoDetailModal = game.buildAnimalInteractionModal(active);
-  assert.equal(game.infoDetailModal.choices.length, 1, "linear: animal UI is not single-choice");
+  assert.equal(game.infoDetailModal.choices.length, 3, "linear: animal UI should expose three relationship outcomes");
   assert(game.resolveAnimalInteractionStory(game.infoDetailModal.selectedChoiceId), "linear: animal story did not resolve");
   assert.equal(game.infoDetailModal.phase, "result", "linear: animal result missing");
   closeLayers(game);

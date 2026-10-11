@@ -9,7 +9,10 @@ const INFLOW_ALIASES = Object.freeze({
   advertised: "advertised",
   shared: "shared",
   tasked: "tasked",
-  rareAuction: "rareAuction"
+  rareAuction: "rareAuction",
+  rareBirth: "rareBirth",
+  rarePatrol: "rarePatrol",
+  rareMigratedIn: "rareMigratedIn"
 });
 const OUTFLOW_ALIASES = Object.freeze({
   emigrated: "emigrated",
@@ -23,7 +26,7 @@ const OUTFLOW_FOR_SOURCE = Object.freeze({
   emigrated: "emigrated",
   died: "died"
 });
-const INFLOW_KEYS = ["immigrated", "rescued", "breeding", "comforted", "advertised", "shared", "tasked", "rareAuction"];
+const INFLOW_KEYS = ["immigrated", "rescued", "breeding", "comforted", "advertised", "shared", "tasked", "rareAuction", "rareBirth", "rarePatrol", "rareMigratedIn"];
 const OUTFLOW_KEYS = ["emigrated", "died", "rareMigrated", "rareStolen"];
 const EARLY_CHAPTER_BREEDING_CAP = 3;
 function chapterKey(reserve = {}) {
@@ -232,9 +235,9 @@ function recordIncrease(reserve, source, count, options = {}) {
   const entry = snapshotOpeningIfNeeded(reserve, amount);
   entry[key] = numberOf(entry[key]) + amount;
   if (key === "breeding") addSpeciesBreeding(entry, options.speciesId, amount);
-  if (key === "rareAuction" && options.speciesId) {
+  if (["rareAuction", "rareBirth", "rarePatrol", "rareMigratedIn"].includes(key) && options.speciesId) {
     const row = entry.species[options.speciesId] || (entry.species[options.speciesId] = {});
-    row.rareAuction = numberOf(row.rareAuction) + amount;
+    row[key] = numberOf(row[key]) + amount;
   }
   return amount;
 }

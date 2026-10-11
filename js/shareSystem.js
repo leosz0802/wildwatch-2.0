@@ -131,11 +131,11 @@ function shareMoment(world, event = null, dailyLetter = null) {
   if (type === "realNature") {
     return Object.assign(moment, {
       kind: "realNature",
-      label: "真实事件",
-      title: sourceTitleOrDefault(moment.sourceTitle, "真实事件值得被记住"),
+      label: "保护区野外实录",
+      title: sourceTitleOrDefault(moment.sourceTitle, "保护区野外实录值得被记住"),
       text: `第${moment.day}日，${body || "保护区记录了一次人与动物共同面对的真实变化。"} 愿意来留下守护接力吗？`,
       imageUrl: SHARE_IMAGES.warm,
-      callToAction: "为真实事件留下守护接力"
+      callToAction: "为保护区野外实录留下守护接力"
     });
   }
   if (["injury", "departure"].includes(type) || (type === "strategic_permanent" && ["departed", "dead"].includes(status))) {
@@ -274,7 +274,7 @@ function applyShareAssistance(state, invite) {
     const memoryLine = relayKind === "rescue_event"
       ? `第${day}日：一位好友为${invite.name}的解救事件留下了守护接力。`
       : relayKind === "real_event"
-        ? `第${day}日：一位好友为这次真实事件留下了守护接力。`
+        ? `第${day}日：一位好友为这次保护区野外实录留下了守护接力。`
         : `第${day}日：一位好友读过${invite.name}的来信，并留下了守护接力。`;
     return Object.assign({}, animal, {
       relation,
@@ -323,7 +323,7 @@ function applyShareAssistance(state, invite) {
     title: relayKind === "rescue_event"
       ? `好友为${invite.name}的解救留下守护接力`
       : relayKind === "real_event"
-        ? "好友为一次真实事件留下守护接力"
+        ? "好友为一次保护区野外实录留下守护接力"
         : `好友为${invite.name}的来信留下守护接力`,
     body: `这次接力让共护关系提升 ${reserve.reputation - before.reputation}${helpedAnimal ? `，也让${helpedAnimal}的关系文本记下“好友参与过这次守护”` : ""}。`,
     tone: "warm"

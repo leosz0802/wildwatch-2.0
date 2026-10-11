@@ -516,12 +516,11 @@ function publicFriendContract(row = {}, viewerId = "") {
 
 function houndPatrolChapterNeed(chapter = 1) {
   const targets = [
-    [7, 58, 95], [7, 70, 145], [9, 84, 315], [11, 98, 405], [12, 114, 495],
-    [14, 132, 595], [16, 152, 820], [18, 174, 920], [20, 198, 1100], [22, 224, 1240],
-    [24, 252, 1380], [24, 282, 1600], [25, 314, 1760], [25, 348, 1920], [25, 384, 2180],
-    [27, 422, 2360], [29, 462, 2540], [31, 504, 2840], [33, 548, 3020], [33, 596, 3240]
+    [7, 70, 114], [7, 84, 174], [9, 101, 378], [11, 118, 486], [12, 137, 594],
+    [14, 158, 714], [16, 182, 984], [18, 209, 1104], [20, 238, 1320], [22, 269, 1488],
+    [33, 715, 3888]
   ];
-  const stage = Math.max(1, Math.min(20, Math.round(Number(chapter) || 1)));
+  const stage = Math.max(1, Math.min(targets.length, Math.round(Number(chapter) || 1)));
   const row = targets[stage - 1];
   return { chapter: stage, animals: row[1], visitors: row[2], fund: row[2] * 4 };
 }
@@ -532,7 +531,12 @@ function houndPatrolOutcome(row = {}) {
   const safetyValue = Number(rawSafety);
   const safety = Math.max(0, Math.min(100, Math.round(Number.isFinite(safetyValue) ? safetyValue : 50)));
   const risk = 1 - safety / 100;
-  const rate = 0.04 + risk * 0.12;
+  const safetyBand = safety >= 85 ? { key: "secure", label: "严密防护", maxLossRate: 0.03 }
+    : safety >= 70 ? { key: "stable", label: "稳定防护", maxLossRate: 0.06 }
+      : safety >= 50 ? { key: "normal", label: "常规防护", maxLossRate: 0.10 }
+        : safety >= 30 ? { key: "risk", label: "风险偏高", maxLossRate: 0.14 }
+          : { key: "danger", label: "高风险", maxLossRate: 0.18 };
+  const rate = Math.min(safetyBand.maxLossRate, 0.01 + Math.pow(risk, 1.35) * 0.17);
   const safetyShare = 0.45 + risk * 0.55;
   const stakeShare = cost >= 1000 ? 1 : cost >= 600 ? 0.75 : cost >= 300 ? 0.5 : 0.25;
   const need = houndPatrolChapterNeed(row.actorChapter === undefined ? row.actor_chapter : row.actorChapter);
@@ -542,16 +546,17 @@ function houndPatrolOutcome(row = {}) {
   const fundFloor = Math.max(0, Number(row.fundFloor === undefined ? row.fund_floor : row.fundFloor) || 0);
   const visitorFloor = Math.max(0, Number(row.visitorFloor === undefined ? row.visitor_floor : row.visitorFloor) || 0);
   const animalFloor = Math.max(0, Number(row.animalFloor === undefined ? row.animal_floor : row.animalFloor) || 0);
-  const fundLoss = Math.min(Math.max(0, fund - fundFloor), Math.max(0, Math.round(fund * rate)));
-  const visitorLoss = Math.min(Math.max(0, visitors - visitorFloor), Math.max(0, Math.floor(visitors * rate)));
-  const animalLoss = Math.min(Math.max(0, animals - animalFloor), Math.max(0, Math.floor(animals * rate * 0.75)));
+  const fundLoss = Math.min(Math.max(0, fund - fundFloor), Math.max(0, Math.floor(Math.max(0, fund - fundFloor) * rate)));
+  const visitorLoss = Math.min(Math.max(0, visitors - visitorFloor), Math.max(0, Math.floor(Math.max(0, visitors - visitorFloor) * rate)));
+  const animalLoss = Math.min(Math.max(0, animals - animalFloor), Math.max(0, Math.floor(Math.max(0, animals - animalFloor) * rate * 0.75)));
   return {
     safety,
     risk: Number(risk.toFixed(4)),
     transferRate: Number(rate.toFixed(4)),
-    rewardFund: Math.max(0, Math.round(need.fund * stakeShare * safetyShare)),
-    rewardVisitors: Math.max(0, Math.round(need.visitors * stakeShare * safetyShare * 0.7)),
-    rewardAnimals: Math.max(0, Math.round(need.animals * stakeShare * safetyShare * 0.7)),
+    safetyBand,
+    rewardFund: Math.max(1, Math.round(need.fund * stakeShare * safetyShare)),
+    rewardVisitors: Math.max(1, Math.round(need.visitors * stakeShare * safetyShare * 0.7)),
+    rewardAnimals: Math.max(1, Math.round(need.animals * stakeShare * safetyShare * 0.28)),
     lossFund: fundLoss,
     lossVisitors: visitorLoss,
     lossAnimals: animalLoss
@@ -579,6 +584,7 @@ function publicHoundPatrol(row = {}, viewerId = "") {
     loss: { fund: outcome.lossFund, visitors: outcome.lossVisitors, animals: outcome.lossAnimals },
     risk: outcome.risk,
     transferRate: outcome.transferRate,
+    safetyBand: outcome.safetyBand,
     protectedFloors: {
       fund: Math.max(0, Math.round(Number(row.fundFloor || row.fund_floor) || 0)),
       visitors: Math.max(0, Math.round(Number(row.visitorFloor || row.visitor_floor) || 0)),

@@ -95,6 +95,9 @@ try {
     game.render();
     const before = mapDraws;
     assert(game.renderedRescueMapMarkers && game.renderedRescueMapMarkers.length > 0, `chapter ${chapter}: rescue marker missing`);
+    const compactMarker = game.renderedRescueMapMarkers.find((marker) => marker.targetId === target.targetId);
+    assert(compactMarker && compactMarker.compact, `chapter ${chapter}: unstarted rescue marker should use compact pin`);
+    assert(compactMarker.w <= 86 && compactMarker.h <= 42, `chapter ${chapter}: compact rescue pin must not cover a large map area`);
     assert(game.openChapterRescueTask(target.targetId, { autoRun: true }), `chapter ${chapter}: rescue click failed`);
     assert.strictEqual(findRecord(reserve.chapterRescue, target.targetId).status, 'rescued', `chapter ${chapter}: target did not settle`);
     assert(game.mapConsequencePulse && game.mapConsequencePulse.rescueSpeciesId, `chapter ${chapter}: release pulse missing`);

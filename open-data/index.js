@@ -18,6 +18,7 @@ const state = {
   surface: "idle",
   worldRows: [],
   worldLeaderboardRows: [],
+  contractFriendOrder: [],
   avatarRow: null,
   requestId: 0,
   friendLoading: false,
@@ -539,10 +540,60 @@ function applyFriendRows(data) {
   publishFriendRows(true);
 }
 
-function publishFriendRows(resetView = false) {
-  const rows = decorateFriendRows(state.friendSourceRows);
-  if (state.surface === "rank") {
+function contractPlaceholder(item) {
+  const title = String(item && item.title || "微信好友").slice(0, 40);
+  const nickname = title.includes("的") ? title.slice(0, title.indexOf("的")) : title;
+  const valuation = Math.max(0, Math.round(Number(item && item.valuation) || 0));
+  return {
+    nickname: nickname || "微信好友",
+    friendMatchKey: String(item && item.friendMatchKey || ""),
+    worldPlayerId: String(item && item.id || "").replace(/^cloud_/, "").slice(0, 32),
+    avatarUrl: "",
+    reserveName: "保护区",
+    title: title || "微信好友",
+    valuation,
+    rating: valuation,
+    level: Math.max(1, Math.min(7, Math.round(Number(item && item.level) || 1))),
+    animals: Math.max(0, Math.round(Number(item && item.animals) || 0)),
+    updatedAt: 0,
+    contractPlaceholder: true
+  };
+}
+
+function contractOrderedRows(sourceRows) {
+  const order = (Array.isArray(state.contractFriendOrder) ? state.contractFriendOrder : [])
+    .filter((item) => item && /^[a-f0-9]{64}$/.test(String(item.friendMatchKey || "")));
+  if (!order.length) {
+    const rows = decorateFriendRows(sourceRows);
     rows.sort((a, b) => b.valuation - a.valuation);
+    return rows;
+  }
+  // The main domain can only start a contract by list position. Show the
+  // server friend order exactly, including a placeholder when WeChat storage
+  // has not arrived yet, so the tapped row is the same person.
+  const byKey = new Map();
+  (sourceRows || []).forEach((row) => {
+    if (!row || row.fromWorld === true) return;
+    const key = String(row.friendMatchKey || "");
+    if (key && !byKey.has(key)) byKey.set(key, row);
+  });
+  const ordered = order.map((item) => byKey.get(String(item.friendMatchKey)) || contractPlaceholder(item));
+  const orderedKeys = new Set(order.map((item) => String(item.friendMatchKey)));
+  // Contract ordering only covers friends with a stable match key. Keep all
+  // remaining real friends in the ranking after that ordered prefix instead
+  // of dropping them from the visible WeChat friend list.
+  const remainder = (sourceRows || [])
+    .filter((row) => row && !orderedKeys.has(String(row.friendMatchKey || "")))
+    .slice()
+    .sort((a, b) => (Number(b.valuation) || 0) - (Number(a.valuation) || 0));
+  return ordered.concat(remainder);
+}
+
+function publishFriendRows(resetView = false) {
+  const rows = state.surface === "rank"
+    ? contractOrderedRows(state.friendSourceRows)
+    : decorateFriendRows(state.friendSourceRows);
+  if (state.surface === "rank") {
     state.phase = "ready";
     if (resetView) {
       state.scrollY = 0;
@@ -757,13 +808,26 @@ if (typeof wx !== "undefined" && wx.onMessage) {
     if (message.type !== "friend_rank_show") return;
     try { state.worldLeaderboardRows = JSON.parse(message.worldRowsJson || "[]"); }
     catch (error) { state.worldLeaderboardRows = []; }
+    let orderChanged = false;
+    if (typeof message.contractFriendsJson === "string") {
+      let nextOrder = [];
+      try { nextOrder = JSON.parse(message.contractFriendsJson || "[]"); }
+      catch (error) { nextOrder = []; }
+      if (!Array.isArray(nextOrder)) nextOrder = [];
+      nextOrder = nextOrder
+        .filter((item) => item && /^[a-f0-9]{64}$/.test(String(item.friendMatchKey || "")))
+        .slice(0, 100);
+      const previousOrder = JSON.stringify(state.contractFriendOrder || []);
+      orderChanged = previousOrder !== JSON.stringify(nextOrder);
+      state.contractFriendOrder = nextOrder;
+    }
     state.surface = "rank";
     state.width = Math.max(240, Number(message.width) || state.width);
     state.height = Math.max(180, Number(message.height) || state.height);
     state.pixelRatio = Math.max(1, Number(message.pixelRatio) || 1);
     state.key = String(message.key || state.key);
     state.scoreKey = String(message.scoreKey || state.scoreKey);
-    if (state.friendSourceRows.length && message.reload !== true) publishFriendRows();
+    if (state.friendSourceRows.length && message.reload !== true) publishFriendRows(orderChanged);
     else requestFriendRank({ force: message.reload === true });
   };
   wx.onMessage((message) => {

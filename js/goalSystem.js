@@ -76,7 +76,7 @@ const ACTION_META = Object.freeze({
   visitorAdjust: { label: "调节游客现场", icon: "community", screen: "home" },
   neighborExchange: { label: "射箭判定交换", icon: "community", screen: "home" },
   harshNature: { label: "射箭判定伤害", icon: "wildfire", screen: "home" },
-  realEvent: { label: "查看事件详情", icon: "trail", screen: "home" },
+  realEvent: { label: "查看保护区野外实录", icon: "trail", screen: "home" },
   facilityBuild: { label: "建设保护设施", icon: "reserve_level", screen: "home" },
   facilityUse: { label: "使用保护站", icon: "reserve_level", screen: "home" },
   rescueAnimal: { label: "前往沙盘解救", icon: "paw", screen: "home" },
@@ -85,6 +85,9 @@ const ACTION_META = Object.freeze({
   chapterSpecial: { label: "处理本章特别任务", icon: "paw", screen: "home" },
   visitorReception: { label: "观景接待", icon: "community", screen: "home" },
   endlessAuction: { label: "参加每周拍卖", icon: "rare", screen: "home" },
+  friendContract: { label: "打开好友榜", icon: "community", screen: "league" },
+  endlessRecap: { label: "查看本周来回", icon: "leaf", screen: "home" },
+  endlessMirror: { label: "查看本周来回", icon: "leaf", screen: "home" },
   worldHoundPatrol: { label: "发起猎犬巡逻", icon: "hound_team", screen: "league" },
   sharePostcard: { label: "截下本章种群", icon: "eye", screen: "home" }
 });
@@ -326,6 +329,27 @@ const CHAPTER_THEME_TASKS = Object.freeze({
   ]),
   8: Object.freeze([
     Object.freeze({
+      id: "crocodile-waterline",
+      title: "守住鳄鱼水线",
+      body: "鳄鱼开始把核心湿地当作伏击线。先修复水源，把深水和浅滩之间的边界稳住。",
+      action: "habitat",
+      metricFocus: "water",
+      validActions: Object.freeze(["habitat"]),
+      buttonLabel: "修复水源",
+      actionHint: "湿地修复 · 稳住水线",
+      resultText: "鳄鱼水线已经稳定，湿地深浅有了清楚的分界。"
+    }),
+    Object.freeze({
+      id: "crocodile-patrol-trace",
+      title: "确认伏击边界",
+      body: "沿着水草边缘派出猎犬，确认鳄鱼的活动范围，给游客路线留出安全距离。",
+      action: "houndScout",
+      validActions: Object.freeze(["houndScout"]),
+      buttonLabel: "派猎犬巡查",
+      actionHint: "边界巡查 · 标记安全距离",
+      resultText: "伏击边界已经标记，游客路线避开了鳄鱼的静伏水面。"
+    }),
+    Object.freeze({
       id: "crocodile-snapshot",
       title: "截下鳄鱼伏击线",
       body: "把第8章的鳄鱼拍进守护明信片，让核心庇护的沉默猎手被看见。也可直接截图。",
@@ -335,9 +359,40 @@ const CHAPTER_THEME_TASKS = Object.freeze({
       validActions: Object.freeze(["sharePostcard", "captureScreen"]),
       buttonLabel: "截下鳄鱼伏击线",
       resultText: "鳄鱼伏击线已经被看见，核心区开始像能住下来的地方。"
+    }),
+    Object.freeze({
+      id: "crocodile-quiet-bay",
+      title: "留下安静河湾",
+      body: "观察一次鳄鱼伏击后的河湾，确认动物和游客都能在同一片湿地里保持距离。",
+      action: "observeReserve",
+      validActions: Object.freeze(["observeReserve", "animalCare"]),
+      buttonLabel: "观察河湾",
+      actionHint: "退后观察 · 确认湿地秩序",
+      resultText: "河湾保持安静，鳄鱼和其他动物各自回到自己的水线。"
     })
   ]),
   9: Object.freeze([
+    Object.freeze({
+      id: "mink-trace-riverbank",
+      title: "追踪水貂水线",
+      body: "水貂只在夜里贴着水线移动。派猎犬确认它经过的岸段，给迁徙线留下连续记录。",
+      action: "houndScout",
+      validActions: Object.freeze(["houndScout"]),
+      buttonLabel: "追踪水线",
+      actionHint: "夜间巡查 · 连起迁徙线",
+      resultText: "水貂的夜行水线已经连起来，迁徙记录不再断在浅滩。"
+    }),
+    Object.freeze({
+      id: "mink-riverbank-recovery",
+      title: "恢复岸边植被",
+      body: "水貂需要贴水的灌木和石缝。修复岸边草场，给夜行路线留下可以藏身的边缘。",
+      action: "habitat",
+      metricFocus: "grass",
+      validActions: Object.freeze(["habitat"]),
+      buttonLabel: "修复岸边",
+      actionHint: "草场修复 · 留下藏身边缘",
+      resultText: "岸边植被重新连起来，水貂有了不必穿过游客线的夜路。"
+    }),
     Object.freeze({
       id: "mink-night-snapshot",
       title: "截下水貂夜行",
@@ -349,8 +404,40 @@ const CHAPTER_THEME_TASKS = Object.freeze({
       buttonLabel: "截下水貂夜行",
       resultText: "水貂夜行已经被看见，迁徙线第一次穿过浅滩。"
     }),
+    Object.freeze({
+      id: "mink-night-quiet",
+      title: "守住夜行安静",
+      body: "观察夜行路线的变化，确认游客灯光和巡护脚步没有重新切断水貂的岸线。",
+      action: "observeReserve",
+      validActions: Object.freeze(["observeReserve", "animalCare"]),
+      buttonLabel: "观察夜行路线",
+      actionHint: "夜间观察 · 保持岸线安静",
+      resultText: "夜行路线保持连贯，水貂重新把岸边当成安全的回家路。"
+    }),
   ]),
   10: Object.freeze([
+    Object.freeze({
+      id: "rhino-wallow-water",
+      title: "补回泥坑水分",
+      body: "白犀牛回到保护区后，第一处泥坑很快变干。先修复水源，让大型动物有可以降温的泥地。",
+      action: "habitat",
+      metricFocus: "water",
+      validActions: Object.freeze(["habitat"]),
+      buttonLabel: "修复泥坑",
+      actionHint: "水源修复 · 恢复降温泥地",
+      resultText: "泥坑重新保持湿润，白犀牛有了能停下来的降温处。"
+    }),
+    Object.freeze({
+      id: "rhino-boundary-watch",
+      title: "加固旗舰边界",
+      body: "白犀牛回归会吸引更多目光。巡查边界，把游客和大型动物的距离重新拉开。",
+      action: "antiPoacher",
+      taskVariant: "anti-poacher",
+      validActions: Object.freeze(["antiPoacher", "houndScout"]),
+      buttonLabel: "加固边界",
+      actionHint: "边界行动 · 留出旗舰空间",
+      resultText: "旗舰动物的活动边界已经加固，游客线没有越过泥坑。"
+    }),
     Object.freeze({
       id: "rhino-wallow-snapshot",
       title: "截下白犀牛泥坑",
@@ -361,6 +448,16 @@ const CHAPTER_THEME_TASKS = Object.freeze({
       validActions: Object.freeze(["sharePostcard", "captureScreen"]),
       buttonLabel: "截下白犀牛泥坑",
       resultText: "白犀牛泥坑已经被看见，旗舰招牌有了真正的重量。"
+    }),
+    Object.freeze({
+      id: "rhino-herd-memory",
+      title: "记录旗舰回归",
+      body: "安静观察白犀牛回到泥坑后的状态，把一次回归变成可以影响后续守护的动物记忆。",
+      action: "animalCare",
+      validActions: Object.freeze(["animalCare", "observeReserve"]),
+      buttonLabel: "记录回归",
+      actionHint: "动物观察 · 留下回归记忆",
+      resultText: "白犀牛的回归已经写入动物记忆，保护区有了新的守护参照。"
     })
   ]),
   11: Object.freeze([
@@ -415,7 +512,19 @@ function ecologyNeedsAttention(reserve) {
     || Number(((reserve || {}).migration || {}).delta) < 0;
 }
 function dailyObjectiveKinds() {
-  return ["visitor", "ecology"];
+  // Rotate the two daily slots so the player is not asked to recruit visitors
+  // and repair habitat every day. The date key follows the game's 04:00 day
+  // boundary, so the pair stays stable for the whole daily cycle.
+  const dayKey = goalDateKey();
+  const dayIndex = Math.floor(Date.parse(`${dayKey}T00:00:00Z`) / 86400000);
+  const rotations = [
+    ["visitor", "ecology"],
+    ["animal", "guard"],
+    ["economy", "discovery"],
+    ["ecology", "animal"],
+    ["visitor", "economy"]
+  ];
+  return rotations[((dayIndex % rotations.length) + rotations.length) % rotations.length];
 }
 function dailyNeedCount(daily = {}) {
   return Math.max(
@@ -817,6 +926,7 @@ function affordableSupplyId(reserve, preferredId = "") {
 }
 function actionExecutable(state, action) {
   const reserve = reserveFor(state);
+  if (action === "friendContract" || action === "endlessRecap" || action === "endlessMirror") return true;
   if (action === "worldHoundPatrol") return Math.max(0, Number(reserve.fund) || 0) >= 100;
   if (action === "endlessAuction") {
     const auction = endlessAuctionView(reserve);
@@ -1390,16 +1500,16 @@ function chapterThemeSavedStep(saved = {}, chapter, taskCount) {
   if (chapter === 2 && saved.chapter === chapter && Math.round(Number(saved.version) || 1) < 4 && step > 0) {
     step += 1;
   }
-  // From chapter 8 the current-task chain only keeps share and archery.
-  // Older saves can be parked on a deleted patrol or habitat step. Start
-  // again at the first remaining task; already finished share tasks stay retired.
-  if (chapter >= 8 && saved.chapter === chapter && Math.round(Number(saved.version) || 1) < 3) {
+  // Chapters 8-10 now have a four-step field chain instead of a single
+  // postcard task. Older saves can be parked on the old one-step chain;
+  // restart at the first remaining task while preserving retired ids.
+  if (chapter >= 8 && saved.chapter === chapter && Math.round(Number(saved.version) || 1) < 4) {
     step = 0;
   }
   return step;
 }
 function chapterThemeRecordVersion(chapter, saved = {}) {
-  if (chapter >= 8) return 3;
+  if (chapter >= 8) return 4;
   if (chapter === 2) return 4;
   return Math.max(1, Math.round(Number(saved.version) || 1));
 }
@@ -1660,6 +1770,14 @@ function endlessContractCandidate(state) {
     : [action];
   const executableAction = validActions.find((item) => actionExecutable(state, item)) || action;
   const completed = Number(contract.progress) || 0;
+  const emergencyActive = !!(((reserve.emergency || {}).active));
+  const buttonLabels = {
+    friendContract: "打开好友榜",
+    worldHoundPatrol: "打开世界榜",
+    endlessAuction: "参加本周拍卖",
+    endlessRecap: "查看本周来回",
+    endlessMirror: "查看本周来回"
+  };
   return candidate(
     `endless:contract:${contract.id}`,
     "endless",
@@ -1670,13 +1788,14 @@ function endlessContractCandidate(state) {
     state,
     {
       endlessContract: true,
+      forcePrimary: !emergencyActive && contract.role === "interaction",
       taskCategory: TASK_CATEGORIES.story,
       oneStep: true,
       allowBlocked: true,
       contractId: contract.id,
       contractAction: action,
       contractValidActions: validActions,
-      buttonLabel: (ACTION_META[executableAction] || {}).label || "开始合同",
+      buttonLabel: buttonLabels[executableAction] || (ACTION_META[executableAction] || {}).label || "开始合同",
       rewardText: "赛季分数 +10 · 推进每日合同"
     }
   );

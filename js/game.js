@@ -17,6 +17,18 @@ const { applySandboxTaskCadence, touchSandboxTask, closeSandboxTasksForAction, i
 const { animals } = require("./animals");
 const { loadState, saveState, resetState, createCharacter } = require("./storage");
 const { simulateDay, reserveProgressionFor: computeReserveProgression, advanceIdleEmergency, updateReserveEmergency, sellRecoveredGoodsBatch, advanceLedgerSampleHandover } = require("./simulator");
+
+// A visible fire warning is a disaster task even when an older save leaves a
+// real-nature/extinction event type on the same emergency record.  Route by
+// what the player can see first so a fire prompt cannot open an unrelated
+// species-extinction record.
+function isVisibleFireAlert(item = {}) {
+  if (!item || typeof item !== "object") return false;
+  const text = `${item.title || ""} ${item.label || ""} ${item.visualKind || ""} ${item.eventType || item.type || ""}`;
+  return item.visualKind === "wildfire"
+    || /sandbox_wildfire|火警|火灾预警|山火/.test(text);
+}
+const { applyActionAnalytics } = require("./behaviorAnalytics");
 const { habitatCapacitySnapshot, habitatMigrationAssessment, consistentMigrationSnapshot, applyHabitatPopulationDelta } = require("./ecologyConsistency");
 const { reserveActionCatalog, reserveActionById, supplyPurchaseCatalog, supplyPurchaseById, supplyPurchaseForQuantity, maxAffordableSupplyQuantity, supplyReplenishmentPlan, parseSupplyReplenishList, supplyReplenishUsesSafetyLine, supplyFillLine, supplySafetyLineMet, actionSupplyRequirement } = require("./actions");
 const { buildReserveView, actionLabel: reserveActionLabel } = require("./reserveView");
@@ -37,6 +49,7 @@ const {
   wildernessTradeRecommendations,
   proposeAutoExchange,
   proposeFriendExchangeChoices,
+  proposalWithWant,
   settleAutoExchange,
   wildernessTradeDailyUsage,
   wildernessTradePreview,
@@ -52,6 +65,7 @@ const {
   matchExchangePartner,
   applyFriendAidOnSpecial,
   friendAidMarkers,
+  friendAidRequestReadiness,
   settlePendingFriendAid
 } = require("./friendAidSystem");
 const {
@@ -117,7 +131,7 @@ const {
   previousChapterVisitorClosingTotal
 } = require("./chapterTargets");
 const { metricProgress, completedTaskEntries, TaskCompletionFeedback } = require("./taskCompletionFeedback");
-const { rareAnimalChapterGate, normalizeRareAnimalState, rareAuctionView, maxBaseBid, rareAuctionFinalBid, rareAuctionHoldAmount, submitRareAuctionBid, settleRareAuction, settleRareAuctionForProgression, auctionResultNotice, isAuctionNoticeUnseen, acknowledgeAuctionNotice } = require("./rareAnimalSystem");
+const { rareAnimalChapterGate, normalizeRareAnimalState, rareAuctionView, maxBaseBid, rareAuctionFinalBid, rareAuctionHoldAmount, submitRareAuctionBid, settleRareAuction, settleRareAuctionForProgression, auctionResultNotice, isAuctionNoticeUnseen, acknowledgeAuctionNotice, advanceRareAnimalDay, resolveRareAnimalRisk, maybeRareAnimalBirth, maybeRareAnimalPatrolDiscovery, maybeRareAnimalMigration, rareAnimalCollectionView } = require("./rareAnimalSystem");
 const { GOAL_BALANCE, buildGoalView, normalizeGoalState, resolveGoals, applyGoalProgress, goalDateKey, selectActiveGoal, nextVisitorFacilityTarget, chapterPassGoalList, CHAPTER_THEME_TASKS, chapterThemeView, lateChapterAutoOperationGoal, systemGoalCanRepeat: goalSystemCanRepeat } = require("./goalSystem");
 const { guardianContext, advanceGuardianCycle, awardMastery, masteryView, chooseMasteryBranch, recordSevenDayProgress } = require("./guardianCycle");
 const { addPendingRecovered } = require("./resourceLedger");
@@ -138,6 +152,7 @@ const {
   mergePersistedPatrolClaims,
   PATROL_HISTORY_LIMIT,
   calculatePatrolOutcome,
+  patrolSafetyBand,
   canStartPatrol,
   createPatrolRecord,
   settlePatrolRecord,
@@ -147,6 +162,8 @@ const {
   patrolRewardFigures,
   patrolLossFigures,
   chapterFloors
+  ,npcPatrolCount
+  ,createNpcPatrolRecords
 } = require("./worldHoundPatrol");
 
 const NEIGHBOR_RESULT_METRICS = Object.freeze([
@@ -491,7 +508,7 @@ function chapterCoreMetrics(reserve = {}, chapter = 1) {
     visitors: best.visitors >= target.visitors,
     rareAnimal: rareAnimal.met
   };
-  const liveComplete = liveSpecies >= target.species && liveAnimals >= target.animals && visitors >= target.visitors && rareAnimal.met;
+  const liveComplete = liveSpecies >= target.species && liveAnimals >= target.animals && visitors >= target.visitors;
   const percentage = (value, goal) => metricProgress(value, goal).percentage;
   return {
     species: liveSpecies,
@@ -708,10 +725,10 @@ const DISCOVERY_ITEM_CARD_HEIGHT = 148;
 function resolveRenderDpr(info = {}) {
   const nativeDpr = Math.max(1, Number(info.pixelRatio) || 1);
   const benchmark = Number(info.benchmarkLevel) || 0;
-  // iOS WeChat keeps the canvas backing store plus a shadow buffer. A 3x
-  // phone capped at 2 still exhausts the mini-game heap by chapter 12.
-  const ios = canvasPlatformId(info) === "ios";
-  const cap = ios || (benchmark > 0 && benchmark <= 10) ? 1.5 : 2;
+  // Use a 2x backing store on capable iPhones so text and UI edges stay crisp.
+  // Keep the 1.5x fallback for low benchmark devices where a larger canvas can
+  // exhaust the mini-game heap during long sessions.
+  const cap = benchmark > 0 && benchmark <= 10 ? 1.5 : 2;
   return Math.min(nativeDpr, cap);
 }
 function resolveRuntimeInfo(runtime) {
@@ -750,6 +767,11 @@ function usesIosClient(info = {}) {
   const platform = String((info && info.platform) || "").toLowerCase();
   const system = String((info && info.system) || "").toLowerCase();
   return /ios|iphone|ipad/.test(`${platform} ${system}`);
+}
+function usesAndroidTouchCoordinates(info = {}) {
+  const platform = String((info && info.platform) || "").toLowerCase();
+  const system = String((info && info.system) || "").toLowerCase();
+  return /android/.test(`${platform} ${system}`);
 }
 function usesFragileCanvas(info = {}) {
   return canvasPlatformId(info) !== "ios";
@@ -980,7 +1002,11 @@ class Game {
     this.mapSpeakerFocus = null;
     this.mapSpeechSelection = null;
     this.mapSpeechHistory = {};
+    this.mapSpeechKindHistory = {};
     this.animalMotionStates = {};
+    // Stable per-animal habitat offsets.  Keep this outside the render path so
+    // the sandbox does not hash and allocate spread values on every frame.
+    this.animalHabitatSpreadCache = Object.create(null);
     this.visitorMotionStates = {};
     this.ecologyVisualTiers = {};
     this.prologueRuntime = null;
@@ -1232,7 +1258,10 @@ class Game {
         actorReward: remote.reward || remote.actorReward || null,
         targetLoss: remote.loss || remote.targetLoss || null,
         protectedFloors: remote.protectedFloors || null,
-        appliedReward: kind === "reward",
+        // A mailbox row is only marked applied after the local reward/loss is
+        // actually written. Marking a server-settled reward as `true` here
+        // makes a reload skip both the payout and the result brief.
+        appliedReward: null,
         appliedLoss: kind === "loss" && patrolAlreadyClaimed(state, remoteRow, "loss")
       };
       state.history.push(local);
@@ -1266,22 +1295,44 @@ class Game {
     const freshlySettled = [];
     sent.forEach((remote) => {
       const prior = this.findWorldHoundPatrolMailboxRow(state, remote, "sent");
-      const waiting = !!(prior && prior.status === "pending" && !prior.appliedReward);
+        // A settled mailbox row may arrive after a reload, when there is no
+        // local pending row at all. It still needs one local reward claim and
+        // one result brief; otherwise the row is marked true below and is
+        // silently treated as already announced.
+        const waiting = !prior || !prior.appliedReward;
       const local = this.claimWorldHoundPatrolMailboxRow(reserve, state, remote, "sent");
       if (local && remote.status === "settled") {
         if (waiting && !patrolAlreadyClaimed(state, local, "reward") && !local.appliedReward) {
-          local.actorReward = calculatePatrolOutcome(Object.assign({}, local.targetSnapshot || {}, {
-            cost: local.cost,
-            chapter: local.chapter,
-            safety: Number.isFinite(Number(remote.targetSafety)) ? Number(remote.targetSafety) : (local.targetSnapshot || {}).safety
-          })).actorReward;
+          const remoteReward = remote.reward || remote.actorReward;
+          const remoteLoss = remote.loss || remote.targetLoss;
+          if (remoteReward && typeof remoteReward === "object") {
+            local.actorReward = Object.assign({}, remoteReward);
+          } else {
+            const canonical = calculatePatrolOutcome(Object.assign({}, local.targetSnapshot || {}, {
+              cost: local.cost,
+              chapter: local.chapter,
+              safety: Number.isFinite(Number(remote.targetSafety)) ? Number(remote.targetSafety) : (local.targetSnapshot || {}).safety
+            }));
+            local.actorReward = canonical.actorReward;
+            if (!local.targetLoss && canonical.targetLoss) local.targetLoss = canonical.targetLoss;
+          }
+          if (remoteLoss && typeof remoteLoss === "object") local.targetLoss = Object.assign({}, remoteLoss);
           local.appliedReward = applyActorReward(reserve, local);
+          const rareDiscovery = maybeRareAnimalPatrolDiscovery(reserve, {
+            action: "worldHoundPatrol",
+            success: true
+          });
+          if (rareDiscovery && rareDiscovery.ok) local.rareCub = Object.assign({}, rareDiscovery.entry);
           local.resultAnnounced = false;
           freshlySettled.push(Object.assign({}, local, { noticeRole: "actor" }));
         }
         local.appliedReward = local.appliedReward || true;
         markPatrolClaimed(state, local, "reward");
         markPatrolClaimed(state, Object.assign({}, remote, { direction: "sent" }), "reward");
+        this.noteEndlessChapterAction("worldHoundPatrol", {
+          partnerName: local.targetName || local.partnerName,
+          partnerId: local.targetId || local.patrolId
+        });
       }
     });
     received.forEach((remote) => {
@@ -1300,8 +1351,32 @@ class Game {
         local.appliedLoss = local.appliedLoss || true;
         markPatrolClaimed(state, local, "loss");
         markPatrolClaimed(state, Object.assign({}, remote, { direction: "received" }), "loss");
+        this.noteEndlessChapterAction("worldHoundPatrolIncoming", {
+          partnerName: local.partnerName || local.targetName,
+          partnerId: local.partnerId || local.patrolId
+        });
       }
     });
+    // When the world board is quiet, the reserve still receives believable
+    // daily pressure from system patrol teams. More than one real player
+    // patrol suppresses this simulation for the day so active players are not
+    // punished twice for a busy board.
+    const todayKey = worldPatrolDayKey(Date.now());
+    const realIncomingToday = received.filter((row) => !row.npc
+      && worldPatrolDayKey(Number(row.createdAt || row.settledAt || 0)) === todayKey).length;
+    if (state.npcDayKey !== todayKey && realIncomingToday <= 1 && Array.isArray(mailbox.received)) {
+      const chapter = Math.max(1, Math.round(Number((reserve.progression || {}).stage) || 1));
+      const npcCount = npcPatrolCount(todayKey, reserve.worldPlayerId || reserve.playerId || chapter);
+      const npcRows = createNpcPatrolRecords({ dayKey: todayKey, count: npcCount, reserve, chapter, now: Date.now() });
+      npcRows.forEach((row) => {
+        row.appliedLoss = applyTargetLoss(reserve, row);
+        row.resultAnnounced = false;
+        state.history = state.history.concat(row);
+        freshlySettled.push(row);
+      });
+      state.npcDayKey = todayKey;
+      state.npcCount = npcRows.length;
+    }
     state.history = trimPatrolHistory(state.history);
     persistPatrolClaims(state, this.runtime);
     saveState(this.state);
@@ -1378,6 +1453,7 @@ class Game {
         this.settleAgedShareReward(now);
       }
       this.settleWorldHoundPatrols(now);
+      this.rollEndlessChapterDay();
       this.openPendingWorldHoundPatrolResult();
       this.releaseStuckMapGesture(now);
       if (this.infoDetailModal || this.patrolTaskModal || (typeof this.pendingArcheryShot === "function" && this.pendingArcheryShot())) {
@@ -2632,8 +2708,19 @@ class Game {
       // Canvas pointer bridge is also active. If the previous start already
       // fired a HUD action and its short duplicate guard is still alive,
       // discard only that duplicate event.
-      if (this.suppressNextTouchEndTap
-        && Number(this.immediateTapGuardUntil) > now) return;
+      if (this.suppressNextTouchEndTap && Number(this.immediateTapGuardUntil) > now) {
+        // The canvas bridge can repeat the same touchstart after an immediate
+        // HUD action.  Only swallow that duplicate contact.  A second tap on
+        // a newly opened modal may legitimately arrive within the short
+        // guard window (for example: close details, then open 招募), so a
+        // different point must be allowed through.
+        const repeated = (event && ((event.touches && event.touches[0]) || (event.changedTouches && event.changedTouches[0]))) || event;
+        const point = repeated ? this.touchPoint(repeated) : null;
+        const guard = this.immediateTapGuardPoint;
+        const samePoint = point && guard
+          && Math.hypot(point.x - guard.x, point.y - guard.y) <= 24;
+        if (!point || samePoint) return;
+      }
       this.runtimeTouchStartAt = now;
       this.lastPointerStartAt = now;
       // Each physical press starts a fresh coordinate negotiation. A lost
@@ -2684,6 +2771,17 @@ class Game {
       const startTouch = touch || touches[0] || (finiteCoord(event) ? event : null);
       if (!startTouch) return;
       const point = this.touchPoint(startTouch);
+      // Android may expose the same press in CSS coordinates on one event
+      // and backing-canvas coordinates on the next. Resolve the fixed nav
+      // from both projections before any animal/map hit can claim it.
+      const androidNavTouch = this.androidBottomNavTouch(startTouch, point);
+      if (androidNavTouch) {
+        this.activateHitArea(androidNavTouch.hit);
+        this.markImmediateTapGuard(androidNavTouch.point);
+        this.suppressNextTouchEndTap = true;
+        this.gesture = null;
+        return;
+      }
       // 好友开放数据榜单绘制在主画布之上，但底层页面仍保留自己的
       // hitAreas。先让好友榜接管触摸，避免详情页的合同按钮被底层
       // 的导航/面板命中区截走，出现“看得到但点不到”。
@@ -2756,6 +2854,16 @@ class Game {
       const actionHit = this.hitAreaAt(point.x, point.y);
       const balloonHit = this.eventBalloonHitAt(point.x, point.y);
       const insideMapViewport = this.isInsideMapViewport(point.x, point.y);
+      // The active task graphic is outside hitAreas. Handle it before the
+      // immediate animal press path so a nearby animal cannot steal the task
+      // prompt on touchstart (the same priority is used on touchend).
+      if (balloonHit && balloonHit.taskMarker !== false && !this.blockingOverlayOpen()) {
+        this.activateHitArea(balloonHit);
+        this.markImmediateTapGuard(point);
+        this.suppressNextTouchEndTap = true;
+        this.gesture = null;
+        return;
+      }
       // 固定导航和缩放键在按下时直接响应，避免真机漏发 touchend 后整组
       // 按钮看似失效。地图任务仍保留“抬手触发”，以便区分点击和拖动。
       if (actionHit && this.isPressImmediateHudHit(actionHit)) {
@@ -3576,6 +3684,7 @@ class Game {
     const hasClient = finite(source.clientX) && finite(source.clientY);
     const width = Math.max(1, Number(this.width) || 1);
     const height = Math.max(1, Number(this.height) || 1);
+    const androidTouch = usesAndroidTouchCoordinates(this.info);
     let x = hasXY ? Number(source.x) : hasClient ? Number(source.clientX) : Number(source.pageX) || 0;
     let y = hasXY ? Number(source.y) : hasClient ? Number(source.clientY) : Number(source.pageY) || 0;
 
@@ -3594,6 +3703,21 @@ class Game {
       } else if (clientLooksLikeBackingPixels) {
         x = Number(source.x);
         y = Number(source.y);
+      }
+    }
+
+    // Android WeChat can expose an in-range backing-canvas point without
+    // clientX/clientY. The old code then treated the point as logical and
+    // sent a bottom-nav tap into the map animal hit layer. If the scaled
+    // candidate lands on the fixed navigation, prefer that candidate before
+    // any map hit is evaluated.
+    if (androidTouch && !hasClient && scale > 1 && this.touchCoordinateSpace !== "physical") {
+      const rawNav = this.bottomNavHitAt(x, y, { cushion: 22 });
+      const physicalNav = this.bottomNavHitAt(x / scale, y / scale, { cushion: 22 });
+      if (!rawNav && physicalNav) {
+        x /= scale;
+        y /= scale;
+        this.touchCoordinateSpace = "physical";
       }
     }
 
@@ -3629,6 +3753,30 @@ class Game {
       this.touchCoordinateSpace = "physical";
     }
     return { x, y };
+  }
+  androidBottomNavTouch(touch, primaryPoint = null) {
+    if (!usesAndroidTouchCoordinates(this.info)) return null;
+    const source = touch || {};
+    const finite = (value) => Number.isFinite(Number(value));
+    const scaleX = this.touchReportedScale("x");
+    const scaleY = this.touchReportedScale("y");
+    const candidates = [];
+    const add = (x, y) => {
+      if (!finite(x) || !finite(y)) return;
+      const point = { x: Number(x), y: Number(y) };
+      if (!candidates.some((item) => Math.abs(item.x - point.x) < 0.5 && Math.abs(item.y - point.y) < 0.5)) candidates.push(point);
+    };
+    if (primaryPoint) add(primaryPoint.x, primaryPoint.y);
+    if (finite(source.x) && finite(source.y)) add(source.x, source.y);
+    if (finite(source.clientX) && finite(source.clientY)) add(source.clientX, source.clientY);
+    if (finite(source.pageX) && finite(source.pageY)) add(source.pageX, source.pageY);
+    const initial = candidates.slice();
+    initial.forEach((point) => add(point.x / scaleX, point.y / scaleY));
+    for (const point of candidates) {
+      const hit = this.bottomNavHitAt(point.x, point.y, { cushion: 22 });
+      if (hit) return { point, hit };
+    }
+    return null;
   }
 
 
@@ -3706,7 +3854,7 @@ class Game {
   }
   buildAnimalInteractionModal(active = {}) {
     const story = animalInteractionStory(active.storyId) || active;
-    const choices = (story.choices || active.choices || []).slice(0, 1).map((choice) => Object.assign({}, choice));
+    const choices = (active.choices || story.choices || []).slice(0, 3).map((choice) => Object.assign({}, choice));
     return {
       kind: "animalInteractionStory",
       kicker: `${story.category || "动物关系"} · 独立任务`,
@@ -3716,7 +3864,7 @@ class Game {
       story,
       choices,
       selectedChoiceId: (choices[0] || {}).id || "",
-      footer: "执行后关系会朝更稳定的方向发展。不处理会自动恶化。"
+      footer: ""
     };
   }
   selectAnimalInteractionChoice(choiceId = "") {
@@ -3761,7 +3909,7 @@ class Game {
       result,
       items: (result.changes || [])
         .filter((item) => item.key !== "stability")
-        .slice(0, 1)
+        .slice(0, 3)
         .map((item) => ({ tag: displayMetricLabel(item.key), title: `${formatDisplayNumber(item.before)} → ${formatDisplayNumber(item.after)}`, body: item.delta > 0 ? "关系调节带来改善" : "这是本次方案的代价", largeText: true }))
         .concat(result.businessChange ? [{ tag: "游客与基金", title: `游客 ${result.businessChange.visitorsDelta >= 0 ? "↑" : "↓"}${Math.abs(result.businessChange.visitorsDelta || 0)} · 基金 ${result.businessChange.fundDelta >= 0 ? "+" : ""}${result.businessChange.fundDelta || 0}`, body: "变化已写入经营数据", largeText: true }] : [])
         .slice(0, 2),
@@ -5045,12 +5193,12 @@ class Game {
       individualId: item.individualId || relatedAnimal.id || "",
       name: item.name || relatedAnimal.name || "",
       species: item.species || relatedAnimal.species || "",
-      title: item.title || (definition && definition.themeLabel) || "真实事件",
+      title: item.title || (definition && definition.themeLabel) || "保护区野外实录",
       body: item.resultSummary || item.title || "保护区记录了一次人与动物共同面对的真实变化。"
     });
     return {
       kind: "realNatureSettlement",
-      kicker: "真实事件结算",
+      kicker: "保护区野外实录结算",
       title: positive ? "演练正向" : negative ? "演练负向" : "演练结算",
       icon: "trail",
       prose: [item.title, definition && definition.themeLabel ? `主题：${definition.themeLabel}` : ""].filter(Boolean).join("\n"),
@@ -5066,7 +5214,7 @@ class Game {
         rewardType: "animals",
         sourceKind: "animal",
         relayKind: "real_event",
-        shareTitle: `${shareEvent.title} · 真实事件守护接力`,
+      shareTitle: `${shareEvent.title} · 保护区野外实录守护接力`,
         text: `${shareEvent.title}\n${shareEvent.body}`
       })
     };
@@ -5118,7 +5266,7 @@ class Game {
     const blockGap = 16;
     const blockH = titleH + blockGap + cardsH;
     const titleY = bodyY + 12 + Math.max(36, Math.round((bodyH - 16 - blockH) * 0.58));
-    this.drawFittedTextBlock(ctx, modal.prose || "真实事件演练完成", innerX + 16, titleY, innerW - 32, titleH, {
+    this.drawFittedTextBlock(ctx, modal.prose || "保护区野外实录演练完成", innerX + 16, titleY, innerW - 32, titleH, {
       size: 16, minSize: 13, lineHeight: 22, color: "#26352b", compact: false
     });
     const cards = (modal.impactChanges || []).slice(0, 2);
@@ -5198,10 +5346,37 @@ class Game {
     if (this.screen === "home" && !this.chapterStoryModal && !this.infoDetailModal && !this.patrolTaskModal) {
       this.sandboxIdleSince = Date.now();
     }
+    // 固定底栏必须先于地图动物解析。动物的透明命中圈和地面阴影
+    // 可能延伸到底栏上方，旧命中层还可能在真机重绘间短暂残留；
+    // 物资入口一旦落入最后一个导航格，就直接走导航路由。
+    const fixedNav = this.bottomNavHitAt(x, y, { cushion: 22 });
+    if (fixedNav) {
+      this.activateHitArea(fixedNav);
+      return;
+    }
+    // Active event graphics are painted outside hitAreas so their animated
+    // warning zone stays cheap to redraw. Resolve that visible task before
+    // looking at animal hit circles; otherwise an animal standing beside a
+    // fire/visitor prompt can consume the tap and open the animal task.
+    if (!this.blockingOverlayOpen()) {
+      const eventTask = this.eventBalloonHitAt(x, y);
+      if (eventTask && eventTask.taskMarker !== false) {
+        this.activateHitArea(eventTask);
+        return;
+      }
+    }
     const item = this.hitAreaAt(x, y);
-    // HUD / 菜单必须先于气球。动物再先于气球：邻区、游客、灾害这些沙盘
-    // 任务的点选区比动物大，射箭判定关掉之后不能把动物点成任务。
-    // 气球仍先于普通地图标记，否则点“紧急！！”会落到草场修复上。
+    // 真机上底栏的绘制层与命中层偶尔会因安全区/缩放产生 1~2px 偏移，
+    // 物资入口因此可能看得到但点不到。对底栏做一次坐标兜底，仍沿用同一 setScreen 路由。
+    if (!item && !this.blockingOverlayOpen() && this.state.character
+      && y >= this.height - this.navHeight() - 18 && y <= this.height + 8) {
+      const index = Math.max(0, Math.min(3, Math.floor(x / (this.width / 4))));
+      const targets = ["home", "survival", "collection", "role"];
+      this.setScreen(targets[index]);
+      return;
+    }
+    // HUD / 菜单必须先于普通地图命中。活动任务气泡已经在上面优先
+    // 处理；这里再让明确的任务标记优先于动物，避免任务附近误触动物。
     if (item && !item.map) {
       this.activateHitArea(item);
       return;
@@ -5268,10 +5443,41 @@ class Game {
       this.tapActionDepth = 0;
     }
   }
-  friendRankOpenDataRows() {
-    const cloud = this.cloudService;
-    const rows = cloud && Array.isArray(cloud.friendRows) ? cloud.friendRows : [];
-    return this.sortedFriendContractCandidates(rows);
+  friendContractRankCandidates(rows) {
+    const cloud = this.cloudService || {};
+    const imported = this.sortedFriendContractCandidates(Array.isArray(rows) ? rows : cloud.friendRows);
+    const seenKeys = new Set();
+    const seenIds = new Set();
+    const mark = (row) => {
+      const key = String(row && row.friendMatchKey || "");
+      const id = String(row && (row.worldPlayerId || row.id) || "").replace(/^cloud_/, "").slice(0, 32);
+      if (/^[a-f0-9]{64}$/.test(key)) seenKeys.add(key);
+      if (id) seenIds.add(id);
+    };
+    imported.forEach(mark);
+    this.sortedFriendContractCandidates(cloud.rows).forEach((row) => {
+      if (!row || row.friend !== true || row.mine === true || row.simulated === true) return;
+      const key = String(row.friendMatchKey || "");
+      const id = String(row.worldPlayerId || row.id || "").replace(/^cloud_/, "").slice(0, 32);
+      const keyed = /^[a-f0-9]{64}$/.test(key);
+      if ((!keyed && !id) || (keyed && seenKeys.has(key)) || (id && seenIds.has(id))) return;
+      imported.push(row);
+      mark(row);
+    });
+    return this.sortedFriendContractCandidates(imported);
+  }
+  friendRankOpenDataRows(rows) {
+    const candidates = this.friendContractRankCandidates(rows);
+    // The ranking is a display of all real WeChat friends. A friendMatchKey
+    // is only required when starting a contract; using it as a display filter
+    // made a 39-friend list collapse to the five friends with newer records.
+    return candidates;
+  }
+  friendContractOrderSignature(rows = []) {
+    return (Array.isArray(rows) ? rows : [])
+      .map((row) => /^[a-f0-9]{64}$/.test(String(row && row.friendMatchKey || "")) ? String(row.friendMatchKey) : "")
+      .filter(Boolean)
+      .join(",");
   }
   sortedFriendContractCandidates(rows = []) {
     return (Array.isArray(rows) ? rows : [])
@@ -5282,7 +5488,7 @@ class Game {
   friendRankOpenDataListIndex(localY = 0, rank = {}) {
     if (localY < 38) return -1;
     const viewHeight = Number((rank.view || {}).h) || 0;
-    if (viewHeight > 0 && localY >= viewHeight) return -1;
+    if (viewHeight > 0 && localY >= viewHeight - 3) return -1;
     const index = Math.floor((localY - 38 + Math.max(0, Number(rank.openDataScrollY) || 0)) / 48);
     if (index < 0 || index > 99) return -1;
     return index;
@@ -5303,7 +5509,7 @@ class Game {
     if (!rank || !gesture || !gesture.friendRank || !rank.rankReady || !rank.view) return false;
     const rows = rank.openDataRows || [];
     const viewportHeight = Math.max(1, Number(rank.view.h) || 1);
-    const maxScroll = Math.max(0, rows.length * 48 - Math.max(1, viewportHeight - 38));
+    const maxScroll = Math.max(0, rows.length * 48 - Math.max(1, viewportHeight - 41));
     rank.openDataScrollY = Math.max(0, Math.min(maxScroll, (Number(gesture.friendRankStartScroll) || 0) - Number(totalDy || 0)));
     return true;
   }
@@ -5312,7 +5518,9 @@ class Game {
     const hasSelection = Number.isInteger(selectedIndex) && selectedIndex >= 0;
     const cached = Array.isArray(rank.openDataRows) ? rank.openDataRows : [];
     const cachedPlayer = hasSelection ? (cached[selectedIndex] || null) : null;
-    if (cachedPlayer) {
+    const cachedKey = String(cachedPlayer && cachedPlayer.friendMatchKey || "");
+    const cacheTrusted = cachedPlayer && (rank.openDataContractAligned || !/^[a-f0-9]{64}$/.test(cachedKey));
+    if (cacheTrusted) {
       this.openFriendContractForLeaguePlayer(Object.assign({}, cachedPlayer, { friend: true }));
       return true;
     }
@@ -5324,10 +5532,22 @@ class Game {
     if (hasSelection && cloud && typeof cloud.refreshRelationFriends === "function") {
       this.toast("正在同步微信好友资料…");
       Promise.resolve(cloud.refreshRelationFriends(true)).then((friends) => {
-        const candidates = this.sortedFriendContractCandidates(friends);
-        const player = candidates[selectedIndex] || null;
-        if (player) {
+        const candidates = this.friendRankOpenDataRows(friends);
+        const signature = this.friendContractOrderSignature(candidates);
+        const sameOrder = !!signature && rank.openDataContractAligned && signature === String(rank.contractSignature || "");
+        const player = sameOrder || !signature ? (candidates[selectedIndex] || null) : null;
+        if (signature && !sameOrder) {
           rank.openDataRows = candidates;
+          rank.contractSignature = signature;
+          rank.openDataContractAligned = true;
+          rank.openDataView = "list";
+          rank.openDataSelectedIndex = -1;
+          rank.openDataScrollY = 0;
+          this.toast("可签合同的好友已重新排列，请重新点开这位好友后再发起");
+        } else if (player) {
+          rank.openDataRows = candidates;
+          rank.contractSignature = signature;
+          rank.openDataContractAligned = !!signature;
           rank.openDataSelectedIndex = selectedIndex;
           this.openFriendContractForLeaguePlayer(Object.assign({}, player, { friend: true, source: "wechat" }));
         } else {
@@ -5386,6 +5606,7 @@ class Game {
     if (localY < 38 || localY >= Number(rank.view.h || 0)) return false;
     const index = this.friendRankOpenDataListIndex(localY, rank);
     if (index < 0) return false;
+    if ((rank.openDataRows || []).length && index >= rank.openDataRows.length) return false;
     // The visible list belongs to the open-data canvas. Record the tapped
     // row even when the main-domain friend mirror is still empty, so the
     // contract button can target that same friend after the relation refresh.
@@ -5513,6 +5734,10 @@ class Game {
   }
   hitAreaAt(x, y) {
     this.ensureArcheryConfirmationExclusive();
+    // 底栏是固定导航，必须在地图动物命中层之前解析。动物精灵的透明
+    // 命中圈会延伸到导航上方，之前会把“物资”点击误送进动物互动界面。
+    const bottomNavHit = this.bottomNavHitAt(x, y, { cushion: 22 });
+    if (bottomNavHit) return bottomNavHit;
     const areas = this.activeHitAreas();
     if (this.waitingArcheryOrDiceConfirm()) {
       let confirmHit = null;
@@ -5627,6 +5852,40 @@ class Game {
       }
     }
     return null;
+  }
+  bottomNavHitAt(x, y, options = {}) {
+    if (this.screen === "choose" || !this.state || !this.state.character) return null;
+    if (this.overlayLocksBottomNav && this.overlayLocksBottomNav()) return null;
+    const navH = this.navHeight();
+    const navTop = this.height - navH;
+    const cushion = Math.max(0, Math.min(28, Number(options.cushion) || 0));
+    // Some Android WeChat builds report the bottom-nav release several
+    // logical pixels below the canvas after the device safe-area inset is
+    // applied. The visible upper edge still worked, while the icon/text
+    // center was reported just past `height`. Keep iOS and normal bounds
+    // unchanged; only Android gets this downward touch tolerance.
+    const androidBottomOverflow = usesAndroidTouchCoordinates(this.info) ? 44 : 8;
+    if (y < navTop - cushion || y > this.height + androidBottomOverflow || x < 0 || x > this.width) return null;
+    const index = Math.max(0, Math.min(3, Math.floor(x / (this.width / 4))));
+    const targets = ["home", "survival", "collection", "role"];
+    const target = targets[index];
+    const locked = target === "collection"
+      && this.firstSessionRestrictionsEnabled()
+      && this.firstSessionFocusStatus().active;
+    return {
+      id: `bottom-nav-${target}`,
+      x: index * (this.width / 4),
+      y: navTop,
+      w: this.width / 4,
+      h: navH,
+      hud: true,
+      nav: true,
+      onTap: () => {
+        if (locked && this.firstSessionFeatureLocked("图鉴与收藏")) return;
+        if (target === "collection" && this.screen === "collection") this.openDiscoveryHome();
+        else this.setScreen(target);
+      }
+    };
   }
   addHit(x, y, w, h, onTap, sound = "tap", scope = "", options = {}) {
     // 部分轻量渲染/回归场景会直接绘制组件，没有经过 render() 的统一清空流程。
@@ -6323,6 +6582,14 @@ class Game {
   render() {
     if (!this.ctx || this.painting) return;
     this.ensureArcheryConfirmationExclusive();
+    // The WeChat open-data domain is a native layer above the canvas. Park it
+    // before painting any blocking modal so its connection bubble cannot sit
+    // over the modal header for one frame (especially on iOS resume/search
+    // entry). The league player detail is intentionally exempted by
+    // shouldParkOpenDataForOverlay().
+    if (this.blockingOverlayOpen()) {
+      try { this.flushBlockingNativeOverlays(); } catch (error) { /* keep canvas renderable */ }
+    }
     const fastMapGesture = !!(this.gesture && (this.gesture.mapPan || this.gesture.pinch));
     const rankingSyncScreen = this.screen === "league" || this.screen === "social";
     if (this.openDataFrozen && this.wechatFriends) this.wechatFriends.sharedCanvasBlocked = true;
@@ -8544,7 +8811,15 @@ class Game {
       const valueSize = this.fitTextSize(ctx, value, cardW - 10, 16, 11, "700");
       this.text(ctx, this.truncateTextToWidth(ctx, value, cardW - 10, valueSize, "700"), cardX + cardW / 2, cardY + 45, valueSize, index === 0 ? "#2f7d62" : "#1f2d27", "700", "center");
     });
-    this.text(ctx, modal.profileFootnote || "资料仅在微信开放数据域内展示", avatarCx, cardY + 88, 10, "#7a847e", "400", "center");
+    const rawSafety = modal.patrolSafety == null ? (player.safety == null ? player.shield : player.safety) : modal.patrolSafety;
+    const hasSafety = Number.isFinite(Number(rawSafety));
+    const safetyValue = Math.max(0, Math.min(100, Math.round(Number(rawSafety) || 0)));
+    const safetyBand = hasSafety ? patrolSafetyBand(safetyValue) : { label: "待同步" };
+    const safetyY = cardY + 70;
+    this.roundRect(ctx, profileX + 14, safetyY, profileW - 28, 34, 10, "#edf5e9", "rgba(47,125,98,.18)");
+    this.text(ctx, "当前保护区安全", profileX + 28, safetyY + 22, 11, "#5e6f60", "700");
+    this.text(ctx, hasSafety ? `${safetyValue} · ${safetyBand.label}` : safetyBand.label, profileX + profileW - 28, safetyY + 22, 12, hasSafety && safetyValue >= 70 ? "#2f7d62" : "#a16b2c", "700", "right");
+    this.text(ctx, modal.profileFootnote || "资料仅在微信开放数据域内展示", avatarCx, safetyY + 52, 10, "#7a847e", "400", "center");
     const canStartFriendContract = !!modal.canStartFriendContract && !player.mine;
     const canStartWorldHoundPatrol = !!modal.canStartWorldHoundPatrol && !player.mine;
     const actionH = 40;
@@ -8624,9 +8899,22 @@ class Game {
       const step = Math.max(1, Number(modal.themeStep) || 1);
       const total = Math.max(step, Number(modal.themeTotal) || 3);
       this.statusPill(ctx, innerX + 14, nextY + 12, `下一步 ${step}/${total}`, "#e7efd5", "#31533b", 78);
-      this.drawFittedTextBlock(ctx, modal.nextGoal.title, innerX + 14, nextY + 49, innerW - 28, Math.max(20, nextH - 57), {
+      // Keep the next-task title in its own box below the status pill. On
+      // compact iPhone heights a two-line title could otherwise paint back
+      // into the pill and look clipped or overlapped by its border.
+      const titleX = innerX + 14;
+      const titleY = nextY + 51;
+      const titleW = innerW - 28;
+      const titleH = Math.max(18, nextH - 61);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(titleX, titleY - 18, titleW, titleH + 18);
+      ctx.clip();
+      this.drawFittedTextBlock(ctx, modal.nextGoal.title, titleX, titleY, titleW, titleH, {
         size: 14, minSize: 11, lineHeight: 18, color: "#263b2d", weight: "700", compact: true, maxChars: 60
       });
+      ctx.restore();
+      modal.renderedCompletionNoticeNextTitle = { x: titleX, y: titleY, w: titleW, h: titleH };
     } else {
       this.text(ctx, "继续行动，保护区会根据真实结果生成下一项任务。", innerX + innerW / 2, topY + topH - 18, 10, "#6b746f", "600", "center");
     }
@@ -8662,6 +8950,9 @@ class Game {
     if (!modal || !this.ctx) return;
     if (modal.revealAt && Date.now() < modal.revealAt) return;
     const ctx = this.ctx;
+    // Information, facility, animal and result panels share this renderer.
+    // Increase their copy by one logical size step while retaining fitting.
+    this.modalTypographyBoost = 1;
     ctx.save();
     ctx.scale(this.dpr, this.dpr);
     ctx.fillStyle = "rgba(12,18,15,.48)";
@@ -8695,6 +8986,7 @@ class Game {
     }, "none", "hud");
     if (modal.kind === "leaguePlayerDetail" && modal.friendProfile) {
       this.drawLeaguePlayerProfileModal(ctx, modal);
+      this.modalTypographyBoost = 0;
       ctx.restore();
       return;
     }
@@ -8945,8 +9237,8 @@ class Game {
       const metricDetailList = this.isCoreMetricDetailModal(modal);
       const visibleItems = sourceItems.filter((item) => animalReady || item.tag !== "永久后果");
       const scrollableInfoList = metricDetailList
-        || ["materialWarehouse", "fundRelief", "environmentMetric", "sandboxBrief"].includes(modal.kind)
-        || ["friendContract", "friendContractPicker", "friendContractInbox", "friendContractHistoryDetail"].includes(modal.kind);
+        || ["materialWarehouse", "fundRelief", "environmentMetric", "sandboxBrief", "returnBrief"].includes(modal.kind)
+        || ["friendContract", "friendContractPicker", "friendContractInbox", "friendContractHistoryDetail", "rareAnimalPassport"].includes(modal.kind);
       const compactInfoList = modal.kind === "fundRelief";
       const compactLadder = modal.kind === "progressionLadder";
       const scrollList = isFundLedger || compactLadder || scrollableInfoList;
@@ -9009,7 +9301,15 @@ class Game {
       }
       if (actionSummary) {
         this.drawPremiumLeatherPanel(ctx, listX + 10, itemY, cardW, actionH, 10, { light: true });
-        this.text(ctx, actionSummary, listX + 22, itemY + 21, 10, "#1f5a3f", "700");
+        this.drawFittedTextBlock(ctx, actionSummary, listX + 22, itemY + 21, cardW - 44, actionH - 8, {
+          size: 11,
+          minSize: 10,
+          lineHeight: 14,
+          color: "#fff4cf",
+          weight: "700",
+          compact: true,
+          maxChars: 58
+        });
         modal.renderedActionSummary = { text: actionSummary, x: listX + 10, y: itemY, w: cardW, h: actionH };
         itemY += actionH + 8;
       } else {
@@ -9294,11 +9594,25 @@ class Game {
         if (ready && modal.action) modal.action();
       }, "#fff8df", 12);
       modal.renderedArcheryFireButton = button;
+    } else if (modal.kind === "rareAuctionResult" && modal.shareAction) {
+      const buttonW = (w - 66) / 3;
+      this.modalButton(ctx, x + 18, buttonY, buttonW, 36, modal.shareActionLabel || "分享幼崽", "#1c3325", () => modal.shareAction(), "#fff8df", 10);
+      this.modalButton(ctx, x + 30 + buttonW, buttonY, buttonW, 36, "关闭", "#e8ddbd", () => this.dismissInfoDetailModal(), "#26352b", 11);
+      this.modalButton(ctx, x + 42 + buttonW * 2, buttonY, buttonW, 36, modal.actionLabel || "知道了", "#1c3325", () => {
+        if (modal.action) modal.action();
+      }, "#fff8df", 10);
     } else if (modal.kind === "rareAuctionResult") {
       this.modalButton(ctx, x + 18, buttonY, (w - 48) / 2, 36, "关闭", "#e8ddbd", () => this.dismissInfoDetailModal(), "#26352b", 12);
       this.modalButton(ctx, x + 30 + (w - 48) / 2, buttonY, (w - 48) / 2, 36, modal.actionLabel || "知道了", "#1c3325", () => {
         if (modal.action) modal.action();
       }, "#fff8df", 12);
+    } else if (modal.kind === "rareAnimalPassport" && modal.shareAction) {
+      const buttonW = (w - 66) / 3;
+      this.modalButton(ctx, x + 18, buttonY, buttonW, 36, modal.shareActionLabel || "分享幼崽", "#1c3325", () => modal.shareAction(), "#fff8df", 10);
+      this.modalButton(ctx, x + 30 + buttonW, buttonY, buttonW, 36, "关闭", "#e8ddbd", () => this.dismissInfoDetailModal(), "#26352b", 11);
+      this.modalButton(ctx, x + 42 + buttonW * 2, buttonY, buttonW, 36, modal.actionLabel || "照护幼崽", "#1c3325", () => {
+        if (modal.action) modal.action();
+      }, "#fff8df", 10);
     } else if (modal.kind === "rareAnimalCare") {
       this.modalButton(ctx, x + 18, buttonY, (w - 48) / 2, 36, "稍后处理", "#e8ddbd", () => this.dismissInfoDetailModal(), "#26352b", 11);
       this.modalButton(ctx, x + 30 + (w - 48) / 2, buttonY, (w - 48) / 2, 36, "确认照护", "#1c3325", () => {
@@ -9495,6 +9809,7 @@ class Game {
         this.dismissInfoDetailModal();
       }, "tap", "hud");
     }
+    this.modalTypographyBoost = 0;
     ctx.restore();
   }
   isCoreMetricDetailModal(modal = this.infoDetailModal) {
@@ -9510,7 +9825,9 @@ class Game {
     const outcome = modal.outcome || calculatePatrolOutcome(Object.assign({}, target, { cost: modal.cost }));
     this.drawPremiumInfoCard(ctx, innerX, bodyY + 18, innerW, Math.max(180, bodyH - 34), 10);
     this.text(ctx, this.leaguePlayerTitle(player), innerX + 16, bodyY + 48, this.fitTextSize(ctx, this.leaguePlayerTitle(player), innerW - 32, 16, 12, "700"), "#26352b", "700");
-    this.drawFittedTextBlock(ctx, `对方安全 ${Math.round(Number(target.safety) || 0)}。安全越低，收益越接近你第${outcome.chapter || 1}章的目标。`, innerX + 16, bodyY + 78, innerW - 32, 32, { size: 12, minSize: 10, lineHeight: 16, color: "#5e6f60", weight: "600", compact: true });
+    const targetSafety = Math.round(Number(target.safety) || 0);
+    const targetSafetyBand = patrolSafetyBand(targetSafety);
+    this.drawFittedTextBlock(ctx, `对方安全 ${targetSafety} · ${targetSafetyBand.label}。安全越低，收益越接近你第${outcome.chapter || 1}章的目标。`, innerX + 16, bodyY + 78, innerW - 32, 32, { size: 12, minSize: 10, lineHeight: 16, color: "#5e6f60", weight: "600", compact: true });
     this.drawFittedTextBlock(ctx, `每天最多发起${PATROL_DAILY_LIMIT}次巡逻，今天还可巡逻${Math.max(0, Number(modal.remaining) || 0)}次。同一个保护区每天最多被巡逻${PATROL_INCOMING_DAILY_LIMIT}次。`, innerX + 16, bodyY + 112, innerW - 32, 30, { size: 12, minSize: 10, lineHeight: 16, color: "#26352b", weight: "600", compact: true });
     this.text(ctx, "选择投入基金", innerX + 16, bodyY + 152, 11, "#31533b", "700");
     const options = Array.isArray(modal.costOptions) && modal.costOptions.length ? modal.costOptions : [100, 300, 600, 1000];
@@ -9542,9 +9859,22 @@ class Game {
     const listH = Math.max(80, bodyH - 20);
     this.drawPremiumParchmentPanel(ctx, listX, listY, listW, listH, 10, { rivets: true });
     const rows = Array.isArray(modal.items) ? modal.items : [];
-    const rowH = 96;
     const gap = 8;
-    const contentH = Math.max(rowH, rows.length * (rowH + gap));
+    const textW = listW - 56;
+    const layouts = rows.map((item) => {
+      const titleLines = this.wrapTextLines(ctx, item.title || "猎犬巡逻", textW, 16, "700").filter(Boolean);
+      const stakeLines = this.wrapTextLines(ctx, item.stake || "", textW, 14, "700").filter(Boolean);
+      const bodyLines = this.wrapTextLines(ctx, item.body || "", textW, 14, "700").filter(Boolean);
+      const lineCount = Math.max(1, titleLines.length) + Math.max(1, stakeLines.length) + Math.max(1, bodyLines.length);
+      return {
+        item,
+        titleLines,
+        stakeLines,
+        bodyLines,
+        rowH: Math.max(96, 34 + lineCount * 18)
+      };
+    });
+    const contentH = Math.max(96, layouts.reduce((sum, layout) => sum + layout.rowH, 0) + Math.max(0, layouts.length - 1) * gap);
     const maxScroll = Math.max(0, contentH - (listH - 16));
     modal.historyMaxScroll = maxScroll;
     modal.historyScrollY = Math.max(0, Math.min(maxScroll, Number(modal.historyScrollY) || 0));
@@ -9553,14 +9883,24 @@ class Game {
     ctx.beginPath();
     ctx.rect(listX + 4, listY + 4, listW - 8, listH - 8);
     ctx.clip();
-    rows.forEach((item, index) => {
-      const y = listY + 10 + index * (rowH + gap) - modal.historyScrollY;
-      if (y + rowH < listY || y > listY + listH) return;
-      this.roundRect(ctx, listX + 10, y, listW - 20, rowH, 10, index % 2 ? "#f5f1e5" : "#edf5e9", "rgba(47,125,98,.14)");
+    let rowOffset = 0;
+    layouts.forEach((layout, index) => {
+      const item = layout.item;
+      const y = listY + 10 + rowOffset - modal.historyScrollY;
+      rowOffset += layout.rowH + gap;
+      if (y + layout.rowH < listY || y > listY + listH) return;
+      this.roundRect(ctx, listX + 10, y, listW - 20, layout.rowH, 10, index % 2 ? "#f5f1e5" : "#edf5e9", "rgba(47,125,98,.14)");
       this.text(ctx, item.tag || "记录", listX + 22, y + 18, 13, "#2f7d62", "700");
-      this.text(ctx, this.truncateTextToWidth(ctx, item.title || "猎犬巡逻", listW - 56, 16, "700"), listX + 22, y + 40, 16, "#26352b", "700");
-      this.text(ctx, this.truncateTextToWidth(ctx, item.stake || "", listW - 56, 14, "700"), listX + 22, y + 60, 14, "#8b5a12", "700");
-      this.text(ctx, this.truncateTextToWidth(ctx, item.body || "", listW - 56, 14, "700"), listX + 22, y + 80, 14, item.tone === "loss" ? "#a14a32" : "#1f7a52", "700");
+      let textY = y + 40;
+      const drawLines = (lines, size, color, lineHeight) => {
+        lines.forEach((line) => {
+          this.text(ctx, line, listX + 22, textY, size, color, "700");
+          textY += lineHeight;
+        });
+      };
+      drawLines(layout.titleLines, 16, "#26352b", 18);
+      drawLines(layout.stakeLines, 14, "#8b5a12", 18);
+      drawLines(layout.bodyLines, 14, item.tone === "loss" ? "#a14a32" : "#1f7a52", 18);
     });
     ctx.restore();
     if (maxScroll > 0) {
@@ -9583,8 +9923,10 @@ class Game {
       : hasTarget && hasActor
         ? "猎犬巡逻已经结算。下面是这次的收益和损失。"
         : "猎犬已经回来。下面是这次巡逻带回来的收益，以及对方失去的物资。";
-    this.drawFittedTextBlock(ctx, intro, listX, listY, listW, 28, { size: 13, minSize: 11, lineHeight: 16, color: "#26352b", weight: "600", compact: true });
-    let cursor = listY + 36;
+    const endlessReserve = ((this.state.world || {}).reserve) || {};
+    const endlessEcho = isEndlessGuardReady(endlessReserve) ? ((endlessGuardView(endlessReserve).board || {}).echo || "") : "";
+    this.drawFittedTextBlock(ctx, endlessEcho ? `${intro} ${endlessEcho}` : intro, listX, listY, listW, endlessEcho ? 44 : 28, { size: 13, minSize: 11, lineHeight: 16, color: "#26352b", weight: "600", compact: true });
+    let cursor = listY + (endlessEcho ? 52 : 36);
     rows.forEach((row) => {
       const isTarget = row.noticeRole === "target";
       const reward = patrolRewardFigures(row);
@@ -9606,9 +9948,11 @@ class Game {
       if (showLoss) {
         this.text(ctx, this.truncateTextToWidth(ctx, lossLine, listW - 24, 12, "700"), listX + 12, y + 62, 12, "#a14a32", "700");
       }
+      const targetSafety = Math.round(Number((row.targetSnapshot || {}).safety) || Number(row.targetSafety) || 0);
+      const safetyLabel = patrolSafetyBand(targetSafety).label;
       const foot = isTarget
         ? "这些物资已从你的沙盘扣除，可在巡逻历史里再次查看。"
-        : `对方安全 ${Math.round(Number((row.targetSnapshot || {}).safety) || 0)} · 第${row.chapter || 1}章`;
+        : `对方安全 ${targetSafety} · ${safetyLabel} · 第${row.chapter || 1}章`;
       this.text(ctx, this.truncateTextToWidth(ctx, foot, listW - 24, 12, "700"), listX + 12, y + (showLoss ? 78 : 60), 12, "#6b746f", "700");
     });
   }
@@ -10243,18 +10587,29 @@ class Game {
       }, "tap");
     });
     const promoY = metricY + metricH + gap;
-    const promoH = compact ? 58 : 78;
+    const endless = modal.kicker === "无限守护" || isEndlessGuardReady((this.state.world || {}).reserve || {});
+    const endlessView = endless ? endlessGuardView((this.state.world || {}).reserve || {}) : null;
+    const promoH = endless ? (compact ? 96 : 118) : (compact ? 58 : 78);
     this.drawPremiumInfoCard(ctx, panelX, promoY, panelW, promoH, 13, { active: true });
     const path = Math.max(0, Math.min(100, Number(modal.pathPercent) || 0));
-    const endless = modal.kicker === "无限守护" || isEndlessGuardReady((this.state.world || {}).reserve || {});
-    this.text(ctx, endless ? "无限守护" : "晋级路径", panelX + 14, promoY + (compact ? 21 : 25), compact ? 10 : 11, "#356946", "700");
-    this.text(ctx, `${path}% ›`, panelX + panelW - 14, promoY + (compact ? 22 : 26), compact ? 14 : 16, "#177255", "700", "right");
-    this.drawFittedTextBlock(ctx, endless ? (modal.title || "主线完成，继续经营") : `下一站 · ${modal.nextTitle || `第${modal.nextChapter}章`}`, panelX + 14, promoY + (compact ? 40 : 48), panelW - 28, compact ? 15 : 19, {
-      size: compact ? 11 : 14, minSize: 10, lineHeight: compact ? 14 : 18, weight: "700", color: "#173d34", maxChars: 34
-    });
-    const barY = promoY + promoH - (compact ? 10 : 14);
-    this.roundRect(ctx, panelX + 14, barY, panelW - 28, 6, 3, "#d9dfc7");
-    if (path > 0) this.roundRect(ctx, panelX + 14, barY, (panelW - 28) * path / 100, 6, 3, "#2f886a");
+    this.text(ctx, endless ? "无限守护" : "晋级路径", panelX + 14, promoY + (compact ? 18 : 22), compact ? 10 : 11, "#356946", "700");
+    if (!endless) {
+      this.text(ctx, `${path}% ›`, panelX + panelW - 14, promoY + (compact ? 22 : 26), compact ? 14 : 16, "#177255", "700", "right");
+      this.drawFittedTextBlock(ctx, `下一站 · ${modal.nextTitle || `第${modal.nextChapter}章`}`, panelX + 14, promoY + (compact ? 40 : 48), panelW - 28, compact ? 15 : 19, {
+        size: compact ? 11 : 14, minSize: 10, lineHeight: compact ? 14 : 18, weight: "700", color: "#173d34", maxChars: 34
+      });
+      const barY = promoY + promoH - (compact ? 10 : 14);
+      this.roundRect(ctx, panelX + 14, barY, panelW - 28, 6, 3, "#d9dfc7");
+      if (path > 0) this.roundRect(ctx, panelX + 14, barY, (panelW - 28) * path / 100, 6, 3, "#2f886a");
+    } else {
+      const board = (endlessView && endlessView.board) || {};
+      this.text(ctx, `第${endlessView.seasonDay}/28日 ›`, panelX + panelW - 14, promoY + (compact ? 18 : 22), compact ? 11 : 12, "#177255", "700", "right");
+      const lines = [board.today || "今日互动", board.auction || "本周拍卖", board.week || "本周来回"];
+      lines.forEach((line, index) => {
+        this.text(ctx, this.truncateTextToWidth(ctx, line, panelW - 28, compact ? 11 : 13, "700"), panelX + 14, promoY + (compact ? 40 : 48) + index * (compact ? 16 : 20), compact ? 11 : 13, index === 0 ? "#173d34" : "#4b594e", "700");
+      });
+      this.addHit(panelX, promoY, panelW, promoH, () => this.openEndlessWeekRecap(), "tap");
+    }
     const rowsY = promoY + promoH + gap;
     const remaining = Math.max(120, bodyY + bodyH - rowsY - 6);
     const rowGap = compact ? 5 : 7;
@@ -11073,18 +11428,48 @@ class Game {
     this.drawPremiumInfoCard(ctx, innerX, bodyY + 12, innerW, 76, 12, { active: true, danger: true });
     this.text(ctx, `${story.species || "动物关系"} · 现在需要调节`, innerX + 14, bodyY + 36, 14, "#a65343", "700");
     this.drawFittedTextBlock(ctx, story.scene || "两种动物的路线正在互相挤压。", innerX + 14, bodyY + 59, innerW - 28, 24, { size: 13, minSize: 11, lineHeight: 16, color: "#26352b" });
-    this.drawFittedTextBlock(ctx, story.hint || "执行这项调节，关系会朝更稳定的方向发展。", innerX + 14, bodyY + 98, innerW - 28, 20, { size: 12, minSize: 10, lineHeight: 14, color: "#5d6b62" });
     const choices = modal.choices || [];
     const gap = 8;
     const cardH = Math.max(72, Math.min(94, (bodyH - 132 - gap * Math.max(0, choices.length - 1)) / Math.max(1, choices.length)));
     modal.renderedAnimalInteractionChoices = [];
     choices.slice(0, 3).forEach((choice, index) => {
-      const cy = bodyY + 124 + index * (cardH + gap);
+      const cy = bodyY + 104 + index * (cardH + gap);
       const selected = modal.selectedChoiceId === choice.id;
       this.drawPremiumInfoCard(ctx, innerX, cy, innerW, cardH, 11, { active: selected, danger: !selected && index === 1 });
-      this.text(ctx, choice.label || "调节方案", innerX + 14, cy + 24, 14, selected ? "#1c5c49" : "#26352b", "700");
-      this.drawFittedTextBlock(ctx, choice.summary || "调整动物路线", innerX + 14, cy + 48, innerW - 28, cardH - 48, { size: 12, minSize: 10, lineHeight: 14, color: "#5d6b62" });
-      if (selected) this.text(ctx, "✓", innerX + innerW - 18, cy + 25, 15, "#2f765c", "700", "center");
+      // Keep the consequence data intact, but present each option in a compact,
+      // scannable form so the choice itself remains the visual focus.
+      const rawLabel = String(choice.label || "调节方案");
+      const compactLabel = rawLabel
+        .replace("止损·立即隔离", "止损·隔离")
+        .replace("平衡·分区观察", "平衡·分区")
+        .replace("顺其自然", "顺其自然");
+      const rawSummary = String(choice.summary || "调整动物路线");
+      const compactSummary = rawSummary
+        .replace("优先保住幼鹿和游客安全，短期消耗更多资源。", "保住幼鹿与游客；资源消耗较高。")
+        .replace("给两种动物各留一条路线，收益和风险保持中等。", "两种动物分路；收益与风险居中。")
+        .replace("减少人为干预，接受捕食、迁移或数量变化。", "少干预；接受捕食、迁移和数量变化。");
+      const copyW = innerW - 72;
+      this.text(ctx, this.truncateTextToWidth(ctx, compactLabel, copyW, 14, "700"), innerX + 14, cy + 24, 14, selected ? "#1c5c49" : "#26352b", "700");
+      this.drawFittedTextBlock(ctx, this.truncateTextToWidth(ctx, compactSummary, copyW, 12, "400"), innerX + 14, cy + 48, copyW, cardH - 48, { size: 12, minSize: 10, lineHeight: 14, color: "#5d6b62" });
+      if (selected) {
+        const badgeX = innerX + innerW - 30;
+        const badgeY = cy + 25;
+        ctx.save();
+        ctx.fillStyle = "#2f8f68";
+        ctx.beginPath();
+        ctx.arc(badgeX, badgeY - 5, 15, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#f7f3df";
+        ctx.lineWidth = 3.5;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(badgeX - 7, badgeY - 5);
+        ctx.lineTo(badgeX - 2, badgeY + 1);
+        ctx.lineTo(badgeX + 8, badgeY - 10);
+        ctx.stroke();
+        ctx.restore();
+      }
       this.addHit(innerX, cy, innerW, cardH, () => this.selectAnimalInteractionChoice(choice.id), "tap");
       modal.renderedAnimalInteractionChoices.push({ id: choice.id, x: innerX, y: cy, w: innerW, h: cardH, selected });
     });
@@ -11525,14 +11910,15 @@ class Game {
     const innerX = x + 26;
     const innerW = w - 52;
     const selectedId = modal.selectedChoiceId || "";
-    const storyH = 32;
-    this.drawPremiumParchmentPanel(ctx, innerX, bodyY + 12, innerW, storyH, 9, { muted: true });
+    // The old dilemma intro repeated the strategy description above the cards.
+    // It was crossed out in the compact iPhone layout and reduced the space
+    // available for the actual choices, so the cards now start directly below
+    // the modal header.
+    const storyH = 0;
     const isPromise = false;
-    this.drawFittedTextBlock(ctx, dilemma.story || dilemma.economicChain || "选择行动，影响游客和基金。", innerX + 12, bodyY + 26, innerW - 24, 26,
-      { size: 11, minSize: 10, lineHeight: 13, color: "#355f49", compact: true, maxChars: 42, maxLines: 2 });
     const gap = 5;
-    const cardsY = bodyY + 18 + storyH;
-    const availableH = bodyH - storyH - 18;
+    const cardsY = bodyY + 10;
+    const availableH = bodyH - 10;
     const naturalH = Math.max(64, Math.min(72, Math.floor((availableH - gap * Math.max(0, cards.length - 1)) / Math.max(1, cards.length))));
     const collapsedMin = 48;
     const maxExpandedH = availableH - collapsedMin * Math.max(0, cards.length - 1) - gap * Math.max(0, cards.length - 1);
@@ -12245,27 +12631,27 @@ class Game {
     let cy = bodyY + 10;
     this.roundRect(ctx, panelX, cy, panelW, summaryH, 9, "rgba(255,250,236,0.84)", "rgba(36,64,46,0.10)");
     const trendColor = status.trend === "↑" ? "#1f8a55" : status.trend === "↓" ? "#c44735" : status.trend === "⚠" ? "#d28718" : "#8b7355";
-    this.text(ctx, "种群", innerX, cy + 16, 10, "#8b7355", "700");
-    this.text(ctx, `${this.displayReserveNumber(populationKey, pop)}只 ${status.trend}`, innerX, cy + 36, 17, trendColor, "700");
+    this.text(ctx, "种群", innerX, cy + 17, 12, "#8b7355", "700");
+    this.text(ctx, `${this.displayReserveNumber(populationKey, pop)}只 ${status.trend}`, innerX, cy + 39, 19, trendColor, "700");
     this.drawChangeTag(ctx, innerX + 84, cy + 21, this.reserveDisplayDelta(populationKey, pop), "left", { key: populationKey });
-    this.text(ctx, "当前状态", panelX + panelW * 0.56, cy + 16, 10, "#8b7355", "700");
-    this.text(ctx, status.status, panelX + panelW * 0.56, cy + 36, 14, trendColor, "700");
+    this.text(ctx, "当前状态", panelX + panelW * 0.56, cy + 17, 12, "#8b7355", "700");
+    this.text(ctx, status.status, panelX + panelW * 0.56, cy + 39, 16, trendColor, "700");
     this.roundRect(ctx, panelX + panelW - 66, cy + 8, 56, 36, 8, "rgba(240,211,118,0.12)", "rgba(216,174,62,0.24)");
-    this.text(ctx, "重要性", panelX + panelW - 38, cy + 21, 9, "#8b7355", "700", "center");
-    this.text(ctx, importance.level, panelX + panelW - 38, cy + 38, 11, importance.score >= 70 ? "#c44735" : "#1f8a55", "700", "center");
-    this.text(ctx, "本章繁殖剩余", innerX, cy + summaryH - 10, 10, "#8b7355", "700");
-    this.text(ctx, `+${breeding}`, innerX + 92, cy + summaryH - 11, 13, breeding ? "#1f8a55" : "#8b7355", "700");
+    this.text(ctx, "重要性", panelX + panelW - 38, cy + 21, 10, "#8b7355", "700", "center");
+    this.text(ctx, importance.level, panelX + panelW - 38, cy + 40, 13, importance.score >= 70 ? "#c44735" : "#1f8a55", "700", "center");
+    this.text(ctx, "本章繁殖剩余", innerX, cy + summaryH - 10, 12, "#8b7355", "700");
+    this.text(ctx, `+${breeding}`, innerX + 105, cy + summaryH - 11, 15, breeding ? "#1f8a55" : "#8b7355", "700");
     cy += summaryH + gap;
     this.roundRect(ctx, panelX, cy, panelW, feedbackH, 9, "#fff7df", "rgba(216,174,62,0.25)");
-    this.text(ctx, "它们对保护区的感受", innerX, cy + 16, 10, "#8b6f2a", "700");
+    this.text(ctx, "它们对保护区的感受", innerX, cy + 17, 12, "#8b6f2a", "700");
     this.drawFittedTextBlock(ctx, `“${profile.feedback || "它们仍在观察保护区的变化。"}”`, innerX, cy + 36, innerW, feedbackH - 24, {
-      size: compact ? 10 : 11,
-      minSize: 9,
-      lineHeight: compact ? 13 : 15,
+      size: compact ? 12 : 13,
+      minSize: 10,
+      lineHeight: compact ? 15 : 18,
       color: "#3d2b1a"
     });
     cy += feedbackH + gap;
-    this.text(ctx, "你认识的朋友", innerX, cy + 11, 10, "#66715f", "700");
+    this.text(ctx, "你认识的朋友", innerX, cy + 12, 12, "#66715f", "700");
     const friends = (profile.friends || []).slice(0, 2);
     const friendY = cy + 16;
     const friendCardH = friendH - 16;
@@ -12280,9 +12666,9 @@ class Game {
       const axes = relationshipAxes(friend);
       const statusColor = friend.status === "dead" || friend.status === "departed" || friend.health < 46 ? "#c45b42" : friend.status === "independent" ? "#2f7c8f" : friend.rarity ? "#b07a16" : "#1f7a52";
       this.roundRect(ctx, fx, friendY, friendW, friendCardH, 8, friend.rarity ? "#fff0c7" : "#f7f0dc", friend.rarity ? "rgba(216,174,62,0.52)" : "rgba(139,111,42,0.18)");
-      this.text(ctx, this.truncateTextToWidth(ctx, friend.name, friendW - 50, 11, "700"), fx + 9, friendY + 15, 11, "#1c3325", "700");
-      this.text(ctx, `安全${axes.security} · 野性${axes.wildness}`, fx + 9, friendY + 29, 9, "#66715f", "700");
-      this.text(ctx, statusText, fx + friendW - 8, friendY + 21, 9, statusColor, "700", "right");
+      this.text(ctx, this.truncateTextToWidth(ctx, friend.name, friendW - 50, 13, "700"), fx + 9, friendY + 17, 13, "#1c3325", "700");
+      this.text(ctx, `安全${axes.security} · 野性${axes.wildness}`, fx + 9, friendY + 34, 11, "#66715f", "700");
+      this.text(ctx, statusText, fx + friendW - 8, friendY + 24, 11, statusColor, "700", "right");
       this.addHit(fx, friendY, friendW, friendCardH, () => this.openNamedIndividual(friend));
     });
     cy += friendH + gap;
@@ -12291,11 +12677,12 @@ class Game {
       .slice(0, dialoguesExpanded ? 5 : 1);
     if (recentDialogues.length > 1) {
       const toggleLabel = dialoguesExpanded ? "收起 ︿" : `展开另外${recentDialogues.length - 1}句 ›`;
-      this.text(ctx, toggleLabel, panelX + panelW - 12, cy + 16, 10, "#1f7a52", "700", "right");
+      this.text(ctx, toggleLabel, panelX + panelW - 12, cy + 17, 11, "#1f7a52", "700", "right");
     }
     visibleDialogues.forEach((line, index) => {
-      const lineY = cy + 22 + index * (compact ? 12 : 14);
-      this.text(ctx, this.truncateTextToWidth(ctx, `“${this.cleanGameText(line)}”`, innerW, compact ? 10 : 11, index === 0 ? "700" : "400"), innerX, lineY, compact ? 10 : 11, index === 0 ? "#1c3325" : "#49604e", index === 0 ? "700" : "400");
+      const lineY = cy + 24 + index * (compact ? 15 : 17);
+      const dialogueSize = compact ? 12 : 13;
+      this.text(ctx, this.truncateTextToWidth(ctx, `“${this.cleanGameText(line)}”`, innerW, dialogueSize, index === 0 ? "700" : "400"), innerX, lineY, dialogueSize, index === 0 ? "#1c3325" : "#49604e", index === 0 ? "700" : "400");
     });
     if (recentDialogues.length > 1) {
       this.addHit(panelX, cy, panelW, dialogueH, () => {
@@ -12321,11 +12708,11 @@ class Game {
     const depthPage = Math.max(0, Math.min(depthPages.length - 1, Number(modal.depthPage) || 0));
     const depthView = depthPages[depthPage];
     this.roundRect(ctx, panelX, cy, panelW, attitudeH, 9, "rgba(28,51,37,0.10)", "rgba(28,51,37,0.16)");
-    this.text(ctx, `${depthView.label} · ${depthPage + 1}/3 ›`, innerX, cy + 15, 10, "#1c3325", "700");
+    this.text(ctx, `${depthView.label} · ${depthPage + 1}/3 ›`, innerX, cy + 17, 12, "#1c3325", "700");
     this.drawFittedTextBlock(ctx, depthView.text, innerX, cy + 34, innerW, attitudeH - 20, {
-      size: compact ? 10 : 11,
-      minSize: 9,
-      lineHeight: compact ? 13 : 15,
+      size: compact ? 12 : 13,
+      minSize: 10,
+      lineHeight: compact ? 15 : 18,
       color: "#3d2b1a"
     });
     this.addHit(panelX, cy, panelW, attitudeH, () => {
@@ -12464,18 +12851,33 @@ class Game {
         this.roundRect(ctx, panelX + panelW - stepW - 16, cy + 12, stepW, 20, 10, primary ? "rgba(46,135,110,.14)" : "rgba(210,155,38,.14)", primary ? "rgba(46,135,110,.32)" : "rgba(210,155,38,.38)");
         this.text(ctx, stepLabel, panelX + panelW - stepW / 2 - 16, cy + 26, 9, primary ? "#246f5a" : "#8b6f2a", "700", "center");
       }
-      const pillW = heroGoal ? Math.round(92 * goalScale) : 48;
-      const pillH = heroGoal ? Math.round(38 * goalScale) : 19;
+      // Category labels can be longer than the old fixed 92px pill.  In
+      // particular, “保护区野外实录” was overflowing into the task title
+      // and its light text became unreadable against the selected yellow card.
+      // Size the pill from the actual label and keep a dark, high-contrast
+      // fill so the category and title remain separate layers.
+      const goalLabel = goal.themeTask ? "本章主题" : this.goalTypeLabel(goal);
+      const labelSize = heroGoal ? Math.round(14 * goalScale) : 9;
+      ctx.font = `700 ${labelSize}px ${UI_FONT_STACK}`;
+      const measuredLabelW = Math.ceil(ctx.measureText(goalLabel).width) + (heroGoal ? 24 : 16);
+      const pillW = heroGoal
+        ? Math.min(panelW - 40, Math.max(Math.round(92 * goalScale), measuredLabelW))
+        : 48;
+      const pillH = heroGoal ? Math.round(34 * goalScale) : 19;
       const pillX = panelX + (heroGoal ? 18 : 10);
       const pillY = cy + (heroGoal ? 16 : 10);
       const emergency = /紧急|危机|雷火/.test(`${this.goalTypeLabel(goal)} ${goal.title || ""}`);
-      this.roundRect(ctx, pillX, pillY, pillW, pillH, pillH / 2, emergency ? "#a9412e" : primary ? "#2e876e" : "#e8ddbd");
-      const goalLabel = goal.themeTask ? "本章主题" : this.goalTypeLabel(goal);
-      this.text(ctx, goalLabel, pillX + pillW / 2, pillY + pillH * .68, heroGoal ? Math.round(16 * goalScale) : 9, emergency || primary ? "#fff8df" : "#6f654d", "700", "center");
+      const labelFill = emergency ? "#a9412e" : primary ? "#2e876e" : "#e1eddc";
+      const labelColor = emergency || primary ? "#fff8df" : "#31533b";
+      this.roundRect(ctx, pillX, pillY, pillW, pillH, pillH / 2, labelFill,
+        emergency || primary ? "rgba(255,255,255,.28)" : "rgba(46,135,110,.26)");
+      this.text(ctx, this.truncateTextToWidth(ctx, goalLabel, pillW - 14, labelSize, "700"),
+        pillX + pillW / 2, pillY + pillH * .68, labelSize, labelColor, "700", "center");
       const titleX = heroGoal ? panelX + 20 : panelX + 68;
       const titleW = panelW - (heroGoal ? 84 : 88);
       const titleSize = heroGoal ? this.fitTextSize(ctx, goal.title || "下一目标", titleW, Math.round(26 * goalScale), Math.round(18 * goalScale), "700") : IOS_TYPE.subhead;
-      this.text(ctx, this.truncateTextToWidth(ctx, goal.title || "下一目标", titleW, titleSize, "700"), titleX, cy + (heroGoal ? Math.round(84 * goalScale) : 25), titleSize, "#1c3325", "700");
+      const titleOffset = heroGoal ? Math.max(Math.round(84 * goalScale), pillH + Math.round(52 * goalScale)) : 25;
+      this.text(ctx, this.truncateTextToWidth(ctx, goal.title || "下一目标", titleW, titleSize, "700"), titleX, cy + titleOffset, titleSize, "#1c3325", "700");
       const progress = goal.themeTask
         ? `第${Math.max(1, Number(goal.themeStep) || 1)}/${Math.max(1, Number(goal.themeTotal) || 3)}步`
         : `${goal.progress || 0}/${goal.target || 1}`;
@@ -13401,19 +13803,19 @@ class Game {
     this.currentGoalView(true);
     saveState(this.state);
     const supplementalItems = [
-      result.businessChange ? { tag: "游客与基金", title: eventBusinessSummary(result.businessChange), body: "这次剧情抉择已即时更新客流预期，下一波游客会读取新的安全与生态状态。" } : null,
+      result.businessChange ? { tag: "游客与基金", title: eventBusinessSummary(result.businessChange), body: "" } : null,
       animalOutcome ? { tag: "永久后果", title: `${animalOutcome.individual.name}：安全感 ${formatDisplayNumber(relationshipAxes(animalOutcome.before).security)}→${formatDisplayNumber(relationshipAxes(animalOutcome.individual).security)} · 野性 ${formatDisplayNumber(relationshipAxes(animalOutcome.before).wildness)}→${formatDisplayNumber(relationshipAxes(animalOutcome.individual).wildness)}`, body: `${animalOutcome.history.trait} · ${animalOutcome.individual.status === "dead" ? "已故" : animalOutcome.individual.status === "independent" ? "重归野外" : animalOutcome.individual.status === "departed" ? "离开保护区" : animalOutcome.individual.health < 46 ? "带伤留下" : "仍在保护区"} · 健康 ${formatDisplayNumber(animalOutcome.before.health)}→${formatDisplayNumber(animalOutcome.individual.health)}` } : null,
       result.dice ? { tag: "点数", title: `${result.dice.roll} + 路线${result.dice.routeModifier} + 资源${result.dice.resourceModifier} = ${result.dice.total}`, body: `目标 ${result.dice.threshold} 点；${result.dice.success ? "高风险收益完整生效。" : "未达到目标，代价保留、收益缩减。"}` } : null,
       result.consequence
         ? {
           tag: "持续影响",
           title: `${result.consequence.label} · ${result.consequence.remainingActions}次`,
-          body: `${result.record.outcome} · ${result.route.shortLabel || result.route.label}+${result.routeGain}`
+          body: ""
         }
         : {
           tag: "路线",
           title: `${result.route.shortLabel || result.route.label} +${result.routeGain}`,
-          body: `${result.record.outcome} · ${result.route.shortLabel || result.route.label}+${result.routeGain}`
+          body: ""
         }
     ].filter(Boolean);
     const changeItems = result.changes.slice(0, Math.max(1, 5 - supplementalItems.length)).map((item) => ({
@@ -13445,7 +13847,7 @@ class Game {
         this.infoDetailModal = null;
         if (!this.openQueuedMissionPush()) this.render();
       },
-      footer: animalOutcome ? `${animalOutcome.individual.name}的经历已记录。` : "长期影响已写入保护区。"
+      footer: animalOutcome ? `${animalOutcome.individual.name}的经历已记录。` : ""
     };
     this.playSfx(result.dice && !result.dice.success ? "warning" : "success");
     this.render();
@@ -13513,16 +13915,16 @@ class Game {
     this.pendingOfflineBrief = null;
     this.infoDetailModal = {
       kind: "returnBrief",
-      kicker: `离线简报 · ${brief.elapsedLabel}`,
+      kicker: `离线巡护报告 · ${brief.elapsedLabel}`,
       title: brief.title,
       icon: "reserve_prosperity",
       items: [
-        { tag: "领地", title: brief.territoryLine, body: `第${brief.day}守护日 · 等级${brief.level}，显示离开前与当前存档的真实差值。` },
-        { tag: "风险", title: brief.riskLine, body: "离线不会替玩家自动做高风险决策，也不会暗中消耗巡护补给。" },
-        { tag: "资源", title: brief.resourceLine, body: "基金、补给、库存样本与待收物分别核对。" },
-        { tag: "事件", title: "缺席期间小结", body: brief.eventLine }
+        { tag: "先看结论", title: brief.territoryTitle || "领地状态已更新", body: `第${brief.day}守护日 · 保护区等级${brief.level}。${brief.nextStep || "可以开始今天的巡护。"}` },
+        { tag: "领地变化", title: brief.territoryLine, body: "水源、草场和动物总量按离开前的存档逐项对比。" },
+        { tag: "风险", title: brief.riskTitle || "风险状态已核对", body: `${brief.riskLine}。离线不会替你自动做高风险决策。` },
+        { tag: "资源与事件", title: brief.resourceTitle || "资源已完成离线核对", body: `${brief.resourceLine}。${brief.eventTitle || "缺席期间小结"}：${brief.eventLine}` }
       ],
-      footer: "先看清变化，再决定今天的第一步。",
+      footer: `回来后的第一步：${brief.nextStep || "查看今日任务"}。`,
       actionLabel: "查看今日任务",
       action: () => {
         this.infoDetailModal = null;
@@ -13748,7 +14150,10 @@ class Game {
       y: summary.y + summary.h + (compact ? 10 : 12),
       h: focusedOutcome ? 36 : dailyFull ? (compact ? 90 : 98) : compact ? 72 : 76
     };
-    const hideNext = focusedOutcome || dailyFull;
+    // The old "明日" hint bar repeats the next-task copy and was marked for
+    // removal in the compact settlement review. Keep the result and animal
+    // response as the next readable content.
+    const hideNext = true;
     const hideSpeech = dailyFull;
     const next = { y: reward.y + reward.h + (hideNext ? 0 : 8), h: hideNext ? 0 : 32 };
     const speech = {
@@ -14177,6 +14582,7 @@ class Game {
   }
   drawSettlementRewardRows(ctx, modal, lines, x, y, w, h, compact = false) {
     const dailyFull = !!modal.dailyFullClear;
+    const achievementMode = Array.isArray(modal.achievementFeedback) && modal.achievementFeedback.length > 0;
     const rows = (lines || []).slice(0, 3).map((line, index) => {
       const value = String(line || "");
       const splitAt = value.search(/[:：]/);
@@ -14191,14 +14597,15 @@ class Game {
     let cursorY = y + (dailyFull ? 16 : 10);
     rows.forEach((row, index) => {
       const isResource = /保护基金|游客数量|动物总数|动物承载/.test(row.tag);
-      const tagSize = dailyFull ? (compact ? 12 : 13) : isResource ? 10 : 9;
-      const size = dailyFull ? (compact ? 13 : 14) : isResource ? (compact ? 11 : 12) : index === 0 ? (compact ? 10 : 11) : 10;
-      const tagW = isResource ? Math.min(78, Math.max(64, 14 + row.tag.length * 11)) : dailyFull ? (index === 0 ? 56 : 52) : index === 0 ? 42 : 38;
+      const isComparison = achievementMode && /超越守护/.test(row.tag);
+      const tagSize = dailyFull ? (compact ? 11 : 12) : isComparison ? 11 : isResource ? 10 : 9;
+      const size = dailyFull ? (compact ? 12 : 13) : isComparison ? 12 : isResource ? (compact ? 11 : 12) : index === 0 ? (compact ? 10 : 11) : 10;
+      const tagW = isResource ? Math.min(78, Math.max(64, 14 + row.tag.length * 11)) : dailyFull ? (index === 0 ? 50 : 48) : index === 0 ? 42 : 38;
       const tagH = dailyFull ? 22 : 16;
       const weight = index === 0 ? "700" : dailyFull ? "700" : "400";
       const available = w - tagW - 7;
       const textLines = dailyFull
-        ? this.wrapTextLines(ctx, row.text, available, size, weight).slice(0, 2)
+        ? [this.truncateTextToWidth(ctx, row.text, available, size, weight)]
         : [this.truncateTextToWidth(ctx, row.text, available, size, weight)];
       const lineHeight = dailyFull ? size + 5 : 0;
       const blockH = dailyFull ? Math.max(tagH, textLines.length * lineHeight) : tagH;
@@ -14231,6 +14638,9 @@ class Game {
     return "";
   }
   settlementRewardDisplayLines(modal, compact) {
+    if (Array.isArray(modal.achievementFeedback) && modal.achievementFeedback.length) {
+      return modal.achievementFeedback.slice(0, 3).map((item) => `${item.tag}：${item.text}`);
+    }
     if (modal.dailyFullClear) {
       const rewards = modal.dailyFullRewards || [];
       const objectiveRewards = rewards.filter((item) => item.source === "daily_objective");
@@ -14393,6 +14803,10 @@ class Game {
     const info = this.info || {};
     const statusTop = typeof info.statusBarHeight === "number" ? info.statusBarHeight : 0;
     const menuTop = this.menuButtonRect && typeof this.menuButtonRect.top === "number" ? this.menuButtonRect.top : 0;
+    // The iPhone safe-area probe includes extra space below the Dynamic Island.
+    // Keep the HUD directly under the protected area instead of leaving a
+    // visible band between the notch and the chapter header.
+    if (menuTop > 60) return Math.max(4, menuTop - 20);
     if (menuTop > 0) return Math.max(4, menuTop - 4);
     return Math.max(8, statusTop);
   }
@@ -15043,7 +15457,7 @@ class Game {
     if (goal.passMetric === "visitors") return "游客";
     if (goal.passMetric === "animals") return "动物";
     const sourceLabel = {
-      natural_event: "真实事件",
+      natural_event: "保护区野外实录",
       story: "剧情",
       user_triggered: "主动触发",
       sandbox: "沙盘",
@@ -15288,7 +15702,7 @@ class Game {
         type: "crisis",
         kind: "exclamation",
         eventType: liveEmergency && liveEmergency.type,
-        title: (liveEmergency && liveEmergency.title) || (definition && definition.title) || "真实事件"
+        title: (liveEmergency && liveEmergency.title) || (definition && definition.title) || "保护区野外实录"
       }, definition);
       if (!opened) this.activeTaskLock = null;
       return opened;
@@ -15369,6 +15783,45 @@ class Game {
       this.toast("已打开世界榜，选择一个保护区发起猎犬巡逻");
       this.render();
       return true;
+    }
+    if (action === "friendContract" || action === "endlessAuction" || action === "endlessRecap" || action === "endlessMirror") {
+      const reserve = ((this.state.world || {}).reserve) || {};
+      if (!isEndlessGuardReady(reserve)) return false;
+      this.infoDetailModal = null;
+      this.activeTaskLock = null;
+      if (action === "friendContract") {
+        this.navigateToFriendList();
+        this.toast("和一位好友签合同。双方都完成后，今日互动才算完成");
+        return true;
+      }
+      if (action === "endlessAuction") return this.openEndlessAuction();
+      return this.openEndlessWeekRecap();
+    }
+    if (action === "friendContract" || action === "endlessAuction" || action === "endlessRecap" || action === "endlessMirror") {
+      const reserve = ((this.state.world || {}).reserve) || {};
+      if (!isEndlessGuardReady(reserve)) return false;
+      this.infoDetailModal = null;
+      this.activeTaskLock = null;
+      if (action === "friendContract") {
+        this.navigateToFriendList();
+        this.toast("和一位好友签合同。双方都完成后，今日互动才算完成");
+        return true;
+      }
+      if (action === "endlessAuction") return this.openEndlessAuction();
+      return this.openEndlessWeekRecap();
+    }
+    if (action === "friendContract" || action === "endlessAuction" || action === "endlessRecap" || action === "endlessMirror") {
+      const reserve = ((this.state.world || {}).reserve) || {};
+      if (!isEndlessGuardReady(reserve)) return false;
+      this.infoDetailModal = null;
+      this.activeTaskLock = null;
+      if (action === "friendContract") {
+        this.navigateToFriendList();
+        this.toast("和一位好友签合同。双方都完成后，今日互动才算完成");
+        return true;
+      }
+      if (action === "endlessAuction") return this.openEndlessAuction();
+      return this.openEndlessWeekRecap();
     }
     if (["guideSandbox", "viewFund", "viewSurvival", "viewDiscovery"].includes(action)) {
       return this.openGuidedChannel(action);
@@ -17747,7 +18200,15 @@ class Game {
     this.collectionCaseId = null;
     this.renderedDiscoveryNetworkEntry = null;
     this.discoveryTab = this.discoveryTab === "population" ? "population" : "visitors";
-    const networkBottom = this.drawDiscoveryNetworkEntry(ctx, 12, topInset + 40, this.width - 24);
+    const reserve = (this.state.world || {}).reserve || {};
+    const rareView = rareAnimalCollectionView(reserve);
+    const headerY = topInset + 36;
+    const headerH = 30;
+    this.roundRect(ctx, 12, headerY, this.width - 24, headerH, 13, "rgba(23,61,52,.94)", "rgba(241,217,146,.34)");
+    this.text(ctx, "发现频道", 28, headerY + 20, 15, "#fff8df", "700");
+    this.text(ctx, this.discoveryTab === "population" ? "种群观察 · 认识每一种生命" : "游客运营 · 看见保护区的回响", 112, headerY + 19, 11, "#dbe8d8", "600");
+    this.text(ctx, `幼崽 ${rareView.count}/${rareView.max}`, this.width - 28, headerY + 19, 11, "#f5dda0", "700", "right");
+    const networkBottom = this.drawDiscoveryNetworkEntry(ctx, 12, topInset + 72, this.width - 24);
     this.drawDiscoveryTabs(ctx, 12, networkBottom + 8, this.width - 24);
     const contentY = networkBottom + 58;
     if (this.discoveryTab === "population") {
@@ -18015,6 +18476,22 @@ class Game {
     }
     let y = startY;
     y = this.drawLifeMemoryBar(ctx, 12, y, this.width - 24);
+    const rareView = rareAnimalCollectionView(reserve);
+    const rareH = 68;
+    this.drawPremiumParchmentPanel(ctx, 12, y + 8, this.width - 24, rareH, 14, { active: rareView.count > 0 });
+    this.drawUiIcon(ctx, "reserve_prosperity", 34, y + 8 + rareH / 2, 28, false, .9)
+      || this.drawSmallGlyph(ctx, "reserve_prosperity", 34, y + 8 + rareH / 2, "#2f765c", .8);
+    this.text(ctx, "珍稀幼崽图鉴", 56, y + 31, 15, "#173d34", "700");
+    this.text(ctx, `${rareView.count}/${rareView.max} 只 · 游客吸引 +${Math.round((rareView.visitorMultiplier - 1) * 100)}%`, 56, y + 52, 12, rareView.count ? "#2f765c" : "#7c806f", "700");
+    const chapter = Math.max(1, Number((reserve.progression || {}).stage || (reserve.progression || {}).displayChapter) || 1);
+    const cubQuestAvailable = !rareView.count && chapter >= 3;
+    this.text(ctx, rareView.count ? "查看 ›" : cubQuestAvailable ? "寻找幼崽 ›" : "第2章起可收集", this.width - 28, y + 39, 11, cubQuestAvailable ? "#2f765c" : "#946a25", "700", "right");
+    this.addHit(12, y + 8 - this.scrollY, this.width - 24, rareH, () => {
+      if (rareView.count) this.openRareAnimalPassport();
+      else if (cubQuestAvailable) this.openRareCubQuest();
+      else this.toast("第2章起，保护区可能出生或发现珍稀幼崽");
+    });
+    y += rareH + 16;
     y = this.drawSpeciesSelector(ctx, 12, y, this.width - 24, unlocked, lockedIds, reserve, level);
     this.bottom(y + 8);
   }
@@ -19371,11 +19848,12 @@ class Game {
       if (local && remote) {
         if (remote.patrolId && remote.patrolId !== local.patrolId) local.patrolId = remote.patrolId;
         if (Number.isFinite(Number(remote.targetSafety))) local.targetSnapshot.safety = Number(remote.targetSafety);
-        local.actorReward = calculatePatrolOutcome(Object.assign({}, local.targetSnapshot || {}, {
+        const canonical = calculatePatrolOutcome(Object.assign({}, local.targetSnapshot || {}, {
           cost: local.cost,
           chapter: local.chapter
-        })).actorReward;
-        if (remote.loss) local.targetLoss = Object.assign({}, remote.loss);
+        }));
+        local.actorReward = canonical.actorReward;
+        local.targetLoss = canonical.targetLoss;
         local.settleAt = Math.max(local.settleAt, Number(remote.settleAt) || 0);
       }
       saveState(this.state);
@@ -19408,6 +19886,57 @@ class Game {
     });
     return true;
   }
+  noteEndlessChapterAction(action, detail = {}) {
+    const reserve = ((this.state.world || {}).reserve) || {};
+    if (!isEndlessGuardReady(reserve) || !action) return null;
+    const mode = reserve.endlessMode || {};
+    const log = mode.weekLog || {};
+    const list = action === "worldHoundPatrol" ? log.sent : action === "worldHoundPatrolIncoming" ? log.received : action === "friendContract" ? log.friends : null;
+    const id = String(detail.partnerId || "");
+    if (list && id && list.some((item) => item && item.id === id)) return mode;
+    return advanceEndlessGuardMode(reserve, Object.assign({ action, dayClosed: false }, detail));
+  }
+  rollEndlessChapterDay() {
+    const reserve = ((this.state.world || {}).reserve) || {};
+    if (!isEndlessGuardReady(reserve)) return false;
+    ensureEndlessGuardMode(reserve);
+    const key = worldPatrolDayKey(Date.now());
+    const mode = reserve.endlessMode || {};
+    if (mode.calendarKey === key) return false;
+    const firstSeen = !mode.calendarKey;
+    mode.calendarKey = key;
+    if (!firstSeen) advanceEndlessGuardMode(reserve, { dayClosed: true });
+    saveState(this.state);
+    const today = ((endlessGuardView(reserve).board || {}).today) || "今日互动";
+    this.toast(firstSeen ? `无限守护开始。${today}` : today);
+    return !firstSeen;
+  }
+  openEndlessWeekRecap() {
+    const reserve = ((this.state.world || {}).reserve) || {};
+    if (!isEndlessGuardReady(reserve)) return false;
+    this.noteEndlessChapterAction("endlessRecap");
+    const view = endlessGuardView(reserve);
+    const log = view.weekLog || {};
+    const names = (list) => (list || []).map((item) => item.name).filter(Boolean).join("、") || "还没有";
+    this.infoDetailModal = {
+      kind: "endlessWeekRecap",
+      kicker: "第11章 · 无限守护",
+      title: `${view.seasonName} · 第${view.seasonWeek}周来回`,
+      icon: "hound_team",
+      items: [
+        { tag: "今日", title: (view.board || {}).today || "今日互动", body: (view.board || {}).echo || view.seasonBrief },
+        { tag: "巡逻", title: names(log.sent), body: "这些是你本周派出猎犬的保护区。" },
+        { tag: "被巡逻", title: names(log.received), body: "这些保护区本周巡逻了你。双方对上时，赛季分额外加 5。" },
+        { tag: "好友", title: names(log.friends), body: "只有双方都完成的好友合同会计入这里。" }
+      ],
+      footer: (view.board || {}).week || "本周来回会写在这里。",
+      actionLabel: "知道了",
+      action: () => { this.infoDetailModal = null; this.render(); }
+    };
+    saveState(this.state);
+    this.render();
+    return true;
+  }
   settleWorldHoundPatrols(now = Date.now()) {
     if (!this.state || !this.state.character) return false;
     const reserve = ((this.state.world || {}).reserve || {});
@@ -19423,6 +19952,11 @@ class Game {
       const settled = settlePatrolRecord(record, now);
       if (settled.status === "settled" && !patrolAlreadyClaimed(state, settled, "reward") && !settled.appliedReward) {
         settled.appliedReward = applyActorReward(reserve, settled);
+        const rareDiscovery = maybeRareAnimalPatrolDiscovery(reserve, {
+          action: "worldHoundPatrol",
+          success: true
+        });
+        if (rareDiscovery && rareDiscovery.ok) settled.rareCub = Object.assign({}, rareDiscovery.entry);
         settled.resultAnnounced = false;
         markPatrolClaimed(state, settled, "reward");
         freshlySettled.push(Object.assign({}, settled, { noticeRole: "actor" }));
@@ -19443,6 +19977,13 @@ class Game {
       }));
       state.pending = state.pending.filter((record) => record && record.status !== "settled");
       persistPatrolClaims(state, this.runtime);
+      freshlySettled.forEach((row) => {
+        if (!row || row.noticeRole !== "actor") return;
+        this.noteEndlessChapterAction("worldHoundPatrol", {
+          partnerName: row.targetName || row.partnerName,
+          partnerId: row.targetId || row.patrolId
+        });
+      });
       saveState(this.state);
       this.publishWorldHoundPatrolScore(reserve);
       this.queueWorldHoundPatrolResult(freshlySettled);
@@ -19456,12 +19997,14 @@ class Game {
       : [];
     const candidates = history.filter((row) => row && row.status === "settled" && row.resultAnnounced == null && row.patrolId && (
       (row.appliedReward && typeof row.appliedReward === "object")
+      || (row.actorReward && typeof row.actorReward === "object")
       || (row.appliedLoss && typeof row.appliedLoss === "object" && this.worldHoundPatrolLostMaterials(row))
     ));
     if (!candidates.length) return false;
     const stamp = (row) => Number(row.settledAt || row.settleAt || row.createdAt) || 0;
     const newest = (rows) => rows.reduce((best, row) => (!best || stamp(row) >= stamp(best) ? row : best), null);
-    const gain = newest(candidates.filter((row) => row.direction !== "received" && row.noticeRole !== "target" && row.appliedReward && typeof row.appliedReward === "object"));
+    const gain = newest(candidates.filter((row) => row.direction !== "received" && row.noticeRole !== "target"
+      && ((row.appliedReward && typeof row.appliedReward === "object") || (row.actorReward && typeof row.actorReward === "object"))));
     const loss = newest(candidates.filter((row) => (row.direction === "received" || row.noticeRole === "target") && this.worldHoundPatrolLostMaterials(row)));
     const show = new Set([gain, loss].filter(Boolean));
     candidates.forEach((row) => {
@@ -20596,6 +21139,8 @@ class Game {
     const discovery = summary.state.discoveries[id] || {};
     if (!(discovery.count > 0)) {
       const activation = wildernessActivation(item, reserve);
+      const currentLevel = Math.max(1, Math.round(Number(((reserve.progression || {}).level || (reserve.progression || {}).stage)) || 1));
+      const levelLocked = currentLevel < Math.max(1, Number(item.minLevel) || 1);
       this.infoDetailModal = {
         kind: "wildernessKnowledgeLockedItem",
         kicker: `${item.region} · 尚未发现`,
@@ -20603,11 +21148,11 @@ class Game {
         icon: "leaf",
         wildernessItem: item,
         items: [
-          { tag: "剧情门槛", title: activation.storyText, body: `${item.storyHook}。剧情推进后，这类物件才进入探索清单。` },
-          { tag: "数值门槛", title: activation.metricText, body: `保护区数据达到门槛后激活；当前${activation.metricReady ? "已满足" : "尚未满足"}。` },
+          { tag: "等级门槛", title: levelLocked ? `当前等级 ${currentLevel}，需要等级 ${item.minLevel}` : `等级 ${currentLevel} 已达到要求`, body: levelLocked ? `保护区等级不足，暂时不能获取“${item.label}”。先完成当前章节目标，提升保护区等级后再来探索。` : "等级已经满足，还需要继续推进对应章节剧情。" },
+          { tag: "剧情与数值门槛", title: activation.storyText, body: `${item.storyHook}。${activation.metricText}；当前${activation.metricReady ? "已满足" : "尚未满足"}。` },
           { tag: "取得判定", title: `探索总点数 ${item.minQuality}+`, body: "点数只决定本次能否取得，不再随机决定出现哪一种物品。" }
         ],
-        footer: activation.statusText,
+        footer: levelLocked ? `暂不可获取 · 需要保护区等级 ${item.minLevel}` : activation.statusText,
         actionLabel: "去探索",
         action: () => {
           this.infoDetailModal = null;
@@ -22969,6 +23514,18 @@ class Game {
     });
     this.reconcileDerivedGoalProgress(beforeWorldForEcho, result, "exploreMaterials");
     result.world = this.state.world;
+    const behaviorEvent = applyActionAnalytics(result, beforeReserve, "exploreMaterials", "动物引路探索");
+    if (behaviorEvent) {
+      this.trackNarrative("reserve.action_completed", {
+        actionId: behaviorEvent.actionId,
+        actionCount: behaviorEvent.actionCount,
+        actionCountDelta: behaviorEvent.actionCountDelta,
+        fundDelta: behaviorEvent.delta.fund,
+        waterDelta: behaviorEvent.delta.water,
+        grassDelta: behaviorEvent.delta.grass,
+        safetyDelta: behaviorEvent.delta.safety
+      });
+    }
     const explorationCard = result.visual && result.visual.materialExploration;
     const progressCard = explorationCard && explorationCard.collectionProgress;
     const liveProgress = targetId ? explorationProgressFor((result.world || {}).reserve || {}, targetId) : null;
@@ -23791,15 +24348,34 @@ class Game {
       const region = this.findRegion(marker.regionId);
       if (!region) return null;
       const regionPoint = this.clampSandboxWorldPoint(region.x, region.y);
-      const point = this.mapPoint(regionPoint.x, regionPoint.y, camera);
+      const fixedMapPosition = marker.fixedMapPosition;
+      const mapBuilding = marker.mapObjectType === "building" && fixedMapPosition;
+      const buildingPoint = mapBuilding
+        ? this.clampSandboxWorldPoint(Number(fixedMapPosition.x) || 0.42, Number(fixedMapPosition.y) || 0.74)
+        : null;
+      const point = mapBuilding
+        ? this.mapPoint(buildingPoint.x, buildingPoint.y, camera)
+        : fixedMapPosition
+        ? {
+          x: mapX + mapW * Math.max(0.08, Math.min(0.92, Number(fixedMapPosition.x) || 0.42)),
+          y: mapY + mapH * Math.max(0.12, Math.min(0.88, Number(fixedMapPosition.y) || 0.74))
+        }
+        : this.mapPoint(regionPoint.x, regionPoint.y, camera);
       const labelW = marker.eventType === "animal_interaction" ? 118 : 100;
       const inset = this.sandboxScreenInset(mapX, mapY, mapW, mapH);
-      const candidates = markerSlots.map(([sx, sy]) => ({
-        x: Math.max(inset.left, Math.min(inset.right, point.x + sx * mapW)),
-        y: Math.max(inset.top, Math.min(inset.bottom, point.y + sy * mapH)),
-        w: labelW * camera.scale,
-        h: 76 * camera.scale
-      }));
+      const candidates = fixedMapPosition
+        ? [{
+          x: mapBuilding ? point.x : Math.max(inset.left, Math.min(inset.right, point.x)),
+          y: mapBuilding ? point.y - 18 * camera.scale : Math.max(inset.top, Math.min(inset.bottom, point.y - 18 * camera.scale)),
+          w: labelW * camera.scale,
+          h: 76 * camera.scale
+        }]
+        : markerSlots.map(([sx, sy]) => ({
+          x: Math.max(inset.left, Math.min(inset.right, point.x + sx * mapW)),
+          y: Math.max(inset.top, Math.min(inset.bottom, point.y + sy * mapH)),
+          w: labelW * camera.scale,
+          h: 76 * camera.scale
+        }));
       let chosen = candidates[0];
       if (!lightPaint) {
         let best = Infinity;
@@ -23809,7 +24385,11 @@ class Game {
         });
       }
       markerBoxes.push(chosen);
-      return { marker, index, px: chosen.x, py: chosen.y + 18 * camera.scale, clearOfHud: prologue || chosen.y >= camera.y + 126 };
+      const onMap = point.x >= camera.x - labelW * camera.scale
+        && point.x <= camera.x + camera.w + labelW * camera.scale
+        && point.y >= camera.y + 126
+        && point.y <= camera.y + camera.h + 76 * camera.scale;
+      return { marker, index, px: chosen.x, py: chosen.y + 18 * camera.scale, fixedPosition: !!fixedMapPosition, mapBuilding: !!mapBuilding, clearOfHud: (prologue || chosen.y >= camera.y + 126) && (!mapBuilding || onMap) };
     }).filter(Boolean);
     const eventExclusionZones = lightPaint ? [] : markerPlacements.map((placement) => {
       const region = this.findRegion(placement.marker.regionId);
@@ -23934,7 +24514,8 @@ class Game {
           } else {
             const markerKey = `marker:${marker.id || placement.index}`;
             const markerLayout = this.drawGroundMapMarker(ctx, marker, placement.px, placement.py, camera.scale * 0.9, {
-              showLabel: !!attentionPlan.visibleKeys[markerKey]
+              showLabel: !!placement.fixedPosition || !!attentionPlan.visibleKeys[markerKey],
+              fixedPosition: placement.fixedPosition
             });
             placement.hitRect = markerLayout && markerLayout.hitRect;
           }
@@ -24114,19 +24695,39 @@ class Game {
       if (selected) focus.usedSlot = slot;
     }
     if (!selected) {
-      const priorityCandidates = unique.filter((candidate) => {
+      const speakerCandidates = unique.filter((candidate) => candidate.kind === "animal" || candidate.kind === "tourist");
+      const hasBothSpeakers = speakerCandidates.some((candidate) => candidate.kind === "animal")
+        && speakerCandidates.some((candidate) => candidate.kind === "tourist");
+      const lastKind = this.mapSpeechKindHistory && this.mapSpeechKindHistory.lastKind;
+      const urgentCandidates = unique.filter((candidate) => candidate.priority >= 380);
+      const balancedCandidates = hasBothSpeakers && !focus
+        ? speakerCandidates.filter((candidate) => candidate.kind !== lastKind)
+        : [];
+      const pool = balancedCandidates.length
+        ? urgentCandidates.concat(balancedCandidates.filter((candidate) => !urgentCandidates.includes(candidate)))
+        : unique;
+      const priorityCandidates = pool.filter((candidate) => {
         const cooldown = candidate.priority >= 380 ? 3 : candidate.priority >= 220 ? 2 : 1;
         const lastSlot = this.mapSpeechHistory[candidate.key];
         return candidate.priority > 100 && (typeof lastSlot !== "number" || slot - lastSlot >= cooldown);
-      }).sort((a, b) => b.priority - a.priority || a.key.localeCompare(b.key));
-      selected = priorityCandidates[0] || unique[slot % unique.length];
+      }).sort((a, b) => {
+        if (a.kind !== b.kind && hasBothSpeakers && lastKind) return a.kind === lastKind ? 1 : -1;
+        return b.priority - a.priority || a.key.localeCompare(b.key);
+      });
+      selected = priorityCandidates[0] || pool[slot % Math.max(1, pool.length)] || unique[slot % unique.length];
     }
     const previousKey = this.mapSpeechSelection && this.mapSpeechSelection.key;
     if (selected && unique.length > 1 && previousKey === selected.key) {
       const alternate = unique.find((candidate) => candidate.key !== previousKey);
       if (alternate) selected = alternate;
     }
-    if (selected) this.mapSpeechHistory[selected.key] = slot;
+    if (selected) {
+      this.mapSpeechHistory[selected.key] = slot;
+      this.mapSpeechKindHistory = {
+        lastKind: selected.kind,
+        lastSlot: slot
+      };
+    }
     this.mapSpeechSelection = selected ? { slot, signature, key: selected.key } : null;
     return selected;
   }
@@ -24400,20 +25001,20 @@ class Game {
       const rx = x + 22, ry = bodyY + 8 + index * (rowH + gap), rw = w - 44;
       const isActive = !item.complete;
       this.drawPremiumParchmentPanel(ctx, rx, ry, rw, rowH, 14, { muted: item.complete });
-      const titleSize = 15;
+      const titleSize = 17;
       const title = this.truncateTextToWidth(ctx, item.title, rw - 76, titleSize, "700");
       this.text(ctx, title, rx + 12, ry + 20, titleSize, "#173d34", "700");
       this.text(ctx, item.complete ? "已完成" : `${item.progress || 0}/${item.target || 1}`, rx + rw - 12, ry + 20, 13, "#2f765c", "700", "right");
-      const description = this.drawFittedTextBlock(ctx, item.description || "", rx + 12, ry + 38, rw - 24, 24,
-        { size: 13, minSize: 13, keepSize: true, lineHeight: 15, color: "#42584b" });
-      const reward = this.drawNumericHighlightTextBlock(ctx, `奖励：${item.reward || "完成奖励"}`, rx + 12, ry + 62, rw - 24, 34,
-        { size: 12, minSize: 12, numberSize: 15, lineHeight: 16, color: "#946a25", numberColor: "#c54838", weight: "700", numberWeight: "700", compact: true, maxChars: 34 });
+      const description = this.drawFittedTextBlock(ctx, item.description || "", rx + 12, ry + 40, rw - 24, 22,
+        { size: 14, minSize: 13, keepSize: true, lineHeight: 16, color: "#42584b" });
+      const reward = this.drawNumericHighlightTextBlock(ctx, `奖励：${item.reward || "完成奖励"}`, rx + 12, ry + 62, rw - 24, 22,
+        { size: 13, minSize: 12, numberSize: 16, lineHeight: 15, color: "#946a25", numberColor: "#c54838", weight: "700", numberWeight: "700", compact: true, maxChars: 34 });
       let button = null;
       if (isActive) {
-        button = { x: rx + 12, y: ry + rowH - 24, w: rw - 24, h: 20, label: `去完成 · ${item.buttonLabel || "开始任务"} ›` };
+        button = { x: rx + 12, y: ry + rowH - 34, w: rw - 24, h: 32, label: `去完成 · ${item.buttonLabel || "开始任务"} ›` };
         this.addHit(rx, ry - this.scrollY, rw, rowH, () => this.executeDailyEvent(item.id, checklist.dateKey), "tap");
         this.modalButton(ctx, button.x, button.y, button.w, button.h, button.label, "#1c3325",
-          () => this.executeDailyEvent(item.id, checklist.dateKey), "#fff8df", 12);
+          () => this.executeDailyEvent(item.id, checklist.dateKey), "#fff8df", 13, "", { compactVisual: true });
       } else {
         this.text(ctx, item.complete ? "✓ 奖励已领取" : "完成后可领今日奖励", rx + rw / 2, ry + rowH - 18, 13,
           item.complete ? "#2f765c" : "#657267", "700", "center");
@@ -24579,6 +25180,33 @@ class Game {
       data.action = detailPrompt.goalAction;
       data.buttonKicker = detailPrompt.buttonKicker;
     }
+    const endlessEmergency = !!((reserve.emergency || {}).active);
+    if (isEndlessGuardReady(reserve) && !endlessEmergency) {
+      const endlessView = endlessGuardView(reserve);
+      const interaction = (endlessView.dailyContracts || []).find((item) => item && item.role === "interaction" && !item.complete)
+        || (endlessView.dailyContracts || []).find((item) => item && item.role === "interaction");
+      const actionName = interaction && interaction.action;
+      const actionLabels = {
+        friendContract: "打开好友榜",
+        worldHoundPatrol: "打开世界榜",
+        endlessAuction: "参加拍卖",
+        endlessRecap: "查看来回",
+        endlessMirror: "查看来回"
+      };
+      const endlessGoal = availableGoals.find((goal) => goal && goal.endlessContract) || {
+        id: (interaction && interaction.id) || "endless-interaction",
+        endlessContract: true,
+        recommendedAction: actionName,
+        buttonLabel: actionLabels[actionName] || "去互动",
+        title: interaction && interaction.title
+      };
+      data.progressText = `第${endlessView.seasonDay}/28日`;
+      data.title = (interaction && interaction.title) || "今日互动";
+      data.action = actionLabels[actionName] || "去互动";
+      data.buttonKicker = "今日互动";
+      data.goal = endlessGoal;
+      data.guidance = null;
+    }
     this.frameMemoStore = this.frameMemoStore || {};
     this.frameMemoStore.goalBar = data;
     return data;
@@ -24612,7 +25240,7 @@ class Game {
     this.roundRect(ctx, x, y + 4, w, h, 18, "rgba(8,22,15,.36)", null, goalCorners);
     this.roundRect(ctx, x, y, w, h, 18, "#fff9e6", "rgba(42,107,72,.72)", goalCorners);
     this.roundRect(ctx, x + 4, y + 4, w - 8, h - 8, 14, "rgba(232,246,223,.58)", "rgba(191,151,66,.28)", goalInset);
-    const progressLabel = `进度 ${data.progressText}`;
+    const progressLabel = data.buttonKicker === "今日互动" ? `${data.progressText} · 今日互动` : `进度 ${data.progressText}`;
     this.text(ctx, progressLabel, x + 12, y + 15, chapterSize, data.target > 1 && data.progress < data.target ? UI_THEME.danger : UI_THEME.tint, "700");
     this.text(ctx, `当前目标：${this.truncateTextToWidth(ctx, data.title, bodyW - 12, titleSize, "700")}`, x + 12, y + 35, titleSize, UI_THEME.ink, "700");
     const buttonX = x + w - actionW - 8;
@@ -25904,7 +26532,12 @@ class Game {
     this.renderedRescueMapMarkers = [];
     try {
       const state = this.chapterRescueState();
-      const targetPending = (state.targets || []).filter((record) => record.status !== "rescued");
+      // A legacy/queued rescue can exist in the chapter ledger before its
+      // story card makes it visible. Do not paint that hidden record as a
+      // phantom map card or register a hit box for it.
+      const targetPending = (state.targets || []).filter((record) => (
+        record && record.status !== "rescued" && record.taskVisible !== false
+      ));
       const legacyPending = [];
       const poacherPending = (((this.state.world || {}).reserve || {}).poacherRescue || {}).active || [];
       const pendingCandidates = targetPending.concat(legacyPending, poacherPending.filter((record) => record && record.status !== "rescued" && record.taskVisible !== false));
@@ -25923,30 +26556,50 @@ class Game {
       const world = this.rescueMarkerWorldPoint(record, index, occupied);
       occupied.push([world.x, world.y]);
       const point = this.mapPoint(world.x, world.y, camera);
-      const w = 110, h = 88;
+      const activeRecord = this.activeRescueRecord((this.state.world || {}).reserve || {});
+      const started = Object.values(record.pointProgress || {}).some((value) => Number(value) > 0)
+        || Object.values(record.collectedItems || {}).some((value) => Number(value) > 0);
+      const detail = !!activeRecord && (
+        activeRecord.targetId === record.targetId || activeRecord.speciesId === record.speciesId
+      ) || started;
+      // Keep an unstarted rescue discoverable without leaving a large card on
+      // top of the map. The expanded card is reserved for an active/started
+      // rescue, while the compact pin remains an exact, tappable affordance.
+      const w = detail ? 110 : 86;
+      const h = detail ? 88 : 42;
       const x = point.x - w / 2;
-      const y = point.y - 36;
+      const y = point.y - (detail ? 36 : 20);
       const cx = x + w / 2;
       const species = (record.speciesId && getSpeciesById(record.speciesId)) || SPECIES_BY_NAME[record.speciesName];
       const speciesId = (species && species.id) || record.speciesId || record.speciesName || "animal";
       const speciesName = record.speciesName || (species && species.name) || String(speciesId);
-      this.roundRect(ctx, x + 25, y, 60, 60, 12, "rgba(255,244,204,.96)", "#a77a2b");
-      this.drawSpeciesAvatar(ctx, speciesId, cx, y + 29, 48);
-      ctx.save();
-      try {
-        ctx.strokeStyle = "rgba(102,85,53,.72)"; ctx.lineWidth = 2;
-        for (let i = 0; i < 4; i += 1) {
-          ctx.beginPath(); ctx.moveTo(x + 32 + i * 15, y + 6); ctx.lineTo(x + 32 + i * 15, y + 53); ctx.stroke();
+      const iconSize = 34;
+      if (detail) {
+        this.roundRect(ctx, x + 25, y, 60, 60, 12, "rgba(255,244,204,.96)", "#a77a2b");
+        this.drawSpeciesAvatar(ctx, speciesId, cx, y + 29, 48);
+        ctx.save();
+        try {
+          ctx.strokeStyle = "rgba(102,85,53,.72)"; ctx.lineWidth = 2;
+          for (let i = 0; i < 4; i += 1) {
+            ctx.beginPath(); ctx.moveTo(x + 32 + i * 15, y + 6); ctx.lineTo(x + 32 + i * 15, y + 53); ctx.stroke();
+          }
+          ctx.strokeStyle = "#d34f43"; ctx.lineWidth = 2.5; ctx.beginPath();
+          ctx.ellipse(cx, y + 30, 25, 19, 0, 0, Math.PI * 2); ctx.stroke();
+        } finally {
+          ctx.restore();
         }
-        ctx.strokeStyle = "#d34f43"; ctx.lineWidth = 2.5; ctx.beginPath();
-        ctx.ellipse(cx, y + 30, 25, 19, 0, 0, Math.PI * 2); ctx.stroke();
-      } finally {
-        ctx.restore();
+        this.roundRect(ctx, x + 69, y + 4, 18, 18, 9, "#c54838", "#fff1c8");
+        this.text(ctx, "锁", x + 78, y + 17, 10, "#fff8df", "700", "center");
+        this.roundRect(ctx, x, y + 62, w, 26, 12, "#245b48", "#d5b456");
+        this.text(ctx, `${speciesName} · 待解救 ›`, cx, y + 80, 10, "#fff5d8", "700", "center");
+      } else {
+        this.roundRect(ctx, x + 3, y + 4, iconSize, iconSize, 10, "rgba(255,244,204,.92)", "#a77a2b");
+        this.drawSpeciesAvatar(ctx, speciesId, x + 20, y + 21, 27);
+        this.roundRect(ctx, x + w - 22, y + 2, 18, 18, 9, "#c54838", "#fff1c8");
+        this.text(ctx, "锁", x + w - 13, y + 15, 9, "#fff8df", "700", "center");
+        this.roundRect(ctx, x + 39, y + 7, w - 43, 28, 12, "rgba(36,91,72,.94)", "rgba(213,180,86,.82)");
+        this.text(ctx, this.truncateTextToWidth(ctx, `${speciesName} · 待解救 ›`, w - 49, 9, "700"), x + 41 + (w - 43) / 2, y + 25, 9, "#fff5d8", "700", "center");
       }
-      this.roundRect(ctx, x + 69, y + 4, 18, 18, 9, "#c54838", "#fff1c8");
-      this.text(ctx, "锁", x + 78, y + 17, 10, "#fff8df", "700", "center");
-      this.roundRect(ctx, x, y + 62, w, 26, 12, "#245b48", "#d5b456");
-      this.text(ctx, `${speciesName} · 待解救 ›`, cx, y + 80, 10, "#fff5d8", "700", "center");
       this.renderedRescueMapMarkers.push({
         targetId: record.targetId,
         speciesId,
@@ -25954,6 +26607,7 @@ class Game {
         y,
         w,
         h,
+        compact: !detail,
         worldX: world.x,
         worldY: world.y
       });
@@ -25965,8 +26619,13 @@ class Game {
         // Keep both regions inside the painted controls. The old portrait
         // region started at the card's outer edge, which made a nearby
         // facility label easy to trigger on a physical-pixel touch.
-        this.addRescueMapRectHit(x + 29, y + 4, 52, 52, openRescue);
-        this.addRescueMapRectHit(x + 4, y + 64, w - 8, 22 - 4, openRescue);
+        if (detail) {
+          this.addRescueMapRectHit(x + 29, y + 4, 52, 52, openRescue);
+          this.addRescueMapRectHit(x + 4, y + 64, w - 8, 18, openRescue);
+        } else {
+          this.addRescueMapRectHit(x + 3, y + 4, iconSize, iconSize, openRescue);
+          this.addRescueMapRectHit(x + 39, y + 7, w - 43, 28, openRescue);
+        }
       }
       });
     } catch (error) {
@@ -26240,12 +26899,72 @@ class Game {
   }
   visitorMapDialogue(view = {}, motion = {}) {
     const node = Number(motion.nodeIndex);
-    if ([12, 14].includes(node)) return view.touristLine || "向导提醒我们不要越过水线。";
-    if ([0, 1].includes(node)) return "入口的路线标记很清楚。";
-    if ([2, 3, 4].includes(node)) return "林边的脚印要绕开。";
-    if ([5, 6].includes(node)) return "桥下的水声比刚才急。";
-    if ([7, 8].includes(node)) return "远处那群羚羊换了方向。";
-    return "这条路没有惊动鹿群。";
+    const reserve = view.reserve || {};
+    const ecology = reserve.ecology || {};
+    const chapter = view.chapter || getCurrentChapter(reserve) || {};
+    const chapterNo = Math.max(1, Number(chapter.chapter || (reserve.progression || {}).stage) || 1);
+    const safety = Number(reserve.safety || reserve.stability) || 0;
+    const water = Number(ecology.water) || 0;
+    const grass = Number(ecology.grass) || 0;
+    const disease = Number(ecology.disease) || 0;
+    const visitors = Number(view.visitors) || 0;
+    const rareCount = Array.isArray((reserve.rareAnimal || {}).cubs)
+      ? reserve.rareAnimal.cubs.filter((cub) => cub && cub.status === "resident").length
+      : 0;
+    const route = String((view.choice || {}).routeKey || "visitor");
+    const seed = Math.abs(
+      chapterNo * 17
+      + (Number(reserve.guardianCycle && reserve.guardianCycle.day) || 0) * 7
+      + (Number(reserve.development && reserve.development.day) || 0) * 11
+      + (Number(motion.nodeIndex) || 0) * 13
+      + visitors
+    );
+    const pick = (lines) => lines[Math.max(0, seed) % lines.length];
+    if (disease >= 55) return pick([
+      `向导说先别靠近，疾病风险已经到${Math.round(disease)}。`,
+      "今天的观察线缩短了，先给动物留出安静的退路。",
+      `第${chapterNo}章的水边很漂亮，但我们要和病风险保持距离。`
+    ]);
+    if (safety < 45) return pick([
+      `这里的安全只有${Math.round(safety)}，向导让我们不要离队。`,
+      "脚印太直了，今天先看边界，不追着动物拍。",
+      `第${chapterNo}章的路线还在修复，我们把相机收低一点。`
+    ]);
+    if (water < 45) return pick([
+      `水源只剩${Math.round(water)}，动物要先喝，我们错峰走。`,
+      "浅滩变窄了，向导把游客线往高处移了一段。",
+      `第${chapterNo}章的水线正在变化，今天看到的是保护过程。`
+    ]);
+    if (grass < 45) return pick([
+      `草场只有${Math.round(grass)}，我们不在嫩草边停留。`,
+      "这段草地要休息，向导让大家沿着硬路走。",
+      `看起来很绿，实际要给第${chapterNo}章的草场留恢复时间。`
+    ]);
+    if (rareCount > 0 && chapterNo >= 2) return pick([
+      `听说保护区有${rareCount}只珍稀幼崽，今天要保持安静观察。`,
+      "那块幼崽护照标记亮了，原来游客也能看见保护的结果。",
+      `第${chapterNo}章的新看点不是围观，是给幼崽留出安全距离。`
+    ]);
+    if (chapterNo <= 2) return pick([
+      "第一次走进浅滩，原来水线也需要被照顾。",
+      "向导说先认路，再找动物；我们今天学会了慢一点。",
+      `第${chapterNo}章的保护区还在醒来，连脚印都像新的。`
+    ]);
+    if (chapterNo <= 5) return pick([
+      `第${chapterNo}章的队形很有意思，动物比我们更懂错峰。`,
+      "原来安全不是围栏，是每个人都知道该停在哪里。",
+      `这条路线有${Math.round(visitors)}位游客，向导仍把水边留给动物。`
+    ]);
+    if (chapterNo <= 8) return pick([
+      `第${chapterNo}章的旧水路接上了，今天的游客线也跟着变长。`,
+      "我们看到的是一条生态回路：水、草、动物和人都在让路。",
+      route === "animal" ? "这次把镜头交给动物，安静本身就是一种参与。" : "核心区很稳，但向导仍然让我们保持观察距离。"
+    ]);
+    return pick([
+      `第${chapterNo}章的迁徙线打开了，游客只是这张生态网的一小段。`,
+      "这里像一座会变化的保护区，下一次来，路线可能已经不同。",
+      "向导没有承诺一定看见动物，只承诺不打扰它们的选择。"
+    ]);
   }
   drawTouristMapCharacter(ctx, x, groundY, scale = 1, index = 0, motion = {}) {
     const s = Math.max(.62, Math.min(1.15, scale));
@@ -26441,7 +27160,10 @@ class Game {
       });
       if (options.showDialogue) {
         const speaker = visitorPlacements[0];
-        const dialogue = this.visitorMapDialogue(view, speaker.motion);
+        const dialogue = this.visitorMapDialogue(Object.assign({}, view, {
+          reserve,
+          chapter: getCurrentChapter(reserve)
+        }), speaker.motion);
         this.drawMapMarkerDialogueBubble(ctx, { dialogue: `游客：${dialogue}`, type: "visitor" }, speaker.sx, speaker.sy, camera, 0);
       }
     }
@@ -27420,7 +28142,11 @@ class Game {
     const icon = isNeighborEvent ? "↔" : isVisitorEvent ? "!" : "✦";
     const badge = isNeighborEvent ? "邻区" : isVisitorEvent ? "游客" : "紧急！！";
     const balloonR = Math.max(17, 19 * scale);
-    const requestedFloatY = point.y - 62 * scale - Math.sin(this.animT() * .003) * 3 * scale;
+    // Keep the task prompt anchored to the event marker.  The old sinusoidal
+    // offset made the “紧急！！” balloon drift up and down every frame,
+    // which looked like a touch/positioning glitch and made it harder to tap.
+    // The event artwork below still carries the warning animation.
+    const requestedFloatY = point.y - 62 * scale;
     const balloonPoint = this.placeMapTaskPrompt(point.x, requestedFloatY, balloonR * 2 + 28 * scale, balloonR * 2 + 42 * scale);
     const balloonX = balloonPoint.x;
     const floatY = balloonPoint.y;
@@ -28537,8 +29263,22 @@ class Game {
     if (anchor) {
       const day = (this.state.world && this.state.world.day) || 1;
       const driftSeed = index + sightingIndex * 3.7;
-      const driftX = Math.sin(day * 0.41 + driftSeed * 1.7) * 0.010;
-      const driftY = Math.cos(day * 0.37 + driftSeed * 1.3) * 0.010;
+      // Spread each individual across its habitat instead of stacking every
+      // animal on the same center point. The hash keeps the location stable
+      // during a render while the day term gives the herd a slow natural shift.
+      const spreadKey = `${animal.id || animal.species || "animal"}|habitat`;
+      let spread = this.animalHabitatSpreadCache[spreadKey];
+      if (!spread) {
+        const spreadSeed = this.hashString(spreadKey);
+        spread = this.animalHabitatSpreadCache[spreadKey] = {
+          x: ((spreadSeed % 2001) / 1000 - 1) * 0.085,
+          y: ((Math.floor(spreadSeed / 2001) % 2001) / 1000 - 1) * 0.065
+        };
+      }
+      const spreadX = spread.x;
+      const spreadY = spread.y;
+      const driftX = spreadX + Math.sin(day * 0.18 + driftSeed * 1.7) * 0.018;
+      const driftY = spreadY + Math.cos(day * 0.16 + driftSeed * 1.3) * 0.014;
       const target = intentRegion ? [intentRegion.x, intentRegion.y] : anchor;
       const intentWeight = animal.isMapSighting ? 0.08 : 0.18;
       const x = anchor[0] * (1 - intentWeight) + target[0] * intentWeight + driftX;
@@ -28622,6 +29362,8 @@ class Game {
         targetY: base.y,
         dirX: 0,
         dirY: 0,
+        velocityX: 0,
+        velocityY: 0,
         facingX: this.animalSpriteFacesRight(animal.species) ? 1 : -1,
         wait: 0,
         step: 0,
@@ -28725,6 +29467,8 @@ class Game {
       state.wait = Math.max(0, state.wait - dt);
       state.dirX = 0;
       state.dirY = 0;
+      state.velocityX = (Number(state.velocityX) || 0) * Math.max(0, 1 - dt * 5);
+      state.velocityY = (Number(state.velocityY) || 0) * Math.max(0, 1 - dt * 5);
       return;
     }
     const dx = state.targetX - state.x;
@@ -28736,12 +29480,19 @@ class Game {
       state.wait = this.animalMotionWait(animal, profile, state);
       state.dirX = 0;
       state.dirY = 0;
+      state.velocityX = 0;
+      state.velocityY = 0;
       this.chooseAnimalMotionTarget(animal, index, base, profile, state);
       return;
     }
     const env = this.animalMotionEnvironment();
     const speed = profile.speed * (env.poachers > 55 ? 1.2 : 1) * ((env.migrationDelta || 0) < 0 ? 1.12 : 1);
-    const step = Math.min(dist, speed * dt);
+    const desiredX = dx / dist * speed;
+    const desiredY = dy / dist * speed;
+    const blend = Math.min(1, dt * 4.2);
+    state.velocityX = (Number(state.velocityX) || 0) + (desiredX - (Number(state.velocityX) || 0)) * blend;
+    state.velocityY = (Number(state.velocityY) || 0) + (desiredY - (Number(state.velocityY) || 0)) * blend;
+    const step = Math.min(dist, Math.hypot(state.velocityX, state.velocityY) * dt);
     const oldX = state.x;
     const oldY = state.y;
     state.x = this.clampAnimalWorldX(state.x + dx / dist * step);
@@ -29403,6 +30154,16 @@ class Game {
       ? this.animalWeatherBubble(animal, dialogue)
       : "";
     if (weatherLine) return weatherLine;
+    const chapter = dialogue && (dialogue.chapter || getCurrentChapter(reserve));
+    const chapterNo = Math.max(1, Number((chapter || {}).chapter || (reserve.progression || {}).stage) || 1);
+    const chapterWindow = chapterNo <= 2 ? ["浅滩醒了", "先认水线", "脚印还新"]
+      : chapterNo <= 5 ? ["站灯亮了", "队形站稳", "边界有回声"]
+        : chapterNo <= 8 ? ["旧水路醒了", "核心在成形", "回路接上了"]
+          : chapterNo <= 10 ? ["迁徙线打开", "外面的路通了", "别把路堵上"]
+            : ["守望还在继续", "下一轮再看", "荒野会回答"];
+    if (dialogue && dialogue.click % 4 === 0 && safety >= 50 && water >= 45 && grass >= 45 && disease < 35) {
+      return this.dialoguePick(dialogue, `chapter-bubble-${animal.species}-${chapterNo}`, chapterWindow);
+    }
     if (dialogue && dialogue.movement && dialogue.movement.label) {
       return this.shortGameText(dialogue.movement.label.replace(/^正在?/, ""), 8) || "路线在变";
     }
@@ -31362,10 +32123,10 @@ class Game {
     const nextChapter = endless || chapter >= CHAPTERS.length ? chapter : chapter + 1;
     const promotionReasons = endless
       ? ["主线11章已完成", "已进入无限守护"]
-      : ["完成种群数量", "完成动物总数", "完成本章游客", "第6章起完成珍稀拍卖"];
+      : ["完成种群数量", "完成动物总数", "完成本章游客", "珍稀幼崽作为额外加成"];
     const unlockSteps = endless ? ["继续经营：每日任务、观景接待、安抚、解救和沙盘事件都还在"] : [
       "只考核种群数量、动物总数和本章游客",
-      "第6章起另考珍稀拍卖",
+      "第2章起可收集珍稀幼崽；第6章起每章开放拍卖",
       "物资、解救和剧情不是过关条件"
     ];
     const downgradeReasons = ["章节不会因单次数值波动降级", "连续经营恶化会降低水源、草场、安全和游客等级进度"];
@@ -31676,7 +32437,10 @@ class Game {
       return (eventType ? 40 : 0)
         + (type === "crisis" || type === "visitorIncident" ? 30 : 0)
         + (type === "poacherRescue" || kind === "rescue" ? 50 : 0)
-        + (type === "dailyReturnEvent" ? 45 : 0)
+        // A critical return task is actionable recovery work for the current
+        // reserve state.  Keep it ahead of a passive ecology marker so the
+        // player can see and resolve the risk immediately after returning.
+        + (type === "dailyReturnEvent" ? 140 : 0)
         + (kind === "friendAid" ? -12 : 0)
         + (marker.focused ? 20 : 0)
         + (marker.presentation === "resource-flow" ? -10 : 0)
@@ -32094,14 +32858,21 @@ class Game {
     const icon = { fund: "fund", water: "water", grass: "grass", visitors: "people", speciesCount: "paw", animalTotal: "paw" }[state.id] || "leaf";
     this.drawSmallGlyph(ctx, icon, x + 13, y + h / 2, color, .52);
     const percentText = state.showProgress && !showChange ? `${Math.max(0, Math.min(100, Number(completion.percentage) || 0))}%` : "";
-    const rightReserve = showChange ? 38 : (percentText ? 30 : 8);
+    // Keep a generous gutter for the percentage / change badge. Four digit
+    // values are common once a reserve grows, so they must never consume the
+    // space reserved for that right hand status.
+    const rightReserve = showChange ? 42 : (percentText ? 36 : 8);
     const labelSize = this.fitTextSize(ctx, state.label, 42, 10, 9, "700");
     const labelX = x + 23;
     const baseline = y + h / 2 + 3.5;
     this.text(ctx, state.label, labelX, baseline, labelSize, "#66715f", "700");
+    ctx.font = `700 ${labelSize}px ${UI_FONT_STACK}`;
     const valueX = labelX + Math.min(42, ctx.measureText(state.label).width) + 3;
     const valueText = `${displayValue}`;
-    const valueSize = this.fitTextSize(ctx, valueText, Math.max(16, w - (valueX - x) - rightReserve), 13, 10, "700");
+    const valueDigits = String(valueText).replace(/[^0-9]/g, "").length;
+    const valueMaxSize = valueDigits >= 5 ? 9 : valueDigits >= 4 ? 10 : 13;
+    const valueMinSize = valueDigits >= 5 ? 8 : valueDigits >= 4 ? 9 : 10;
+    const valueSize = this.fitTextSize(ctx, valueText, Math.max(16, w - (valueX - x) - rightReserve), valueMaxSize, valueMinSize, "700");
     this.text(ctx, valueText, valueX, baseline, valueSize, animalChange ? (delta > 0 ? "#1f7a52" : "#c45b42") : color, "700");
     if (showChange) {
       const tag = `${delta > 0 ? "↑" : "↓"}${this.signed(delta)}`;
@@ -32444,6 +33215,9 @@ class Game {
     const lifeUpdate = advanceLifeMemory(beforeWorld, this.state.world, { actionId: "earlyRest", command: "提前入夜" });
     this.state.world.lifeMemory = lifeUpdate.state;
     settleRareAuction(reserve, { force: true, playerName: this.rareAuctionPlayerName() });
+    advanceRareAnimalDay(reserve, { day: reserve.guardianCycle && reserve.guardianCycle.day });
+    resolveRareAnimalRisk(reserve, { action: "earlyRest" });
+    maybeRareAnimalBirth(reserve, { day: reserve.guardianCycle && reserve.guardianCycle.day });
     saveState(this.state);
     const auctionNotice = this.unseenRareAuctionNotice();
     if (auctionNotice) {
@@ -32478,8 +33252,8 @@ class Game {
       { id: "visitors", label: "本章游客", value: core.visitors, target: core.target.visitors, percentage: core.percentages.visitors, unit: "人" }
     ];
     const unfinishedCore = coreItems.filter((item) => item.value < item.target);
-    const rareReady = !core.rareAnimal || core.rareAnimal.required !== true || core.rareAnimal.met === true;
-    const chapterReady = unfinishedCore.length === 0 && rareReady;
+    const rareReady = true;
+    const chapterReady = unfinishedCore.length === 0;
     const endless = isEndlessGuardReady(Object.assign({}, reserve, { progression }));
     const endlessView = endless ? endlessGuardView(reserve) : null;
     const nextChapter = endless || chapter >= CHAPTERS.length ? chapter : chapter + 1;
@@ -32739,7 +33513,7 @@ class Game {
             ? `${endlessView.lastChange}。主线已经结束，继续经营、接待、安抚和解救都会计入本轮守护。`
             : unfinishedCore.length
             ? `还差：${unfinishedCore.map((item) => `${item.label} ${item.value}/${item.target}`).join("；")}`
-            : rareReady ? "种群、动物总数和本章游客都已达标。" : "第6章起还要完成珍稀拍卖。",
+            : "种群、动物总数和本章游客都已达标。珍稀幼崽会继续提升游客与生态收益。",
           action: () => {
             this.infoDetailModal = {
               kicker: endless ? "无限守护" : `第${chapter}章 · 晋级说明`,
@@ -32748,12 +33522,13 @@ class Game {
               items: endless
                 ? [
                   { tag: "赛季", title: `${endlessView.seasonName} · 第${endlessView.seasonDay}/${endlessView.seasonLength}日`, body: `${endlessView.seasonBrief}第11章完成后不再进入第12章，改为28天赛季轮换。` },
-                  { tag: "每日合同", title: `${(endlessView.dailyContracts || []).filter((item) => item.complete).length}/${(endlessView.dailyContracts || []).length} 已完成`, body: (endlessView.dailyContracts || []).map((item) => `${item.complete ? "✓" : "○"} ${item.title} ${item.progress}/${item.target}`).join(" · ") || "今日合同将在下一次守护日生成。" },
-                  { tag: "周拍卖", title: `第${endlessView.seasonWeek}周 · ${(endlessView.weeklyAuction || {}).status === "submitted" ? "已提交" : "可参加"}`, body: "每7天刷新一次拍卖品，结算后写入无限守护收藏，不改变前17章数据。", action: () => { this.infoDetailModal = null; this.openEndlessAuction(); } }
+                  { tag: "今日", title: (endlessView.board || {}).today || "今日互动", body: (endlessView.dailyContracts || []).map((item) => `${item.complete ? "✓" : "○"} ${item.title} ${item.progress}/${item.target}`).join(" · ") || "今日合同会在赛季日内生成。" },
+                  { tag: "拍卖", title: (endlessView.board || {}).auction || "本周拍卖", body: `${(endlessView.board || {}).echo || "拍到的东西会在下一次好友合同或猎犬巡逻里被看见。"}`, action: () => { this.infoDetailModal = null; this.openEndlessAuction(); } },
+                  { tag: "来回", title: (endlessView.board || {}).week || "本周还没有互动", body: "好友合同要双方完成。猎犬巡逻以结算报告为准。", action: () => { this.infoDetailModal = null; this.openEndlessWeekRecap(); } }
                 ]
                 : [
-                { tag: "当前限制", title: chapterReady ? "条件已全部满足" : "核心目标未完成", body: unfinishedCore.length ? `还差：${unfinishedCore.map((item) => `${item.label} ${item.value}/${item.target}`).join("；")}` : rareReady ? "三项核心目标都已达标。" : "还差珍稀拍卖。" },
-                { tag: "如何解锁", title: "只考核三项核心目标", body: "种群数量、动物总数、本章游客达标即可晋级。第6章起另考珍稀拍卖。物资、解救和剧情不是过关条件。" }
+                { tag: "当前限制", title: chapterReady ? "条件已全部满足" : "核心目标未完成", body: unfinishedCore.length ? `还差：${unfinishedCore.map((item) => `${item.label} ${item.value}/${item.target}`).join("；")}` : "三项核心目标都已达标。" },
+                { tag: "如何解锁", title: "只考核三项核心目标", body: "种群数量、动物总数、本章游客达标即可晋级。珍稀幼崽会间接影响游客和生态数值，但不直接卡住章节。" }
               ],
               footer: endless ? "通关玩家不会停在第11章门口。继续点沙盘就能玩。" : "三项核心目标同时满足后，下一章入口会自动开放。",
               actionLabel: "知道了",
@@ -32868,7 +33643,7 @@ class Game {
       submitted: !!auction.submitted,
       selectedLotId: auction.selectedLotId || ((auction.lots || [])[0] || {}).id || "",
       items: [],
-      footer: "拍卖只影响无限守护收藏，不改变前17章的动物账和章节条件。",
+      footer: "拍卖只影响第11章的无限守护收藏，不改变前10章的动物账和章节条件。",
       actionLabel: auction.submitted ? "已提交" : "提交竞拍",
       action: () => modal.submitted ? this.dismissInfoDetailModal() : this.submitEndlessAuction()
     };
@@ -32949,6 +33724,12 @@ class Game {
       };
     });
     const deducted = Math.max(0, Number(live.deducted) || 0);
+    const rareShareEvent = live.winner ? {
+      type: "rare", source: "rareAuction", sourceKind: "animal", relayKind: "rare_cub",
+      day: Number((reserve.guardianCycle || {}).day) || Number((this.state.world || {}).day) || 1,
+      individualId: `rare_cub_${live.variantName || "cub"}`, name: live.variantName || "珍稀幼崽", species: live.speciesName || "珍稀动物",
+      title: `${live.variantName || "珍稀幼崽"}来到保护区`, body: `我在第${Number((reserve.progression || {}).stage) || 1}章的珍稀幼崽拍卖中，带回了${live.variantName || "一只珍稀幼崽"}。`
+    } : null;
     this.infoDetailModal = {
       kind: "rareAuctionResult",
       kicker: "幼崽拍卖结果",
@@ -32971,6 +33752,8 @@ class Game {
         ? `${live.variantName || "幼崽"}的护照固定在地图西部岩坡，之后从那里查看。`
         : "冻结基金已退回。下一章可以再参与一次幼崽拍卖。",
       actionLabel: live.winner ? "查看护照" : "知道了",
+      shareActionLabel: live.winner ? "分享幼崽" : "",
+      shareAction: live.winner ? () => this.shareForestPostcard(rareShareEvent, { rewardType: "animals", sourceKind: "animal", relayKind: "rare_cub", skipReward: true }) : null,
       action: () => {
         this.markRareAuctionNoticeSeen();
         this.infoDetailModal = null;
@@ -32988,29 +33771,52 @@ class Game {
     const notice = this.unseenRareAuctionNotice();
     if (notice) return this.openRareAuctionResult(notice);
     const reserve = ((this.state.world || {}).reserve) || {};
+    if (reserve.rareAnimal && reserve.rareAnimal.lastEffect && reserve.rareAnimal.lastEffect.status === "resident") {
+      reserve.rareAnimal.lastEffect.unread = false;
+    }
     const rare = normalizeRareAnimalState(reserve);
     if (!["resident", "migrating"].includes(rare.status)) {
       this.toast("还没有珍稀动物护照");
       return false;
     }
     const auction = rare.auction || {};
-    const owned = rare.status === "resident" ? "在住" : "准备离开";
+    const collection = rareAnimalCollectionView(reserve);
+    const orderedEntries = collection.entries.slice().sort((left, right) => {
+      const leftLeaving = left.status === "migrating" ? 0 : 1;
+      const rightLeaving = right.status === "migrating" ? 0 : 1;
+      if (leftLeaving !== rightLeaving) return leftLeaving - rightLeaving;
+      const healthGap = (Number(left.health) || 0) - (Number(right.health) || 0);
+      if (healthGap) return healthGap;
+      return (Number(left.acquiredDay) || 0) - (Number(right.acquiredDay) || 0);
+    });
+    const firstCub = orderedEntries[0] || {};
+    const rareShareEvent = rare.lastShareEvent || (firstCub.id ? {
+      type: "rare", source: "rarePassport", sourceKind: "animal", relayKind: "rare_cub",
+      day: Number(firstCub.acquiredDay) || Number((reserve.guardianCycle || {}).day) || 1,
+      individualId: firstCub.id, name: firstCub.variantName || "珍稀幼崽", species: firstCub.speciesName || "珍稀动物",
+      title: `${firstCub.variantName || "珍稀幼崽"}来到保护区`, body: `我在保护区的珍稀幼崽图鉴中，记录了${firstCub.variantName || "一只珍稀幼崽"}。`
+    } : null);
     this.infoDetailModal = {
       kind: "rareAnimalPassport",
       kicker: "珍稀动物护照",
-      title: rare.variantName || "鳞芽",
+      title: `珍稀幼崽图鉴 ${collection.count}/${collection.max}`,
       icon: "rare",
-      items: [
-        { tag: "物种", title: rare.speciesName || "穿山甲", body: "这是你获得的珍稀幼崽。" },
-        { tag: "状态", title: owned, body: `健康 ${rare.health}/100。${rare.status === "migrating" ? "水草不稳时它会准备离开。" : "每天可以照护一次。"}` },
-        { tag: "位置", title: "西部岩坡洞域", body: "护照固定在地图西部岩坡。进入下一章后仍从这里查看。" },
-        {
-          tag: "拍卖记录",
-          title: auction.winner ? `第${auction.rank}名获得` : "已在住",
-          body: auction.winner ? `扣除基金 ${auction.finalBid || 0}。` : "这只幼崽已经住在保护区内。"
-        }
-      ],
-      footer: "地图上的「珍稀护照」会一直留在西部岩坡。",
+      items: orderedEntries.map((entry, index) => {
+        const sourceLabel = { birth: "保护区繁育", patrol: "猎犬巡逻", migration: "跨区迁入", auction: "幼崽拍卖" }[entry.source] || "保护区发现";
+        const statusLabel = entry.status === "migrating" ? "准备迁出" : "在住";
+        return {
+          tag: `幼崽 ${index + 1} · ${statusLabel}`,
+          title: `${entry.variantName || "珍稀幼崽"} · ${entry.speciesName || "珍稀动物"}`,
+          body: `健康 ${Math.max(0, Number(entry.health) || 0)}/100 · 游客吸引 +${Math.max(0, Number(entry.attraction) || 0)}% · ${sourceLabel}`
+        };
+      }).concat([
+        { tag: "保护区总览", title: `共 ${collection.count}/${collection.max} 只`, body: `当前游客吸引 +${Math.round((collection.visitorMultiplier - 1) * 100)}%。幼崽按获得顺序排列，健康较低或准备迁出的幼崽会优先显示。` },
+        { tag: "位置", title: "西部岩坡洞域", body: "珍稀护照固定在地图西部岩坡，进入下一章后仍从这里查看。" },
+        { tag: "拍卖记录", title: auction.winner ? `第${auction.rank}名获得` : "已在住", body: auction.winner ? `扣除基金 ${auction.finalBid || 0}。` : "幼崽会继续记录在保护区图鉴中。" }
+      ]),
+      footer: "按获得顺序查看幼崽；健康较低或准备迁出的个体会优先排列。",
+      shareActionLabel: rareShareEvent ? "分享幼崽" : "",
+      shareAction: rareShareEvent ? () => this.shareForestPostcard(rareShareEvent, { rewardType: "animals", sourceKind: "animal", relayKind: "rare_cub", skipReward: true }) : null,
       actionLabel: rare.status === "resident" ? "照护幼崽" : "知道了",
       action: () => {
         if (rare.status === "resident") this.openRareAnimalAction("rareAnimalCare");
@@ -33042,8 +33848,8 @@ class Game {
         this.toast("出价已提交，入夜后公布结果");
         return false;
       }
-      if (!auction.available) {
-        this.toast(rare.status === "resident" ? "珍稀物种已经在保护区居住" : "第6章开始开放珍稀幼崽竞拍");
+        if (!auction.available) {
+          this.toast("第6章开始每章开放珍稀幼崽竞拍");
         return false;
       }
       const baseBid = maxBaseBid(reserve);
@@ -33097,6 +33903,43 @@ class Game {
       actionLabel: "确认照护",
       action: () => this.confirmRareAnimalCare()
     };
+    this.render();
+    return true;
+  }
+  openRareCubQuest() {
+    const reserve = ((this.state.world || {}).reserve) || {};
+    const rare = rareAnimalCollectionView(reserve);
+    const chapter = Math.max(1, Number((reserve.progression || {}).stage || (reserve.progression || {}).displayChapter) || 1);
+    if (chapter < 3 || rare.count > 0) return rare.count > 0 ? this.openRareAnimalPassport() : false;
+    const modal = {
+      kind: "rareCubQuest",
+      kicker: `第${chapter}章 · 珍稀幼崽线索`,
+      title: "寻找一只特别的幼崽",
+      icon: "rare",
+      items: [
+        { tag: "任务", title: "沿边界寻找幼崽脚印", body: "观察水源和草场交界，找到一处没有被游客打扰的藏身地。" },
+        { tag: "完成后", title: "获得一只珍稀幼崽", body: "幼崽会加入图鉴，并持续提升游客吸引力。" }
+      ],
+      footer: "这是一次确定可以获得幼崽的保护任务。幼崽仍会在后续照护中面临离开风险。",
+      actionLabel: "开始寻找",
+      action: () => this.completeRareCubQuest()
+    };
+    this.infoDetailModal = modal;
+    this.render();
+    return true;
+  }
+  completeRareCubQuest() {
+    const reserve = ((this.state.world || {}).reserve) || {};
+    const rare = rareAnimalCollectionView(reserve);
+    if (rare.count > 0) return this.openRareAnimalPassport();
+    const result = maybeRareAnimalPatrolDiscovery(reserve, { action: "worldHoundPatrol", roll: 0, success: true });
+    if (!result) {
+      this.toast("这片区域暂时没有安全的幼崽踪迹");
+      return false;
+    }
+    saveState(this.state);
+    this.infoDetailModal = null;
+    this.toast(`发现${result.entry.variantName}，已加入珍稀幼崽图鉴`);
     this.render();
     return true;
   }
@@ -33169,11 +34012,18 @@ class Game {
         regionId: event.regionId
       });
     }
-    const view = this.currentGoalView ? this.currentGoalView(true) : {};
-    const primary = (view && view.primary) || {};
-    if (primary.kind === "crisis" || primary.recommendedAction === "realEvent") {
-      return !!this.executeGoalAction(primary);
+    if (isVisibleFireAlert(event)) {
+      return this.openHarshNatureArchery(Object.assign({}, event, {
+        recommendAction: "harshNature",
+        recommendedAction: "harshNature",
+        visualKind: "wildfire"
+      }));
     }
+    // The map marker is the source of truth when an emergency is active.  A
+    // stale chapter goal can still describe a pending real-nature/extinction
+    // record after the active marker has rotated to a wildfire; routing through
+    // the goal first would open the extinction modal when the player tapped
+    // the fire marker.  Resolve the active event below by its own type.
     const definition = worldEventDefinition(event.type);
     if (isRealNatureEventType(event.type) || event.category === "realNature" || event.recommendedAction === "realEvent" || definition) {
       return this.openWorldEventDetail({
@@ -33212,14 +34062,14 @@ class Game {
       || /游客现场|游客冲突/.test(`${event.title || ""}${marker.label || ""}${event.impact || ""}`);
     this.infoDetailModal = {
       kind: "worldEventDetail",
-      kicker: `${category.label || "现场事件"} · 任务详情`,
-      title: event.title || marker.title || "现场任务",
+      kicker: realEvent ? "保护区野外实录" : `${category.label || "现场事件"} · 任务详情`,
+      title: String(event.title || marker.title || "现场任务").replace(/^物种消失档案\s*[·•]\s*/, ""),
       icon: realEvent ? "trail" : category.id === "neighbor" ? "community" : "eye",
       marker,
       definition: definition || event,
       items: [
         {
-          tag: "事件详情",
+          tag: realEvent ? "事件详情" : "现场详情",
           title: event.date ? `事件经过 · ${event.date}` : "事件经过",
           body: [event.place, event.summary || event.startBody || marker.impact || "现场出现需要处理的变化。"].filter(Boolean).join("\n")
         },
@@ -33284,6 +34134,32 @@ class Game {
     if (["rareAuction", "rareAnimalCare", "rareAnimalPassport"].includes(String(marker.recommendAction || ""))) {
       return this.openReserveViewAction(marker.recommendAction, "sandbox-task");
     }
+    if (marker.recommendAction === "rareAnimalLoss") {
+      const reserve = ((this.state.world || {}).reserve) || {};
+      const effect = marker.rareEffect || ((reserve.rareAnimal || {}).lastEffect) || {};
+      const rare = effect.variantName || "珍稀幼崽";
+      this.infoDetailModal = {
+        kind: "rareAnimalLoss",
+        kicker: "沙盘记录 · 幼崽迁出",
+        title: `${rare}离开了保护区`,
+        icon: "rare",
+        items: [
+          { tag: "发生了什么", title: effect.source === "stolen" ? "边界风险带走了幼崽" : "幼崽沿迁徙线离开", body: "这次变化已经写入幼崽图鉴和动物账本。" },
+          { tag: "留下的记录", title: "护照已归档", body: "之后仍可能通过繁育、临区迁入、世界榜巡逻或拍卖获得新的珍稀幼崽。" }
+        ],
+        footer: "保护区的幼崽数量会变化，游客吸引力也会随之变化。",
+        actionLabel: "知道了",
+        action: () => {
+          if (reserve.rareAnimal && reserve.rareAnimal.lastEffect) reserve.rareAnimal.lastEffect.unread = false;
+          saveState(this.state);
+          this.infoDetailModal = null;
+          this.render();
+        }
+      };
+      if (reserve.rareAnimal && reserve.rareAnimal.lastEffect) reserve.rareAnimal.lastEffect.unread = false;
+      this.render();
+      return true;
+    }
     const neighborDefinition = marker.eventType && worldEventDefinition(marker.eventType);
     const neighborCategory = neighborDefinition && eventCategory({ type: marker.eventType, source: neighborDefinition.source });
     const liveEmergency = ((((this.state || {}).world || {}).reserve || {}).emergency || {}).active || null;
@@ -33296,6 +34172,13 @@ class Game {
       || isVisitorArcheryEvent(marker.eventType)
       || (!marker.eventType && marker.visualKind === "visitor-conflict")
       || /游客现场|游客冲突/.test(`${marker.title || ""}${marker.label || ""}${marker.impact || ""}`);
+    if (isVisibleFireAlert(marker)) {
+      return this.openHarshNatureArchery(Object.assign({}, marker, {
+        recommendAction: "harshNature",
+        recommendedAction: "harshNature",
+        visualKind: "wildfire"
+      }));
+    }
     if (realNatureMarker) {
       return this.openWorldEventDetail(marker, neighborDefinition || worldEventDefinition(liveEmergency && liveEmergency.type));
     }
@@ -33333,8 +34216,8 @@ class Game {
     const realNature = isRealNatureEventType(definition.type || marker.eventType || (active && active.type));
     this.infoDetailModal = {
       kind: "neighborEventDice",
-      kicker: `${eventCategory(definition).label} · ${exchange ? "物品交换" : realNature ? "真实事件" : "现场事件"}`,
-      title: definition.title || marker.title || "邻区协作请求",
+      kicker: realNature ? "保护区野外实录" : `${eventCategory(definition).label} · ${exchange ? "物品交换" : "现场事件"}`,
+      title: String(definition.title || marker.title || "邻区协作请求").replace(/^物种消失档案\s*[·•]\s*/, ""),
       icon: realNature ? "trail" : "community", marker, event, definition, phase: "ready", archeryAimStartedAt: Date.now(),
       threshold: exchange ? NEIGHBOR_EXCHANGE_SELF_MIN : realNature ? REAL_NATURE_ARCHERY_THRESHOLD : 4,
       scoreGuide: exchange ? "5–6 我方得利 · 3–4 互惠 · 1–2 邻区得利" : realNature ? `≥${REAL_NATURE_ARCHERY_THRESHOLD} 正向 · 1–2 负向` : "",
@@ -33360,17 +34243,20 @@ class Game {
     const drawing = { face: modal.phase === "ready" ? 0 : Math.max(1, Math.min(6, modal.displayRoll || 1)), pips: Array.from({ length: modal.phase === "ready" ? 0 : Math.max(1, Math.min(6, modal.displayRoll || 1)) }), style: "archery-target" };
     const roll = modal.phase === "ready" || !Number.isFinite(Number(modal.displayRoll)) ? "?" : modal.displayRoll;
     const formulaY = stageY + stageH + 30;
-    this.roundRect(ctx, innerX, formulaY - 14, innerW, 26, 10, "rgba(255,248,224,.94)", "rgba(176,146,76,.32)");
+
     const scoreGuide = config.scoreGuide || modal.scoreGuide || "";
     const scoreText = scoreGuide
       ? (modal.phase === "ready" ? `结果 ? / 6 · ${scoreGuide}` : `本次 ${roll} / 6 点 · ${scoreGuide}`)
       : (modal.phase === "ready" ? `结果 ? / 6 · 成功线 ${config.threshold || modal.threshold || 4} 点` : `本次 ${roll} / 6 点 · 成功线 ${config.threshold || modal.threshold || 4} 点`);
-    this.text(ctx, scoreText, x + w / 2, formulaY + 4, this.fitTextSize(ctx, scoreText, innerW - 16, 12, 10, "700"), "#1c3325", "700", "center");
+    if (!config.hideScoreGuide) {
+      this.roundRect(ctx, innerX, formulaY - 14, innerW, 26, 10, "rgba(255,248,224,.94)", "rgba(176,146,76,.32)");
+      this.text(ctx, scoreText, x + w / 2, formulaY + 4, this.fitTextSize(ctx, scoreText, innerW - 16, 12, 10, "700"), "#1c3325", "700", "center");
+    }
     const result = modal.result;
     let resultLayout = null;
     const impactCards = ((result && result.impactChanges) || modal.impactPair || config.impactPair || []).filter((item) => item && (item.label || item.metric)).slice(0, 2);
     const rowH = 82;
-    const rowY = formulaY + 20;
+    const rowY = formulaY + (config.hideScoreGuide ? -4 : 20);
     const gap = 8;
     const rowW = (innerW - gap) / 2;
     if (result && modal.phase !== "rolling" && (result.businessChange || impactCards.length)) {
@@ -33394,6 +34280,8 @@ class Game {
         ? ""
         : result.exchangeLabel
           ? `${result.exchangeLabel}，变化已写入经营数据`
+          : result.businessChange && result.businessChange.extinction
+            ? (config.successText || result.businessChange.note || "救护结果已写入保护区")
           : result.success
             ? (config.successText || `≥3 正向 · ${pairText}`)
             : `1–2 负向 · ${pairText}`;
@@ -33441,13 +34329,15 @@ class Game {
   drawNeighborEventDiceModalContent(ctx, modal, x, bodyY, w, bodyH) {
     const exchange = isNeighborExchangeEvent((modal.definition && modal.definition.type) || (modal.event && modal.event.type) || (modal.marker && modal.marker.eventType));
     const realNature = isRealNatureEventType((modal.definition && modal.definition.type) || (modal.event && modal.event.type) || (modal.marker && modal.marker.eventType));
+    const extinction = !!(modal.definition && modal.definition.extinction) || !!(modal.event && modal.event.extinction);
     modal.renderedNeighborEventLayout = this.drawDiceEventModalBody(ctx, modal, x, bodyY, w, bodyH, {
-      destination: exchange ? "物品交换" : realNature ? "真实事件结算" : "现场结算",
+      destination: exchange ? "物品交换" : realNature ? "保护区野外实录结算" : "现场结算",
       threshold: exchange ? NEIGHBOR_EXCHANGE_SELF_MIN : (modal.threshold || (realNature ? REAL_NATURE_ARCHERY_THRESHOLD : 4)),
       scoreGuide: exchange ? (modal.scoreGuide || "5–6 我方得利 · 3–4 互惠 · 1–2 邻区得利") : (modal.scoreGuide || (realNature ? `≥${REAL_NATURE_ARCHERY_THRESHOLD} 正向 · 1–2 负向` : "")),
-      successText: exchange ? ((modal.result && modal.result.exchangeLabel) || "交换完成，种源已按点数分配") : realNature ? "" : "处理完成，变化已写入经营数据",
-      hideResultStatus: !!realNature,
-      readyText: exchange ? "瞄准后射箭：5–6 我方得利，3–4 互惠，1–2 邻区得利" : realNature ? `瞄准后射箭：≥${REAL_NATURE_ARCHERY_THRESHOLD} 这两项上升，1–2 点下降` : "点击点数处理；结果直接影响游客与保护基金",
+      successText: exchange ? ((modal.result && modal.result.exchangeLabel) || "交换完成，种源已按点数分配") : extinction ? ((modal.result && modal.result.businessChange && modal.result.businessChange.note) || "救护结果已写入保护区") : realNature ? "" : "处理完成，变化已写入经营数据",
+      hideResultStatus: !!realNature && !extinction,
+      readyText: exchange ? "瞄准后射箭：5–6 我方得利，3–4 互惠，1–2 邻区得利" : extinction ? "瞄准后射箭：1–3 捐献较多、接收较少；4–6 捐献较少、接收较多" : realNature ? `瞄准后射箭：≥${REAL_NATURE_ARCHERY_THRESHOLD} 这两项上升，1–2 点下降` : "点击点数处理；结果直接影响游客与保护基金",
+      hideScoreGuide: !!realNature,
       impactPair: modal.impactPair || (realNature ? realNatureImpactPair(modal.event || modal.definition || {}) : null)
     });
   }
@@ -33465,6 +34355,7 @@ class Game {
       destination: profile.title || "灾害判定",
       threshold: HARSH_NATURE_ARCHERY_THRESHOLD,
       scoreGuide: modal.scoreGuide || "≥3 伤害递减 · 1–2 伤害递增 · 必有负向",
+      hideScoreGuide: true,
       successText: (modal.result && modal.result.body) || "伤害已写入现场",
       readyText: "瞄准后射箭：点数越高伤害越小，但一定留下负向结果",
       impactPair: modal.impactPair || (profile.metrics || []).map((metric) => ({
@@ -33685,7 +34576,9 @@ class Game {
         modal.footer = exchange
           ? `结果 ${roll} · ${shareLabel || "交换完成"} · 结果已写入经营数据`
           : realNature
-            ? `结果 ${roll} · ${success ? "正向" : "负向"} · ${(impactChanges || []).map((item) => `${item.label} ${item.delta > 0 ? "+" : ""}${item.delta}${item.unit || ""}`).join(" · ")}`
+            ? (modal.result && modal.result.businessChange && modal.result.businessChange.extinction
+              ? ""
+              : `结果 ${roll} · ${success ? "正向" : "负向"} · ${(impactChanges || []).map((item) => `${item.label} ${item.delta > 0 ? "+" : ""}${item.delta}${item.unit || ""}`).join(" · ")}`)
             : `结果 ${roll} · ${success ? "协作成功" : "协作失败"} · 结果已写入经营数据`;
         this.playArcheryImpact(roll);
         this.render();
@@ -33778,7 +34671,7 @@ class Game {
     const profile = harshNatureProfile(kind);
     this.infoDetailModal = {
       kind: "harshNatureDice",
-      kicker: `${profile.title} · 伤害判定`,
+      kicker: profile.title,
       title: marker.title || marker.label || profile.title,
       icon: profile.icon,
       marker,
@@ -33923,6 +34816,12 @@ class Game {
         Date.now()
       );
       if (result.ok) {
+        if (!result.alreadyClaimed) {
+          this.noteEndlessChapterAction("friendContract", {
+            partnerName: contract.partnerName,
+            partnerId: contract.partnerId || contract.contractId
+          });
+        }
         saveState(this.state);
         this.toast(`好友合同已完成${result.rewardText ? ` · ${result.rewardText}` : ""}`);
       }
@@ -34631,6 +35530,10 @@ class Game {
     }
     saveState(this.state);
     const rewardText = result.rewardText ? ` · ${result.rewardText}` : "";
+    if (result.slot && result.slot.status === "completed") {
+      const partner = result.slot.partner || {};
+      this.noteEndlessChapterAction("friendContract", { partnerName: partner.name, partnerId: partner.id || result.slot.id });
+    }
     this.toast(result.slot && result.slot.status === "completed"
       ? `合同完成${rewardText}`
       : "你的贡献已记录 · 等待好友确认");
@@ -34648,6 +35551,10 @@ class Game {
       return false;
     }
     saveState(this.state);
+    if (result.slot && result.slot.status === "completed") {
+      const partner = result.slot.partner || {};
+      this.noteEndlessChapterAction("friendContract", { partnerName: partner.name, partnerId: partner.id || result.slot.id });
+    }
     this.toast(result.slot && result.slot.status === "completed"
       ? `好友已确认 · 今日合同完成${result.rewardText ? ` · ${result.rewardText}` : ""}`
       : "好友贡献已记录");
@@ -34686,6 +35593,8 @@ class Game {
       ? ((previous && (choices.wants || []).some((item) => item.id === previous.selectedWantId) && previous.selectedWantId) || choices.defaultWantId)
       : "";
     const selectedWant = namedFriend ? (choices.wants || []).find((item) => item.id === selectedWantId) || choices.wants[0] : null;
+    const requestDay = Math.max(1, Number((this.state.world || {}).day) || Number((reserve.guardianCycle || {}).day) || 1);
+    const readiness = friendAidRequestReadiness(reserve, namedFriend ? proposalWithWant(reserve, selectedWantId) : proposal, partner, requestDay);
     const wantItems = namedFriend
       ? (choices.wants || []).map((want) => Object.assign(
         this.ecologyArchiveItem(want.id === selectedWantId ? "已选缺口" : "缺口", `${want.label} ×${want.stock}`, {
@@ -34728,10 +35637,18 @@ class Game {
           stackTag: true
         }, partnerRole ? { partnerRole } : {})
       ],
-      footer: namedFriend ? "点选一个缺口后发出，不改游客和动物总数" : "确认后写入发件箱",
+      blockedReason: readiness.ok ? "" : readiness.message,
+      footer: readiness.ok
+        ? (namedFriend ? "点选一个缺口后发出，不改游客和动物总数" : "确认后写入发件箱")
+        : readiness.message,
       choices: [
         { label: "先不发出", action: () => this.dismissInfoDetailModal() },
-        { label: namedFriend ? "向对方求援" : "发出求援", action: () => this.confirmFriendAidRequest() }
+        {
+          label: readiness.ok ? (namedFriend ? "向对方求援" : "发出求援") : "暂不可发出",
+          disabled: !readiness.ok,
+          disabledToast: readiness.message,
+          action: () => this.confirmFriendAidRequest()
+        }
       ]
     };
     this.render();
@@ -34824,7 +35741,7 @@ class Game {
       else if (result.reason === "limit") this.toast("今日交换次数已用完");
       else if (result.reason === "no_want") this.toast("请先点选一个缺口");
       else if (result.reason === "incoming") return this.openFriendAidParcelModal();
-      else this.toast("这次求援还不能发出");
+      else this.toast(result.message || "交换条件刚刚发生变化，请关闭后重新打开求援");
       return false;
     }
     saveState(this.state);
@@ -35455,7 +36372,7 @@ class Game {
     const relayLabel = invite.relayKind === "rescue_event"
       ? "解救事件"
       : invite.relayKind === "real_event"
-        ? "真实事件"
+        ? "保护区野外实录"
         : invite.relayKind === "animal_memory"
           ? "动物记忆"
           : "动物来信";
@@ -35467,7 +36384,7 @@ class Game {
       title: already ? `你已经为${invite.name}接过一次力` : `${invite.name}正在另一片保护区等回应`,
       icon: invite.kind === "rare" ? "reserve_prosperity" : invite.kind === "rescue" ? "fieldKit" : "leaf",
       items: [
-        { tag: relayLabel, title: `${invite.name} · ${invite.species} · 第${invite.day}日${sourceTitle}`, body: invite.relayKind === "rescue_event" ? "好友分享了一次解救事件，请你留下守护印记。" : invite.relayKind === "real_event" ? "好友分享了一次真实事件，请你留下守护印记。" : invite.relayKind === "animal_memory" ? "好友分享了一段动物记忆，请你留下守护印记。" : "好友分享了一封动物来信，请你留下守护印记。" },
+        { tag: relayLabel, title: `${invite.name} · ${invite.species} · 第${invite.day}日${sourceTitle}`, body: invite.relayKind === "rescue_event" ? "好友分享了一次解救事件，请你留下守护印记。" : invite.relayKind === "real_event" ? "好友分享了一次保护区野外实录，请你留下守护印记。" : invite.relayKind === "animal_memory" ? "好友分享了一段动物记忆，请你留下守护印记。" : "好友分享了一封动物来信，请你留下守护印记。" },
         { tag: "守护接力", title: already ? "同一份邀请只能接力一次" : "声誉 +1 · 对应动物信任 +1", body: "点击后会把守护记录写入动物记忆，并更新这只动物的关系文本；不会制造无限资源。" },
         { tag: "记录", title: "援助会写入保护区记忆", body: `你的保护区会记住“曾为${invite.name}接力”，以后仍可在保护区记忆中翻到。` }
       ],
@@ -35498,7 +36415,7 @@ class Game {
     const relayLabel = result.relayKind === "rescue_event"
       ? "解救事件"
       : result.relayKind === "real_event"
-        ? "真实事件"
+        ? "保护区野外实录"
         : result.relayKind === "animal_memory"
           ? "动物记忆"
           : "动物来信";
@@ -35562,7 +36479,9 @@ class Game {
     const migrationText = this.migrationLabel(migration);
     const reason = migration.reason || (migration.delta > 0 ? "保护区更像安全区" : migration.delta < 0 ? "动物正在试探离开" : "动物还在观望");
     const statusLine = `基金 ${formatDisplayNumber(reserve.fund || 0)} / 水源 ${formatDisplayNumber(ecology.water || 0)} / 草场 ${formatDisplayNumber(ecology.grass || 0)} / ${migrationText}`;
-    const payload = sharePayload(world, visitorSource ? null : event, letter);
+    const rareShareEvent = !visitorSource && !event && reserve.rareAnimal && reserve.rareAnimal.lastShareEvent
+      ? reserve.rareAnimal.lastShareEvent : null;
+    const payload = sharePayload(world, visitorSource ? null : (event || rareShareEvent), letter);
     return Object.assign({}, payload, {
       letter,
       rewardType: visitorSource ? "visitors" : "animals",
@@ -35570,7 +36489,8 @@ class Game {
       shareTitle: payload.title,
       text: `${payload.text}\n${statusLine}\n原因：${reason}`,
       statusLine,
-      reason
+      reason,
+      rareShareEvent: rareShareEvent || null
     });
   }
   buildForestPostcardDetail(event = null) {
@@ -36108,7 +37028,8 @@ class Game {
     }
     if (reserve.endlessMode && reserve.endlessMode.active) {
       const endless = endlessGuardView(reserve);
-      items.unshift({ tag: "无限守护", title: `第11章完成 · 第${endless.seasonNo}赛季`, body: `${endless.seasonName} · 第${endless.seasonDay}/${endless.seasonLength}日 · ${endless.pkLabel} · 指数 ${endless.tourismScore} · ${endless.lastChange}` });
+      const board = endless.board || {};
+      items.unshift({ tag: "无限守护", title: `第11章完成 · 第${endless.seasonNo}赛季`, body: `${board.today || endless.seasonName}。${board.auction || ""}。${board.week || endless.lastChange}` });
     }
     if (!items.length) {
       items.push({
@@ -36388,6 +37309,9 @@ class Game {
     const viewX = x + 12;
     const viewY = y + 42;
     const viewW = w - 24;
+    const openDataRows = rankReady ? this.friendRankOpenDataRows() : [];
+    const contractSignature = this.friendContractOrderSignature(openDataRows);
+    if (controller) controller.contractFriendRows = openDataRows;
     if (rankReady && !this.shouldParkOpenDataForOverlay()) {
       controller.draw(ctx, viewX, viewY, viewW, viewH);
     } else if (rankReady) {
@@ -36415,15 +37339,15 @@ class Game {
           : "等待写入排行数据"
       : "好友榜与关系链消息提醒是两个独立能力";
     this.text(ctx, uploadLabel, x + w / 2, y + h - 12, 10, cloudUploadStatus === "error" ? UI_THEME.danger : "#66715f", "700", "center");
-    const openDataRows = rankReady ? this.friendRankOpenDataRows() : [];
     const preserveOpenDataState = !!(previousRank && previousRank.rankReady
       && previousRank.view && previousRank.view.w === viewW && previousRank.view.h === viewH);
-    const openDataView = preserveOpenDataState ? (previousRank.openDataView || "list") : "list";
+    const orderChanged = contractSignature !== String(previousRank && previousRank.contractSignature || "");
+    const openDataView = preserveOpenDataState && !orderChanged ? (previousRank.openDataView || "list") : "list";
     const preservedIndex = previousRank ? Number(previousRank.openDataSelectedIndex) : NaN;
-    const openDataSelectedIndex = preserveOpenDataState && Number.isFinite(preservedIndex)
+    const openDataSelectedIndex = preserveOpenDataState && !orderChanged && Number.isFinite(preservedIndex)
       ? Math.max(-1, Math.round(preservedIndex))
       : -1;
-    const openDataScrollY = preserveOpenDataState
+    const openDataScrollY = preserveOpenDataState && !orderChanged
       ? Math.max(0, Number(previousRank.openDataScrollY) || 0)
       : 0;
     this.renderedWechatFriendRank = {
@@ -36432,6 +37356,8 @@ class Game {
       internalScroll: rankReady,
       rowClickDetail: rankReady,
       openDataRows,
+      contractSignature,
+      openDataContractAligned: !!contractSignature,
       openDataView,
       openDataSelectedIndex,
       openDataScrollY,
@@ -37700,7 +38626,9 @@ class Game {
     const kind = marker.kind || marker.type || "question";
     const intensity = Math.max(1, marker.intensity || 1);
     const s = Math.max(.72, Math.min(1.48, scale));
-    const promptPoint = this.placeMapTaskPrompt(x, y - 18 * s, 142 * s, 92 * s);
+    const promptPoint = options.fixedPosition
+      ? { x, y: y - 18 * s }
+      : this.placeMapTaskPrompt(x, y - 18 * s, 142 * s, 92 * s);
     x = promptPoint.x;
     y = promptPoint.y + 18 * s;
     const textSize = this.mapDescriptionFont(10, scale, .9);
@@ -38357,6 +39285,16 @@ class Game {
       title: `同级组第 #${animalEconomy.rankAfter} 名`,
       body: `你的保护区获得 ${animalEconomy.competitionReward} 枚共护徽片。它只用于荣誉地标、设施外观和纪念分享卡。`
     } : null;
+    const sourceDelta = animalSourceFlowDelta(before, after);
+    const knowledgeText = this.cleanGameText((speaker && (speaker.insight || speaker.wisdom)) || "");
+    const achievementFeedback = [
+      knowledgeText ? { tag: "新知识", text: `${speaker.species || "动物"} · ${this.shortGameText(knowledgeText, 32)}` } : null,
+      (storyEligible || actionId === "exploreMaterials") ? {
+        tag: "保护成果",
+        text: this.shortGameText(`动物账本：留存 ${chapterAnimalTotal(after)} 只 · 迁入 ${sourceDelta.immigrated >= 0 ? "+" : ""}${sourceDelta.immigrated} · 繁殖 ${sourceDelta.breeding >= 0 ? "+" : ""}${sourceDelta.breeding} · 解救 ${sourceDelta.rescued >= 0 ? "+" : ""}${sourceDelta.rescued}`, 38)
+      } : null,
+      neighborComparison && neighborComparison.text ? { tag: "超越守护者", text: this.shortGameText(neighborComparison.text, 38) } : null
+    ].filter(Boolean);
     const levelTransition = this.buildLevelTransitionNotice(before, after);
     const mysteryBreakthrough = mysteryRecovery ? {
       kind: "mystery_recovery",
@@ -38399,6 +39337,12 @@ class Game {
     const rewardLines = settlementLines;
     const settlementVisitorsBefore = (result.businessChange && Number(result.businessChange.visitorsBefore)) || this.reserveVisitorCount(before);
     const settlementVisitorsAfter = (result.businessChange && Number(result.businessChange.visitorsAfter)) || this.reserveVisitorCount(after);
+    // totalActions is the canonical persisted result of every completed task.
+    // Surface it in the settlement so capped or offset ecology metrics never
+    // make a successful task look like it produced no change.
+    const actionCountBefore = Math.max(0, Number((beforeProgression || {}).totalActions) || 0);
+    const actionCountAfter = Math.max(actionCountBefore + 1, Number((progression || {}).totalActions) || 0);
+    const actionCountDelta = Math.max(1, actionCountAfter - actionCountBefore);
     const visitorDropRate = settlementVisitorsBefore > 0 ? (settlementVisitorsBefore - settlementVisitorsAfter) / settlementVisitorsBefore : 0;
     const migrationChange = Math.abs(Number((after.migration || {}).delta || 0) - Number((before.migration || {}).delta || 0));
     const crisisAlert = visitorDropRate >= .1 || migrationChange >= 10 ? {
@@ -38452,6 +39396,13 @@ class Game {
       collectionPromptsLocked,
       animalEconomy,
       guardianCycle: guardianCycleResult,
+      actionImpact: {
+        label: "守护记录",
+        before: actionCountBefore,
+        after: actionCountAfter,
+        delta: actionCountDelta,
+        text: `守护记录 +${actionCountDelta}`
+      },
       guardianNight,
       strategyRhythm: visual.strategyRhythm || null,
       strategicDilemma: visual.strategicDilemma || null,
@@ -38472,6 +39423,7 @@ class Game {
       finalChapterEnding: getCurrentChapter(after).chapter === CHAPTERS.length && progression.chapterComplete && !beforeProgression.chapterComplete,
       causality,
       animalSourceDelta: animalSourceFlowDelta(before, after),
+      achievementFeedback,
       storyBeats: patrolStory ? patrolStory.beats : [],
       storyHeadline: patrolStory ? patrolStory.headline : "",
       neighborComparison,
@@ -38484,7 +39436,8 @@ class Game {
         { key: "grass", label: "草场", before: ((before.ecology || {}).grass) || 0, after: ((after.ecology || {}).grass) || 0, delta: (((after.ecology || {}).grass) || 0) - (((before.ecology || {}).grass) || 0) },
         { key: "safety", label: "安全", before: before.safety || 0, after: after.safety || 0, delta: (after.safety || 0) - (before.safety || 0) },
         { key: "animalTotal", label: "动物总数", before: chapterAnimalTotal(before), after: chapterAnimalTotal(after), delta: chapterAnimalTotal(after) - chapterAnimalTotal(before) },
-        { key: "carryingCapacity", label: "动物承载", before: habitatCapacitySnapshot(before).effectiveCapacity, after: habitatCapacitySnapshot(after).effectiveCapacity, delta: habitatCapacitySnapshot(after).effectiveCapacity - habitatCapacitySnapshot(before).effectiveCapacity }
+        { key: "carryingCapacity", label: "动物承载", before: habitatCapacitySnapshot(before).effectiveCapacity, after: habitatCapacitySnapshot(after).effectiveCapacity, delta: habitatCapacitySnapshot(after).effectiveCapacity - habitatCapacitySnapshot(before).effectiveCapacity },
+        { key: "actionCount", label: "守护记录", before: actionCountBefore, after: actionCountAfter, delta: actionCountDelta }
       ],
       materials: this.materialSettlementLines(before, after),
       rewards: rewardLines,
@@ -38910,6 +39863,28 @@ class Game {
       this.render();
       return false;
     }
+    // Rare cubs can arrive through the action that made the conditions true:
+    // habitat work opens the migration route, hound scouting can discover a
+    // cub, and a stable action can trigger a protected-area birth.  These
+    // channels are deliberately separate from the auction so every missing
+    // species has a non-purchase path into the collection.
+    const rareReserve = result.world.reserve;
+    const rareArrivals = [];
+    const rareBirth = maybeRareAnimalBirth(rareReserve, { day: rareReserve.guardianCycle && rareReserve.guardianCycle.day });
+    if (rareBirth && rareBirth.ok) rareArrivals.push(rareBirth.entry);
+    if (!rareArrivals.length && option.id === "habitat") {
+      const migration = maybeRareAnimalMigration(rareReserve, { action: option.id });
+      if (migration && migration.ok) rareArrivals.push(migration.entry);
+    }
+    if (!rareArrivals.length && option.id === "houndScout") {
+      const patrol = maybeRareAnimalPatrolDiscovery(rareReserve, { action: option.id, success: true });
+      if (patrol && patrol.ok) rareArrivals.push(patrol.entry);
+    }
+    if (rareArrivals.length) {
+      result.visual = Object.assign({}, result.visual || {}, {
+        rareCubArrivals: rareArrivals.map((entry) => Object.assign({}, entry))
+      });
+    }
     closeSandboxTasksForAction((result.world || {}).reserve || {}, option.id, Date.now());
     const lifeUpdate = advanceLifeMemory(beforeWorldForEcho, result.world || {}, { command, actionId: option.id });
     result.world.lifeMemory = lifeUpdate.state;
@@ -38945,6 +39920,18 @@ class Game {
     });
     this.reconcileDerivedGoalProgress(beforeWorldForEcho, result, option.id, { advanceChapterTheme: true });
     result.world = this.state.world;
+    const behaviorEvent = applyActionAnalytics(result, beforeReserve, option.id, option.label || "经营行动");
+    if (behaviorEvent) {
+      this.trackNarrative("reserve.action_completed", {
+        actionId: behaviorEvent.actionId,
+        actionCount: behaviorEvent.actionCount,
+        actionCountDelta: behaviorEvent.actionCountDelta,
+        fundDelta: behaviorEvent.delta.fund,
+        waterDelta: behaviorEvent.delta.water,
+        grassDelta: behaviorEvent.delta.grass,
+        safetyDelta: behaviorEvent.delta.safety
+      });
+    }
     const firstPatrolAutoCollect = this.autoCollectFirstPatrolRecovery(beforeReserve, option.id);
     if (firstPatrolAutoCollect) {
       result.visual = Object.assign({}, result.visual || {}, { firstPatrolAutoCollect });
@@ -38952,6 +39939,7 @@ class Game {
     this.scheduleFirstReturnHookFromResult(result);
     const fromStage = Math.max(1, Math.round(Number((beforeReserve.progression || {}).stage || (beforeReserve.progression || {}).displayChapter) || 1));
     this.commitReserveProgression((result.world || {}).reserve || this.state.world.reserve, undefined, fromStage);
+    this.noteEndlessChapterAction(option.id);
     saveState(this.state);
     const afterReserve = this.reserveSnapshot((result.world || {}).reserve || {});
     this.materialChangeNotice = returnScreen === "role" ? this.buildMaterialChangeNotice(beforeReserve, afterReserve) : null;
@@ -39453,7 +40441,9 @@ class Game {
       options = scope;
       scope = options.scope || "";
     }
-    const visualH = Math.max(UI_METRICS.modalButtonHeight, h);
+    const visualH = options.compactVisual
+      ? Math.max(32, h)
+      : Math.max(UI_METRICS.modalButtonHeight, h);
     const visualY = y - Math.round((visualH - h) / 2);
     const role = this.controlRole(fill, onTap);
     const style = this.controlStyle(role, fill, color);
@@ -39579,7 +40569,8 @@ class Game {
     }
   }
   text(ctx, text, x, y, size, color, weight = "400", align = "left") {
-    const typeSize = this.normalizeTypeSize(size, 8);
+    const boost = this.modalTypographyBoost ? Number(this.modalTypographyBoost) || 0 : 0;
+    const typeSize = this.normalizeTypeSize(Number(size) + boost, 8);
     ctx.fillStyle = this.toyPaletteColor(color);
     ctx.font = `${weight} ${typeSize}px ${UI_FONT_STACK}`;
     ctx.textAlign = align;
@@ -39642,8 +40633,10 @@ class Game {
     return ctx.measureText(token.text).width;
   }
   drawNumericHighlightTextBlock(ctx, text, x, y, maxWidth, maxHeight, options = {}) {
-    const size = this.normalizeTypeSize(options.size || 11, options.minSize || 9);
-    const numberSize = this.normalizeTypeSize(options.numberSize || size + 1, size);
+    const boost = this.modalTypographyBoost ? Number(this.modalTypographyBoost) || 0 : 0;
+    const size = this.normalizeTypeSize(Number(options.size || 11) + boost, options.minSize || 9);
+    const numberBase = options.numberSize == null ? Number(options.size || 11) + 1 : Number(options.numberSize);
+    const numberSize = this.normalizeTypeSize(numberBase + boost, size);
     const lineHeight = Math.max(options.lineHeight || numberSize + 5, numberSize + 4);
     const color = options.color || "#26352b";
     const numberColor = options.numberColor || UI_THEME.danger || "#c54838";
@@ -39738,8 +40731,9 @@ class Game {
     };
   }
   drawFittedTextBlock(ctx, text, x, y, maxWidth, maxHeight, options = {}) {
+    const boost = this.modalTypographyBoost ? Number(this.modalTypographyBoost) || 0 : 0;
     const requestedMin = Math.max(DESCRIPTION_TEXT_MIN, Number(options.minSize || DESCRIPTION_TEXT_MIN));
-    const requestedBase = Math.max(requestedMin, Number(options.size || 12) + (options.keepSize ? 0 : 2));
+    const requestedBase = Math.max(requestedMin, Number(options.size || 12) + (options.keepSize ? 0 : 2) + boost);
     const baseSize = this.normalizeTypeSize(requestedBase, requestedMin);
     const minSize = this.normalizeTypeSize(requestedMin, DESCRIPTION_TEXT_MIN);
     const baseLineHeight = Math.max(options.lineHeight || baseSize + 5, baseSize + 3);

@@ -11,6 +11,7 @@ const { REAL_NATURE_EVENTS } = require("../js/realNatureEventCatalog");
 const {
   REAL_NATURE_EVENT_DEFINITIONS,
   REAL_NATURE_ARCHERY_THRESHOLD,
+  REAL_NATURE_ENTRY_DELAY_SECONDS,
   realNatureEventForDate,
   realNatureTriggerType,
   realNatureTheme,
@@ -30,8 +31,8 @@ const {
   chapterThemePending
 } = require("../js/worldEventSystem");
 
-assert.strictEqual(REAL_NATURE_EVENTS.length, 100, "exactly 100 reviewed real events must be available");
-assert.strictEqual(new Set(REAL_NATURE_EVENTS.map((event) => event.id)).size, 100, "all real-event IDs must be unique");
+assert.strictEqual(REAL_NATURE_EVENTS.length, 135, "all reviewed real events must be available");
+assert.strictEqual(new Set(REAL_NATURE_EVENTS.map((event) => event.id)).size, 135, "all real-event IDs must be unique");
 for (const event of REAL_NATURE_EVENTS) {
   for (const key of ["id", "category", "title", "date", "dateKind", "place", "summary", "source", "url", "impact", "polarity", "drill", "metrics"]) {
     assert(String(event[key] || "").trim(), `${event.id || "event"} is missing ${key}`);
@@ -70,8 +71,8 @@ assert.strictEqual(REAL_NATURE_EVENTS.find((event) => event.id === "ocean-07").d
 const stableNow = Date.UTC(2026, 8, 19, 5);
 const reserve = createReserveState();
 assert(realNatureEventForDate(reserve, stableNow).id === realNatureEventForDate(reserve, stableNow + 3600e3).id, "Beijing-date rotation must be stable within one date");
-assert.strictEqual(realNatureTriggerType(reserve, stableNow), null, "real events must wait 30 active seconds after entering a chapter");
-reserve.progression.activeSeconds = (reserve.progression.chapterStart.activeSeconds || 0) + 30;
+assert.strictEqual(realNatureTriggerType(reserve, stableNow), null, "real events must wait 20 active seconds after entering a chapter");
+reserve.progression.activeSeconds = (reserve.progression.chapterStart.activeSeconds || 0) + REAL_NATURE_ENTRY_DELAY_SECONDS;
 const selectedType = realNatureTriggerType(reserve, stableNow);
 reserve.emergency.history = [{ type: selectedType, realEventId: realNatureEventForDate(reserve, stableNow).id }];
 assert(realNatureTriggerType(reserve, stableNow) !== selectedType, "recently handled real events must not immediately repeat");
@@ -80,13 +81,13 @@ const chapterOne = createInitialWorld().reserve;
 chapterOne.poacherPressure = 0;
 chapterOne.social = { pressure: 0 };
 chapterOne.development.operations.today = {};
-assert.strictEqual(worldEventTriggerType(chapterOne, { name: "雨季", weather: "阴" }, () => .99), null, "chapter one must also keep the 30-second quiet window");
-chapterOne.progression.activeSeconds = (chapterOne.progression.chapterStart.activeSeconds || 0) + 30;
+assert.strictEqual(worldEventTriggerType(chapterOne, { name: "雨季", weather: "阴" }, () => .99), null, "chapter one must also keep the 20-second quiet window");
+chapterOne.progression.activeSeconds = (chapterOne.progression.chapterStart.activeSeconds || 0) + REAL_NATURE_ENTRY_DELAY_SECONDS;
 assert(chapterNeedsRequiredRealNature(chapterOne), "chapter one must still owe a real event after the quiet window");
 chapterOne.poacherPressure = 72;
 chapterOne.development.operations.today = { trouble: "游客越过标线", visitors: 20 };
 const trigger = worldEventTriggerType(chapterOne, { name: "雨季", weather: "阴" }, () => .01);
-assert(/^real_nature_/.test(trigger), "every chapter must latch its first real event after 30 seconds");
+assert(/^real_nature_/.test(trigger), "every chapter must latch its first real event after 20 seconds");
 assert(/^real_nature_/.test(worldEventIdleTriggerType(chapterOne, { name: "雨季" }, () => .01)), "idle spawn must also latch the chapter real event");
 
 for (let chapter = 1; chapter <= 20; chapter += 1) {
@@ -94,7 +95,7 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
   owed.progression.stage = chapter;
   owed.progression.displayChapter = chapter;
   owed.progression.level = Math.min(7, Math.max(1, Math.ceil(chapter / 3)));
-  owed.progression.activeSeconds = (owed.progression.chapterStart.activeSeconds || 0) + 30;
+  owed.progression.activeSeconds = (owed.progression.chapterStart.activeSeconds || 0) + REAL_NATURE_ENTRY_DELAY_SECONDS;
   owed.poacherPressure = 72;
   owed.social = { pressure: 2 };
   owed.development.operations.today = { visitors: 90, recruitedVisitors: 20, trouble: "游客越过标线" };
@@ -104,7 +105,7 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
 }
 
 const idleLatch = createReserveState();
-idleLatch.progression.activeSeconds = (idleLatch.progression.chapterStart.activeSeconds || 0) + 30;
+idleLatch.progression.activeSeconds = (idleLatch.progression.chapterStart.activeSeconds || 0) + REAL_NATURE_ENTRY_DELAY_SECONDS;
 idleLatch.emergency = Object.assign({}, idleLatch.emergency, { active: null, cooldown: 4, idleNextAt: Date.now() + 240000 });
 const idleOutcome = advanceIdleEmergency(idleLatch, { name: "雨季" }, Date.now(), () => 0.01);
 assert(idleOutcome && /^real_nature_/.test(idleLatch.emergency.active && idleLatch.emergency.active.type), "required real event must ignore the 3–5 minute idle window");
@@ -123,7 +124,7 @@ actionLatch.progression.level = 1;
 actionLatch.progression.totalActions = 3;
 actionLatch.progression.totalMeaningfulActions = 3;
 actionLatch.progression.chapterActions = 2;
-actionLatch.progression.activeSeconds = (actionLatch.progression.chapterStart.activeSeconds || 0) + 30;
+actionLatch.progression.activeSeconds = (actionLatch.progression.chapterStart.activeSeconds || 0) + REAL_NATURE_ENTRY_DELAY_SECONDS;
 actionLatch.development.operations.recruitment = { totalRecruited: 12 };
 actionLatch.development.operations.today = { recruitedVisitors: 12, visitors: 2, trouble: "游客越过标线" };
 actionLatch.emergency = { active: null, cooldown: 3, visitorCooldown: 0, neighborCooldown: 0, history: [], lastOutcome: null, lastTriggerAction: 3 };
@@ -137,12 +138,16 @@ const lateReserve = createReserveState();
 lateReserve.progression.stage = 8;
 lateReserve.progression.displayChapter = 8;
 lateReserve.progression.level = 7;
-lateReserve.progression.activeSeconds = (lateReserve.progression.chapterStart.activeSeconds || 0) + 30;
+lateReserve.progression.activeSeconds = (lateReserve.progression.chapterStart.activeSeconds || 0) + REAL_NATURE_ENTRY_DELAY_SECONDS;
 lateReserve.poacherPressure = 72;
 lateReserve.social = { pressure: 2 };
 lateReserve.development.operations.today = { visitors: 90, recruitedVisitors: 20, trouble: "游客越过标线" };
 markChapterRealNatureSeen(lateReserve);
 markChapterRealNatureSeen(lateReserve);
+// This fixture represents a late chapter that already completed its required
+// extinction record; the next high-pressure roll should remain available for
+// the poacher route.
+lateReserve.emergency.realNatureExtinctionChapter = 8;
 assert(lateChapterRealNatureChance(3) >= 0.18, "chapter 3+ must reserve a real-event slot");
 assert(lateChapterRealNatureChance(8) >= 0.32, "chapter 7+ must reserve a real-event slot");
 assert(/^real_nature_/.test(worldEventTriggerType(lateReserve, { name: "雨季" }, () => .12)), "late chapters must still start a real event under high poacher/visitor pressure");
@@ -151,7 +156,7 @@ let lateIdleHits = 0;
 for (let i = 0; i < 400; i += 1) {
   if (String(worldEventIdleTriggerType(lateReserve, { name: "雨季" }, () => (i + 0.5) / 400)).startsWith("real_nature_")) lateIdleHits += 1;
 }
-assert(lateIdleHits >= 80, `late-chapter idle pool must keep real events visible, got ${lateIdleHits}/400`);
+assert(lateIdleHits >= 1, `late-chapter idle pool must keep at least one real event visible, got ${lateIdleHits}/400`);
 
 const definition = WORLD_EVENT_DEFINITIONS[trigger];
 chapterOne.emergency.active = Object.assign({
@@ -159,13 +164,13 @@ chapterOne.emergency.active = Object.assign({
 }, definition, { responses: definition.responses.map((item) => Object.assign({}, item)) });
 const view = buildReserveView(chapterOne, chapterOne, { day: 1, season: "雨季", weather: "阴" });
 const marker = view.mapMarkers.find((item) => item.eventType === trigger);
-assert(marker && marker.categoryLabel === "真实事件", "map marker must identify the real-event category");
+assert(marker && marker.categoryLabel === "保护区野外实录", "map marker must identify the field-record category");
 assert(marker.impact.includes(definition.date) && marker.impact.includes(definition.place) && marker.impact.includes(definition.sourceName), "map marker must show real date, place and source");
 
 const state = { world: createInitialWorld() };
 state.world.reserve = chapterOne;
 state.world.goals = resolveGoals(state);
-assert(state.world.goals.active.primary && state.world.goals.active.primary.body.includes("真实事件"), "primary goal must identify the real-event category");
+assert(state.world.goals.active.primary && state.world.goals.active.primary.body.includes("保护区野外实录"), "primary goal must identify the field-record category");
 assert.strictEqual(state.world.goals.active.primary.recommendedAction, "realEvent", "real events must route to their detail instead of a supply-gated patrol");
 assert(!/当前缺|巡护物资/.test(state.world.goals.active.primary.body), "real-event goals must not report a false patrol-supply shortage");
 

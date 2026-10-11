@@ -142,7 +142,7 @@ nonNegativeObject(reserve.ecology.birds, "birds");
 
 const protectedAnimalCount = Object.keys((reserve.base || {}).protectedAnimals || {})
   .reduce((sum, key) => sum + (((reserve.base || {}).protectedAnimals || {})[key] || 0), 0);
-assert(reserve.safety === 68, `converged initial safety should be 68, got ${reserve.safety}`);
+assert(reserve.safety === 58, `converged initial safety should be 58, got ${reserve.safety}`);
 assert(reserve.stability === 66, `converged initial ecology/stability should be 66, got ${reserve.stability}`);
 assert(reserve.business === 58, `converged initial business should be 58, got ${reserve.business}`);
 assert(reserve.fund === 1000, `新玩家初始星币应为1000，实际 ${reserve.fund}`);

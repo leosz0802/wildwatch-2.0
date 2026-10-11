@@ -4,6 +4,7 @@ const { applyChapterVisitorDelta, applyChapterVisitorDailyAttrition, normalizeCh
 const { recordFundChange } = require("./fundLedger");
 const { recordEcologyFlow } = require("./ledgerConsistency");
 const { eventBusinessFactors, visitorEngagement } = require("./eventEconomy");
+const { PACE_ECONOMY } = require("./balanceConfig");
 const { upgradeProgressionGate, BUILDING_MAX_LEVEL, TOURISM_SCORE_CAP } = require("./progressionGates");
 const { facilityVisitorImpact, applyFacilityDailyEffects, normalizeFacilityConstruction, facilityById, FACILITY_USE_PROFILES, FACILITY_USE_LIMIT } = require("./reserveFacilities");
 const BUILDING_FACILITY_PAIRS = Object.freeze({
@@ -467,6 +468,7 @@ function developmentBuildingView(reserve = {}, nodeId, day = 1, preparedDevelopm
       : paybackDays == null ? "需先形成客流" : `约${paybackDays}日回本`;
   return {
     id: config.id,
+    planId: plan && plan.id ? plan.id : "",
     title: profile.title,
     level,
     levelLabel: level ? `等级${level}/${BUILDING_MAX_LEVEL}` : `未启用 · 等级1–${BUILDING_MAX_LEVEL}`,
@@ -819,6 +821,10 @@ function livingReserveStoryReward(building = {}, routeKey = "visitor", nodeId = 
     chapter
   );
   const income = Math.max(2, Math.round(visitors * Math.max(1, profile.incomePerVisitor) * .75));
+  const storyRewardScale = route === "visitor"
+    && (nodeId === "forest_watch" || ["guided_border_hide", "meadow_story_trail"].includes(String(building.planId || "")))
+    ? Math.max(1, Number(PACE_ECONOMY.buildingStoryRewardScale) || 1)
+    : 1;
   const ecology = livingReserveEcologyFocus(nodeId);
   if (route === "animal") {
     return {
@@ -840,7 +846,7 @@ function livingReserveStoryReward(building = {}, routeKey = "visitor", nodeId = 
       ecologyDelta: 0
     };
   }
-  return { route: "visitor", visitors: Math.max(1, Math.round(visitors * policy.storyVisitorMultiplier)), income: Math.max(2, Math.round(income * policy.storyIncomeMultiplier)), ecologyKey: ecology.key, ecologyLabel: ecology.label, ecologyDelta: 0 };
+  return { route: "visitor", visitors: Math.max(1, Math.round(visitors * policy.storyVisitorMultiplier * storyRewardScale)), income: Math.max(2, Math.round(income * policy.storyIncomeMultiplier * storyRewardScale)), ecologyKey: ecology.key, ecologyLabel: ecology.label, ecologyDelta: 0 };
 }
 function livingReserveStoryOutcomeText(route = "visitor", change = {}, ecology = {}) {
   const visitors = Number(change.visitors) || 0;

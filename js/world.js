@@ -475,7 +475,9 @@ function createReserveState() {
     reputation: 50,
     enforcement: 48,
     poacherPressure: 30,
-    safety: 68,
+    // 新保护区先处于“可维持但仍有风险”的状态。安全值需要通过巡护、
+    // 边界治理和生态决策逐步提升，避免玩家未经营就直接落在高安全区。
+    safety: 58,
     migration: { trend: "stable", delta: 0, reason: "泥岸初醒，动物只把这里当作临时路过点，暂时观望" },
     coreResources: { version: 1, energy: 3, energyMax: 3, fund: INITIAL_PROTECTION_FUND, capacity: 0, population: 0, capacityLoad: 0, community: 47, communityIncome: 0 },
     ecologyChain: { id: "water_food_predator", stage: 0, title: "生态链尚未启动", message: "修复水源后，变化会跨守护日逐步传导。", patrolPressure: 0, observationRequired: false, observationReady: false, history: [] },

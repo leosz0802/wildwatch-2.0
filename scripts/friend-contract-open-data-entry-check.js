@@ -80,6 +80,28 @@ onMessage({
 assert(drawnText.includes("Nicole.英"), "世界榜昵称层仍应写出微信昵称");
 assert(drawnText.includes("N"), "世界榜昵称层应同时画上已取到的好友头像");
 
+const highKey = friendMatchKey("rank-high");
+const lowKey = friendMatchKey("rank-low");
+onMessage({
+  type: "friend_rank_show",
+  width: 320,
+  height: 320,
+  reload: true,
+  contractFriendsJson: JSON.stringify([
+    { friendMatchKey: lowKey, id: "low", valuation: 100, level: 2, animals: 3, title: "低市值的自然" },
+    { friendMatchKey: highKey, id: "high", valuation: 9000, level: 4, animals: 8, title: "高市值的自然" }
+  ])
+});
+callbacks.pop().success({
+  data: [
+    { nickname: "高市值", openid: "rank-high", KVDataList: [{ key: "wild_guardian_rank_v1", value: JSON.stringify({ name: "自然", valuation: 9000, level: 4, animals: 8, friendMatchKey: highKey }) }] },
+    { nickname: "低市值", openid: "rank-low", KVDataList: [{ key: "wild_guardian_rank_v1", value: JSON.stringify({ name: "自然", valuation: 100, level: 2, animals: 3, friendMatchKey: lowKey }) }] }
+  ]
+});
+const lowTitleAt = drawnText.indexOf("低市值的自然");
+const highTitleAt = drawnText.indexOf("高市值的自然");
+assert(lowTitleAt >= 0 && highTitleAt > lowTitleAt, "好友榜应按可签合同的顺序排列，不能按微信市值把高市值排到前面");
+
 const game = Object.create(Game.prototype);
 let selectedPlayer = null;
 let cancelled = false;
@@ -171,6 +193,33 @@ Promise.resolve().then(() => {
   assert.equal(synced.length, 1, "刷新后应按点开的名次发起合同");
   assert.equal(synced[0].id, "cloud_low", "第3名应是市值排序后的第三位，不能改成第一位");
   assert.equal(toasts.includes("好友资料尚未同步，请刷新好友列表后再发起合同"), false);
+  const keyed = Object.create(Game.prototype);
+  const started = [];
+  keyed.toast = message => toasts.push(message);
+  keyed.render = () => {};
+  keyed.openFriendContractForLeaguePlayer = player => started.push(player);
+  const matchKey = friendMatchKey("visible-friend");
+  keyed.cloudService = {
+    refreshRelationFriends: () => Promise.resolve([
+      { id: "cloud_other", friendMatchKey: friendMatchKey("other-friend"), valuation: 20000, owner: "别人", worldPlayerId: "other" },
+      { id: "cloud_visible", friendMatchKey: matchKey, valuation: 15424, owner: "破灭的幻觉", worldPlayerId: "visible", name: "破灭的幻觉的自然" }
+    ])
+  };
+  keyed.renderedWechatFriendRank = {
+    rankReady: true,
+    view: { w: 320, h: 360 },
+    openDataView: "detail",
+    openDataSelectedIndex: 7,
+    openDataRows: [],
+    openDataContractAligned: false,
+    contractSignature: ""
+  };
+  assert.equal(keyed.openFriendContractFromRankSelection(keyed.renderedWechatFriendRank), true);
+  return Promise.resolve();
+}).then(() => {
+  assert.equal(synced.length, 1, "没有匹配键的旧名单仍按点开的名次发起");
+  const keyedToast = toasts.find((message) => message.includes("重新点开这位好友"));
+  assert(keyedToast, "微信榜和合同名单顺序不一致时，不能拿错位的名次直接发起");
   console.log("friend contract open-data entry check ok");
 }).catch((error) => {
   console.error(error);

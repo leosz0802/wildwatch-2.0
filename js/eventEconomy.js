@@ -1,13 +1,14 @@
 const { recordFundChange } = require("./fundLedger");
 const { recordIncrease, recordDecrease } = require("./animalSourceLedger");
 const { addPendingRecovered } = require("./resourceLedger");
+const { REAL_NATURE_EVENTS } = require("./realNatureEventCatalog");
 const { applyChapterVisitorDelta, todayChapterContribution } = require("./chapterTargets");
-const { isRealNatureEventType, realNatureImpactPair, applyCoreMetric, CORE_METRIC_AMOUNTS } = require("./realNatureEventSystem");
+const { isRealNatureEventType, realNatureImpactPair, realNatureDefinition, applyCoreMetric, CORE_METRIC_AMOUNTS } = require("./realNatureEventSystem");
 const EVENT_CATEGORIES = Object.freeze({
   nature: { label: "自然规则", mode: "观察风险 → 修复或救助", chain: "水草与种群 → 观赏体验 → 游客与基金" },
   social: { label: "游客与社会", mode: "疏导现场 → 恢复秩序", chain: "安全与口碑 → 游客留存 → 保护基金" },
   neighbor: { label: "相邻保护区", mode: "核验需求 → 协作或保留", chain: "共享资源与迁徙 → 游览吸引力 → 游客与基金" },
-  realNature: { label: "真实事件", mode: "核对真实记录 → 保护区演练", chain: "真实案例 → 演练处置 → 两项核心数据" }
+  realNature: { label: "保护区野外实录", mode: "核对野外记录 → 保护区演练", chain: "野外实录 → 演练处置 → 两项核心数据" }
 });
 const SOCIAL_EVENTS = new Set(["poacher_ring", "snare_line", "community_blockade", "visitor_conflict", "visitor_litter", "visitor_queue", "water_contamination"]);
 const n = (value) => Math.max(0, Math.round(Number(value) || 0));
@@ -140,7 +141,47 @@ function applyTodayIncome(reserve, incomeDelta, fundBefore, label, title, record
 }
 function applyRealNatureBusinessChange(reserve, active = {}, resolved = true, recordLedger = true) {
   const emergency = reserve.emergency || (reserve.emergency = {});
+  const pendingArcheryRoll = emergency.pendingArcheryRoll;
   if (emergency.pendingArcheryRoll !== undefined) delete emergency.pendingArcheryRoll;
+  const sourceEvent = active.realEventId ? REAL_NATURE_EVENTS.find((event) => event.id === active.realEventId) : null;
+  const definition = active.extinction ? active : (sourceEvent ? realNatureDefinition(sourceEvent) : {});
+  if (definition.extinction === true) {
+    // 物种消失档案是新增的救护分支：仍沿用同一支射箭判定，但不改写
+    // 既有实录事件的“成功上升 / 失败下降”奖励。每个点数都会产生
+    // 一次可感知的基金捐献和接收动物，4–6 点更节省基金、接收更多。
+    const score = Math.max(1, Math.min(6, Math.round(Number(pendingArcheryRoll || active.archeryRoll || active.roll || 3) || 3)));
+    const tiers = [
+      { cost: 120, animals: 1 }, { cost: 100, animals: 1 }, { cost: 80, animals: 2 },
+      { cost: 60, animals: 3 }, { cost: 45, animals: 4 }, { cost: 30, animals: 5 }
+    ];
+    const tier = tiers[score - 1];
+    const fundBefore = n(reserve.fund);
+    const fundAfter = applyTodayIncome(reserve, -Math.min(fundBefore, tier.cost), fundBefore, "物种救护捐献", active.title, recordLedger);
+    const fundChange = { metric: "fund", label: "保护基金（捐献）", unit: "星币", before: fundBefore, after: fundAfter, delta: fundAfter - fundBefore };
+    const animalChange = applyCoreMetric(reserve, "animals", tier.animals, { inflow: "tasked" });
+    const thanks = definition.thanks || "感谢你为物种保护贡献一份力量。";
+    const impactChanges = [fundChange, animalChange];
+    return {
+      visitorsBefore: 0,
+      visitorsAfter: 0,
+      visitorsDelta: 0,
+      fundBefore,
+      fundAfter,
+      fundDelta: fundAfter - fundBefore,
+      animalsBefore: animalChange.before,
+      animalsAfter: animalChange.after,
+      animalsDelta: animalChange.delta,
+      impactChanges,
+      extinction: true,
+      extinctionSpecies: definition.extinctionSpecies || "档案物种",
+      extinctionStatus: definition.extinctionStatus || "物种消失档案",
+      archeryRoll: score,
+      donationCost: Math.abs(fundAfter - fundBefore),
+      animalsReceived: animalChange.delta,
+      thanks,
+      note: thanks
+    };
+  }
   const sign = resolved ? 1 : -1;
   const fundBefore = n(reserve.fund);
   const crowdBefore = businessTodaySnapshot(reserve).visitors;
@@ -149,7 +190,7 @@ function applyRealNatureBusinessChange(reserve, active = {}, resolved = true, re
     const amount = (amounts[item.weight] || amounts.中 || 1) * sign;
     if (item.metric === "fund") {
       const before = n(reserve.fund);
-      const after = applyTodayIncome(reserve, Math.round(amount), before, "真实事件结算", active.title, recordLedger);
+      const after = applyTodayIncome(reserve, Math.round(amount), before, "保护区野外实录结算", active.title, recordLedger);
       return { metric: "fund", label: item.label, unit: item.unit, before, after, delta: after - before };
     }
     if (item.metric === "visitors") {

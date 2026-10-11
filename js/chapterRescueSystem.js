@@ -70,9 +70,28 @@ function chapterCaptiveSpeciesSet(reserve = {}) {
   const ids = new Set();
   const state = reserve.chapterRescue || {};
   if (state.enforceCompletion === false || state.legacyGateBypass === true) return ids;
+  // The target id changed across rescue revisions.  A rescued animal can
+  // therefore have a valid completion entry even when a rebuilt task record
+  // still says "captive".  Treat the completion ledger as authoritative so
+  // an already released species is never deducted from the species counter.
+  const completed = state.completedTargets || {};
+  const completedSpecies = new Set(Object.values(completed)
+    .filter((entry) => entry && entry.speciesId && Number(entry.rescuedAt) > 0)
+    .map((entry) => entry.speciesId));
+  Object.entries(completed).forEach(([key, entry]) => {
+    if (!entry || Number(entry.rescuedAt) <= 0) return;
+    const match = String(key).match(/^chapter:(\d+):rescue:(\d+)$/);
+    if (!match) return;
+    const targets = chapterDefinition(Number(match[1])).targets;
+    const speciesId = targets[Math.max(0, Number(match[2]) - 1)];
+    if (speciesId) completedSpecies.add(speciesId);
+  });
   const add = (record, fallbackId) => {
     const id = (record && record.speciesId) || fallbackId;
-    if (id && (!record || record.status !== "rescued")) ids.add(id);
+    const targetId = record && record.targetId;
+    const completedRecord = (targetId && completed[targetId]) || (id && completed[id]);
+    if (id && (!record || record.status !== "rescued")
+      && !completedRecord && !completedSpecies.has(id)) ids.add(id);
   };
   Object.values(state.animals || {}).forEach((record) => add(record));
   (state.targets || []).forEach((record) => add(record));
@@ -208,6 +227,10 @@ function buildChapterRescueRecord(reserve = {}, speciesId = "", chapterNumber = 
     speciesName: species.name,
     chapter: chapterNumber,
     status: "captive",
+    // Preserve an explicit hidden/queued state from legacy saves. The map
+    // renderer uses this flag to avoid painting a rescue card before its
+    // story entry has been presented.
+    taskVisible: existing.taskVisible !== false,
     preserveResidentPopulation: options.fresh !== true && resident > 1,
     requiredItems: required,
     pointTarget: CHAPTER_RESCUE_TARGET_SCORE,
@@ -244,6 +267,21 @@ function normalizeChapterRescue(reserve = {}, chapterNumber = 1, options = {}) {
   const completedTargets = existing.completedTargets && typeof existing.completedTargets === "object"
     ? existing.completedTargets
     : {};
+  const completedBySpecies = new Map();
+  Object.values(completedTargets).forEach((entry) => {
+    if (entry && entry.speciesId && Number(entry.rescuedAt) > 0) completedBySpecies.set(entry.speciesId, entry);
+  });
+  // Some early saves wrote only the target id (without speciesId). Recover
+  // those completions from the deterministic chapter target position so a
+  // rebuilt task cannot ask the player to rescue the same animal again.
+  Object.entries(completedTargets).forEach(([key, entry]) => {
+    if (!entry || Number(entry.rescuedAt) <= 0) return;
+    const match = String(key).match(/^chapter:(\d+):rescue:(\d+)$/);
+    if (!match) return;
+    const oldChapter = chapterDefinition(Number(match[1]));
+    const speciesId = oldChapter.targets[Math.max(0, Number(match[2]) - 1)];
+    if (speciesId && !completedBySpecies.has(speciesId)) completedBySpecies.set(speciesId, entry);
+  });
   const records = {};
   const targetRecords = [];
   const seenSpecies = new Set();
@@ -277,7 +315,7 @@ function normalizeChapterRescue(reserve = {}, chapterNumber = 1, options = {}) {
   chapter.targets.forEach((speciesId, index) => {
     const targetId = `chapter:${chapter.chapter}:rescue:${index + 1}`;
     const prior = Object.assign({}, old[targetId] || old[speciesId] || oldBySpecies.get(speciesId) || {});
-    const completed = completedTargets[targetId] || completedTargets[speciesId];
+    const completed = completedTargets[targetId] || completedTargets[speciesId] || completedBySpecies.get(speciesId);
     if (completed && Number(completed.rescuedAt) > 0) {
       prior.status = "rescued";
       prior.rescuedAt = Number(completed.rescuedAt);
@@ -307,7 +345,7 @@ function normalizeChapterRescue(reserve = {}, chapterNumber = 1, options = {}) {
         if (seenSpecies.has(speciesId)) return;
         const targetId = `chapter:${carryChapter}:rescue:${index + 1}`;
         const prior = Object.assign({}, old[targetId] || old[speciesId] || oldBySpecies.get(speciesId) || {});
-        const completed = completedTargets[targetId] || completedTargets[speciesId];
+        const completed = completedTargets[targetId] || completedTargets[speciesId] || completedBySpecies.get(speciesId);
         if ((completed && Number(completed.rescuedAt) > 0) || prior.status === "rescued") return;
         const group = speciesPopulationGroup(speciesId);
         const population = Number((((reserve.ecology || {})[group] || {})[speciesId])) || 0;

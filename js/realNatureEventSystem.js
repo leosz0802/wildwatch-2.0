@@ -184,12 +184,38 @@ function recentRealEventIds(reserve = {}) {
   });
   return Array.from(new Set(ids)).slice(-8);
 }
+// Use recognizable flagship animals for the first impression of the
+// extinction-record system.  The remaining records stay in the pool, but
+// familiar species receive a higher draw weight so the archive feels
+// approachable before it expands into specialist cases.
+const FAMILIAR_EXTINCTION_IDS = Object.freeze(new Set([
+  "extinction-baiji",
+  "extinction-western-black-rhino",
+  "extinction-pinta-tortoise",
+  "extinction-spix-macaw",
+  "extinction-formosan-clouded-leopard",
+  "extinction-caribbean-monk-seal",
+  "extinction-chinese-paddlefish",
+  "extinction-scimitar-oryx",
+  "extinction-northern-white-rhino",
+  "extinction-ivory-billed-woodpecker"
+]));
+function selectExtinctionEvent(candidates = [], dateKey = "") {
+  if (!candidates.length) return null;
+  const weighted = [];
+  candidates.forEach((event) => {
+    const weight = FAMILIAR_EXTINCTION_IDS.has(event.id) ? 4 : 1;
+    for (let index = 0; index < weight; index += 1) weighted.push(event);
+  });
+  return weighted[hash(`${dateKey}:familiar-extinction`) % weighted.length] || candidates[0];
+}
+const REAL_NATURE_ENTRY_DELAY_SECONDS = 20;
 function realNatureEventEligible(reserve = {}) {
   const progression = reserve.progression || {};
   const chapterStart = progression.chapterStart || progression.stageStart || {};
   const activeSeconds = Math.max(0, Number(progression.activeSeconds) || 0);
   const chapterStartSeconds = Math.max(0, Number(chapterStart.activeSeconds) || 0);
-  return activeSeconds - chapterStartSeconds >= 30;
+  return activeSeconds - chapterStartSeconds >= REAL_NATURE_ENTRY_DELAY_SECONDS;
 }
 function liveChapterNumber(reserve = {}) {
   const progression = reserve.progression || {};
@@ -207,10 +233,18 @@ function realNatureSeenCount(reserve = {}) {
   // A save from the one-event rule has the chapter latch and no count.
   return count > 0 ? count : 1;
 }
+function chapterHasExtinctionRealNature(reserve = {}) {
+  const chapter = liveChapterNumber(reserve);
+  if (chapter < 2) return true;
+  const emergency = reserve.emergency || {};
+  if (Math.max(0, Math.round(Number(emergency.realNatureExtinctionChapter) || 0)) === chapter) return true;
+  const activeId = String(((emergency.active || {}).realEventId) || "");
+  return activeId.startsWith("extinction-");
+}
 function chapterHasRequiredRealNature(reserve = {}) {
   const emergency = reserve.emergency || {};
   if (isRealNatureEventType((emergency.active || {}).type)) return true;
-  return realNatureSeenCount(reserve) >= realNatureChapterQuota();
+  return realNatureSeenCount(reserve) >= realNatureChapterQuota() && chapterHasExtinctionRealNature(reserve);
 }
 function chapterNeedsRequiredRealNature(reserve = {}) {
   return realNatureEventEligible(reserve) && !chapterHasRequiredRealNature(reserve);
@@ -225,17 +259,41 @@ function markChapterRealNatureSeen(reserve = {}) {
   emergency.realNatureChapter = chapter;
   emergency.realNatureChapterCount = Math.min(realNatureChapterQuota(), previous + 1);
   if (activeId) emergency.realNatureCountedId = activeId;
+  const realEventId = String(((emergency.active || {}).realEventId) || "");
+  if (realEventId.startsWith("extinction-")) emergency.realNatureExtinctionChapter = chapter;
   return chapter;
 }
-function realNatureEventForDate(reserve = {}, now = Date.now()) {
+function realNatureEventForDate(reserve = {}, now = Date.now(), options = {}) {
   const dateKey = beijingDateKey(now);
   const recent = new Set(recentRealEventIds(reserve));
-  const start = hash(dateKey) % REAL_NATURE_EVENTS.length;
-  for (let offset = 0; offset < REAL_NATURE_EVENTS.length; offset += 1) {
-    const event = REAL_NATURE_EVENTS[(start + offset) % REAL_NATURE_EVENTS.length];
-    if (!recent.has(event.id)) return event;
+  const blockedTypes = options.blockedTypes instanceof Set ? options.blockedTypes : new Set(options.blockedTypes || []);
+  const blockedThemes = new Set(Array.from(blockedTypes).map((type) => {
+    const definition = REAL_NATURE_EVENT_DEFINITIONS[type];
+    return definition && definition.themeId ? definition.themeId : "";
+  }).filter(Boolean));
+  // 完成章节保底后，每四个额外实录窗口仍保留一个物种消失档案，
+  // 同时继续轮换水灾、火灾、污染和保护行动。
+  const extinction = REAL_NATURE_EVENTS.filter((event) => event.extinction === true);
+  const regular = REAL_NATURE_EVENTS.filter((event) => event.extinction !== true);
+  // 第2章起，每章至少安排一次物种消失档案。旧存档如果已经看过普通
+  // 实录但没见过物种消失任务，也会在下一次任务窗口补发。
+  const extinctionSlot = extinction.length && (!chapterHasExtinctionRealNature(reserve) || hash(dateKey) % 4 === 0);
+  const pool = extinctionSlot ? extinction : regular;
+  const start = hash(`${dateKey}:${extinctionSlot ? "extinction" : "regular"}`) % pool.length;
+  if (extinctionSlot) {
+    const candidates = extinction.filter((event) => {
+      const definition = REAL_NATURE_EVENT_DEFINITIONS[eventType(event.id)];
+      return !recent.has(event.id) && !(definition && blockedThemes.has(definition.themeId));
+    });
+    const selected = selectExtinctionEvent(candidates, dateKey);
+    if (selected) return selected;
   }
-  return REAL_NATURE_EVENTS[start];
+  for (let offset = 0; offset < pool.length; offset += 1) {
+    const event = pool[(start + offset) % pool.length];
+    const definition = REAL_NATURE_EVENT_DEFINITIONS[eventType(event.id)];
+    if (!recent.has(event.id) && !(definition && blockedThemes.has(definition.themeId))) return event;
+  }
+  return blockedTypes.size ? null : pool[start];
 }
 function routeFor(event = {}) {
   const theme = realNatureTheme(event);
@@ -274,20 +332,28 @@ function realNatureDefinition(event = {}) {
   const theme = realNatureTheme(event);
   const displayDate = futureTimelineText(event.date);
   const displayTitle = futureTimelineText(event.title);
+  // The event category is already shown in the modal kicker. Keep the title
+  // focused on the species and place so the header remains readable.
+  const taskTitle = displayTitle;
   const displaySummary = futureTimelineText(event.summary);
   const displayImpact = futureTimelineText(event.impact);
   const displayDrill = futureTimelineText(event.drill);
   const sourceLine = `${displayDate}｜${event.place}｜来源：${event.source}`;
-  const startBody = `${sourceLine}。${displaySummary} ${theme.ecologicalMechanism} ${theme.relationshipLine}`;
-  const resolvedBody = `${sourceLine}。${theme.animalLine} ${theme.relationshipLine} 这次处置已记录，保护区只把演练结果写入当前生态状态。`;
-  const failedBody = `${sourceLine}。${theme.animalLine} 风险没有被及时隔离，${theme.playerQuestion} 保护区承担对应演练影响。`;
+  const extinctionLine = event.extinction ? `这是${event.extinctionStatus || "物种消失"}档案演练，救护结果只代表本次保护区接收的动物，不代表物种已经复原。` : "";
+  const startBody = `${sourceLine}。${displaySummary} ${theme.ecologicalMechanism} ${theme.relationshipLine}${extinctionLine ? ` ${extinctionLine}` : ""}`;
+  const resolvedBody = event.extinction
+    ? `${sourceLine}。${event.extinctionSpecies || "档案物种"}救护演练已完成。${event.thanks || "感谢你为物种保护贡献一份力量。"}`
+    : `${sourceLine}。${theme.animalLine} ${theme.relationshipLine} 这次处置已记录，保护区只把演练结果写入当前生态状态。`;
+  const failedBody = event.extinction
+    ? `${sourceLine}。救护窗口有限，本次只接收少量${event.extinctionSpecies || "档案物种"}，但每一只都值得被留下。${event.thanks || "感谢你为物种保护贡献一份力量。"}`
+    : `${sourceLine}。${theme.animalLine} 风险没有被及时隔离，${theme.playerQuestion} 保护区承担对应演练影响。`;
   return Object.freeze(Object.assign({
     type: eventType(event.id),
     realEventId: event.id,
     category: "realNature",
-    categoryLabel: "真实事件",
+    categoryLabel: "保护区野外实录",
     source: "realNature",
-    title: displayTitle,
+    title: taskTitle,
     date: displayDate,
     realDate: event.date,
     dateKind: event.dateKind,
@@ -310,6 +376,10 @@ function realNatureDefinition(event = {}) {
     animalLine: theme.animalLine,
     ecologicalMechanism: theme.ecologicalMechanism,
     playerQuestion: theme.playerQuestion,
+    extinction: !!event.extinction,
+    extinctionSpecies: event.extinctionSpecies || "",
+    extinctionStatus: event.extinctionStatus || "",
+    thanks: event.thanks || "",
     causeChain: Object.freeze([theme.ecologicalMechanism, theme.animalLine, theme.relationshipLine]),
     target: 3,
     days: 3,
@@ -328,7 +398,7 @@ const REAL_NATURE_EVENT_DEFINITIONS = Object.freeze(Object.fromEntries(
 ));
 function realNatureTriggerType(reserve = {}, now = Date.now(), options = {}) {
   if (!options.ignoreQuiet && !realNatureEventEligible(reserve)) return null;
-  const event = realNatureEventForDate(reserve, now);
+  const event = realNatureEventForDate(reserve, now, options);
   return event ? eventType(event.id) : null;
 }
 function tokenCoreMetric(token = "") {
@@ -377,7 +447,7 @@ function applyFundImpact(reserve, delta) {
   const before = n(reserve.fund);
   const after = Math.max(0, before + Math.round(Number(delta) || 0));
   reserve.fund = after;
-  if (after !== before) recordFundChange(reserve, before, after, "真实事件结算", ((reserve.guardianCycle || {}).day) || 0, "真实事件");
+  if (after !== before) recordFundChange(reserve, before, after, "保护区野外实录结算", ((reserve.guardianCycle || {}).day) || 0, "保护区野外实录");
   return { before, after, delta: after - before };
 }
 function applyVisitorImpact(reserve, delta) {
@@ -470,6 +540,7 @@ function applyRealNatureOutcome(reserve = {}, event = {}, roll = REAL_NATURE_ARC
 module.exports = {
   REAL_NATURE_EVENT_DEFINITIONS,
   REAL_NATURE_ARCHERY_THRESHOLD,
+  REAL_NATURE_ENTRY_DELAY_SECONDS,
   CORE_METRIC_LABELS,
   CORE_METRIC_UNITS,
   CORE_METRIC_AMOUNTS,
@@ -478,6 +549,7 @@ module.exports = {
   isRealNatureEventType,
   beijingDateKey,
   recentRealEventIds,
+  FAMILIAR_EXTINCTION_IDS,
   realNatureEventEligible,
   chapterHasRequiredRealNature,
   REAL_NATURE_CHAPTER_QUOTA,

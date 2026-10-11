@@ -331,7 +331,8 @@ function recruitmentYieldBand(stage = 1, publishCount = 0, disease = 0) {
 }
 function scaleRecruitmentVisitors(raw, stage = 1, publishCount = 0, disease = 0) {
   const band = recruitmentYieldBand(stage, publishCount, disease);
-  return Math.max(band.min, Math.min(band.max, Math.round(n(raw) * band.factor)));
+  const scale = clamp(PACE_ECONOMY.visitorRecruitmentScale, 0.1, 2);
+  return Math.max(band.min, Math.min(band.max, Math.round(n(raw) * band.factor * scale)));
 }
 function consumeVisitorRecruitment(reserve = {}, gameDay = 1, random = Math.random, now = Date.now()) {
   const status = visitorRecruitmentStatus(reserve, gameDay, now); const operations = reserve.development.operations; const recruitment = operations.recruitment;

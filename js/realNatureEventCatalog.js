@@ -1,4 +1,5 @@
 const ADDITIONAL_REAL_NATURE_EVENTS = require("./realNatureEventCatalogAdditional");
+const EXTINCTION_REAL_NATURE_EVENTS = require("./realNatureExtinctionEvents");
 const REAL_NATURE_EVENTS = Object.freeze([
   {
     "id": "ocean-01",
@@ -750,5 +751,5 @@ const REAL_NATURE_EVENTS = Object.freeze([
     "drill": "划分清洁水与污染水区，转移动物并开展水质采样。",
     "metrics": "water↓重 · grass↓中"
   }
-].concat(ADDITIONAL_REAL_NATURE_EVENTS).map((event) => Object.freeze(event)));
+].concat(ADDITIONAL_REAL_NATURE_EVENTS, EXTINCTION_REAL_NATURE_EVENTS).map((event) => Object.freeze(event)));
 module.exports = { REAL_NATURE_EVENTS };

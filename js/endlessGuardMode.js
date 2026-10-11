@@ -46,20 +46,153 @@ function seasonDayOf(mode = {}) {
   if (Number.isFinite(explicit) && explicit >= 1) return clamp(Math.round(explicit), 1, SEASON_LENGTH);
   return clamp(Math.round(Number(mode.cycleProgress || 0)) + 1, 1, SEASON_LENGTH);
 }
-function contractTemplateFor(seasonNo, day, index) {
-  const offset = (Math.max(1, Number(seasonNo) || 1) - 1) * 3 + Math.max(0, Number(day) - 1);
-  const template = CONTRACT_ACTIONS[(offset + index * 2) % CONTRACT_ACTIONS.length];
+function weekDayOf(seasonDay) {
+  return ((Math.max(1, Math.round(Number(seasonDay) || 1)) - 1) % WEEK_LENGTH) + 1;
+}
+function stampContract(template, seasonNo, day, role) {
   return Object.assign({}, template, {
-    id: `${seasonNo}:${day}:${template.id}:${index + 1}`,
-    target: template.id === "patrol" ? 2 : 1,
+    id: `${seasonNo}:${day}:${role}:${template.id}`,
+    role,
+    target: template.target || (template.id === "patrol" ? 2 : 1),
     progress: 0,
     complete: false,
     seasonNo: Math.max(1, Number(seasonNo) || 1),
     day: Math.max(1, Number(day) || 1)
   });
 }
-function newDailyContracts(seasonNo, day) {
-  return [0, 1, 2].map((index) => contractTemplateFor(seasonNo, day, index));
+function seasonReserveTemplate(seasonNo, day) {
+  const preferred = {
+    wetland: "habitat",
+    grassland: "animal",
+    forest: "patrol",
+    river: "visitors"
+  }[seasonTheme(seasonNo).id] || "patrol";
+  const pool = CONTRACT_ACTIONS.filter((item) => item.id !== "auction");
+  const first = pool.find((item) => item.id === preferred) || pool[0];
+  const ordered = [first].concat(pool.filter((item) => item.id !== first.id));
+  return ordered[(Math.max(1, Number(day) || 1) - 1) % ordered.length];
+}
+function friendFlavor(seasonNo) {
+  return {
+    wetland: "这一季优先签水草维护。",
+    grassland: "这一季优先签动物观察。",
+    forest: "这一季优先签巡护或路线标记。",
+    river: "这一季优先签资料整理。"
+  }[seasonTheme(seasonNo).id] || "";
+}
+function interactionTemplate(seasonNo, seasonDay, auction) {
+  const weekDay = weekDayOf(seasonDay);
+  const submitted = !!(auction && (auction.submitted || auction.settled || auction.status === "submitted" || auction.status === "settled"));
+  if (weekDay === 6 && submitted) return weeklySlotTemplate(auction);
+  if (weekDay <= 2) {
+    return {
+      id: "friend",
+      title: "和一位好友签合同",
+      body: `打开好友榜，签下今天的合同。双方都完成后，这一条才算完成。${friendFlavor(seasonNo)}`,
+      action: "friendContract",
+      validActions: ["friendContract"],
+      icon: "community"
+    };
+  }
+  if (weekDay <= 5) {
+    return {
+      id: "patrol",
+      title: "向世界榜派出猎犬",
+      body: "从世界榜选一个保护区派出猎犬。5分钟后的结算报告完成这一条，并记下本周对照。",
+      action: "worldHoundPatrol",
+      validActions: ["worldHoundPatrol"],
+      icon: "hound_team"
+    };
+  }
+  if (weekDay === 6) {
+    return {
+      id: "auction",
+      title: "参加本周拍卖",
+      body: "为本周的动物档案、栖息地蓝图或研究样本箱出一次价。拍到的东西会在下一次好友或巡逻互动里被看见。",
+      action: "endlessAuction",
+      validActions: ["endlessAuction"],
+      icon: "rare"
+    };
+  }
+  return {
+    id: "recap",
+    title: "查看本周来回",
+    body: "打开本周结算，看你巡逻了谁、谁巡逻了你、哪份好友合同双方完成。",
+    action: "endlessRecap",
+    validActions: ["endlessRecap", "endlessMirror"],
+    icon: "leaf"
+  };
+}
+function weeklySlotTemplate(auction) {
+  const submitted = !!(auction && (auction.submitted || auction.settled || auction.status === "submitted" || auction.status === "settled"));
+  if (!submitted) {
+    return {
+      id: "auction",
+      title: "参加本周拍卖",
+      body: "三件拍品不变。出价后，拍到的东西会挂到下一次好友合同或猎犬巡逻上。",
+      action: "endlessAuction",
+      validActions: ["endlessAuction"],
+      icon: "rare"
+    };
+  }
+  return {
+    id: "mirror",
+    title: "对照本周拍品",
+    body: "本周已经出过价。下一次好友合同或猎犬巡逻报告里会看到拍品。",
+    action: "endlessMirror",
+    validActions: ["endlessMirror", "endlessRecap", "friendContract", "worldHoundPatrol"],
+    icon: "rare"
+  };
+}
+function newDailyContracts(seasonNo, day, auction) {
+  return [
+    stampContract(seasonReserveTemplate(seasonNo, day), seasonNo, day, "reserve"),
+    stampContract(interactionTemplate(seasonNo, day, auction), seasonNo, day, "interaction"),
+    stampContract(weeklySlotTemplate(auction), seasonNo, day, "weekly")
+  ];
+}
+function contractsMatchDay(contracts, seasonNo, day) {
+  return Array.isArray(contracts)
+    && contracts.length === 3
+    && contracts.every((item) => item && item.role && Number(item.day) === Number(day) && Number(item.seasonNo) === Number(seasonNo));
+}
+function emptyWeekLog(seasonNo, week) {
+  return { seasonNo, week, sent: [], received: [], friends: [], mutual: 0, mutualNames: [] };
+}
+function weekLogFor(mode, seasonNo, week) {
+  const current = mode.weekLog;
+  if (current && Number(current.seasonNo) === Number(seasonNo) && Number(current.week) === Number(week)) return current;
+  mode.weekLog = emptyWeekLog(seasonNo, week);
+  return mode.weekLog;
+}
+function recordSocialBeat(mode, seasonNo, week, kind, entry = {}) {
+  const log = weekLogFor(mode, seasonNo, week);
+  const list = Array.isArray(log[kind]) ? log[kind] : [];
+  log[kind] = list;
+  const id = String(entry.id || "");
+  const name = String(entry.name || "远方保护区");
+  if ((id && list.some((item) => item.id === id)) || (!id && list.some((item) => item.name === name))) {
+    return { added: false, mutual: false };
+  }
+  list.push({ id, name });
+  if (list.length > 8) list.shift();
+  const other = kind === "sent" ? log.received : kind === "received" ? log.sent : [];
+  const paired = kind !== "friends" && (other || []).some((item) => (id && item.id === id) || item.name === name);
+  if (!paired || (log.mutualNames || []).includes(name)) return { added: true, mutual: false };
+  log.mutualNames = (log.mutualNames || []).concat(name);
+  log.mutual = Math.max(0, Number(log.mutual) || 0) + 1;
+  return { added: true, mutual: true };
+}
+function auctionEchoLine(mode = {}) {
+  const echo = mode.auctionEcho;
+  if (!echo || !echo.title || Math.max(0, Number(echo.daysLeft) || 0) <= 0) return "";
+  if (echo.rewardType === "archive") return `动物档案「${echo.title}」会在这次互动里被看见。`;
+  if (echo.rewardType === "blueprint") return `栖息地蓝图「${echo.title}」会在这次互动里被用上。`;
+  if (echo.rewardType === "research") return "研究样本已入本季图鉴。";
+  return "";
+}
+function weekSummary(log = {}) {
+  return `你巡逻了 ${(log.sent || []).length} 人，${(log.received || []).length} 人巡逻了你，${(log.friends || []).length} 份好友合同双方完成`;
 }
 function weeklyLots(seasonNo, week) {
   const base = 90 + (Math.max(1, Number(week) || 1) - 1) * 20;
@@ -100,6 +233,11 @@ function endlessGuardView(r) {
   const theme = seasonTheme(seasonNo);
   const contracts = Array.isArray(m.dailyContracts) ? m.dailyContracts : [];
   const auction = weeklyAuctionFor(seasonNo, seasonDay, m.weeklyAuction || null);
+  const weekLog = m.weekLog && Number(m.weekLog.seasonNo) === seasonNo && Number(m.weekLog.week) === auction.week
+    ? m.weekLog
+    : emptyWeekLog(seasonNo, auction.week);
+  const interaction = contracts.find((item) => item && item.role === "interaction") || null;
+  const auctionOpen = auction.status === "open" && !auction.submitted && !auction.settled;
   return {
     active: true,
     cycle: seasonNo,
@@ -115,6 +253,16 @@ function endlessGuardView(r) {
     seasonHistory: Array.isArray(m.seasonHistory) ? m.seasonHistory.slice(-6) : [],
     dailyContracts: contracts,
     weeklyAuction: auction,
+    weekLog,
+    auctionEcho: m.auctionEcho || null,
+    board: {
+      today: interaction
+        ? `${interaction.complete ? "今日互动已完成" : "今日互动"} · ${interaction.title}`
+        : "今日互动会在赛季日内生成",
+      auction: auctionOpen ? `本周拍卖 · 还没出价` : `本周拍卖 · ${auction.submitted || auction.status === "submitted" ? "已出价" : "已结算"}`,
+      week: weekSummary(weekLog),
+      echo: auctionEchoLine(m)
+    },
     tourismScore: s,
     tourismStars: stars,
     tourismTitle: TOURISM_TITLES[stars - 1],
@@ -130,12 +278,10 @@ function endlessGuardView(r) {
 function normalizeEndlessMode(reserve, old = {}) {
   const seasonNo = Math.max(1, Math.round(Number(old.seasonNo || old.cycle || 1)));
   const seasonDay = seasonDayOf(old);
-  const contracts = Array.isArray(old.dailyContracts) && old.dailyContracts.length
-    && Number(old.dailyContracts[0].day) === seasonDay
-    && Number(old.dailyContracts[0].seasonNo) === seasonNo
-    ? old.dailyContracts
-    : newDailyContracts(seasonNo, seasonDay);
   const weeklyAuction = weeklyAuctionFor(seasonNo, seasonDay, old.weeklyAuction || null);
+  const contracts = contractsMatchDay(old.dailyContracts, seasonNo, seasonDay)
+    ? old.dailyContracts
+    : newDailyContracts(seasonNo, seasonDay, weeklyAuction);
   const view = endlessGuardView(Object.assign({}, reserve, {
     endlessMode: Object.assign({}, old, {
       seasonNo, seasonDay, cycle: seasonNo, cycleProgress: seasonDay - 1,
@@ -152,6 +298,8 @@ function normalizeEndlessMode(reserve, old = {}) {
     weeklyAuction,
     seasonScore: Math.max(0, Math.round(Number(old.seasonScore) || 0)),
     seasonHistory: Array.isArray(old.seasonHistory) ? old.seasonHistory.slice(-6) : [],
+    weekLog: weekLogFor(old, seasonNo, weeklyAuction.week),
+    auctionEcho: old.auctionEcho || null,
     lastChange: old.lastChange || "主线完成，进入无限守护"
   });
 }
@@ -198,6 +346,7 @@ function settleWeeklyAuction(mode, force = false) {
   if (reward.status === "won") {
     const key = reward.rewardType === "archive" ? "animalArchives" : reward.rewardType === "blueprint" ? "habitatBlueprints" : "researchCaches";
     mode.collection[key] = Math.max(0, Number(mode.collection[key]) || 0) + Math.max(0, Number(reward.rewardAmount) || 0);
+    mode.auctionEcho = { title: reward.title || "本周拍品", rewardType: reward.rewardType || "", daysLeft: 7 };
   }
   return reward;
 }
@@ -209,8 +358,15 @@ function advanceEndlessGuardMode(r, o = {}) {
   const d = after - before;
   const action = String(o.action || "");
   const completedContract = updateDailyContracts(old, action);
+  const socialWeek = (old.weeklyAuction || {}).week || 1;
+  let mutualBonus = 0;
+  if (action === "worldHoundPatrol" || action === "worldHoundPatrolIncoming" || action === "friendContract") {
+    const kind = action === "worldHoundPatrol" ? "sent" : action === "worldHoundPatrolIncoming" ? "received" : "friends";
+    const beat = recordSocialBeat(old, old.seasonNo, socialWeek, kind, { id: o.partnerId, name: o.partnerName });
+    if (beat.mutual) mutualBonus = 5;
+  }
   const dayClosed = !!o.dayClosed;
-  const scoreDelta = (completedContract ? 10 : 0) + Math.max(0, d);
+  const scoreDelta = (completedContract ? 10 : 0) + mutualBonus + Math.max(0, d);
   const scoreBeforeTick = Math.max(0, Math.round(Number(old.seasonScore) || 0));
   const scoreAfterTick = scoreBeforeTick + scoreDelta;
   let seasonNo = old.seasonNo;
@@ -219,6 +375,9 @@ function advanceEndlessGuardMode(r, o = {}) {
   let lastSettlement = old.lastSettlement || null;
   let seasonRolled = false;
   if (dayClosed) {
+    if (old.auctionEcho) {
+      old.auctionEcho = Object.assign({}, old.auctionEcho, { daysLeft: Math.max(0, Number(old.auctionEcho.daysLeft) || 0) - 1 });
+    }
     const weekEnded = seasonDay % WEEK_LENGTH === 0;
     const weeklySettlement = weekEnded ? settleWeeklyAuction(old, true) : null;
     if (seasonDay >= SEASON_LENGTH) {
@@ -246,14 +405,18 @@ function advanceEndlessGuardMode(r, o = {}) {
         atDay: SEASON_LENGTH
       };
       old.seasonScore = 0;
-      old.dailyContracts = newDailyContracts(seasonNo, seasonDay);
       weeklyAuction = weeklyAuctionFor(seasonNo, seasonDay, null);
+      old.weekLog = emptyWeekLog(seasonNo, weeklyAuction.week);
+      old.dailyContracts = newDailyContracts(seasonNo, seasonDay, weeklyAuction);
       lastSettlement = old.lastSettlement;
       seasonRolled = true;
     } else {
       seasonDay += 1;
-      old.dailyContracts = newDailyContracts(seasonNo, seasonDay);
       weeklyAuction = weeklyAuctionFor(seasonNo, seasonDay, weekEnded ? null : weeklyAuction);
+      if (!old.weekLog || Number(old.weekLog.week) !== Number(weeklyAuction.week) || Number(old.weekLog.seasonNo) !== Number(seasonNo)) {
+        old.weekLog = emptyWeekLog(seasonNo, weeklyAuction.week);
+      }
+      old.dailyContracts = newDailyContracts(seasonNo, seasonDay, weeklyAuction);
     }
   }
   const seasonScore = seasonRolled ? 0 : scoreAfterTick;
@@ -283,7 +446,11 @@ function advanceEndlessGuardMode(r, o = {}) {
 function endlessDailyContract(reserve = {}) {
   if (!isEndlessGuardReady(reserve) || !reserve.endlessMode || !reserve.endlessMode.active) return null;
   const mode = normalizeEndlessMode(reserve, reserve.endlessMode);
-  return (mode.dailyContracts || []).find((contract) => !contract.complete) || null;
+  const open = (mode.dailyContracts || []).filter((contract) => contract && !contract.complete);
+  return open.find((contract) => contract.role === "interaction")
+    || open.find((contract) => contract.role === "weekly")
+    || open[0]
+    || null;
 }
 function endlessAuctionView(reserve = {}) {
   if (!isEndlessGuardReady(reserve)) return null;
@@ -317,5 +484,7 @@ module.exports = {
   isEndlessGuardReady,
   ensureEndlessGuardMode,
   advanceEndlessGuardMode,
-  submitEndlessAuction
+  submitEndlessAuction,
+  auctionEchoLine,
+  weekSummary
 };

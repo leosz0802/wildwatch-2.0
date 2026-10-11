@@ -1,7 +1,7 @@
 const { createInitialWorld } = require("../js/world");
 const { buildReserveView } = require("../js/reserveView");
 const { Game } = require("../js/game");
-const { WORLD_EVENT_DEFINITIONS, worldEventDefinition, worldEventTriggerType } = require("../js/worldEventSystem");
+const { WORLD_EVENT_DEFINITIONS, worldEventDefinition, worldEventTriggerType, EVENT_TRIGGER_GAP_MS } = require("../js/worldEventSystem");
 
 function assert(value, message) {
   if (!value) throw new Error(message);
@@ -17,8 +17,9 @@ types.forEach((type) => {
 });
 
 const base = createInitialWorld().reserve;
+assert(EVENT_TRIGGER_GAP_MS === 20 * 1000, "chapter event rotation gap must be 20 seconds");
 base.progression = Object.assign({}, base.progression || {}, {
-  activeSeconds: ((((base.progression || {}).chapterStart || {}).activeSeconds) || 0) + 30
+  activeSeconds: ((((base.progression || {}).chapterStart || {}).activeSeconds) || 0) + 20
 });
 function afterChapterRealEvent(reserve) {
   return Object.assign({}, reserve, {
@@ -29,7 +30,7 @@ assert(/^real_nature_/.test(worldEventTriggerType(Object.assign({}, base, { poac
 assert(worldEventTriggerType(afterChapterRealEvent(Object.assign({}, base, { poacherPressure: 70 })), { name: "雨季" }, () => .99) === "poacher_ring", "high poaching pressure should deterministically trigger a border event");
 const realType = worldEventTriggerType(Object.assign({}, base, { poacherPressure: 5, social: { pressure: 0 } }), { name: "雨季" }, () => .99);
 assert(/^real_nature_/.test(realType), "generic nature pressure should be replaced by a reviewed real event");
-assert(worldEventDefinition(realType).categoryLabel === "真实事件" && worldEventDefinition(realType).responses.length === 1, "real events need the new category and a single response route");
+assert(worldEventDefinition(realType).categoryLabel === "保护区野外实录" && worldEventDefinition(realType).responses.length === 1, "real events need the field-record category and a single response route");
 assert(worldEventTriggerType(afterChapterRealEvent(Object.assign({}, base, { poacherPressure: 5, ecology: Object.assign({}, base.ecology, { water: 48, disease: 28 }) })), { name: "雨季" }, () => .01) === "water_contamination", "low usable water plus disease should be able to trigger contamination");
 assert(worldEventTriggerType(afterChapterRealEvent(Object.assign({}, base, { poacherPressure: 52, ecology: Object.assign({}, base.ecology, { disease: 5 }) })), { name: "雨季" }, () => .01) === "snare_line", "moderate poaching pressure should be able to surface a snare field before a full border breach");
 assert(worldEventTriggerType(afterChapterRealEvent(Object.assign({}, base, { poacherPressure: 5, coreResources: Object.assign({}, base.coreResources, { community: 20 }) })), { name: "雨季" }, () => .01) === "community_blockade", "low community support should be able to create a non-animal social event");

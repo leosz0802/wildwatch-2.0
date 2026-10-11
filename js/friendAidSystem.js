@@ -1,5 +1,5 @@
 "use strict";
-const { proposeAutoExchange, proposalWithWant, settleAutoExchange, wildernessTradeDailyUsage, wildernessFindById, sandboxExchangeIconReady, consumeSandboxExchangeIcon } = require("./wildernessKnowledge");
+const { proposeAutoExchange, proposalWithWant, settleAutoExchange, wildernessTradeDailyUsage, wildernessFindById, wildernessTradePreview, sandboxExchangeIconReady, consumeSandboxExchangeIcon } = require("./wildernessKnowledge");
 const { chapterSpecialDef, applySpecialMetric, METRIC_LABELS, changeSummary } = require("./chapterSpecialSystem");
 const AID_FRACTION = 1 / 3;
 const FRIEND_AID_FALLBACK_MS = 24 * 60 * 60 * 1000;
@@ -174,6 +174,38 @@ function friendAidStatus(reserve = {}, now = Date.now()) {
     fallbackReady
   };
 }
+function friendAidRequestReadiness(reserve = {}, proposal = null, partner = {}, day = 1) {
+  if (!proposal || !proposal.offer || !proposal.want) {
+    return { ok: false, reason: "no_proposal", message: "还没有可用的交换方案，请先探索一份可交换素材。" };
+  }
+  const usage = wildernessTradeDailyUsage(reserve, day);
+  if (usage.remaining <= 0) {
+    return { ok: false, reason: "limit", message: "今日交换次数已用完，明天再发出求援。" };
+  }
+  const preview = wildernessTradePreview(reserve, proposal.offer.id, partner.channel === "world" ? "world" : "friends", partner, proposal.want.id);
+  if (preview.ready) return { ok: true, reason: "ready", preview };
+  const offer = preview.offer || {};
+  if (!offer.ready) {
+    const stock = Math.max(0, Number(offer.stock) || 0);
+    const available = Math.max(0, Number(offer.available) || 0);
+    return {
+      ok: false,
+      reason: available > 0 || stock > 0 ? "reserved" : "out_of_stock",
+      message: available > 0 || stock > 0
+        ? `这份${proposal.offer.label}还被建设占用，只有真正溢出的库存才能交换。`
+        : `${proposal.offer.label}已经没有可交换库存，请先重新探索。`
+    };
+  }
+  if (preview.wantedItem && Math.abs(Number(proposal.offer.tradeValue) - Number(proposal.want.tradeValue)) > 1) {
+    return {
+      ok: false,
+      reason: "unequal_value",
+      message: `${proposal.offer.label}与${proposal.want.label}的交换价值不匹配，请换一份同价值缺口物资。`
+    };
+  }
+  if (!preview.partnerId) return { ok: false, reason: "no_partner", message: "暂时没有可匹配的保护区，请稍后再试。" };
+  return { ok: false, reason: "not_ready", message: "交换条件刚刚发生变化，请关闭后重新打开求援。" };
+}
 function sendFriendAidRequest(reserve = {}, friends = [], now = Date.now(), options = {}) {
   const status = friendAidStatus(reserve, now);
   if (status.canOpen) return { ok: false, reason: "incoming", status };
@@ -183,9 +215,11 @@ function sendFriendAidRequest(reserve = {}, friends = [], now = Date.now(), opti
   if (!proposal) return { ok: false, reason: options.wantId ? "no_want" : "no_stock", status };
   if (status.usage.remaining <= 0) return { ok: false, reason: "limit", status };
   const stamp = Number(now) || Date.now();
+  const day = n(((reserve.guardianCycle || {}).day) || options.day || 1) || 1;
   const partner = matchExchangePartner(friends, stamp, options.partner || null);
   if (options.channel === "world" || options.channel === "friends") partner.channel = options.channel;
-  const day = n(((reserve.guardianCycle || {}).day) || options.day || 1) || 1;
+  const readiness = friendAidRequestReadiness(reserve, proposal, partner, day);
+  if (!readiness.ok) return Object.assign({ ok: false, status, proposal, partner }, readiness);
   const state = status.state;
   /*
    * A named real friend is a real request now. Keep the offered item in the
@@ -515,5 +549,6 @@ module.exports = {
   parcelLetter,
   applyFriendAidOnSpecial,
   friendAidMarkers,
+  friendAidRequestReadiness,
   settlePendingFriendAid
 };

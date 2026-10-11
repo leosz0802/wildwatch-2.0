@@ -12,11 +12,16 @@ const DISASTER_TITLES = Object.freeze({
   disease: "病虫害扩散"
 });
 const LATE_SANDBOX_TASK_CAP = 1;
-const SYSTEM_TASK_CROSS_KIND_GAP_MS = 12 * 1000;
-const EARLY_CHAPTER_SAME_KIND_GAP_MS = 2 * 60 * 1000 + SYSTEM_TASK_CROSS_KIND_GAP_MS;
-const SAME_KIND_GAP_MS = 3 * 60 * 1000 + SYSTEM_TASK_CROSS_KIND_GAP_MS;
+// System ecology tasks should keep moving without waiting several minutes.
+// The chapter-level seenTaskKeys/disaster-theme guards still prevent a task
+// from repeating in the same chapter; these values only control the minimum
+// time before another eligible task can take the slot.
+const SYSTEM_TASK_CROSS_KIND_GAP_MS = 20 * 1000;
+const EARLY_CHAPTER_SAME_KIND_GAP_MS = 20 * 1000;
+const SAME_KIND_GAP_MS = 20 * 1000;
 const EARLY_CHAPTER_GAP_LIMIT = 2;
 const IDLE_HIDE_MS = 30 * 1000;
+const SANDBOX_TASK_HISTORY_LIMIT = 64;
 function sandboxTaskKind(item = {}) {
   const eventType = String(item.eventType || item.type || item.id || "");
   const visual = String(item.visualKind || "");
@@ -68,10 +73,58 @@ function normalizeSandboxTaskRhythm(value = {}) {
       touchedAt: Math.max(0, Math.round(Number(entry.touchedAt) || 0))
     };
   });
-  return { lastClosedAt, lastShownAt, visible };
+  const seenTaskKeys = Array.from(new Set(
+    (Array.isArray(value.seenTaskKeys) ? value.seenTaskKeys : [])
+      .map((key) => String(key || "").trim())
+      .filter(Boolean)
+  )).slice(-SANDBOX_TASK_HISTORY_LIMIT);
+  const chapter = Math.max(0, Math.round(Number(value.chapter) || 0));
+  return { chapter, lastClosedAt, lastShownAt, visible, seenTaskKeys };
 }
 function reserveSandboxChapter(reserve = {}) {
   return Math.max(1, Math.round(Number((reserve.progression || {}).stage || (reserve.progression || {}).displayChapter) || 1));
+}
+function prepareSandboxTaskRhythm(reserve = {}, rhythm = {}) {
+  const chapter = reserveSandboxChapter(reserve);
+  // A rhythm belongs to one chapter.  This clears an old visible marker and
+  // its history when a save advances, while preserving legacy saves that do
+  // not have a chapter field yet.
+  if (rhythm.chapter && rhythm.chapter !== chapter) {
+    return { chapter, lastClosedAt: {}, lastShownAt: {}, visible: {}, seenTaskKeys: [] };
+  }
+  rhythm.chapter = chapter;
+  rhythm.seenTaskKeys = Array.isArray(rhythm.seenTaskKeys) ? rhythm.seenTaskKeys : [];
+  return rhythm;
+}
+function sandboxTaskKey(item = {}) {
+  const kind = sandboxTaskKind(item);
+  if (item.presentation === "resource-flow") {
+    return `flow:${String(item.id || item.metric || kind)}`;
+  }
+  if (DISASTER_KINDS.includes(kind)) return `disaster:${kind}`;
+  if (kind === "realNature") {
+    return `realNature:${String(item.realEventId || item.eventType || item.id || item.label || "event")}`;
+  }
+  return `${kind}:${String(item.eventType || item.id || item.label || item.title || "task")}`;
+}
+function sandboxTaskWasSeen(rhythm, item) {
+  return rhythm.seenTaskKeys.includes(sandboxTaskKey(item));
+}
+function rememberSandboxTask(rhythm, item) {
+  const key = sandboxTaskKey(item);
+  if (!rhythm.seenTaskKeys.includes(key)) rhythm.seenTaskKeys.push(key);
+  if (rhythm.seenTaskKeys.length > SANDBOX_TASK_HISTORY_LIMIT) {
+    rhythm.seenTaskKeys.splice(0, rhythm.seenTaskKeys.length - SANDBOX_TASK_HISTORY_LIMIT);
+  }
+}
+function sandboxPoolHash(item = {}) {
+  const text = String(item.eventType || item.id || item.label || "");
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }
 function sandboxTaskCap(reserve = {}) {
   return reserveSandboxChapter(reserve) >= 3 ? LATE_SANDBOX_TASK_CAP : SANDBOX_TASK_CAP;
@@ -106,6 +159,48 @@ function visibleSystemKinds(rhythm = {}) {
 function riverShallowsBuilt(reserve = {}) {
   const node = (((reserve.development || {}).nodes || {}).river_shallows) || {};
   return node.phase === "operational";
+}
+function chapterEcologyTaskPool(reserve = {}) {
+  const chapter = reserveSandboxChapter(reserve);
+  // Keep a small, actionable pool alive in every chapter.  Crisis markers are
+  // still higher priority, but once one has been handled the player gets a
+  // different field task instead of seeing the same crisis occupy the slot
+  // forever.  Chapter-scoped ids make the pool reset naturally on advancement.
+  return [
+    {
+      id: `river_watch_${chapter}`,
+      priority: 86,
+      label: "巡查新水线",
+      body: "记录水位和动物饮水路线，确认改道后的安全落脚点。",
+      action: "houndScout",
+      marker: "event",
+      regionId: "river",
+      visualKind: "river-watch",
+      eventType: "sandbox_river_watch"
+    },
+    {
+      id: `migration_trace_${chapter}`,
+      priority: 86,
+      label: "记录迁徙路线",
+      body: "沿脚印确认迁徙方向，给动物留出下一段通行空间。",
+      action: "habitat",
+      marker: "event",
+      regionId: "meadow",
+      visualKind: "migration-trace",
+      eventType: "sandbox_migration_trace"
+    },
+    {
+      id: `species_observation_${chapter}`,
+      priority: 86,
+      label: "观察物种踪迹",
+      body: "完成一次野外观察，记录本章最需要关注的动物变化。",
+      action: "houndScout",
+      marker: "event",
+      regionId: "center",
+      visualKind: "species-observation",
+      eventType: "sandbox_species_observation"
+    }
+  ];
 }
 function proposeEcologyCrises(reserve = {}, context = {}) {
   const eco = reserve.ecology || {};
@@ -185,10 +280,10 @@ function proposeEcologyCrises(reserve = {}, context = {}) {
       eventType: "sandbox_poacher"
     });
   }
-  return crises;
+  return crises.concat(chapterEcologyTaskPool(reserve));
 }
 function applySandboxTaskCadence(reserve = {}, reasons = [], now = Date.now()) {
-  const rhythm = normalizeSandboxTaskRhythm(reserve.sandboxTaskRhythm);
+  const rhythm = prepareSandboxTaskRhythm(reserve, normalizeSandboxTaskRhythm(reserve.sandboxTaskRhythm));
   const stamp = Math.max(1, Math.round(Number(now) || Date.now()));
   const gapMs = sameKindGapMs(reserve);
   Object.keys(rhythm.visible).forEach((kind) => {
@@ -206,17 +301,25 @@ function applySandboxTaskCadence(reserve = {}, reasons = [], now = Date.now()) {
     if (isUserInitiatedSandboxTask(reason)) userReasons.push(reason);
     else systemReasons.push(reason);
   });
-  const rankedSystem = systemReasons.slice().sort((left, right) => (Number(right.priority) || 0) - (Number(left.priority) || 0));
+  const rankedSystem = systemReasons.slice().sort((left, right) => {
+    const leftPool = String(left.eventType || "").startsWith("sandbox_") && !DISASTER_KINDS.includes(sandboxTaskKind(left));
+    const rightPool = String(right.eventType || "").startsWith("sandbox_") && !DISASTER_KINDS.includes(sandboxTaskKind(right));
+    if (leftPool && rightPool) return sandboxPoolHash(left) - sandboxPoolHash(right);
+    return (Number(right.priority) || 0) - (Number(left.priority) || 0);
+  });
   const openSystemKinds = visibleSystemKinds(rhythm);
   const keptSystem = [];
   const acceptSystem = (reason, ignoreCrossGap = false) => {
     const kind = sandboxTaskKind(reason);
+    const alreadyVisible = !!rhythm.visible[kind];
+    if (!alreadyVisible && sandboxTaskWasSeen(rhythm, reason)) return;
     if (!kindReady(rhythm, kind, stamp, gapMs)) return;
     if (!ignoreCrossGap && !crossKindReady(rhythm, kind, stamp, SYSTEM_TASK_CROSS_KIND_GAP_MS)) return;
-    if (!rhythm.visible[kind]) {
+    if (!alreadyVisible) {
       rhythm.visible[kind] = { id: reason.id || kind, shownAt: stamp, touchedAt: 0 };
       rhythm.lastShownAt[kind] = stamp;
     }
+    rememberSandboxTask(rhythm, reason);
     keptSystem.push(reason);
   };
   if (openSystemKinds.length) {
@@ -230,23 +333,34 @@ function applySandboxTaskCadence(reserve = {}, reasons = [], now = Date.now()) {
     const challenger = rankedSystem.find((reason) => {
       const kind = sandboxTaskKind(reason);
       if (openSystemKinds.includes(kind)) return false;
+      if (sandboxTaskWasSeen(rhythm, reason)) return false;
       const requiredRealEvent = kind === "realNature";
-      if (!requiredRealEvent && !DISASTER_KINDS.includes(kind)) return false;
+      // A critical return task is created from the player's current reserve
+      // risk and must be visible immediately when the player returns.  It is
+      // allowed to replace a standing ecology marker; otherwise the ordinary
+      // flood/water marker can occupy the single system-task slot and hide
+      // the actionable recovery task behind the cross-kind cooldown.
+      const requiredReturnEvent = kind === "dailyReturn";
+      if (!requiredRealEvent && !requiredReturnEvent && !DISASTER_KINDS.includes(kind)) return false;
       if ((Number(reason.priority) || 0) <= currentPriority) return false;
       if (!kindReady(rhythm, kind, stamp, gapMs)) return false;
-      return requiredRealEvent || crossKindReady(rhythm, kind, stamp, SYSTEM_TASK_CROSS_KIND_GAP_MS);
+      return requiredRealEvent || requiredReturnEvent || crossKindReady(rhythm, kind, stamp, SYSTEM_TASK_CROSS_KIND_GAP_MS);
     });
     if (challenger) {
       openSystemKinds.forEach((kind) => {
         delete rhythm.visible[kind];
       });
-      acceptSystem(challenger, sandboxTaskKind(challenger) === "realNature");
+      const challengerKind = sandboxTaskKind(challenger);
+      acceptSystem(challenger, challengerKind === "realNature" || challengerKind === "dailyReturn");
     } else if (current) acceptSystem(current);
   } else {
-    const next = rankedSystem.find((reason) => (
-      kindReady(rhythm, sandboxTaskKind(reason), stamp, gapMs)
-      && crossKindReady(rhythm, sandboxTaskKind(reason), stamp, SYSTEM_TASK_CROSS_KIND_GAP_MS)
-    ));
+    const next = rankedSystem.find((reason) => {
+      const kind = sandboxTaskKind(reason);
+      if (sandboxTaskWasSeen(rhythm, reason)) return false;
+      return kindReady(rhythm, kind, stamp, gapMs)
+        && (kind === "realNature" || kind === "dailyReturn"
+          || crossKindReady(rhythm, kind, stamp, SYSTEM_TASK_CROSS_KIND_GAP_MS));
+    });
     if (next) acceptSystem(next);
   }
   const kept = userReasons.concat(keptSystem);
@@ -263,13 +377,13 @@ function applySandboxTaskCadence(reserve = {}, reasons = [], now = Date.now()) {
 }
 function touchSandboxTask(reserve = {}, item = {}, now = Date.now()) {
   const kind = sandboxTaskKind(item);
-  const rhythm = normalizeSandboxTaskRhythm(reserve.sandboxTaskRhythm);
+  const rhythm = prepareSandboxTaskRhythm(reserve, normalizeSandboxTaskRhythm(reserve.sandboxTaskRhythm));
   if (rhythm.visible[kind]) rhythm.visible[kind].touchedAt = Math.max(1, Math.round(Number(now) || Date.now()));
   reserve.sandboxTaskRhythm = rhythm;
   return kind;
 }
 function closeSandboxTaskKinds(reserve = {}, kinds = [], now = Date.now()) {
-  const rhythm = normalizeSandboxTaskRhythm(reserve.sandboxTaskRhythm);
+  const rhythm = prepareSandboxTaskRhythm(reserve, normalizeSandboxTaskRhythm(reserve.sandboxTaskRhythm));
   const stamp = Math.max(1, Math.round(Number(now) || Date.now()));
   (Array.isArray(kinds) ? kinds : [kinds]).filter(Boolean).forEach((kind) => {
     rhythm.lastClosedAt[kind] = stamp;
@@ -281,7 +395,16 @@ function closeSandboxTaskKinds(reserve = {}, kinds = [], now = Date.now()) {
 function closeSandboxTasksForAction(reserve = {}, actionId = "", now = Date.now()) {
   const action = String(actionId || "");
   if (action === "harshNature") return closeSandboxTaskKinds(reserve, ["wildfire", "flood", "disease"], now);
-  if (action === "habitat") return closeSandboxTaskKinds(reserve, ["grass"], now);
+  if (action === "habitat") {
+    const rhythm = normalizeSandboxTaskRhythm(reserve.sandboxTaskRhythm);
+    const visible = Object.keys(rhythm.visible || {}).filter((kind) => !DISASTER_KINDS.includes(kind));
+    return closeSandboxTaskKinds(reserve, ["grass"].concat(visible), now);
+  }
+  if (action === "houndScout") {
+    const rhythm = normalizeSandboxTaskRhythm(reserve.sandboxTaskRhythm);
+    const visible = Object.keys(rhythm.visible || {}).filter((kind) => !DISASTER_KINDS.includes(kind));
+    return closeSandboxTaskKinds(reserve, visible, now);
+  }
   if (action === "intervention") return closeSandboxTaskKinds(reserve, [], now);
   if (action === "antiPoacher") return closeSandboxTaskKinds(reserve, ["poacher"], now);
   if (action === "visitorAdjust") return closeSandboxTaskKinds(reserve, ["visitor"], now);
@@ -515,10 +638,12 @@ module.exports = {
   EARLY_CHAPTER_GAP_LIMIT,
   IDLE_HIDE_MS,
   sandboxTaskKind,
+  sandboxTaskKey,
   isUserInitiatedSandboxTask,
   sameKindGapMs,
   normalizeSandboxTaskRhythm,
   proposeEcologyCrises,
+  chapterEcologyTaskPool,
   applySandboxTaskCadence,
   touchSandboxTask,
   closeSandboxTaskKinds,

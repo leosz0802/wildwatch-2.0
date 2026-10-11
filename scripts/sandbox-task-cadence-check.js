@@ -13,6 +13,10 @@ const {
   closeSandboxTaskKinds
 } = require("../js/sandboxTaskCadence");
 
+assert.strictEqual(SYSTEM_TASK_CROSS_KIND_GAP_MS, 20_000, "跨类型生态任务间隔必须为20秒");
+assert.strictEqual(EARLY_CHAPTER_SAME_KIND_GAP_MS, 20_000, "前两章同类生态任务间隔必须为20秒");
+assert.strictEqual(SAME_KIND_GAP_MS, 20_000, "第3章起同类生态任务间隔必须为20秒");
+
 const dry = createReserveState();
 dry.seasonState = { name: "旱季", weather: "热浪", day: 4, cycleDay: 16 };
 dry.ecology.grass = 40;
@@ -91,9 +95,9 @@ assert.strictEqual(kinds.length <= 1, true, "前一个系统任务未结束前�
 
 closeSandboxTasksForAction(crowded, "harshNature", 50_000);
 const stillCooling = buildReserveView(crowded, crowded, { day: 6, season: "雨季", weather: "暴雨", now: 50_000 + EARLY_CHAPTER_SAME_KIND_GAP_MS });
-assert(!stillCooling.mapMarkers.some((item) => sandboxTaskKind(item) === "disease"), "前两章同类任务间隔必须超过加长后的窗口");
+assert(!stillCooling.mapMarkers.some((item) => sandboxTaskKind(item) === "disease"), "前两章同类任务在20秒边界仍需等待");
 const afterGap = buildReserveView(crowded, crowded, { day: 6, season: "雨季", weather: "暴雨", now: 50_001 + EARLY_CHAPTER_SAME_KIND_GAP_MS });
-assert(afterGap.mapMarkers.some((item) => sandboxTaskKind(item) === "disease") || afterGap.mapMarkers.filter((item) => item.presentation !== "resource-flow").length === 1, "前两章超过加长间隔后疾病任务可以再次出现或让位给更高优先级");
+assert(afterGap.mapMarkers.some((item) => sandboxTaskKind(item) === "disease") || afterGap.mapMarkers.filter((item) => item.presentation !== "resource-flow").length === 1, "前两章超过20秒后疾病任务可以再次出现或让位给更高优先级");
 
 {
   const sequential = createReserveState();
@@ -112,10 +116,11 @@ assert(afterGap.mapMarkers.some((item) => sandboxTaskKind(item) === "disease") |
   const fireTakesSlot = applySandboxTaskCadence(floodHeld, [fire, flood], 1_000 + SYSTEM_TASK_CROSS_KIND_GAP_MS + 1);
   assert.strictEqual(fireTakesSlot.filter((item) => sandboxTaskKind(item) === "wildfire").length, 1, "水灾占着地图时，更高优先级的火灾预警必须能出现");
   assert.strictEqual(fireTakesSlot.filter((item) => sandboxTaskKind(item) === "flood").length, 0, "火灾出现后地图上只保留这一条灾害");
-  const stillGap = applySandboxTaskCadence(sequential, [flood], 8_000 + SYSTEM_TASK_CROSS_KIND_GAP_MS);
-  assert.strictEqual(stillGap.length, 0, "结束后仍需额外间隔才推下一个系统任务");
+  const stillGap = applySandboxTaskCadence(sequential, [flood], 28_001);
+  assert.strictEqual(stillGap.some((item) => sandboxTaskKind(item) === "flood"), true, "跨类间隔结束后可以推送尚未出现的水灾主题");
+  closeSandboxTaskKinds(sequential, ["flood"], 8_000 + SYSTEM_TASK_CROSS_KIND_GAP_MS);
   const ready = applySandboxTaskCadence(sequential, [flood], 8_001 + SYSTEM_TASK_CROSS_KIND_GAP_MS);
-  assert.strictEqual(ready.some((item) => sandboxTaskKind(item) === "flood"), true, "间隔过后才能推下一个系统任务");
+  assert.strictEqual(ready.some((item) => sandboxTaskKind(item) === "flood"), false, "同章节同一灾害主题处理后不得再次出现");
   const realHeld = createReserveState();
   applySandboxTaskCadence(realHeld, [flood], 2_000);
   const realEvent = { id: "real_nature_climate-02", priority: 120, eventType: "real_nature_climate-02", category: "realNature", label: "强热带气旋奇多" };
@@ -132,9 +137,47 @@ late.ecology.disease = 42;
 applySandboxTaskCadence(late, [{ id: "disease", priority: 96, eventType: "sandbox_disease", label: "病味扩散" }], 20_000);
 closeSandboxTasksForAction(late, "harshNature", 20_000);
 const lateStillCooling = applySandboxTaskCadence(late, [{ id: "disease", priority: 96, eventType: "sandbox_disease", label: "病味扩散" }], 20_000 + EARLY_CHAPTER_SAME_KIND_GAP_MS);
-assert.strictEqual(lateStillCooling.length, 0, "第3章起同类任务仍需间隔3分钟");
+assert.strictEqual(lateStillCooling.length, 0, "第3章起同类任务在20秒边界仍需等待");
 const lateReady = applySandboxTaskCadence(late, [{ id: "disease", priority: 96, eventType: "sandbox_disease", label: "病味扩散" }], 20_001 + SAME_KIND_GAP_MS);
-assert.strictEqual(lateReady.length, 1, "第3章起超过3分钟后同类任务可以再出现");
+assert.strictEqual(lateReady.length, 0, "第3章起同章节同一灾害主题不因冷却结束重复出现");
+
+{
+  const pool = createReserveState();
+  pool.progression = Object.assign({}, pool.progression || {}, { stage: 9, displayChapter: 9 });
+  const poolReasons = [
+    { id: "flood", priority: 108, eventType: "sandbox_flood", label: "水灾改道" },
+    { id: "river_watch_9", priority: 88, eventType: "sandbox_river_watch", label: "巡查新水线", action: "houndScout" },
+    { id: "migration_trace_9", priority: 86, eventType: "sandbox_migration_trace", label: "记录迁徙路线", action: "habitat" },
+    { id: "species_observation_9", priority: 84, eventType: "sandbox_species_observation", label: "观察物种踪迹", action: "houndScout" }
+  ];
+  const first = applySandboxTaskCadence(pool, poolReasons, 30_000);
+  assert.equal(first[0].id, "flood", "第9章高风险水灾先展示");
+  closeSandboxTasksForAction(pool, "harshNature", 30_000);
+  const second = applySandboxTaskCadence(pool, poolReasons, 400_000);
+  assert.ok(["river_watch_9", "migration_trace_9", "species_observation_9"].includes(second[0].id), "水灾处理后切换到其他候选任务");
+  closeSandboxTaskKinds(pool, [sandboxTaskKind(second[0])], 400_000);
+  const third = applySandboxTaskCadence(pool, poolReasons, 800_000);
+  assert.notEqual(third[0].id, "flood", "候选池轮换不会回到同一水灾主题");
+  assert.notEqual(third[0].id, second[0].id, "同章节同一观察任务不会重复");
+  pool.progression.stage = 10;
+  pool.progression.displayChapter = 10;
+  const nextChapter = applySandboxTaskCadence(pool, poolReasons.map((item) => Object.assign({}, item, { id: `${item.id}_10` })), 900_000);
+  assert.ok(nextChapter.length, "进入新章节后候选池重新开放");
+}
+
+// The 20-second cadence is shared by every chapter, including late chapters.
+// Use two different field-record candidates so this verifies rotation without
+// weakening the chapter-level no-repeat rule.
+for (let chapter = 1; chapter <= 11; chapter += 1) {
+  const reserve = createReserveState();
+  reserve.progression = Object.assign({}, reserve.progression || {}, { stage: chapter, displayChapter: chapter });
+  const first = { id: `river_watch_${chapter}`, eventType: "sandbox_river_watch", priority: 86, label: "巡查新水线" };
+  const second = { id: `migration_trace_${chapter}`, eventType: "sandbox_migration_trace", priority: 85, label: "记录迁徙路线" };
+  assert.strictEqual(applySandboxTaskCadence(reserve, [first], 1_000).length, 1, `第${chapter}章首个生态任务应出现`);
+  closeSandboxTaskKinds(reserve, [sandboxTaskKind(first)], 1_000);
+  assert.strictEqual(applySandboxTaskCadence(reserve, [second], 21_000).length, 0, `第${chapter}章20秒边界仍需等待`);
+  assert.strictEqual(applySandboxTaskCadence(reserve, [second], 21_001).length, 1, `第${chapter}章超过20秒后应轮换下一任务`);
+}
 
 const idle = createReserveState();
 idle.ecology.disease = 30;

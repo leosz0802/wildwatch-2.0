@@ -341,6 +341,8 @@ function buildReserveView(beforeReserve, reserve, context = {}) {
   if (rareMarker) {
     mapMarkers.push(Object.assign({
       presentation: "rare-animal",
+      mapObjectType: "building",
+      fixedMapPosition: { x: 0.29, y: 0.78 },
       dialogue: "",
       readOnly: false,
       responseOptions: []

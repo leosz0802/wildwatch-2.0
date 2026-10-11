@@ -234,7 +234,8 @@ const supplementalChecks = [
   "chapter-water-recovery-check.js",
   "neighbor-exchange-archery-check.js",
   "world-event-idle-check.js",
-  "sticky-table-header-check.js"
+  "sticky-table-header-check.js",
+  "event-content-sensitivity-check.js"
 ];
 
 supplementalChecks.forEach((target) => run([path.join("scripts", target)], target));
