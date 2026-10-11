@@ -62,13 +62,17 @@ const RECIPES = ARCHIVE_CHAPTERS.map((chapter) => ({
   note: `把三条${chapter.speciesName}线索整理成一份物种档案`,
   chapter: chapter.chapter,
   speciesId: chapter.speciesId,
+  // 高阶档案的拨款随章节上升，但独立于科研样本出售次数，避免两套
+  // 玩法互相抢占“本章可出售”额度。
+  saleValue: 240 + chapter.chapter * 40,
+  saleLabel: "物种保护专项拨款",
   requires: Object.fromEntries(chapter.items.map((item) => [item.id, 1]))
 }));
 // 兼容现有存档和测试：第3章白鲟档案仍使用原来的 RECIPE 导出。
 const RECIPE = RECIPES[0];
 
 function emptySpeciesArchiveBox() {
-  return { version: 2, collected: {}, synthesized: {}, lastSynthesis: null };
+  return { version: 3, collected: {}, synthesized: {}, sold: {}, lastSynthesis: null, lastSale: null };
 }
 
 function chapterArchiveSet(chapter = 3) {
@@ -105,7 +109,11 @@ function normalizeSpeciesArchiveBox(input = {}, reserve = {}) {
   ARCHIVE_ITEMS.forEach((item) => { collected[item.id] = Math.max(0, Math.round(Number(collected[item.id]) || 0)); });
   const synthesized = Object.assign({}, source.synthesized || {});
   RECIPES.forEach((recipe) => { synthesized[recipe.id] = Math.max(0, Math.round(Number(synthesized[recipe.id]) || 0)); });
-  return Object.assign(box, source, { version: 2, collected, synthesized, lastSynthesis: source.lastSynthesis || null });
+  const sold = Object.assign({}, source.sold || {});
+  RECIPES.forEach((recipe) => {
+    sold[recipe.id] = Math.max(0, Math.min(synthesized[recipe.id], Math.round(Number(sold[recipe.id]) || 0)));
+  });
+  return Object.assign(box, source, { version: 3, collected, synthesized, sold, lastSynthesis: source.lastSynthesis || null, lastSale: source.lastSale || null });
 }
 
 function recordSpeciesArchiveItem(reserve = {}, itemId = "") {
@@ -146,6 +154,32 @@ function synthesizeSpeciesArchive(reserve = {}, chapter = null) {
   return { ok: true, recipe: check.recipe, box };
 }
 
+function sellSpeciesArchive(reserve = {}, chapter = null) {
+  const currentChapter = chapter || (((reserve.progression || {}).displayChapter || (reserve.progression || {}).stage) || 3);
+  const recipe = archiveRecipeForChapter(currentChapter);
+  const box = normalizeSpeciesArchiveBox(reserve.speciesArchiveBox, reserve);
+  const synthesized = Math.max(0, Number(box.synthesized[recipe.id]) || 0);
+  const sold = Math.max(0, Number(box.sold[recipe.id]) || 0);
+  if (synthesized <= sold) return { ok: false, reason: "none", recipe, box, readyToSell: 0 };
+  box.sold[recipe.id] = sold + 1;
+  box.lastSale = {
+    id: recipe.id,
+    name: recipe.name,
+    chapter: recipe.chapter,
+    value: recipe.saleValue,
+    at: Date.now()
+  };
+  reserve.speciesArchiveBox = box;
+  return {
+    ok: true,
+    recipe,
+    value: recipe.saleValue,
+    sold: box.sold[recipe.id],
+    readyToSell: Math.max(0, synthesized - box.sold[recipe.id]),
+    box
+  };
+}
+
 function speciesArchiveView(reserve = {}) {
   const chapter = Math.max(1, Math.round(Number((reserve.progression || {}).displayChapter || (reserve.progression || {}).stage) || 1));
   const activeChapter = chapterArchiveSet(chapter);
@@ -154,6 +188,8 @@ function speciesArchiveView(reserve = {}) {
   const chapterItems = activeChapter.items.map((item) => Object.assign({}, item, { count: Math.max(0, Number(box.collected[item.id]) || 0) }));
   const overallCollected = ARCHIVE_ITEMS.reduce((sum, item) => sum + (Number(box.collected[item.id]) || 0), 0);
   const overallSynthesized = RECIPES.reduce((sum, recipe) => sum + (Number(box.synthesized[recipe.id]) || 0), 0);
+  const recipeSold = Math.max(0, Number(box.sold[canSynthesize.recipe.id]) || 0);
+  const readyToSell = Math.max(0, Math.max(0, Number(box.synthesized[canSynthesize.recipe.id]) || 0) - recipeSold);
   return {
     box,
     chapter: activeChapter.chapter,
@@ -163,6 +199,10 @@ function speciesArchiveView(reserve = {}) {
     allItems: ARCHIVE_ITEMS.map((item) => Object.assign({}, item, { count: Math.max(0, Number(box.collected[item.id]) || 0) })),
     recipe: canSynthesize.recipe,
     synthesized: Math.max(0, Number(box.synthesized[canSynthesize.recipe.id]) || 0),
+    sold: recipeSold,
+    readyToSell,
+    saleValue: canSynthesize.recipe.saleValue,
+    saleLabel: canSynthesize.recipe.saleLabel,
     canSynthesize: canSynthesize.ok,
     missing: canSynthesize.missing,
     overallCollected,
@@ -186,5 +226,6 @@ module.exports = {
   recordSpeciesArchiveFromMaterial,
   canSynthesizeSpeciesArchive,
   synthesizeSpeciesArchive,
+  sellSpeciesArchive,
   speciesArchiveView
 };

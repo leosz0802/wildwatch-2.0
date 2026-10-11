@@ -108,7 +108,7 @@ const { AudioSystem, normalizeAudioSettings } = require("./audioSystem");
 const { promiseByChapter, normalizeGuardianPromises, selectGuardianPromiseChoice, applyGuardianPromiseChoice, chosenPromiseChoices } = require("./guardianPromises");
 const { FRAGMENT_CATALOG, normalizeEcologyEconomy, collectEcologyDrop, ecologyCompetitionReward } = require("./ecologyEconomy");
 const { ensureExtinctionClueTask, extinctionClueVisibleDrops, collectExtinctionClue, extinctionClueTaskView } = require("./extinctionClueTask");
-const { recordSpeciesArchiveItem, recordSpeciesArchiveFromMaterial, archiveItemById, speciesArchiveView, synthesizeSpeciesArchive } = require("./speciesArchiveBox");
+const { recordSpeciesArchiveItem, recordSpeciesArchiveFromMaterial, archiveItemById, speciesArchiveView, synthesizeSpeciesArchive, sellSpeciesArchive } = require("./speciesArchiveBox");
 const { BALANCE_V2, ECOLOGY_THRESHOLDS, chapterEconomy, supplyCapFor } = require("./balanceConfig");
 const {
   sellFundCapStatus,
@@ -18199,6 +18199,12 @@ class Game {
       this.bottom(topInset + 260);
       return;
     }
+    // 剧情收藏是独立的证物档案；物种档案盒负责线索合成和出售。
+    // 两者共用发现频道入口，但不共用库存、合成材料或出售额度。
+    if (this.collectionCaseId && collectionCaseById(this.collectionCaseId)) {
+      const summary = collectionSummary(this.state);
+      return this.drawCollectionCase(ctx, topInset, summary, (this.state.world || {}).collection || {});
+    }
     this.collectionCaseId = null;
     this.renderedDiscoveryNetworkEntry = null;
     this.discoveryTab = this.discoveryTab === "population" ? "population" : "visitors";
@@ -18355,6 +18361,7 @@ class Game {
       this.text(ctx, item[1], mx + metricW - 8, y + 114, size, "#f1d992", "700", "right");
     });
     y += 146;
+    y = this.drawStoryCollectionEntry(ctx, y);
     const allLetters = this.allIncomingLetters();
     const letters = allLetters.filter((letter) => letter.sourceKind !== "animal");
     y = this.drawVisitorMailboxEntry(ctx, y, letters);
@@ -18454,6 +18461,25 @@ class Game {
     y += eventH + 42;
     this.renderedVisitorTable = { visitors: displayTodayVisitors, income: today.income || 0, influence: operations.influence || 0, buildings: views.length, visibleBuildings: visibleViews.length, buildingCards: renderedBuildingCards, trouble, letters: letters.length, survivalIncome: today.survivalIncome || 0, facilityImpact: snapshot.facilityImpact, pairSummary: snapshot.pairSummary, pairImpact: today.pairImpact || (snapshot.pairSummary && snapshot.pairSummary.label) || "", stageOneLight, recruitment: { freeRemaining: recruitment.freeRemaining, adCredits: recruitment.adCredits, adWatchRemaining: recruitment.adWatchRemaining, totalRecruited: recruitment.totalRecruited } };
     this.bottom(y + 10);
+  }
+  drawStoryCollectionEntry(ctx, y) {
+    const summary = collectionSummary(this.state);
+    const x = 12;
+    const w = this.width - 24;
+    const h = 62;
+    const active = !!summary.activeDiscovery;
+    this.drawPremiumParchmentPanel(ctx, x, y, w, h, 14, { active });
+    this.drawUiIcon(ctx, "reserve_prosperity", x + 28, y + h / 2, 28, false, .9)
+      || this.drawSmallGlyph(ctx, "reserve_prosperity", x + 28, y + h / 2, "#2f765c", .8);
+    this.text(ctx, "剧情收藏", x + 50, y + 23, 14, "#173d34", "700");
+    const status = active
+      ? `${summary.activeDiscovery.statusLabel} · 点击沙盘收录`
+      : `附加物证 ${summary.collected}/${summary.total} · 永久保留`;
+    this.text(ctx, this.truncateTextToWidth(ctx, status, w - 142, 10, "700"), x + 50, y + 44, 10, active ? "#a65343" : "#657267", "700");
+    this.text(ctx, "查看档案 ›", x + w - 16, y + 35, 11, active ? "#a65343" : "#946a25", "700", "right");
+    this.addHit(x, y - this.scrollY, w, h, () => this.openCollectionOverview());
+    this.renderedStoryCollectionEntry = { x, y, w, h, collected: summary.collected, total: summary.total, active, clickable: true };
+    return y + h + 12;
   }
   drawVisitorMailboxEntry(ctx, y, letters = this.allIncomingLetters()) {
     const x = 12, w = this.width - 24, h = 56;
@@ -21605,6 +21631,40 @@ class Game {
     }
     ctx.restore();
   }
+  sellSpeciesArchiveFromBox() {
+    const reserve = (this.state.world || {}).reserve || {};
+    const view = speciesArchiveView(reserve);
+    if (!view.readyToSell) {
+      this.toast(view.synthesized ? "已售完当前档案，先合成新的档案" : "先收齐线索并合成物种档案");
+      return false;
+    }
+    const sale = sellSpeciesArchive(reserve, view.chapter);
+    if (!sale.ok) {
+      this.toast("当前没有可出售的物种档案");
+      return false;
+    }
+    const before = Math.max(0, Math.round(Number(reserve.fund) || 0));
+    reserve.fund = before + Math.max(0, Math.round(Number(sale.value) || 0));
+    reserve.progression = Object.assign({}, reserve.progression || {}, {
+      totalFundEarned: Math.max(0, Math.round(Number((reserve.progression || {}).totalFundEarned) || 0) + sale.value)
+    });
+    ensureFundLedger(reserve);
+    recordFundChange(
+      reserve,
+      before,
+      reserve.fund,
+      "物种档案销售收入",
+      (reserve.guardianCycle || {}).day || this.state.world.day || 0,
+      `${sale.recipe.name} · ${sale.recipe.saleLabel || "档案拨款"}`
+    );
+    this.commitReserveProgression(reserve);
+    this.currentGoalView(true);
+    saveState(this.state);
+    this.playSfx("success");
+    this.toast(`${sale.recipe.name}已售出 · 基金 +${sale.value}`);
+    this.render();
+    return sale;
+  }
   drawSpeciesArchiveBox(ctx, x, y, w, reserve) {
     const view = speciesArchiveView(reserve);
     const h = 206;
@@ -21614,12 +21674,15 @@ class Game {
     const header = view.unlocked ? `第${view.chapter}章 · ${view.chapterTitle}` : "第3章开放 · 物种档案盒";
     this.text(ctx, "物种档案盒", x + 34, y + 27, this.fitTextSize(ctx, "物种档案盒", w - 170, 17, 14, "700"), "#1c3325", "700");
     this.text(ctx, this.truncateTextToWidth(ctx, header, w - 170, 9, "700"), x + 34, y + 45, 9, "#66715f", "700");
-    const buttonW = 94;
-    const buttonX = x + w - buttonW - 12;
+    const synthW = 72;
+    const saleW = 94;
+    const buttonGap = 6;
+    const saleX = x + w - saleW - 12;
+    const synthX = saleX - buttonGap - synthW;
     const canSynthesize = view.canSynthesize;
-    this.drawPremiumBrassPlate(ctx, buttonX, y + 10, buttonW, 28, 10, { muted: !canSynthesize });
-    this.text(ctx, canSynthesize ? "合成档案" : `已合成 ${view.synthesized}`, buttonX + buttonW / 2, y + 29, 10, canSynthesize ? "#173b2a" : "#66715f", "700", "center");
-    this.addHit(buttonX, y + 10 - this.scrollY, buttonW, 28, () => {
+    this.drawPremiumBrassPlate(ctx, synthX, y + 10, synthW, 28, 10, { muted: !canSynthesize });
+    this.text(ctx, canSynthesize ? "合成" : "缺线索", synthX + synthW / 2, y + 29, 10, canSynthesize ? "#173b2a" : "#66715f", "700", "center");
+    this.addHit(synthX, y + 10 - this.scrollY, synthW, 28, () => {
       if (!canSynthesize) return this.toast(view.missing.length ? `还缺少${view.missing.map((id) => (view.items.find((item) => item.id === id) || {}).name || "线索").join("、")}` : "暂无可合成档案");
       const result = synthesizeSpeciesArchive(reserve, view.chapter);
       if (!result.ok) return this.toast("线索还不完整，暂时不能合成");
@@ -21628,6 +21691,9 @@ class Game {
       this.toast(`已合成${result.recipe.name}`);
       this.render();
     });
+    this.drawPremiumBrassPlate(ctx, saleX, y + 10, saleW, 28, 10, { muted: !view.readyToSell });
+    this.text(ctx, view.readyToSell ? `出售 +${view.saleValue}` : "暂无可售", saleX + saleW / 2, y + 29, 10, view.readyToSell ? "#173b2a" : "#66715f", "700", "center");
+    this.addHit(saleX, y + 10 - this.scrollY, saleW, 28, () => this.sellSpeciesArchiveFromBox());
     const cols = 3;
     const gap = 7;
     const cardW = (w - 28 - gap * 2) / cols;
@@ -21647,11 +21713,13 @@ class Game {
     this.roundRect(ctx, x + 14, y + 178, w - 28, 20, 8, view.synthesized ? "#e7f6ea" : "#f4efde", "rgba(139,111,42,.18)");
     const footer = !view.unlocked
       ? "第3章开始开放动物探索与沙盘拾取"
-      : view.synthesized
-        ? `已整理${view.recipe.name} ×${view.synthesized} · 总进度 ${view.overallCollected}/${view.overallTotal}`
-        : `收齐本章三件线索，可合成${view.recipe.name} · 总进度 ${view.overallCollected}/${view.overallTotal}`;
+      : view.readyToSell
+        ? `可出售${view.readyToSell}份 · 每份基金 +${view.saleValue} · 剧情收藏在发现频道`
+        : view.synthesized
+          ? `已整理${view.recipe.name} ×${view.synthesized} · 总进度 ${view.overallCollected}/${view.overallTotal}`
+          : `收齐本章三件线索，可合成${view.recipe.name} · 总进度 ${view.overallCollected}/${view.overallTotal}`;
     this.text(ctx, this.truncateTextToWidth(ctx, footer, w - 34, 9, "700"), x + w / 2, y + 192, 9, view.synthesized ? "#1f7a52" : "#78683f", "700", "center");
-    this.renderedSpeciesArchiveBox = { x, y, w, h, chapter: view.chapter, items: view.items, synthesized: view.synthesized, canSynthesize, recipeId: view.recipe.id, overallCollected: view.overallCollected, overallTotal: view.overallTotal };
+    this.renderedSpeciesArchiveBox = { x, y, w, h, chapter: view.chapter, items: view.items, synthesized: view.synthesized, sold: view.sold, readyToSell: view.readyToSell, saleValue: view.saleValue, canSynthesize, recipeId: view.recipe.id, overallCollected: view.overallCollected, overallTotal: view.overallTotal };
     return h;
   }
   drawRecoveredGoods(ctx, x, y, w, reserve) {

@@ -7,7 +7,8 @@ const {
   recordSpeciesArchiveItem,
   recordSpeciesArchiveFromMaterial,
   speciesArchiveView,
-  synthesizeSpeciesArchive
+  synthesizeSpeciesArchive,
+  sellSpeciesArchive
 } = require("../js/speciesArchiveBox");
 const {
   ensureExtinctionClueTask,
@@ -35,6 +36,13 @@ for (let chapter = 3; chapter <= 11; chapter += 1) {
   const synthesized = synthesizeSpeciesArchive(reserve, chapter);
   assert.strictEqual(synthesized.ok, true, `第${chapter}章档案应可合成`);
   assert.strictEqual(synthesized.recipe.chapter, chapter);
+  const beforeSale = speciesArchiveView(reserve);
+  assert.strictEqual(beforeSale.readyToSell, 1, `第${chapter}章合成后应有1份可售档案`);
+  const sale = sellSpeciesArchive(reserve, chapter);
+  assert.strictEqual(sale.ok, true, `第${chapter}章档案应可出售`);
+  assert.strictEqual(sale.value, synthesized.recipe.saleValue, `第${chapter}章档案售价应使用配方值`);
+  assert.strictEqual(speciesArchiveView(reserve).readyToSell, 0, `第${chapter}章同一档案不能重复出售`);
+  assert.strictEqual(sellSpeciesArchive(reserve, chapter).ok, false, `第${chapter}章重复出售必须被拦截`);
 }
 
 const target = ARCHIVE_EXPLORATION_GOODS.find((item) => item.chapter === 11);
