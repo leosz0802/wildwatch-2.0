@@ -24594,7 +24594,16 @@ class Game {
       .sort((a, b) => a.priority - b.priority)
       .forEach((target) => this.addMapHit(target.x, target.y, target.size, () => this.openAnimalThought(target.animal), "cue:animal", "map", { animal: true }));
     if (!fast && !prologue && !consequenceVisible) {
-      this.drawExtinctionClueDrops(ctx, camera, extinctionClueTask);
+      const clueAvoidRects = placements.map((placement) => ({
+        x: placement.sx,
+        y: placement.sy,
+        w: 78 * camera.scale,
+        h: 78 * camera.scale
+      })).concat(visibleFacilities.map((facility) => {
+        const point = this.facilityMapPoint(facility, camera);
+        return { x: point.x, y: point.y, w: 96 * camera.scale, h: 78 * camera.scale };
+      }));
+      this.drawExtinctionClueDrops(ctx, camera, extinctionClueTask, { avoidRects: clueAvoidRects });
     }
     if (!fast && storyDiscovery && storyDiscovery.status === "located") {
       const storyKey = `story:${(storyDiscovery.item || {}).id || storyDiscovery.itemId || "active"}`;
@@ -25514,20 +25523,71 @@ class Game {
     }
     ctx.restore();
   }
-  drawExtinctionClueDrops(ctx, camera, taskView = {}) {
+  drawExtinctionClueIcon(ctx, drop = {}, x, y, size) {
+    const r = Math.max(8, Number(size) || 20);
+    const color = drop.color || "#6e9f9a";
+    ctx.save();
+    ctx.strokeStyle = "#315848";
+    ctx.fillStyle = color;
+    ctx.lineWidth = Math.max(1.4, r * .07);
+    if (drop.id === "old_fish_scale") {
+      ctx.beginPath();
+      ctx.arc(x, y, r * .42, -.25, Math.PI * 1.65);
+      ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(x + r * .18, y - r * .12, r * .07, 0, Math.PI * 2); ctx.fillStyle = "#315848"; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x - r * .25, y + r * .16); ctx.lineTo(x + r * .25, y + r * .16); ctx.stroke();
+    } else if (drop.id === "broken_river_marker") {
+      ctx.fillStyle = "#c39a4d";
+      ctx.fillRect(x - r * .08, y - r * .43, r * .16, r * .82);
+      ctx.beginPath(); ctx.moveTo(x, y - r * .4); ctx.lineTo(x + r * .48, y - r * .2); ctx.lineTo(x, y); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x - r * .48, y + r * .45); ctx.lineTo(x + r * .46, y + r * .45); ctx.stroke();
+    } else {
+      ctx.strokeStyle = "#6f5b78";
+      for (let i = -2; i <= 2; i += 1) {
+        ctx.beginPath(); ctx.moveTo(x - r * .46, y + i * r * .2); ctx.lineTo(x + r * .46, y + i * r * .2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x + i * r * .2, y - r * .46); ctx.lineTo(x + i * r * .2, y + r * .46); ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+  drawExtinctionClueDrops(ctx, camera, taskView = {}, options = {}) {
     const reserve = (this.state.world || {}).reserve || {};
     const drops = extinctionClueVisibleDrops(reserve);
     this.renderedExtinctionClueDrops = [];
     if (!taskView.active || !drops.length) return;
+    const avoidRects = Array.isArray(options.avoidRects) ? options.avoidRects : [];
+    const overlaps = (a, b) => Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2;
+    const offsets = [[0, 0], [0, -.11], [0, .11], [-.11, 0], [.11, 0], [-.08, -.09], [.08, -.09], [-.08, .09], [.08, .09]];
     drops.forEach((drop, index) => {
-      const point = this.mapPoint(drop.x, drop.y, camera);
-      if (point.x < camera.x - 50 || point.x > camera.x + camera.w + 50
-        || point.y < camera.y + 132 || point.y > camera.y + camera.h - 28) return;
+      const baseX = Number.isFinite(Number(drop.renderX)) ? Number(drop.renderX) : Number(drop.x);
+      const baseY = Number.isFinite(Number(drop.renderY)) ? Number(drop.renderY) : Number(drop.y);
+      const label = drop.name || "灭绝线索";
       const scale = Math.max(.78, Math.min(1.05, camera.scale || 1));
       const size = 42 * scale;
       const labelSize = this.mapDescriptionFont(9, camera.scale || 1);
-      const label = drop.name || "灭绝线索";
       const labelW = Math.min(132, Math.max(74, label.length * labelSize * .78 + 20));
+      const candidates = offsets.map(([dx, dy]) => {
+        const nx = Math.max(.12, Math.min(.88, baseX + dx));
+        const ny = Math.max(.18, Math.min(.82, baseY + dy));
+        const point = this.mapPoint(nx, ny, camera);
+        return { x: point.x, y: point.y, w: Math.max(labelW, size + 16), h: size + 34, nx, ny };
+      });
+      let chosen = candidates[0];
+      let best = Infinity;
+      candidates.forEach((candidate) => {
+        const collision = avoidRects.reduce((sum, rect) => sum + (overlaps(candidate, rect) ? 1000 : 0), 0);
+        const distance = Math.abs(candidate.nx - baseX) + Math.abs(candidate.ny - baseY);
+        const score = collision + distance * 100;
+        if (score < best) { best = score; chosen = candidate; }
+      });
+      if (!Number.isFinite(Number(drop.renderX))) {
+        drop.renderX = chosen.nx;
+        drop.renderY = chosen.ny;
+      }
+      const renderedPoint = this.mapPoint(drop.renderX, drop.renderY, camera);
+      const point = { x: renderedPoint.x, y: renderedPoint.y };
+      if (point.x < camera.x - 50 || point.x > camera.x + camera.w + 50
+        || point.y < camera.y + 132 || point.y > camera.y + camera.h - 28) return;
       ctx.save();
       ctx.fillStyle = "rgba(16,44,32,.20)";
       ctx.beginPath();
@@ -25535,7 +25595,7 @@ class Game {
       ctx.fill();
       ctx.restore();
       this.roundRect(ctx, point.x - size / 2, point.y - size / 2, size, size, 13 * scale, "#fff8de", "rgba(187,142,57,.92)");
-      this.drawSmallGlyph(ctx, "clue", point.x, point.y, drop.color || "#6e9f9a", .55 * size / 42);
+      this.drawExtinctionClueIcon(ctx, drop, point.x, point.y, size * .76);
       this.roundRect(ctx, point.x - labelW / 2, point.y + size * .64, labelW, 22 * scale, 11 * scale, "rgba(18,61,52,.92)", "rgba(255,248,223,.74)");
       this.text(ctx, label, point.x, point.y + size * .64 + labelSize + 5, labelSize, "#fff8df", "700", "center");
       this.renderedExtinctionClueDrops.push({ id: drop.id, name: label, x: point.x, y: point.y, size, label });
