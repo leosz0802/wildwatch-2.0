@@ -15,7 +15,7 @@ const ACTION_LABELS = Object.freeze({
   salvage: "移交守护样本",
   buySupplies: "采购补给",
   intervention: "生态干预",
-  exploreMaterials: "动物引路探索"
+  exploreMaterials: "物种档案盒探索"
 });
 
 function number(value, fallback = 0) {

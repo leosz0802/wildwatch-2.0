@@ -1,6 +1,7 @@
 const { getUnlockedSpecies } = require("./animalWorld");
 const { survivalFindForExploration, capCollectibleMinQuality, wildernessFindById } = require("./wildernessKnowledge");
 const { RESCUE_ITEM_CATALOG, rescueTargetScore } = require("./chapterRescueSystem");
+const { ARCHIVE_ITEMS } = require("./speciesArchiveBox");
 const EXPLORATION_GOODS = [
   { id: "researchSample", label: "研究样本", minLevel: 1, minQuality: 5, story: "动物带你找到一处反复使用的蹭痕，留下了完整样本。" },
   { id: "shedAntlerB", label: "B级岩角", minLevel: 1, minQuality: 6, story: "旧兽道旁的落叶下，露出一段自然脱落的岩角。" },
@@ -8,6 +9,16 @@ const EXPLORATION_GOODS = [
   { id: "naturalHide", label: "自然生命档案", minLevel: 2, minQuality: 8, story: "动物把你领到安静的自然死亡点，一份完整的生命记录被保存下来。" },
   { id: "shedAntlerA", label: "A级岩角", minLevel: 3, minQuality: 9, story: "熟悉你的鹿群没有避开旧角脱落地，一枚完整岩角得以被合规回收。" }
 ].map((item) => Object.assign({}, item, { minQuality: capCollectibleMinQuality(item.minLevel, item.minQuality) }));
+// 物种档案线索复用动物引路探索的点数判定，但不进入回收物库存；结算时直接写入档案盒。
+const ARCHIVE_EXPLORATION_GOODS = ARCHIVE_ITEMS.map((item) => Object.assign({}, item, {
+  label: item.name,
+  story: item.note,
+  kind: "speciesArchive",
+  // 章节 3～11 映射到现有 1～7 经营等级，避免第11章因为直接拿章节号
+  // 作为等级而永远无法通过动物探索获得。
+  minLevel: Math.max(1, Math.min(7, Math.ceil(item.chapter / 2))),
+  minQuality: capCollectibleMinQuality(item.chapter, 5 + ((item.chapter + item.id.length) % 3))
+}));
 const RESCUE_GOODS = RESCUE_ITEM_CATALOG.map((item, index) => Object.assign({}, item, {
   kind: "rescue",
   minLevel: 1 + Math.floor(index / 3),
@@ -84,7 +95,7 @@ function previewMaterialExploration(reserve, knownCharacters, lifeMemory) {
   };
 }
 function explorationGoodById(id) {
-  return EXPLORATION_GOODS.concat(RESCUE_GOODS).find((item) => item.id === id) || null;
+  return EXPLORATION_GOODS.concat(ARCHIVE_EXPLORATION_GOODS, RESCUE_GOODS).find((item) => item.id === id) || null;
 }
 function explorationTargetScore(target, options = {}) {
   if (!target || target.kind !== "rescue") return 0;
@@ -126,7 +137,8 @@ function resolveMaterialExploration(reserve, knownCharacters, targetId = "", ran
   } else if (wildernessTarget) {
     success = qualityScore >= wildernessTarget.minQuality && wildernessTarget.minLevel <= preview.level;
   }
-  const eligible = EXPLORATION_GOODS.filter((item) => item.minLevel <= preview.level && item.minQuality <= qualityScore);
+  const eligible = EXPLORATION_GOODS.concat(ARCHIVE_EXPLORATION_GOODS)
+    .filter((item) => item.minLevel <= preview.level && item.minQuality <= qualityScore);
   const rescueTarget = target && target.kind === "rescue" ? target : null;
   if (rescueTarget && rescueTarget.minLevel <= preview.level && rescueTarget.minQuality <= qualityScore) eligible.push(rescueTarget);
   let reward = null;
@@ -140,7 +152,7 @@ function resolveMaterialExploration(reserve, knownCharacters, targetId = "", ran
     const resultSeed = ((roll * 17 + preview.level * 13 + preview.relationship.average) % 100) / 100;
     reward = eligible[Math.min(eligible.length - 1, Math.floor(resultSeed * eligible.length))];
   }
-  const amount = reward ? (rescueTarget ? 1 : qualityScore >= 10 ? 3 : qualityScore >= 8 ? 2 : 1) : 0;
+  const amount = reward ? (rescueTarget || reward.kind === "speciesArchive" ? 1 : qualityScore >= 10 ? 3 : qualityScore >= 8 ? 2 : 1) : 0;
   const helperName = preview.relationship.helper ? preview.relationship.helper.name : "附近动物";
   const survivalFind = survivalFindForExploration(Object.assign({}, preview, { success, qualityScore }), roll, targetId, Object.assign({ reserve }, context));
   const summary = collectionProgress.required
@@ -150,7 +162,7 @@ function resolveMaterialExploration(reserve, knownCharacters, targetId = "", ran
     : wildernessTarget
     ? `${helperName}指出了${wildernessTarget.label}的方向，但本次点数未达到 ${wildernessTarget.minQuality}。`
     : reward
-    ? `${helperName}带你绕开危险路线，发现${reward.label} ×${amount}，已进入待收取区。`
+    ? `${helperName}带你绕开危险路线，发现${reward.label} ×${amount}，${reward.kind === "speciesArchive" ? "已写入物种档案盒。" : "已进入待收取区。"}`
     : `${helperName}提供了方向，但本次点数不足，未形成可回收发现。`;
   return Object.assign({}, preview, {
     targetId: targetId || "",
@@ -170,6 +182,7 @@ function resolveMaterialExploration(reserve, knownCharacters, targetId = "", ran
 }
 module.exports = {
   EXPLORATION_GOODS,
+  ARCHIVE_EXPLORATION_GOODS,
   RESCUE_GOODS,
   explorationGoodById,
   previewMaterialExploration,

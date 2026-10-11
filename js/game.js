@@ -108,7 +108,7 @@ const { AudioSystem, normalizeAudioSettings } = require("./audioSystem");
 const { promiseByChapter, normalizeGuardianPromises, selectGuardianPromiseChoice, applyGuardianPromiseChoice, chosenPromiseChoices } = require("./guardianPromises");
 const { FRAGMENT_CATALOG, normalizeEcologyEconomy, collectEcologyDrop, ecologyCompetitionReward } = require("./ecologyEconomy");
 const { ensureExtinctionClueTask, extinctionClueVisibleDrops, collectExtinctionClue, extinctionClueTaskView } = require("./extinctionClueTask");
-const { recordSpeciesArchiveItem, speciesArchiveView, synthesizeSpeciesArchive } = require("./speciesArchiveBox");
+const { recordSpeciesArchiveItem, recordSpeciesArchiveFromMaterial, archiveItemById, speciesArchiveView, synthesizeSpeciesArchive } = require("./speciesArchiveBox");
 const { BALANCE_V2, ECOLOGY_THRESHOLDS, chapterEconomy, supplyCapFor } = require("./balanceConfig");
 const {
   sellFundCapStatus,
@@ -20899,21 +20899,9 @@ class Game {
       this.bottom(topInset + 260);
       return;
     }
-    if (this.survivalArchiveOpen) {
-      normalizeCollectionState(this.state);
-      const collectionSummaryView = collectionSummary(this.state);
-      const collection = this.state.world.collection;
-      if (this.collectionCaseId && collectionCaseById(this.collectionCaseId)) {
-        this.drawCollectionCase(ctx, topInset, collectionSummaryView, collection);
-      } else {
-        this.collectionCaseId = null;
-        this.button(ctx, 12, topInset + 44, 108, 30, "‹ 返回生存", UI_THEME.ivory, () => this.closeSurvivalCollectionArchive(), UI_THEME.forest800, 10);
-        this.text(ctx, "附加收藏 · 不影响主经营", this.width - 16, topInset + 64, 10, "#6b745f", "700", "right");
-        this.drawCollectionFolders(ctx, topInset + 38, collectionSummaryView);
-      }
-      this.bottom(Math.max(this.contentHeight || 0, this.height - this.navHeight()));
-      return;
-    }
+    // 旧版“附加收藏”页面不再从生存页进入；收藏与合成统一放在物资页的
+    // “物种档案盒”。保留旧状态字段仅用于兼容历史存档，不再绘制旧入口。
+    this.renderedSurvivalCollectionEntry = null;
     const summary = wildernessKnowledgeSummary(reserve);
     const state = summary.state;
     let y = topInset + 44;
@@ -20922,11 +20910,6 @@ class Game {
       + (aidStatus.incoming && aidStatus.incoming.status === "sealed" ? 1 : 0);
     const outboxCount = this.wildernessTradeMailboxRecords("outbox").length
       + (aidStatus.request && aidStatus.request.status === "pending" ? 1 : 0);
-    normalizeCollectionState(this.state);
-    const collectionSide = collectionSummary(this.state);
-    const collectionProgress = collectionSide.total > 0
-      ? Math.max(0, Math.min(1, collectionSide.collected / collectionSide.total))
-      : 0;
     const heroH = 110;
     this.drawPremiumLeatherPanel(ctx, 12, y, this.width - 24, heroH, 16, { rivets: true, light: true });
     this.text(ctx, "一物在手，荒野有解", this.width / 2, y + 24, 16, "#fff8df", "700", "center");
@@ -20967,11 +20950,9 @@ class Game {
       lines.forEach((line, index) => this.text(ctx, line, 26, y + 45 + index * 18, 11, "#435b49", "500"));
       y += panelH + 10;
     });
-    const entryGap = 10;
     const entryH = 60;
-    const entryW = (this.width - 24 - entryGap) / 2;
+    const entryW = this.width - 24;
     const mailboxX = 12;
-    const collectionX = mailboxX + entryW + entryGap;
     this.drawPremiumLeatherPanel(ctx, mailboxX, y, entryW, entryH, 12, { rivets: false, light: true });
     this.text(ctx, "交换往来", mailboxX + 16, y + 25, 14, "#fff8df", "700");
     this.text(ctx, `收件箱 ${inboxCount} · 发件箱 ${outboxCount}`, mailboxX + 16, y + 45, 9, "#dbe8d8", "700");
@@ -20985,16 +20966,6 @@ class Game {
       progressiveDisclosure: true,
       style: "green-achievement-entry-card"
     };
-    this.drawPremiumLeatherPanel(ctx, collectionX, y, entryW, entryH, 12, { rivets: false, light: true });
-    this.text(ctx, "附加收藏", collectionX + 16, y + 25, 14, "#fff8df", "700");
-    this.text(ctx, `${collectionSide.collected}/${collectionSide.total} · 不影响主经营`, collectionX + 16, y + 45, 9, "#dbe8d8", "700");
-    this.text(ctx, "›", collectionX + entryW - 17, y + 38, 20, "#f3d889", "700", "center");
-    if (collectionSide.activeDiscovery) {
-      const pulse = .62 + (Math.sin(this.animT() * .004) + 1) * .12;
-      this.roundRect(ctx, collectionX + entryW - 30, y + 14, 7, 7, 4, `rgba(210,122,65,${pulse})`);
-    }
-    this.addHit(collectionX, y - this.scrollY, entryW, entryH, () => this.openSurvivalCollectionArchive());
-    this.renderedSurvivalCollectionEntry = { x: collectionX, y, w: entryW, h: entryH, collected: collectionSide.collected, total: collectionSide.total, secondary: true, progress: collectionProgress, style: "green-achievement-entry-card" };
     y += entryH + 18;
     const cols = 2;
     const gap = DISCOVERY_ITEM_CARD_GAP;
@@ -21640,8 +21611,9 @@ class Game {
     this.roundRect(ctx, x, y + 4, w, h, 14, "rgba(20,16,8,.10)");
     this.roundRect(ctx, x, y, w, h, 14, "rgba(255,253,245,.98)", "rgba(36,64,46,.18)");
     this.drawSectionMarker(ctx, x + 18, y + 24, view.synthesized ? "#d7a832" : "#5cb87a");
-    this.text(ctx, "物种档案盒", x + 34, y + 29, this.fitTextSize(ctx, "物种档案盒", w - 170, 18, 14, "700"), "#1c3325", "700");
-    this.text(ctx, "收集线索，整理成完整物种记录", x + 34, y + 48, 10, "#66715f", "600");
+    const header = view.unlocked ? `第${view.chapter}章 · ${view.chapterTitle}` : "第3章开放 · 物种档案盒";
+    this.text(ctx, "物种档案盒", x + 34, y + 27, this.fitTextSize(ctx, "物种档案盒", w - 170, 17, 14, "700"), "#1c3325", "700");
+    this.text(ctx, this.truncateTextToWidth(ctx, header, w - 170, 9, "700"), x + 34, y + 45, 9, "#66715f", "700");
     const buttonW = 94;
     const buttonX = x + w - buttonW - 12;
     const canSynthesize = view.canSynthesize;
@@ -21649,11 +21621,11 @@ class Game {
     this.text(ctx, canSynthesize ? "合成档案" : `已合成 ${view.synthesized}`, buttonX + buttonW / 2, y + 29, 10, canSynthesize ? "#173b2a" : "#66715f", "700", "center");
     this.addHit(buttonX, y + 10 - this.scrollY, buttonW, 28, () => {
       if (!canSynthesize) return this.toast(view.missing.length ? `还缺少${view.missing.map((id) => (view.items.find((item) => item.id === id) || {}).name || "线索").join("、")}` : "暂无可合成档案");
-      const result = synthesizeSpeciesArchive(reserve);
+      const result = synthesizeSpeciesArchive(reserve, view.chapter);
       if (!result.ok) return this.toast("线索还不完整，暂时不能合成");
       saveState(this.state);
       this.playSfx("success");
-      this.toast("已合成白鲟消失档案");
+      this.toast(`已合成${result.recipe.name}`);
       this.render();
     });
     const cols = 3;
@@ -21667,14 +21639,19 @@ class Game {
       this.drawExtinctionClueIcon(ctx, item, cx + cardW / 2, cy + 31, 29);
       this.text(ctx, this.truncateTextToWidth(ctx, item.name, cardW - 8, 10, "700"), cx + cardW / 2, cy + 59, 10, item.count ? "#1f4f3a" : "#6f786f", "700", "center");
       this.text(ctx, item.count ? `已收集 ×${item.count}` : "尚未收集", cx + cardW / 2, cy + 78, 9, item.count ? "#2f765c" : "#8b9187", "700", "center");
-      this.text(ctx, this.truncateTextToWidth(ctx, item.note, cardW - 8, 8, "600"), cx + cardW / 2, cy + 96, 8, "#788177", "600", "center");
+      this.text(ctx, this.truncateTextToWidth(ctx, item.note, cardW - 8, 9, "600"), cx + cardW / 2, cy + 96, 9, "#788177", "600", "center");
       this.addHit(cx, cy - this.scrollY, cardW, cardH, () => {
         this.toast(item.count ? `${item.name} · ${item.note}` : `还没有${item.name}`);
       });
     });
     this.roundRect(ctx, x + 14, y + 178, w - 28, 20, 8, view.synthesized ? "#e7f6ea" : "#f4efde", "rgba(139,111,42,.18)");
-    this.text(ctx, view.synthesized ? `已整理白鲟消失档案 ×${view.synthesized}` : "收齐三件线索后，可合成白鲟消失档案", x + w / 2, y + 192, 9, view.synthesized ? "#1f7a52" : "#78683f", "700", "center");
-    this.renderedSpeciesArchiveBox = { x, y, w, h, items: view.items, synthesized: view.synthesized, canSynthesize, recipeId: view.recipe.id };
+    const footer = !view.unlocked
+      ? "第3章开始开放动物探索与沙盘拾取"
+      : view.synthesized
+        ? `已整理${view.recipe.name} ×${view.synthesized} · 总进度 ${view.overallCollected}/${view.overallTotal}`
+        : `收齐本章三件线索，可合成${view.recipe.name} · 总进度 ${view.overallCollected}/${view.overallTotal}`;
+    this.text(ctx, this.truncateTextToWidth(ctx, footer, w - 34, 9, "700"), x + w / 2, y + 192, 9, view.synthesized ? "#1f7a52" : "#78683f", "700", "center");
+    this.renderedSpeciesArchiveBox = { x, y, w, h, chapter: view.chapter, items: view.items, synthesized: view.synthesized, canSynthesize, recipeId: view.recipe.id, overallCollected: view.overallCollected, overallTotal: view.overallTotal };
     return h;
   }
   drawRecoveredGoods(ctx, x, y, w, reserve) {
@@ -22456,8 +22433,8 @@ class Game {
       rescueTargetId: rescueRecord && rescueRecord.targetId || "",
       rescueScore: rescueRecord ? this.rescueArcheryContext(reserve, rescueRecord.targetId, 0, collectionProgress.current) : null,
       preview,
-      kicker: "动物引路 · 物资与知识",
-      title: `探索${target ? target.label : "自然遗留物"}`,
+      kicker: "物种档案盒 · 动物引路与地图拾取 · 物资与知识",
+      title: `探索${target ? target.label : "物种档案盒线索"}`,
       icon: "eye",
       items: [
         { tag: "目标", title: target ? target.label : "随机线索", body: target && target.kind === "rescue" ? `${target.story} 累计点数后获得解救物品。` : wildernessFindById(targetId) ? `${target.story || target.storyHook || ""} 点数达到门槛即可取得这件生存素材。` : target ? `${target.story} 目标只提高寻找方向，不保证本次一定出现。` : "不指定目标时，会根据本次探索质量从可发现物中随机抽取。" },
@@ -23500,7 +23477,7 @@ class Game {
     const originScreen = (this.infoDetailModal || {}).originScreen;
     const returnScreen = originScreen === "action" ? "home" : originScreen || "role";
     const safeRoll = diceRoll === null ? Math.floor(Math.random() * 6) + 1 : Math.max(1, Math.min(6, Math.round(diceRoll)));
-    const command = `跟随动物探索森林，寻找自然遗留。目标:${targetId || "random"} 掷骰:${safeRoll}${rescueHint}`;
+    const command = `跟随动物探索森林，寻找物种档案盒线索。目标:${targetId || "random"} 掷骰:${safeRoll}${rescueHint}`;
     const rescuePointRecord = rescueTarget && targetId && (rescueTarget.requiredItems || []).includes(targetId) ? rescueTarget : null;
     const ledgerTotal = ledgerApplied && Number(ledgerApplied.total) > 0 ? Number(ledgerApplied.total) : 0;
     const rescuePointsBeforeShot = rescuePointRecord
@@ -23547,9 +23524,9 @@ class Game {
       reports: this.state.reports.concat(result.reports).slice(-12),
       lastCommand: command
     });
-    const collectionUpdate = updateCollectionAfterAction(this.state, nextState, { actionId: "exploreMaterials", actionLabel: "动物引路探索" });
+    const collectionUpdate = updateCollectionAfterAction(this.state, nextState, { actionId: "exploreMaterials", actionLabel: "物种档案盒探索" });
     this.state = collectionUpdate.state;
-    const ordinaryUpdate = recordOrdinaryMoment(this.state, { actionId: "exploreMaterials", actionLabel: "动物引路探索" });
+    const ordinaryUpdate = recordOrdinaryMoment(this.state, { actionId: "exploreMaterials", actionLabel: "物种档案盒探索" });
     result.visual = Object.assign({}, result.visual || {}, {
       collectionLead: collectionUpdate.lead,
       collectionChargeGained: collectionUpdate.chargeGained,
@@ -23560,7 +23537,7 @@ class Game {
     });
     this.reconcileDerivedGoalProgress(beforeWorldForEcho, result, "exploreMaterials");
     result.world = this.state.world;
-    const behaviorEvent = applyActionAnalytics(result, beforeReserve, "exploreMaterials", "动物引路探索");
+    const behaviorEvent = applyActionAnalytics(result, beforeReserve, "exploreMaterials", "物种档案盒探索");
     if (behaviorEvent) {
       this.trackNarrative("reserve.action_completed", {
         actionId: behaviorEvent.actionId,
@@ -23573,6 +23550,23 @@ class Game {
       });
     }
     const explorationCard = result.visual && result.visual.materialExploration;
+    // 动物探索的结果直接进入物种档案盒；研究样本、隐踪器、自然生命档案
+    // 等旧物资仍照常进入原库存，同时作为当前章节的可复用档案线索。
+    if (explorationCard && explorationCard.reward) {
+      const targetReserve = result.world.reserve || {};
+      const reward = explorationCard.reward;
+      if (archiveItemById(reward.id)) {
+        recordSpeciesArchiveItem(targetReserve, reward.id);
+      } else {
+        recordSpeciesArchiveFromMaterial(
+          targetReserve,
+          reward.id,
+          getCurrentChapter(targetReserve).chapter || 3
+        );
+      }
+      result.world.reserve = targetReserve;
+      this.state.world = result.world;
+    }
     const progressCard = explorationCard && explorationCard.collectionProgress;
     const liveProgress = targetId ? explorationProgressFor((result.world || {}).reserve || {}, targetId) : null;
     const progressTo = rescuePointRecord
@@ -23711,7 +23705,7 @@ class Game {
       this.releaseCollectionTaskLockOnCollect("exploreMaterials", { rescueComplete: rescueItemCollected });
     }
     this.setMapConsequencePulse(beforeReserve, afterReserve, {
-      title: (survivalFind && survivalFind.label) || (explorationResult && explorationResult.reward && explorationResult.reward.label) || "动物引路探索",
+      title: (survivalFind && survivalFind.label) || (explorationResult && explorationResult.reward && explorationResult.reward.label) || "物种档案盒探索",
       reason: (result.visual && result.visual.materialExploration && result.visual.materialExploration.summary) || "探索路线已经改变",
       tone: "explore",
       relationshipChange: lifeUpdate.relationshipChange,
@@ -23719,7 +23713,7 @@ class Game {
       customValueText: survivalFind
         ? `${survivalFind.label} ×1 · ${survivalFind.isNew ? "新知识" : "交换库存"}`
         : (explorationResult && explorationResult.reward)
-        ? `${explorationResult.reward.label} ×${explorationResult.reward.amount} · 待收取`
+        ? `${explorationResult.reward.label} ×${explorationResult.reward.amount} · ${archiveItemById(explorationResult.reward.id) ? "已归档" : "待收取"}`
         : "本次未发现物件 · 调查记录已保存",
       animalQuote: guardianEcho && `${guardianEcho.actorName}：${guardianEcho.quote}`,
       delayMs: patrolReplay ? 1200 : 0
@@ -23875,7 +23869,7 @@ class Game {
         footer: "用于巡护、补给与建设。",
         items: [
           { tag: "当前", title: `${reserve.fund || 0} 基金`, body: lowItems.length ? `当前有 ${lowItems.join("、")} 短缺，基金需要优先补给。` : "补给稳定，可以把基金投入防护网或栖息地修复。" },
-          { tag: "来源", title: "回收物移交", body: "收取自然遗留、研究样本和隐踪器，入库后移交获得保护基金。" },
+          { tag: "来源", title: "档案盒与回收物", body: "动物引路或沙盘拾取可获得物种线索；研究样本、隐踪器等旧物资仍可复用并照常移交。" },
           { tag: "水源", title: `${formatDisplayNumber((reserve.ecology || {}).water || 0)}/100`, body: "水源影响动物饮水、健康、疾病和迁徙。" },
           { tag: "草场", title: `${formatDisplayNumber((reserve.ecology || {}).grass || 0)}/100`, body: "草场产能影响动物承载量、健康和迁入迁出。" },
           { tag: "操作", title: lowItems.length ? "先采购补给" : "按风险投入", body: lowItems.length ? "补齐后再做高风险巡护" : "优先修复最低指标" }
@@ -25650,9 +25644,10 @@ class Game {
   drawExtinctionClueTaskPill(ctx, camera, taskView = {}) {
     this.renderedExtinctionClueTask = { visible: false, status: taskView.status || "locked" };
     if (!taskView.active && !taskView.completed) return;
+    const speciesName = taskView.speciesName || "物种";
     const label = taskView.completed
-      ? "白鲟线索 · 已收齐"
-      : `白鲟消失线索 ${taskView.progressText || "0/3"}`;
+      ? `${speciesName}线索 · 已收齐`
+      : `${speciesName}档案线索 ${taskView.progressText || "0/3"}`;
     const w = Math.min(190, Math.max(148, label.length * 9 + 30));
     const h = 28;
     const x = camera.x + 12;
@@ -25663,8 +25658,8 @@ class Game {
     this.text(ctx, label, x + 30, y + 19, 10, UI_THEME.ink, "700");
     this.renderedExtinctionClueTask = Object.assign({}, taskView, { visible: true, x, y, w, h, label });
     this.addHit(x, y - this.scrollY, w, h, () => {
-      if (taskView.completed) this.toast("白鲟消失前的三条线索已收录");
-      else this.toast("点击沙盘上的线索标记，找回白鲟消失前的记录");
+      if (taskView.completed) this.toast(`${speciesName}的三条线索已收录`);
+      else this.toast(`点击沙盘上的线索标记，找回${speciesName}消失前的记录`);
     }, "tap", "hud");
   }
   collectExtinctionClueDrop(clueId, origin = null) {
@@ -25678,7 +25673,7 @@ class Game {
     saveState(this.state);
     this.playSfx("success");
     this.startMapHarvestFlight({ id: result.item.id, amount: 1, type: "extinctionClue" }, { color: result.item.color, short: "线索" }, origin);
-    this.toast(result.complete ? "白鲟线索已收齐，记录已归档" : `已收录${result.item.name} · ${result.progress}`);
+    this.toast(result.complete ? `${result.item.speciesName || "物种"}线索已收齐，记录已归档` : `已收录${result.item.name} · ${result.progress}`);
     this.render();
     return true;
   }
@@ -25880,7 +25875,14 @@ class Game {
         this.infoDetailModal = null;
         this.collectionCaseId = result.item.caseId;
         this.collectionPage = Math.floor((result.item.slot - 1) / 6);
-        result.endingReady ? this.openCollectionEnding(result.item.caseId) : this.openSurvivalCollectionArchive(result.item.caseId);
+        if (result.endingReady) {
+          this.openCollectionEnding(result.item.caseId);
+          return;
+        }
+        this.setScreen("collection");
+        this.collectionCaseId = result.item.caseId;
+        this.collectionPage = Math.floor((result.item.slot - 1) / 6);
+        this.render();
       }
     };
     this.render();
@@ -33143,7 +33145,7 @@ class Game {
       title: pendingCount ? "先收取待入库样本" : "先找到一份回收样本",
       icon: "salvage",
       prose: pendingCount ? `已有${pendingCount}份样本待收取。先收入仓库，再确认移交，保护基金才会到账。`
-        : "仓库和待收取区都没有样本。前往动物引路探索，寻找研究样本；发现后先收取入库，再移交。普通巡护不保证发现样本。",
+        : "仓库和待收取区都没有样本。前往物种档案盒探索，跟随动物或在沙盘空白区拾取线索；旧物资仍可照常移交。",
       footer: "当前移交进度保留；返回后可从更多线索继续。",
       actionLabel: pendingCount ? "收取并查看移交" : "去探索样本",
       action: () => {
@@ -39320,7 +39322,7 @@ class Game {
     const witnessedQuote = patrolOperation && patrolOperation.steps && patrolOperation.steps.length === 2
       ? `${chosen.quote.replace(/”$/, "")} 我看见你先去${patrolOperation.steps[0].label}，再去${patrolOperation.steps[1].label}；这是一条${patrolOperation.strategyLabel || "既定"}路线。”`
       : chosen.quote;
-    const actionLabel = actionId === "exploreMaterials" ? "动物引路探索" : ((this.reserveActionOptions().find((item) => item.id === actionId) || {}).label || "这次行动");
+    const actionLabel = actionId === "exploreMaterials" ? "物种档案盒探索" : ((this.reserveActionOptions().find((item) => item.id === actionId) || {}).label || "这次行动");
     const impactParts = [];
     if (patrolOperation) impactParts.push(`路线 ${patrolOperation.strategyLabel ? `${patrolOperation.strategyLabel} · ` : ""}${patrolOperation.summary}`);
     if (relationshipChange) {
@@ -39878,7 +39880,7 @@ class Game {
   }
   reserveActionIdFromCommand(command = "") {
     const text = String(command || "");
-    if (/探索回收物|物资探索|探索森林|跟随动物探索|寻找自然遗留/.test(text)) return "exploreMaterials";
+    if (/探索回收物|物资探索|探索森林|跟随动物探索|寻找自然遗留|物种档案盒|档案盒探索|档案线索/.test(text)) return "exploreMaterials";
     if (/抢回回收物|追回回收物|共享回收点|回收物搜寻/.test(text)) return "houndScout";
     if (/驱赶偷猎|偷猎者|警报器|可疑人影|排查可疑/.test(text)) return "antiPoacher";
     if (/猎犬侦察|搜寻陷阱|陌生气味/.test(text)) return "houndScout";
@@ -39929,7 +39931,7 @@ class Game {
     if ((eco.water || 0) < 50 || (eco.grass || 0) < 50) return "明日建议：修复水源和草场，别让迁移线断掉。";
     if ((reserve.fund || 0) < 520) return this.recoveredGoodsCount(reserve.inventory || {}) > 0
       ? "明日建议：提交一批科研与执法样本，保护基金快见底了。"
-      : "明日建议：去物资页探索自然遗留物，保护基金快见底了。";
+      : "明日建议：去物资页探索物种档案盒，跟随动物或拾取地图线索。";
     if (this.reserveVisitorCount(reserve) <= 0) {
       return "明日建议：打开游客运营发布招募；游客到访会带来收入，补充保护基金。";
     }

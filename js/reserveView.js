@@ -38,7 +38,7 @@ function actionLabel(action) {
     antiPoacher: "驱赶偷猎",
     habitat: "修复栖息地",
     intervention: "生态干预",
-    exploreMaterials: "动物引路探索",
+    exploreMaterials: "物种档案盒探索",
     salvage: "移交守护样本",
     buySupplies: "采购补给",
     patrol: "巡护",

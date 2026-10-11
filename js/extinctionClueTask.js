@@ -1,41 +1,48 @@
-const TASK_ID = "chapter3_white_sturgeon_clues";
-const TASK_CHAPTER = 3;
+const { archiveItemsForChapter, chapterArchiveSet } = require("./speciesArchiveBox");
 
-const CLUE_ITEMS = [
-  {
-    id: "old_fish_scale",
-    name: "旧鱼鳞",
-    clue: "白鲟曾在这段河道活动。",
-    x: 0.20,
-    y: 0.27,
-    color: "#6e9f9a"
-  },
-  {
-    id: "broken_river_marker",
-    name: "断掉的河道标记",
-    clue: "原来的洄游路线被改变。",
-    x: 0.62,
-    y: 0.73,
-    color: "#c39a4d"
-  },
-  {
-    id: "old_fishing_net",
-    name: "旧渔网残片",
-    clue: "误捕曾增加了白鲟的风险。",
-    x: 0.78,
-    y: 0.69,
-    color: "#8b72a7"
-  }
+const TASK_CHAPTER = 3;
+const TASK_ID = "chapter3_white_sturgeon_clues";
+const CLUE_LAYOUTS = [
+  [[0.20, 0.27], [0.62, 0.73], [0.78, 0.69]],
+  [[0.18, 0.34], [0.57, 0.25], [0.78, 0.70]],
+  [[0.22, 0.66], [0.56, 0.28], [0.82, 0.58]],
+  [[0.18, 0.28], [0.48, 0.72], [0.80, 0.38]],
+  [[0.24, 0.74], [0.64, 0.26], [0.82, 0.66]],
+  [[0.16, 0.42], [0.55, 0.76], [0.84, 0.30]],
+  [[0.24, 0.30], [0.68, 0.70], [0.84, 0.52]],
+  [[0.16, 0.68], [0.52, 0.28], [0.80, 0.76]],
+  [[0.22, 0.34], [0.62, 0.64], [0.84, 0.42]]
 ];
 
-function emptyTask() {
+function validChapter(chapter) {
+  return Math.max(3, Math.min(11, Math.round(Number(chapter) || 3)));
+}
+
+function clueItemsForChapter(chapter = 3) {
+  const chapterDef = chapterArchiveSet(validChapter(chapter));
+  const layout = CLUE_LAYOUTS[(chapterDef.chapter - 3) % CLUE_LAYOUTS.length];
+  return chapterDef.items.map((item, index) => Object.assign({}, item, {
+    x: layout[index][0],
+    y: layout[index][1],
+    clue: item.note,
+    type: "extinctionClue",
+    group: "speciesArchive",
+    speciesId: chapterDef.speciesId,
+    speciesName: chapterDef.speciesName
+  }));
+}
+
+const CLUE_ITEMS = clueItemsForChapter(3);
+
+function emptyTask(chapter = 3) {
+  const chapterDef = chapterArchiveSet(validChapter(chapter));
   return {
-    version: 1,
-    id: TASK_ID,
-    chapter: TASK_CHAPTER,
-    speciesId: "white_sturgeon",
-    speciesName: "白鲟",
-    title: "找回白鲟消失前的线索",
+    version: 2,
+    id: chapterDef.chapter === 3 ? TASK_ID : `chapter${chapterDef.chapter}_${chapterDef.speciesId}_archive`,
+    chapter: chapterDef.chapter,
+    speciesId: chapterDef.speciesId,
+    speciesName: chapterDef.speciesName,
+    title: `找回${chapterDef.speciesName}消失前的线索`,
     status: "locked",
     spawned: false,
     collectedIds: [],
@@ -48,28 +55,20 @@ function emptyTask() {
 }
 
 function normalizeExtinctionClueTask(input = {}) {
-  const base = emptyTask();
   const source = input && typeof input === "object" ? input : {};
+  const chapter = validChapter(source.chapter || TASK_CHAPTER);
+  const base = emptyTask(chapter);
+  const items = clueItemsForChapter(chapter);
   const collectedIds = Array.from(new Set(
     (Array.isArray(source.collectedIds) ? source.collectedIds : [])
       .map((id) => String(id || ""))
-      .filter((id) => CLUE_ITEMS.some((item) => item.id === id))
+      .filter((id) => items.some((item) => item.id === id))
   ));
   const validDrops = (Array.isArray(source.drops) ? source.drops : [])
     .map((drop) => {
-      const item = CLUE_ITEMS.find((entry) => entry.id === String(drop && drop.id || ""));
+      const item = items.find((entry) => entry.id === String(drop && drop.id || ""));
       if (!item || collectedIds.includes(item.id)) return null;
-      return Object.assign({
-        type: "extinctionClue",
-        group: "extinctionClue",
-        speciesId: base.speciesId,
-        speciesName: base.speciesName,
-        x: item.x,
-        y: item.y,
-        name: item.name,
-        clue: item.clue,
-        color: item.color
-      }, drop, { id: item.id, x: item.x, y: item.y });
+      return Object.assign({}, item, drop, { id: item.id, x: item.x, y: item.y });
     })
     .filter(Boolean);
   const status = source.status === "completed"
@@ -78,13 +77,13 @@ function normalizeExtinctionClueTask(input = {}) {
       ? "active"
       : "locked";
   const task = Object.assign({}, base, source, {
-    version: 1,
-    id: TASK_ID,
-    chapter: TASK_CHAPTER,
+    version: 2,
+    id: base.id,
+    chapter,
     speciesId: base.speciesId,
     speciesName: base.speciesName,
     title: base.title,
-    status: collectedIds.length >= CLUE_ITEMS.length ? "completed" : status,
+    status: collectedIds.length >= items.length ? "completed" : status,
     spawned: status !== "locked" || !!source.spawned,
     collectedIds,
     drops: validDrops,
@@ -111,47 +110,42 @@ function currentChapter(reserve = {}) {
 }
 
 function ensureExtinctionClueTask(reserve = {}) {
-  const task = normalizeExtinctionClueTask(reserve.extinctionClueTask);
   const chapter = currentChapter(reserve);
-  if (task.status === "completed") {
-    reserve.extinctionClueTask = task;
-    return task;
-  }
-  if (chapter === TASK_CHAPTER && (task.status === "locked" || (task.status === "active" && !task.drops.length))) {
+  const inRange = chapter >= 3 && chapter <= 11;
+  let task = normalizeExtinctionClueTask(reserve.extinctionClueTask);
+  // 章节推进后建立新的一组线索；已归档的上一章线索仍保留在物种档案盒。
+  if (inRange && task.chapter !== chapter) task = emptyTask(chapter);
+  if (inRange && (task.status === "locked" || (task.status === "active" && !task.drops.length))) {
     if (task.status === "locked") task.activatedAt = Date.now();
     task.status = "active";
     task.spawned = true;
-    task.drops = CLUE_ITEMS
+    task.drops = clueItemsForChapter(chapter)
       .filter((item) => !task.collectedIds.includes(item.id))
-      .map((item) => Object.assign({}, item, {
-        type: "extinctionClue",
-        group: "extinctionClue",
-        speciesId: task.speciesId,
-        speciesName: task.speciesName
-      }));
+      .map((item) => Object.assign({}, item));
   }
   reserve.extinctionClueTask = task;
   return task;
 }
 
 function extinctionClueVisibleDrops(reserve = {}) {
-  const task = normalizeExtinctionClueTask(reserve.extinctionClueTask);
+  const task = ensureExtinctionClueTask(reserve);
   const chapter = currentChapter(reserve);
-  if (chapter !== TASK_CHAPTER || task.status !== "active") return [];
+  if (chapter < 3 || chapter > 11 || task.chapter !== chapter || task.status !== "active") return [];
   return task.drops.slice();
 }
 
 function collectExtinctionClue(reserve = {}, clueId = "") {
   const task = ensureExtinctionClueTask(reserve);
   const id = String(clueId || "");
+  const items = clueItemsForChapter(task.chapter);
   if (task.status !== "active") return { ok: false, reason: "inactive" };
   if (task.collectedIds.includes(id)) return { ok: false, reason: "already_collected" };
-  const item = CLUE_ITEMS.find((entry) => entry.id === id);
+  const item = items.find((entry) => entry.id === id);
   if (!item || !task.drops.some((drop) => drop.id === id)) return { ok: false, reason: "unknown_clue" };
   task.collectedIds = task.collectedIds.concat(id);
   task.drops = task.drops.filter((drop) => drop.id !== id);
   task.lastCollection = { id, name: item.name, collectedAt: Date.now() };
-  const complete = task.collectedIds.length >= CLUE_ITEMS.length;
+  const complete = task.collectedIds.length >= items.length;
   if (complete) {
     task.status = "completed";
     task.completedAt = Date.now();
@@ -163,23 +157,26 @@ function collectExtinctionClue(reserve = {}, clueId = "") {
     item: Object.assign({}, item),
     complete,
     collected: task.collectedIds.length,
-    total: CLUE_ITEMS.length,
-    progress: `${task.collectedIds.length}/${CLUE_ITEMS.length}`
+    total: items.length,
+    progress: `${task.collectedIds.length}/${items.length}`
   };
 }
 
 function extinctionClueTaskView(reserve = {}) {
-  const task = normalizeExtinctionClueTask(reserve.extinctionClueTask);
+  const task = ensureExtinctionClueTask(reserve);
+  const chapter = currentChapter(reserve);
+  const active = task.status === "active" && task.chapter === chapter && chapter >= 3 && chapter <= 11;
   return {
     id: task.id,
+    chapter: task.chapter,
     title: task.title,
     speciesName: task.speciesName,
     status: task.status,
     progress: task.collectedIds.length,
-    total: CLUE_ITEMS.length,
-    progressText: `${task.collectedIds.length}/${CLUE_ITEMS.length}`,
-    active: task.status === "active" && currentChapter(reserve) === TASK_CHAPTER,
-    completed: task.status === "completed"
+    total: clueItemsForChapter(task.chapter).length,
+    progressText: `${task.collectedIds.length}/${clueItemsForChapter(task.chapter).length}`,
+    active,
+    completed: task.status === "completed" && task.chapter === chapter
   };
 }
 
@@ -187,6 +184,7 @@ module.exports = {
   TASK_ID,
   TASK_CHAPTER,
   CLUE_ITEMS,
+  clueItemsForChapter,
   emptyTask,
   normalizeExtinctionClueTask,
   ensureExtinctionClueTask,
