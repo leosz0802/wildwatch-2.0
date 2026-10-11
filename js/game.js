@@ -107,6 +107,7 @@ const { recordOrdinaryMoment, latestOrdinaryMoment } = require("./ordinaryMoment
 const { AudioSystem, normalizeAudioSettings } = require("./audioSystem");
 const { promiseByChapter, normalizeGuardianPromises, selectGuardianPromiseChoice, applyGuardianPromiseChoice, chosenPromiseChoices } = require("./guardianPromises");
 const { FRAGMENT_CATALOG, normalizeEcologyEconomy, collectEcologyDrop, ecologyCompetitionReward } = require("./ecologyEconomy");
+const { ensureExtinctionClueTask, extinctionClueVisibleDrops, collectExtinctionClue, extinctionClueTaskView } = require("./extinctionClueTask");
 const { BALANCE_V2, ECOLOGY_THRESHOLDS, chapterEconomy, supplyCapFor } = require("./balanceConfig");
 const {
   sellFundCapStatus,
@@ -24220,7 +24221,10 @@ class Game {
     const collectionLocked = this.firstSessionRestrictionsEnabled() && this.firstSessionFocusStatus().active;
     const storyDiscovery = collectionLocked ? null : storyDiscoverySummary(this.state).active;
     const mapMarkers = this.mapTaskStoryMarkersForDisplay(world, storyDiscovery);
-    const ecologyEconomy = normalizeEcologyEconomy(((world.reserve || {}).ecologyEconomy), world.reserve || {});
+    const reserveForMap = world.reserve || {};
+    ensureExtinctionClueTask(reserveForMap);
+    const extinctionClueTask = extinctionClueTaskView(reserveForMap);
+    const ecologyEconomy = normalizeEcologyEconomy(((reserveForMap || {}).ecologyEconomy), reserveForMap);
     const crisisVisible = !!(this.mapCrisisBurst && Date.now() >= (this.mapCrisisBurst.startedAt || 0) && Date.now() < (this.mapCrisisBurst.expiresAt || 0));
     const consequenceVisible = crisisVisible || !!(this.mapConsequencePulse && Date.now() < this.mapConsequencePulse.expiresAt);
     const feedbackCycle = this.mapFeedbackCycle(mapMarkers, ecologyEconomy.mapDrops, this.animT());
@@ -24589,6 +24593,9 @@ class Game {
     animalHitTargets
       .sort((a, b) => a.priority - b.priority)
       .forEach((target) => this.addMapHit(target.x, target.y, target.size, () => this.openAnimalThought(target.animal), "cue:animal", "map", { animal: true }));
+    if (!fast && !prologue && !consequenceVisible) {
+      this.drawExtinctionClueDrops(ctx, camera, extinctionClueTask);
+    }
     if (!fast && storyDiscovery && storyDiscovery.status === "located") {
       const storyKey = `story:${(storyDiscovery.item || {}).id || storyDiscovery.itemId || "active"}`;
       this.drawStoryDiscoveryMarker(ctx, camera, storyDiscovery, fast, {
@@ -24629,6 +24636,7 @@ class Game {
       this.drawMapConsequencePulse(ctx, camera);
     }
     if (!prologue && !crisisVisible) this.drawMapZoomControls(ctx, camera, fast);
+    if (!fast && !prologue && !crisisVisible) this.drawExtinctionClueTaskPill(ctx, camera, extinctionClueTask);
     this.drawSandboxGoalBar(ctx, camera, { prologue, fast });
     ctx.restore();
   }
@@ -25505,6 +25513,68 @@ class Game {
       ctx.stroke();
     }
     ctx.restore();
+  }
+  drawExtinctionClueDrops(ctx, camera, taskView = {}) {
+    const reserve = (this.state.world || {}).reserve || {};
+    const drops = extinctionClueVisibleDrops(reserve);
+    this.renderedExtinctionClueDrops = [];
+    if (!taskView.active || !drops.length) return;
+    drops.forEach((drop, index) => {
+      const point = this.mapPoint(drop.x, drop.y, camera);
+      if (point.x < camera.x - 50 || point.x > camera.x + camera.w + 50
+        || point.y < camera.y + 132 || point.y > camera.y + camera.h - 28) return;
+      const scale = Math.max(.78, Math.min(1.05, camera.scale || 1));
+      const size = 42 * scale;
+      const labelSize = this.mapDescriptionFont(9, camera.scale || 1);
+      const label = drop.name || "灭绝线索";
+      const labelW = Math.min(132, Math.max(74, label.length * labelSize * .78 + 20));
+      ctx.save();
+      ctx.fillStyle = "rgba(16,44,32,.20)";
+      ctx.beginPath();
+      ctx.ellipse(point.x, point.y + size * .62, size * .48, size * .13, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      this.roundRect(ctx, point.x - size / 2, point.y - size / 2, size, size, 13 * scale, "#fff8de", "rgba(187,142,57,.92)");
+      this.drawSmallGlyph(ctx, "clue", point.x, point.y, drop.color || "#6e9f9a", .55 * size / 42);
+      this.roundRect(ctx, point.x - labelW / 2, point.y + size * .64, labelW, 22 * scale, 11 * scale, "rgba(18,61,52,.92)", "rgba(255,248,223,.74)");
+      this.text(ctx, label, point.x, point.y + size * .64 + labelSize + 5, labelSize, "#fff8df", "700", "center");
+      this.renderedExtinctionClueDrops.push({ id: drop.id, name: label, x: point.x, y: point.y, size, label });
+      this.addMapHit(point.x, point.y, Math.max(52, size + 12), () => this.collectExtinctionClueDrop(drop.id, { x: point.x, y: point.y }), "success", "map", { extinctionClue: true });
+    });
+  }
+  drawExtinctionClueTaskPill(ctx, camera, taskView = {}) {
+    this.renderedExtinctionClueTask = { visible: false, status: taskView.status || "locked" };
+    if (!taskView.active && !taskView.completed) return;
+    const label = taskView.completed
+      ? "白鲟线索 · 已收齐"
+      : `白鲟消失线索 ${taskView.progressText || "0/3"}`;
+    const w = Math.min(190, Math.max(148, label.length * 9 + 30));
+    const h = 28;
+    const x = camera.x + 12;
+    const y = camera.y + camera.h - h - 12;
+    this.roundRect(ctx, x, y + 3, w, h, 14, "rgba(16,34,26,.28)");
+    this.roundRect(ctx, x, y, w, h, 14, taskView.completed ? "rgba(226,244,220,.96)" : "rgba(255,249,230,.96)", "rgba(190,147,60,.72)");
+    this.drawSmallGlyph(ctx, taskView.completed ? "recovery" : "clue", x + 16, y + h / 2, taskView.completed ? "#2f8b68" : UI_THEME.goldDeep, .42);
+    this.text(ctx, label, x + 30, y + 19, 10, UI_THEME.ink, "700");
+    this.renderedExtinctionClueTask = Object.assign({}, taskView, { visible: true, x, y, w, h, label });
+    this.addHit(x, y - this.scrollY, w, h, () => {
+      if (taskView.completed) this.toast("白鲟消失前的三条线索已收录");
+      else this.toast("点击沙盘上的线索标记，找回白鲟消失前的记录");
+    }, "tap", "hud");
+  }
+  collectExtinctionClueDrop(clueId, origin = null) {
+    const reserve = (this.state.world || {}).reserve || {};
+    const result = collectExtinctionClue(reserve, clueId);
+    if (!result.ok) {
+      if (result.reason === "already_collected") this.toast("这条线索已经收录");
+      return false;
+    }
+    saveState(this.state);
+    this.playSfx("success");
+    this.startMapHarvestFlight({ id: result.item.id, amount: 1, type: "extinctionClue" }, { color: result.item.color, short: "线索" }, origin);
+    this.toast(result.complete ? "白鲟线索已收齐，记录已归档" : `已收录${result.item.name} · ${result.progress}`);
+    this.render();
+    return true;
   }
   drawAnimalEcologyDrops(ctx, camera, fast = false, prologue = false, visible = true, economyState = null, visibleLabelKeys = null) {
     this.renderedAnimalEcologyDrops = [];

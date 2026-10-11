@@ -4,6 +4,7 @@ const { SPECIES_DB, getUnlockedSpecies } = require("./animalWorld");
 const { buildSeasonDynamics } = require("./seasonSystem");
 const { createGoalState } = require("./goalSystem");
 const { defaultRareAnimalState } = require("./rareAnimalSystem");
+const { emptyTask: emptyExtinctionClueTask } = require("./extinctionClueTask");
 const regions = [
   { id: "north", name: "北部针叶林", feature: "冷杉与松林，树冠连续", resource: "松果、鸟巢、野兔、树洞", x: 0.25, y: 0.15, mood: "cold", water: 34, food: 58, danger: 42, territory: { ownerId: "npc_crow", ownerName: "黑铃鸦", ownerSpecies: "乌鸦", claim: "树冠观察区", pressure: 38, rule: "高处视野决定消息流向，交换消息比武力更有效" } },
   { id: "center", name: "中央混交林", feature: "阔叶林与灌木层密集", resource: "浆果、鹿群、鼠类、隐蔽庇护", x: 0.36, y: 0.42, mood: "dense", water: 52, food: 74, danger: 66, territory: { ownerId: "npc_wolf", ownerName: "沉牙狼", ownerSpecies: "狼", claim: "狼群猎场", pressure: 74, rule: "穿越、追踪和捕猎都会改变鹿群路线" } },
@@ -641,6 +642,8 @@ function createReserveState() {
         streak: 0
       }
     },
+    // 独立于巡护补给和工坊物资的章节灭绝线索任务。
+    extinctionClueTask: emptyExtinctionClueTask(),
     lastMaterialExploration: null,
     materialExplorationProgress: {},
     wildernessKnowledge: {
