@@ -3,6 +3,7 @@ const path = require("path");
 const { Game } = require("../js/game");
 const { createCharacter } = require("../js/storage");
 const { getUnlockedSpecies } = require("../js/animalWorld");
+const { CHAPTERS } = require("../js/animalWorld");
 const { chapterTargets, beginChapterAnimalCheckpoint, chapterAnimalTotal } = require("../js/chapterTargets");
 const { recordIncrease } = require("../js/animalSourceLedger");
 
@@ -27,7 +28,7 @@ game.render = () => {};
 game.maybeOpenMissionPush = () => false;
 game.prepareChapterArt = () => {};
 
-Array.from({ length: 20 }, (_, index) => index + 1).forEach((chapterNumber) => {
+Array.from({ length: CHAPTERS.length }, (_, index) => index + 1).forEach((chapterNumber) => {
   const start = game.buildChapterStory(chapterNumber, "start");
   const ending = game.buildChapterStory(chapterNumber, "end", { population: 100 + chapterNumber, daysManaged: chapterNumber * 7 });
   assert(start.level === chapterNumber && start.phase === "start", `chapter ${chapterNumber} start metadata is invalid`);
@@ -75,10 +76,10 @@ assert(bootGame.openPostFirstFrameExperience(), "post-frame startup should still
 assert(!bootGame.chapterStoryModal, "startup should not auto-open a chapter story on resume");
 
 game.state.ui = Object.assign({}, game.state.ui || {}, { chapterStoriesSeen: {} });
-assert(game.queueChapterStoriesForSettlement({ finalChapterEnding: true }), "Lv20 final ending should queue after a valid action");
-assert(game.chapterStoryModal.level === 20 && game.chapterStoryModal.phase === "end", "Lv20 final ending metadata is wrong");
+assert(game.queueChapterStoriesForSettlement({ finalChapterEnding: true }), "final chapter ending should queue after a valid action");
+assert(game.chapterStoryModal.level === CHAPTERS.length && game.chapterStoryModal.phase === "end", "final chapter ending metadata is wrong");
 game.dismissChapterStory();
-assert(game.chapterStorySeen(20, "end"), "Lv20 final ending watch record missing");
+assert(game.chapterStorySeen(CHAPTERS.length, "end"), "final chapter ending watch record missing");
 assert(!game.queueChapterStoriesForSettlement({ finalChapterEnding: true }), "Lv20 final ending should not repeat");
 
 game.state.ui = Object.assign({}, game.state.ui || {}, { chapterStoriesSeen: {} });
@@ -327,6 +328,52 @@ assert(game.tryPresentPendingChapterAdvance() && game.chapterStoryModal.level ==
   assert(late.chapterStoryModal && late.chapterStoryModal.level === 2, "promotion card returns after the leftover result");
   late.dismissChapterStory();
   assert(Number(late.state.world.reserve.progression.stage) === 2, "enter chapter 2 only after the leftover result and promotion card");
+}
+
+{
+  const upgraded = game;
+  upgraded.screen = "home";
+  upgraded.render = () => {};
+  upgraded.playSfx = () => {};
+  upgraded.prepareChapterArt = () => {};
+  upgraded.openFirstReturnHook = () => false;
+  upgraded.openPendingShareInvite = () => false;
+  upgraded.openPendingStrategicDilemma = () => false;
+  upgraded.openPendingEmotionEvent = () => false;
+  upgraded.openOfflineBrief = () => false;
+  upgraded.openGuardianReturnLetter = () => false;
+  upgraded.openAnimalLetterPrompt = () => false;
+  upgraded.openQueuedMissionPush = () => false;
+  upgraded.maybeOpenMissionPush = () => false;
+  upgraded.openFirstOnboardingChoice = () => false;
+  upgraded.openPendingWorldHoundPatrolResult = () => false;
+  upgraded.trackNarrative = () => {};
+  upgraded.pendingChapterPromotion = null;
+  upgraded.pendingChapterAdvance = false;
+  upgraded.chapterStoryQueue = [];
+  upgraded.infoDetailModal = null;
+  upgraded.pendingMissionAfterChapter = false;
+  upgraded.state.ui = Object.assign({}, upgraded.state.ui || {}, { chapterStoriesSeen: {} });
+  const reserve = upgraded.state.world.reserve;
+  reserve.progression = Object.assign({}, reserve.progression || {}, { stage: 6, displayChapter: 6 });
+  const story = upgraded.buildChapterStory(6, "start");
+  story.transitionFrom = 5;
+  upgraded.chapterStoryModal = story;
+  upgraded.taskCompletionFeedback = {
+    pending: [{ key: "goal:legacy:chapter6", title: "旧版本已完成任务" }],
+    collect() {},
+    absorb() {},
+    take() { return this.pending.shift() || null; }
+  };
+  const originalMark = upgraded.markChapterStorySeen.bind(upgraded);
+  upgraded.markChapterStorySeen = (level, phase) => {
+    originalMark(level, phase);
+    throw new Error("setStorageSync: fail the maximum size of the key");
+  };
+  upgraded.dismissChapterStory();
+  assert(!upgraded.chapterStoryModal, "进入游戏 must close the chapter card when an upgraded save cannot be written");
+  assert(upgraded.chapterStorySeen(6, "start"), "the closed chapter card must stay seen in memory");
+  assert(!(upgraded.chapterStoryQueue || []).some((item) => item && item.level === 6 && item.phase === "start"), "old task results must not put the same 进入游戏 card back");
 }
 
 console.log("chapter story check ok");

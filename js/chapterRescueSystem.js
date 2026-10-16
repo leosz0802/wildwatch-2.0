@@ -1,6 +1,6 @@
 'use strict';
 const { CHAPTERS, getSpeciesById, speciesPopulationGroup } = require('./animalWorld');
-const RESCUE_VERSION = 10;
+const RESCUE_VERSION = 11;
 const CHAPTER_RESCUE_TARGET_SCORE = 12;
 const POACHER_RESCUE_TARGET_SCORE = 10;
 const CHAPTER_RESCUE_MAP_SLOTS = Object.freeze([
@@ -23,9 +23,65 @@ const RESCUE_ITEM_CATALOG = Object.freeze([
  {id:'rescue_field_key',label:'旧锁钥片',icon:'key',source:'巡护回收',story:'钥片来自旧围栏，拼回它才能打开安全出口。'},
  {id:'rescue_night_lamp',label:'低光引路灯',icon:'eye',source:'夜间探索',story:'低光不会惊扰夜行动物，却能照亮解救路线。'},
  {id:'rescue_scent_cloth',label:'熟悉气味布',icon:'paw',source:'动物互动',story:'熟悉的气味能让受惊动物相信出口外没有追捕者。'},
- {id:'rescue_leaf_seal',label:'叶纹通行牌',icon:'leaf',source:'线索室',story:'叶纹通行牌证明这次解救已经获得保护区许可。'}
+ {id:'rescue_leaf_seal',label:'叶纹通行牌',icon:'leaf',source:'线索室',story:'叶纹通行牌证明这次解救已经获得保护区许可。'},
+ {id:'rescue_shadow_vine',label:'树影绕绳',icon:'leaf',source:'灌丛探索',story:'树影绕绳只用来解开豹子藏身的灌丛扣。',minLevel:1},
+ {id:'rescue_canopy_bell',label:'高枝望铃',icon:'eye',source:'树冠观察',story:'高枝望铃挂在长颈鹿能够到的高度，用来标出安全出口。',minLevel:1},
+ {id:'rescue_den_salt',label:'洞口盐标',icon:'paw',source:'洞域巡护',story:'洞口盐标让熊认出这是自己的洞，而不是新的陷阱。',minLevel:1},
+ {id:'rescue_river_float',label:'河湾浮标',icon:'water',source:'河湾观察',story:'河湾浮标标出河马可以站稳的深水线。',minLevel:1},
+ {id:'rescue_path_clay',label:'旧路泥印',icon:'paw',source:'旧路回收',story:'旧路泥印对上象群记得的水路，才能打开围栏。',minLevel:1},
+ {id:'rescue_pack_whistle',label:'队风哨片',icon:'eye',source:'草场巡护',story:'队风哨片只召集这一队野犬，不会惊动别的兽群。',minLevel:1},
+ {id:'rescue_bank_shade',label:'浅滩眼罩',icon:'eye',source:'河岸探索',story:'浅滩眼罩挡住刺眼反光，鳄鱼才肯离开晒背的浅滩。',minLevel:1},
+ {id:'rescue_gap_thread',label:'缝隙红绳',icon:'leaf',source:'林缘探索',story:'缝隙红绳标出狐狸能钻出的那一条窄缝。',minLevel:1},
+ {id:'rescue_reed_fish',label:'芦苇鱼标',icon:'water',source:'浅滩探索',story:'芦苇鱼标把水貂引回有鱼影的芦苇洞。',minLevel:1},
+ {id:'rescue_horn_wrap',label:'护角麻套',icon:'paw',source:'草场回收',story:'护角麻套包住犀角，围栏才不会在角上卡住。',minLevel:1},
+ {id:'rescue_scale_clip',label:'夜土鳞夹',icon:'paw',source:'夜间探索',story:'夜土鳞夹托住穿山甲的鳞片，避免它在洞口卷死。',minLevel:1},
+ {id:'rescue_night_fruit',label:'暗线果标',icon:'leaf',source:'夜路观察',story:'暗线果标只铺在貘愿意走的无灯夜路上。',minLevel:1},
+ {id:'rescue_night_chime',label:'夜鸣风铃',icon:'eye',source:'夜间观察',story:'夜鸣风铃用很轻的声音给夜莺指出离开的方向。',minLevel:1},
+ {id:'rescue_herd_post',label:'迁徙路牌',icon:'leaf',source:'草场巡护',story:'迁徙路牌把野牛队伍引回原来的草浪。',minLevel:1},
+ {id:'rescue_wet_landing',label:'湿地脚牌',icon:'water',source:'湿地观察',story:'湿地脚牌标出鹤群可以落地的浅水。',minLevel:1},
+ {id:'rescue_fawn_cord',label:'幼鹿护绳',icon:'leaf',source:'草场探索',story:'幼鹿护绳又软又短，只适合给鹿解开脚边的缠绕。',minLevel:1},
+ {id:'rescue_burrow_plug',label:'洞口草塞',icon:'leaf',source:'灌丛探索',story:'洞口草塞堵住野兔洞外的网，让它从自己的洞口出来。',minLevel:1},
+ {id:'rescue_canopy_note',label:'树冠信绳',icon:'eye',source:'树冠观察',story:'树冠信绳是乌鸦认得的传信用绳，别的鸟不会靠近。',minLevel:1},
+ {id:'rescue_hunt_cloth',label:'猎场风布',icon:'paw',source:'巡护回收',story:'猎场风布带著狼群自己的气味，用来标出没有人的出口。',minLevel:1},
+ {id:'rescue_stripe_band',label:'队尾纹带',icon:'eye',source:'水源观察',story:'队尾纹带系在斑马队列的最后一匹，整队才会跟着走。',minLevel:1},
+ {id:'rescue_roost_tag',label:'夜栖静牌',icon:'eye',source:'夜间探索',story:'夜栖静牌贴在猫头鹰的栖枝上，白天不会惊动它。',minLevel:1}
 ]);
+const RESCUE_ITEM_BY_SPECIES = Object.freeze({
+  vulture:'rescue_reed_cord',
+  antelope:'rescue_quiet_water_tag',
+  boar:'rescue_field_key',
+  flamingo:'rescue_night_lamp',
+  eagle:'rescue_scent_cloth',
+  lion:'rescue_leaf_seal',
+  leopard:'rescue_shadow_vine',
+  giraffe:'rescue_canopy_bell',
+  bear:'rescue_den_salt',
+  hippo:'rescue_river_float',
+  elephant:'rescue_path_clay',
+  wildDog:'rescue_pack_whistle',
+  crocodile:'rescue_bank_shade',
+  fox:'rescue_gap_thread',
+  mink:'rescue_reed_fish',
+  rhino:'rescue_horn_wrap',
+  pangolin:'rescue_scale_clip',
+  tapir:'rescue_night_fruit',
+  fireflyBird:'rescue_night_chime',
+  bison:'rescue_herd_post',
+  crane:'rescue_wet_landing',
+  deer:'rescue_fawn_cord',
+  hare:'rescue_burrow_plug',
+  crow:'rescue_canopy_note',
+  wolf:'rescue_hunt_cloth',
+  zebra:'rescue_stripe_band',
+  owl:'rescue_roost_tag'
+});
 function rescueItemById(id){return RESCUE_ITEM_CATALOG.find(x=>x.id===id)||null;}
+function ensureEcologyGroup(reserve, group) {
+  const ecology = reserve.ecology || (reserve.ecology = {});
+  const current = ecology[group];
+  if (!current || typeof current !== "object") ecology[group] = {};
+  return ecology[group];
+}
 function rescueStoryFor(record={}){const name=record.speciesName||record.speciesId||'这只动物';const items=(record.requiredItems||[]).map(id=>(rescueItemById(id)||{}).label||id).filter(Boolean).join('、')||'所需物品';return {title:`${name}的回家路`,paragraphs:[`${name}被旧围栏困在地图边缘，不是自然迁徙。`,`收齐${items}后，就可以不惊扰地打开出口。`,`${name}回到保护区，并记入水源、草场和游客观察。`]};}
 function targetCount(chapter){return chapter>=10?2:1;}
 function chapterDefinition(chapterNumber=1){
@@ -54,7 +110,11 @@ function chapterDefinition(chapterNumber=1){
   const captive=targets.slice();
   return {chapter:chapter.chapter,title:chapter.title,starter,targets,captive};
 }
-function requiredItemsFor(speciesId,chapterNumber=1,index=0){const first=RESCUE_ITEM_CATALOG[(Number(chapterNumber)+index)%RESCUE_ITEM_CATALOG.length];return [first.id];}
+function requiredItemsFor(speciesId){
+  const id = RESCUE_ITEM_BY_SPECIES[speciesId];
+  if (id) return [id];
+  return [RESCUE_ITEM_CATALOG[0].id];
+}
 function rescuePointTarget(record={}, itemId="") {
   if (!record || !(record.requiredItems || []).includes(itemId)) return 0;
   const explicit = Number(record.pointTarget);
@@ -141,7 +201,7 @@ function clampChapterCaptivePopulations(reserve = {}) {
   const ecology = reserve.ecology || (reserve.ecology = {});
   chapterCaptiveSpeciesSet(reserve).forEach((id) => {
     const group = speciesPopulationGroup(id);
-    const bucket = ecology[group] = ecology[group] || {};
+    const bucket = ensureEcologyGroup(reserve, group);
     const record = chapterCaptiveRecord(reserve, id);
     const current = Math.max(0, Number(bucket[id]) || 0);
     if (record && record.preserveResidentPopulation && current > 1) return;
@@ -158,14 +218,12 @@ function poacherRescueState(reserve = {}) {
   state.pendingEvent = state.pendingEvent && typeof state.pendingEvent === 'object' ? state.pendingEvent : null;
   state.active.forEach(record => {
     if (!record) return;
-    if (Array.isArray(record.requiredItems) && record.requiredItems.length > 1) record.requiredItems = [record.requiredItems[0]];
-    if (Array.isArray(record.requiredItems) && record.requiredItems.length) {
-      if (typeof record.taskVisible !== 'boolean') record.taskVisible = true;
-      record.pointTarget = 10;
-      record.pointProgress = Object.assign({}, record.pointProgress || {});
-      const itemId = record.requiredItems[0];
-      record.pointProgress[itemId] = Math.min(10, Math.max(0, Math.round(Number(record.pointProgress[itemId]) || 0)));
-    }
+    const speciesItem = requiredItemsFor(record.speciesId)[0];
+    record.requiredItems = [speciesItem];
+    if (typeof record.taskVisible !== 'boolean') record.taskVisible = true;
+    record.pointTarget = 10;
+    const savedScore = Number((record.pointProgress || {})[speciesItem]) || 0;
+    record.pointProgress = { [speciesItem]: Math.min(10, Math.max(0, Math.round(savedScore))) };
   });
   const chapterState = reserve.chapterRescue || {};
   state.history.forEach(event => {
@@ -203,8 +261,30 @@ function poacherRescueState(reserve = {}) {
   return state;
 }
 function nextPoacherRescue(reserve={}){return poacherRescueState(reserve).active.find(record=>record&&record.status!=='rescued'&&record.taskVisible!==false)||null;}
-function createPoacherRescue(reserve={},speciesId,chapterNumber=1,day=1){if(isChapterRescueSpecies(speciesId,chapterNumber))return null;const state=poacherRescueState(reserve);const currentDay=Math.max(0,Number(day)||0);if(state.cooldownChapter===Number(chapterNumber)&&state.cooldownUntilDay>currentDay||state.active.some(record=>record&&record.status!=='rescued'))return null;if(state.active.filter(record=>record&&record.status!=='rescued').length>=3||state.history.filter(record=>record&&Number(record.chapter)===Number(chapterNumber)).length>=3)return null;const species=getSpeciesById(speciesId);if(!species)return null;const targetId=`poacher:${day}:${speciesId}:${state.history.length+state.active.length+1}`;const required=requiredItemsFor(speciesId,chapterNumber,state.active.length);reserve.ecology=reserve.ecology||{};const group=speciesPopulationGroup(speciesId);const bucket=reserve.ecology[group]=reserve.ecology[group]||{};const current=Math.max(0,Math.round(Number(bucket[speciesId])||0));if(current<1)return null;const capturedCount=1;bucket[speciesId]=current-capturedCount;const record={targetId,id:targetId,speciesId,speciesName:species.name,chapter:chapterNumber,status:'captive',createdDay:currentDay,requiredItems:required,pointTarget:10,pointProgress:{},taskVisible:false,collectedItems:{},itemFailures:{},itemAttempts:{},rescuedAt:0,letterIssued:false,recurring:true,capturedCount,sourceExploration:(rescueItemById(required[0])||{}).source||'巡护回收',map:poacherRescueMapSlot(state.active.length)};state.active.push(record);state.pendingEvent={targetId:record.targetId,speciesId:record.speciesId,speciesName:record.speciesName,day:currentDay};return record;}
+function createPoacherRescue(reserve={},speciesId,chapterNumber=1,day=1){if(isChapterRescueSpecies(speciesId,chapterNumber))return null;const state=poacherRescueState(reserve);const currentDay=Math.max(0,Number(day)||0);if(state.cooldownChapter===Number(chapterNumber)&&state.cooldownUntilDay>currentDay||state.active.some(record=>record&&record.status!=='rescued'))return null;if(state.active.filter(record=>record&&record.status!=='rescued').length>=3||state.history.filter(record=>record&&Number(record.chapter)===Number(chapterNumber)).length>=3)return null;const species=getSpeciesById(speciesId);if(!species)return null;const targetId=`poacher:${day}:${speciesId}:${state.history.length+state.active.length+1}`;const required=requiredItemsFor(speciesId,chapterNumber,state.active.length);reserve.ecology=reserve.ecology||{};const group=speciesPopulationGroup(speciesId);const bucket=ensureEcologyGroup(reserve,group);const current=Math.max(0,Math.round(Number(bucket[speciesId])||0));if(current<1)return null;const capturedCount=1;bucket[speciesId]=current-capturedCount;const record={targetId,id:targetId,speciesId,speciesName:species.name,chapter:chapterNumber,status:'captive',createdDay:currentDay,requiredItems:required,pointTarget:10,pointProgress:{},taskVisible:false,collectedItems:{},itemFailures:{},itemAttempts:{},rescuedAt:0,letterIssued:false,recurring:true,capturedCount,sourceExploration:(rescueItemById(required[0])||{}).source||'巡护回收',map:poacherRescueMapSlot(state.active.length)};state.active.push(record);state.pendingEvent={targetId:record.targetId,speciesId:record.speciesId,speciesName:record.speciesName,day:currentDay};return record;}
 function findPoacherRescue(reserve={},id){const state=poacherRescueState(reserve);return state.active.find(record=>record&&(record.targetId===id||record.id===id||record.speciesId===id))||null;}
+function rescuePriorRecord(existing = {}, old = {}, oldBySpecies = new Map(), targetId = "", speciesId = "") {
+  const fromAnimals = old[targetId] || old[speciesId] || oldBySpecies.get(speciesId) || null;
+  const fromTargets = (Array.isArray(existing.targets) ? existing.targets : []).find((record) => record
+    && (String(record.targetId || "") === String(targetId)
+      || (record.speciesId === speciesId && String(record.targetId || "") === String(targetId))));
+  const historyOf = (record) => (record && Array.isArray(record.pointHistory) ? record.pointHistory : []);
+  if (fromAnimals && fromTargets && fromAnimals !== fromTargets) {
+    const seen = new Set();
+    const pointHistory = historyOf(fromTargets).concat(historyOf(fromAnimals)).filter((shot) => {
+      if (!shot) return false;
+      const key = shot.recordedAt ? `at:${shot.recordedAt}` : `${shot.itemId}:${shot.shotScore}:${shot.totalScore}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return Object.assign({}, fromTargets, fromAnimals, {
+      pointHistory,
+      pointProgress: Object.assign({}, fromTargets.pointProgress || {}, fromAnimals.pointProgress || {})
+    });
+  }
+  return Object.assign({}, fromAnimals || fromTargets || {});
+}
 function buildChapterRescueRecord(reserve = {}, speciesId = "", chapterNumber = 1, index = 0, prior = {}, options = {}) {
   const species = getSpeciesById(speciesId);
   if (!species) return null;
@@ -212,13 +292,13 @@ function buildChapterRescueRecord(reserve = {}, speciesId = "", chapterNumber = 
   const existing = prior && typeof prior === "object" ? prior : {};
   const targetId = existing.targetId || `chapter:${chapterNumber}:rescue:${index + 1}`;
   const resident = Number((((reserve.ecology || {})[speciesPopulationGroup(speciesId)] || {})[speciesId])) || 0;
-  const required = requiredItemsFor(speciesId, chapterNumber, index);
-  const requiredItem = (Array.isArray(existing.requiredItems) && existing.requiredItems[0]) || required[0];
-  const pointProgress = Object.assign({}, existing.pointProgress || {});
-  if (Object.prototype.hasOwnProperty.call(pointProgress, requiredItem)) {
+  const required = requiredItemsFor(speciesId);
+  const requiredItem = required[0];
+  const pointProgress = {};
+  if (Object.prototype.hasOwnProperty.call(existing.pointProgress || {}, requiredItem)) {
     pointProgress[requiredItem] = Math.min(
       CHAPTER_RESCUE_TARGET_SCORE,
-      Math.max(0, Math.round(Number(pointProgress[requiredItem]) || 0))
+      Math.max(0, Math.round(Number(existing.pointProgress[requiredItem]) || 0))
     );
   }
   const record = Object.assign({
@@ -314,7 +394,7 @@ function normalizeChapterRescue(reserve = {}, chapterNumber = 1, options = {}) {
   // Keep the current chapter's planned unlocks in their normal order.
   chapter.targets.forEach((speciesId, index) => {
     const targetId = `chapter:${chapter.chapter}:rescue:${index + 1}`;
-    const prior = Object.assign({}, old[targetId] || old[speciesId] || oldBySpecies.get(speciesId) || {});
+    const prior = rescuePriorRecord(existing, old, oldBySpecies, targetId, speciesId);
     const completed = completedTargets[targetId] || completedTargets[speciesId] || completedBySpecies.get(speciesId);
     if (completed && Number(completed.rescuedAt) > 0) {
       prior.status = "rescued";
@@ -344,7 +424,7 @@ function normalizeChapterRescue(reserve = {}, chapterNumber = 1, options = {}) {
       previous.targets.forEach((speciesId, index) => {
         if (seenSpecies.has(speciesId)) return;
         const targetId = `chapter:${carryChapter}:rescue:${index + 1}`;
-        const prior = Object.assign({}, old[targetId] || old[speciesId] || oldBySpecies.get(speciesId) || {});
+        const prior = rescuePriorRecord(existing, old, oldBySpecies, targetId, speciesId);
         const completed = completedTargets[targetId] || completedTargets[speciesId] || completedBySpecies.get(speciesId);
         if ((completed && Number(completed.rescuedAt) > 0) || prior.status === "rescued") return;
         const group = speciesPopulationGroup(speciesId);
@@ -374,10 +454,9 @@ function normalizeChapterRescue(reserve = {}, chapterNumber = 1, options = {}) {
   Object.values(records).forEach((record) => {
     if (!record || record.status === "rescued") return;
     const group = speciesPopulationGroup(record.speciesId);
-    if (reserve.ecology && reserve.ecology[group]) {
-      const current = Math.max(0, Number(reserve.ecology[group][record.speciesId]) || 0);
-      if (!(record.preserveResidentPopulation && current > 1)) reserve.ecology[group][record.speciesId] = 1;
-    }
+    const bucket = ensureEcologyGroup(reserve, group);
+    const current = Math.max(0, Number(bucket[record.speciesId]) || 0);
+    if (!(record.preserveResidentPopulation && current > 1)) bucket[record.speciesId] = 1;
   });
 
   const carryoverSpecies = targetRecords.filter((record) => record.carryover).map((record) => record.speciesId);
@@ -385,12 +464,12 @@ function normalizeChapterRescue(reserve = {}, chapterNumber = 1, options = {}) {
     version: RESCUE_VERSION,
     chapter: chapter.chapter,
     title: chapter.title,
-    enforceCompletion: existing.chapter && Number(existing.chapter) !== chapter.chapter
+    enforceCompletion: existing.enforceCompletion === false
+      ? false
+      : existing.chapter && Number(existing.chapter) !== chapter.chapter
       ? true
       : existing.enforceCompletion !== false,
-    legacyGateBypass: existing.chapter && Number(existing.chapter) !== chapter.chapter
-      ? false
-      : existing.legacyGateBypass === true,
+    legacyGateBypass: existing.legacyGateBypass === true,
     starter: chapter.starter.slice(),
     captive: Array.from(new Set(chapter.captive.concat(carryoverSpecies))),
     targets: targetRecords,
@@ -404,11 +483,16 @@ function normalizeChapterRescue(reserve = {}, chapterNumber = 1, options = {}) {
       ? existing.flow
       : { state: "idle", targetId: "" }
   });
-  Object.defineProperty(reserve.chapterRescue, "_normalizedChapter", {
-    value: chapter.chapter,
-    enumerable: false,
-    writable: true
-  });
+  try {
+    Object.defineProperty(reserve.chapterRescue, "_normalizedChapter", {
+      value: chapter.chapter,
+      enumerable: false,
+      writable: true,
+      configurable: false
+    });
+  } catch (error) {
+    reserve.chapterRescue._normalizedChapter = chapter.chapter;
+  }
   return reserve.chapterRescue;
 }
 const normalizeChapterRescueWithoutCarryover = normalizeChapterRescue;
@@ -433,9 +517,35 @@ function ownsRescueItem(record, itemId) {
   return !!((record.collectedItems || {})[itemId])
     || Number((record.pointProgress || {})[itemId]) >= rescuePointTarget(record, itemId);
 }
+function rescueShotsFor(reserve = {}) {
+  const shots = [];
+  (Array.isArray(reserve.archeryHistory) ? reserve.archeryHistory : []).forEach((shot) => shots.push(shot));
+  if (reserve.lastArcheryShot) shots.push(reserve.lastArcheryShot);
+  if (reserve.lastRescueShot) shots.push(reserve.lastRescueShot);
+  return shots;
+}
+function rescueItemClaimedByOtherAnimal(reserve = {}, record = {}, itemId = "") {
+  if (!record || !itemId) return false;
+  const own = new Set([record.targetId, record.speciesId].filter(Boolean).map(String));
+  const recordChapter = Math.round(Number(record.chapter) || 0);
+  return rescueShotsFor(reserve).some((shot) => {
+    if (!shot) return false;
+    const shotItem = String(shot.itemId || shot.rescueItemId || shot.targetId || "");
+    if (shotItem !== String(itemId)) return false;
+    const shotTarget = String(shot.rescueTargetId || "");
+    if (shotTarget) return !own.has(shotTarget);
+    const shotChapter = Math.round(Number(shot.chapter) || 0);
+    return shotChapter > 0 && recordChapter > 0 && shotChapter !== recordChapter;
+  });
+}
 function rescueItemCountFor(reserve = {}, record, itemId) {
   if (!record || record.status === 'rescued') return 0;
-  if (ownsRescueItem(record, itemId)) return 1;
+  const ownHistory = (Array.isArray(record.pointHistory) ? record.pointHistory : []).some((shot) => shot
+    && String(shot.itemId || shot.rescueItemId || "") === String(itemId)
+    && Number(shot.totalScore || shot.shotScore) > 0);
+  const claimedElsewhere = rescueItemClaimedByOtherAnimal(reserve, record, itemId);
+  if (ownsRescueItem(record, itemId) && (!claimedElsewhere || ownHistory || !!((record.collectedItems || {})[itemId]))) return 1;
+  if (claimedElsewhere) return 0;
   const records = Object.values((reserve.chapterRescue || {}).animals || {})
     .concat(((reserve.poacherRescue || {}).active) || []);
   const owners = new Set(records.filter(other => ownsRescueItem(other, itemId))
@@ -454,7 +564,7 @@ function rescueAnimal(reserve={},animalId) {
   }
   return result;
 }
-function rescueAnimalUntracked(reserve={},animalId){invalidateRescueCache(reserve);const state=reserve.chapterRescue||{},record=findRecord(state,animalId);if(!record||record.status==='rescued')return {ok:false,record:record||null};reserve.inventory=reserve.inventory||{};reserve.inventory.rescueItems=reserve.inventory.rescueItems||{};const missing=(record.requiredItems||[]).filter(id=>rescueItemCountFor(reserve,record,id)<1);if(missing.length)return {ok:false,record,missing};record.requiredItems.forEach(id=>{reserve.inventory.rescueItems[id]=Math.max(0,rescueItemCount(reserve,id)-1);if(!reserve.inventory.rescueItems[id]){reserve.materialExplorationProgress=Object.assign({},reserve.materialExplorationProgress,{[id]:0});}});record.status='rescued';record.rescuedAt=Date.now();state.completedTargets=Object.assign({},state.completedTargets||{}, {[record.targetId]:{rescuedAt:record.rescuedAt,speciesId:record.speciesId,source:'chapter-rescue'}});const group=speciesPopulationGroup(record.speciesId);reserve.ecology=reserve.ecology||{};reserve.ecology[group]=reserve.ecology[group]||{};const species=getSpeciesById(record.speciesId),existing=Math.max(0,Number(reserve.ecology[group][record.speciesId])||0),released=Math.max(1,Math.round(Number(species&&species.initialPop)||1));reserve.ecology[group][record.speciesId]=Math.max(existing,released);state.lastTaskId=`rescue:${state.chapter}:${record.targetId}`;state.lastCompletedAt=Date.now();state.flow={state:'rescueResult',targetId:record.targetId};return {ok:true,record};}
+function rescueAnimalUntracked(reserve={},animalId){invalidateRescueCache(reserve);const state=reserve.chapterRescue||{},record=findRecord(state,animalId);if(!record||record.status==='rescued')return {ok:false,record:record||null};reserve.inventory=reserve.inventory||{};reserve.inventory.rescueItems=reserve.inventory.rescueItems||{};const missing=(record.requiredItems||[]).filter(id=>rescueItemCountFor(reserve,record,id)<1);if(missing.length)return {ok:false,record,missing};record.requiredItems.forEach(id=>{reserve.inventory.rescueItems[id]=Math.max(0,rescueItemCount(reserve,id)-1);if(!reserve.inventory.rescueItems[id]){reserve.materialExplorationProgress=Object.assign({},reserve.materialExplorationProgress,{[id]:0});}});record.status='rescued';record.rescuedAt=Date.now();state.completedTargets=Object.assign({},state.completedTargets||{}, {[record.targetId]:{rescuedAt:record.rescuedAt,speciesId:record.speciesId,source:'chapter-rescue'}});const group=speciesPopulationGroup(record.speciesId);reserve.ecology=reserve.ecology||{};ensureEcologyGroup(reserve,group);const species=getSpeciesById(record.speciesId),existing=Math.max(0,Number(reserve.ecology[group][record.speciesId])||0),released=Math.max(1,Math.round(Number(species&&species.initialPop)||1));reserve.ecology[group][record.speciesId]=Math.max(existing,released);state.lastTaskId=`rescue:${state.chapter}:${record.targetId}`;state.lastCompletedAt=Date.now();state.flow={state:'rescueResult',targetId:record.targetId};return {ok:true,record};}
 function rescuePoacherAnimal(...args) { return require("./animalSourceLedger").trackPopulationChange(args[0], "rescued", () => rescuePoacherAnimalUntracked(...args)); }
 function addPoacherRescueBonus(reserve, speciesId) {
   const before = livingAnimalTotal(reserve);
@@ -477,7 +587,7 @@ function addPoacherRescueBonus(reserve, speciesId) {
   });
   return bonus - remaining;
 }
-function rescuePoacherAnimalUntracked(reserve={},animalId){const state=poacherRescueState(reserve),record=findPoacherRescue(reserve,animalId);if(!record||record.status==='rescued')return {ok:false,record:record||null};const missing=(record.requiredItems||[]).filter(id=>rescueItemCountFor(reserve,record,id)<1);if(missing.length)return {ok:false,record,missing};reserve.inventory=reserve.inventory||{};reserve.inventory.rescueItems=reserve.inventory.rescueItems||{};record.requiredItems.forEach(id=>{reserve.inventory.rescueItems[id]=Math.max(0,rescueItemCount(reserve,id)-1);if(!reserve.inventory.rescueItems[id]){reserve.materialExplorationProgress=Object.assign({},reserve.materialExplorationProgress,{[id]:0});}});record.status='rescued';record.rescuedAt=Date.now();const group=speciesPopulationGroup(record.speciesId);reserve.ecology=reserve.ecology||{};reserve.ecology[group]=reserve.ecology[group]||{};const released=Math.max(1,Math.round(Number(record.capturedCount)||1));reserve.ecology[group][record.speciesId]=Math.max(0,Number(reserve.ecology[group][record.speciesId])||0)+released;const bonus=addPoacherRescueBonus(reserve, record.speciesId);state.active=state.active.filter(item=>item.targetId!==record.targetId);state.history.push(record);state.pendingEvent=null;state.cooldownChapter=Number(record.chapter)||0;state.cooldownUntilDay=Math.max(Number(state.cooldownUntilDay)||0,Number(record.createdDay||0)+2);return {ok:true,record,bonus};}
+function rescuePoacherAnimalUntracked(reserve={},animalId){const state=poacherRescueState(reserve),record=findPoacherRescue(reserve,animalId);if(!record||record.status==='rescued')return {ok:false,record:record||null};const missing=(record.requiredItems||[]).filter(id=>rescueItemCountFor(reserve,record,id)<1);if(missing.length)return {ok:false,record,missing};reserve.inventory=reserve.inventory||{};reserve.inventory.rescueItems=reserve.inventory.rescueItems||{};record.requiredItems.forEach(id=>{reserve.inventory.rescueItems[id]=Math.max(0,rescueItemCount(reserve,id)-1);if(!reserve.inventory.rescueItems[id]){reserve.materialExplorationProgress=Object.assign({},reserve.materialExplorationProgress,{[id]:0});}});record.status='rescued';record.rescuedAt=Date.now();const group=speciesPopulationGroup(record.speciesId);reserve.ecology=reserve.ecology||{};ensureEcologyGroup(reserve,group);const released=Math.max(1,Math.round(Number(record.capturedCount)||1));reserve.ecology[group][record.speciesId]=Math.max(0,Number(reserve.ecology[group][record.speciesId])||0)+released;const bonus=addPoacherRescueBonus(reserve, record.speciesId);state.active=state.active.filter(item=>item.targetId!==record.targetId);state.history.push(record);state.pendingEvent=null;state.cooldownChapter=Number(record.chapter)||0;state.cooldownUntilDay=Math.max(Number(state.cooldownUntilDay)||0,Number(record.createdDay||0)+2);return {ok:true,record,bonus};}
 function rescueShotMatchesRecord(shot={},record={},itemId=""){
   if(!shot||!record||!itemId)return false;
   const shotTarget=String(shot.rescueTargetId||"");
@@ -512,26 +622,48 @@ function reconcileRescueArcheryLedger(reserve={}){
   });
   let changed=false;
   states.forEach(record=>{
-    if(!Array.isArray(record.requiredItems)||!record.requiredItems.length)return;
+    if(!record||record.status==='rescued'||!Array.isArray(record.requiredItems)||!record.requiredItems.length)return;
     record.pointProgress=Object.assign({},record.pointProgress||{});
     record.requiredItems.forEach(itemId=>{
       let best=Math.max(0,Number(record.pointProgress[itemId])||0);
+      const recordChapter=Math.round(Number(record.chapter)||0);
       shots.forEach(shot=>{
         let matches=rescueShotMatchesRecord(shot,record,itemId);
         if(!matches&&!String(shot.rescueTargetId||"")){
           const owners=ownersByItem[String(itemId)]||[];
-          matches=owners.length===1&&owners[0]===record
+          const shotChapter=Math.round(Number(shot.chapter)||0);
+          const sameChapter=!shotChapter||!recordChapter||shotChapter===recordChapter;
+          matches=sameChapter&&owners.length===1&&owners[0]===record
             && String(shot.itemId||shot.rescueItemId||shot.targetId||"")===String(itemId);
         }
         if(!matches)return;
         const total=Math.max(0,Math.round(Number(shot.totalScore)||0));
         if(total>best)best=total;
       });
+      const claimedElsewhere=rescueItemClaimedByOtherAnimal(reserve,record,itemId);
+      const ownHistory=(Array.isArray(record.pointHistory)?record.pointHistory:[]).some(shot=>shot
+        && String(shot.itemId||shot.rescueItemId||"")===String(itemId)
+        && Number(shot.totalScore||shot.shotScore)>0);
+      if(claimedElsewhere && !ownHistory && best>0){
+        const ownTagged=shots.some(shot=>rescueShotMatchesRecord(shot,record,itemId)&&Number(shot.totalScore)>0);
+        if(!ownTagged)best=0;
+      }
       const target=rescuePointTarget(record,itemId);
       best=Math.min(target||best,best);
-      if(best>Math.max(0,Number(record.pointProgress[itemId])||0)){
+      const stored=Math.max(0,Number(record.pointProgress[itemId])||0);
+      if(best<stored && claimedElsewhere && !ownHistory){
         record.pointProgress[itemId]=best;
         changed=true;
+      }else if(best>stored){
+        record.pointProgress[itemId]=best;
+        changed=true;
+      }
+      if(best===0 && claimedElsewhere){
+        const owners=ownersByItem[String(itemId)]||[];
+        if(owners.length===1 && owners[0]===record && Number((reserve.materialExplorationProgress||{})[itemId])>0){
+          reserve.materialExplorationProgress[itemId]=0;
+          changed=true;
+        }
       }
       if(best>0){
         reserve.materialExplorationProgress=reserve.materialExplorationProgress||{};
@@ -545,4 +677,4 @@ function reconcileRescueArcheryLedger(reserve={}){
   return changed;
 }
 function chapterRescueSummary(reserve={},chapterNumber=1){const state=normalizeChapterRescue(reserve,chapterNumber),animals=state.targets||[],rescued=animals.filter(x=>x.status==='rescued').length;return {chapter:state.chapter,total:animals.length,rescued,remaining:Math.max(0,animals.length-rescued),complete:rescued>=animals.length,animals};}
-module.exports={isChapterRescueSpecies,chapterCaptiveSpeciesSet,captiveSpeciesSet,livingAnimalTotal,clampChapterCaptivePopulations,rescueTargetScore,rescuePointTarget,rescueItemCountFor,RESCUE_VERSION,CHAPTER_RESCUE_TARGET_SCORE,POACHER_RESCUE_TARGET_SCORE,CHAPTER_RESCUE_MAP_SLOTS,POACHER_RESCUE_MAP_SLOTS,chapterRescueMapSlot,poacherRescueMapSlot,RESCUE_ITEM_CATALOG,rescueItemById,chapterDefinition,normalizeChapterRescue,rescueAnimalsForChapter,nextRescueTask,addRescueItem,rescueItemCount,collectRescueItem,canRescueAnimal,rescueAnimal,rescuePoacherAnimal,poacherRescueState,nextPoacherRescue,createPoacherRescue,findPoacherRescue,chapterRescueSummary,reconcileRescueArcheryLedger,rescueStoryFor,recordRescueExploration,rescueGuaranteeReady,findRecord,targetCount};
+module.exports={isChapterRescueSpecies,chapterCaptiveSpeciesSet,captiveSpeciesSet,livingAnimalTotal,clampChapterCaptivePopulations,rescueTargetScore,rescuePointTarget,rescueItemCountFor,RESCUE_VERSION,CHAPTER_RESCUE_TARGET_SCORE,POACHER_RESCUE_TARGET_SCORE,CHAPTER_RESCUE_MAP_SLOTS,POACHER_RESCUE_MAP_SLOTS,chapterRescueMapSlot,poacherRescueMapSlot,RESCUE_ITEM_CATALOG,RESCUE_ITEM_BY_SPECIES,rescueItemById,requiredItemsFor,chapterDefinition,normalizeChapterRescue,rescueAnimalsForChapter,nextRescueTask,addRescueItem,rescueItemCount,collectRescueItem,canRescueAnimal,rescueAnimal,rescuePoacherAnimal,poacherRescueState,nextPoacherRescue,createPoacherRescue,findPoacherRescue,chapterRescueSummary,reconcileRescueArcheryLedger,rescueStoryFor,recordRescueExploration,rescueGuaranteeReady,findRecord,targetCount};

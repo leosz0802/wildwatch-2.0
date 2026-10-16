@@ -5,6 +5,7 @@ const { createCharacter } = require('../js/storage');
 const { normalizeGoalState, resolveGoals, applyGoalProgress } = require('../js/goalSystem');
 const { criticalPatrolRisk, PATROL_ACTIONS } = require('../js/patrolTriggerPolicy');
 const { buildReserveView } = require('../js/reserveView');
+const { CHAPTERS } = require('../js/animalWorld');
 
 const clone = value => JSON.parse(JSON.stringify(value));
 function fixture(stage = 1, history = []) {
@@ -34,20 +35,14 @@ function gameFor(state) {
 }
 
 let stableCases = 0;
-for (let stage = 1; stage <= 20; stage++) {
+for (let stage = 1; stage <= CHAPTERS.length; stage++) {
   for (const history of [[], ...PATROL_ACTIONS.map(action => [action, action])]) {
     for (const metric of ['score', 'population', 'migratedIn']) {
       const state = fixture(stage, history);
       state.world.reserve.progression.objectives[1].id = metric;
       const goals = resolveGoals(state, state.world.goals);
       state.world.goals = goals;
-      const guard = goals.daily.objectives.find(item => item.kind === 'guard');
-      if (guard) {
-        assert.notEqual(guard.recommendedAction, 'exploreMaterials', `chapter ${stage}: daily guard must not force Survival`);
-        assert(!/生存频道/.test(guard.buttonLabel || ''), 'daily text must not send the player to Survival');
-      }
-      assert(goals.daily.objectives.every(item => ['visitor', 'ecology'].includes(item.kind)), `chapter ${stage}: daily tasks must stay visitor/ecology`);
-      assert(goals.daily.objectives.every(item => item.recommendedAction !== 'exploreMaterials' && item.targetScreen !== 'survival'));
+      assert.equal(goals.daily.objectives.length, 0, `chapter ${stage}: daily tasks stay removed`);
       const candidates = [goals.active.primary, ...goals.active.alternatives].filter(Boolean);
       assert(candidates.every(item => item.themeTask || !PATROL_ACTIONS.includes(item.recommendedAction) || /^metric:animals:/.test(item.id || '')), `chapter ${stage}: ${metric} generated a patrol outside the chapter theme`);
       const recommended = gameFor(state).recommendedPatrolAction(state.world.reserve);
@@ -63,7 +58,7 @@ for (const [field, threshold, direction, action] of [
   ['disease', 45, 'high', 'intervention'], ['poacherPressure', 65, 'high', 'antiPoacher'],
   ['safety', 30, 'low', 'houndScout']
 ]) {
-  for (let stage = 1; stage <= 20; stage++) {
+  for (let stage = 1; stage <= CHAPTERS.length; stage++) {
     const state = fixture(stage); const reserve = state.world.reserve;
     const object = ['water', 'grass', 'disease'].includes(field) ? reserve.ecology : reserve;
     object[field] = threshold + (direction === 'low' ? .1 : -.1);
@@ -71,17 +66,15 @@ for (const [field, threshold, direction, action] of [
     object[field] = threshold;
     assert.equal(criticalPatrolRisk(reserve).action, action);
     const daily = resolveGoals(state, state.world.goals).daily.objectives;
-    assert.equal(daily.find(item => item.kind === 'visitor').recommendedAction, 'viewVisitors');
-    assert.equal(daily.find(item => item.kind === 'ecology').recommendedAction, 'habitat');
+    assert.equal(daily.length, 0, 'critical risk must not recreate daily tasks');
     assert.equal(gameFor(state).recommendedPatrolAction(reserve), action);
     object[field] = direction === 'low' ? 75 : 8;
     const resolved = resolveGoals(state, state.world.goals).daily.objectives;
-    assert.equal(resolved.find(item => item.kind === 'visitor').recommendedAction, 'viewVisitors', 'resolved risk must not replace visitor recruitment');
-    assert.equal(resolved.find(item => item.kind === 'ecology').recommendedAction, 'habitat', 'daily water/grass task stays habitat');
+    assert.equal(resolved.length, 0, 'resolved risk must not recreate daily tasks');
   }
 }
 assert.equal(criticalPatrolRisk({ ecology: { water: null, grass: 'bad', disease: NaN } }), null);
-for (let stage = 1; stage <= 20; stage++) {
+for (let stage = 1; stage <= CHAPTERS.length; stage++) {
   const game = gameFor(fixture(stage));
   const reserve = game.state.world.reserve;
   reserve.dailyReturnEvent = { dateKey: new Date().toISOString().slice(0, 10), status: 'pending', actionId: 'houndScout' };
@@ -157,41 +150,36 @@ for (const recovery of [false, true]) {
 for (const oldAction of PATROL_ACTIONS) {
   const game = gameFor(fixture(2));
   const daily = game.state.world.goals.daily;
-  daily.objectives[0].recommendedAction = oldAction;
+  daily.objectives = [
+    { id: 'daily_guard', kind: 'guard', recommendedAction: oldAction, target: 1, progress: 0, complete: false },
+    { id: 'daily_visitor', kind: 'visitor', target: 1, progress: 0, complete: false }
+  ];
   daily.schemaVersion = 2;
   daily.required = 4;
-  daily.objectives.push({ id: 'daily_visitor', kind: 'visitor', target: 1, progress: 0 });
+  daily.coreClaimed = false;
+  daily.fullClaimed = false;
   game.activeTaskLock = { id: `daily:${daily.dateKey}:daily_guard`, kind: 'daily', goal: { recommendedAction: oldAction } };
   let opened = 0;
   let routedToSurvival = 0;
   game.openMaterialExploration = () => { opened++; game.infoDetailModal = { kind: 'materialExploration' }; return true; };
   game.setScreen = screen => { game.screen = screen; if (screen === 'survival') routedToSurvival++; };
   const beforeActions = game.state.world.reserve.progression.totalActions;
-  assert(game.openDailyEvents());
-  assert.equal(game.infoDetailModal.kind, 'dailyEvents', 'daily entry must display checklist, not resume patrol');
-  assert.equal(game.infoDetailModal.checklist.total, 2, 'old four-item saves must migrate to visitor and ecology');
+  const beforeFund = game.state.world.reserve.fund;
+  assert.equal(game.openDailyEvents(), false, 'old daily saves must not reopen the checklist');
+  assert.notEqual(game.infoDetailModal && game.infoDetailModal.kind, 'dailyEvents');
   assert.equal(opened, 0);
-  assert.equal(routedToSurvival, 0, 'opening the list must not force Survival');
-  const activeId = game.infoDetailModal.activeDailyId;
-  assert(['daily_visitor', 'daily_ecology'].includes(activeId));
-  assert(game.executeDailyEvent(activeId, daily.dateKey));
-  assert.equal(routedToSurvival, 0, 'migrated daily tasks must not open Survival');
-  assert.equal(game.patrolTaskModal, undefined);
-  assert.equal(game.executeDailyEvent(activeId, daily.dateKey), false, 'stale double tap must not reopen a task');
+  assert.equal(routedToSurvival, 0, 'retired daily tasks must not force Survival');
+  assert.equal(game.executeDailyEvent('daily_guard', daily.dateKey), false);
   assert.equal(game.state.world.reserve.progression.totalActions, beforeActions, 'opening is not completion');
+  assert.equal(game.state.world.reserve.fund, beforeFund, 'old daily rows must not pay out');
 }
 
-for (let stage = 1; stage <= 20; stage++) {
+for (let stage = 1; stage <= CHAPTERS.length; stage++) {
   let state = fixture(stage);
-  const actions = ["viewVisitors", "habitat"];
-  for (const action of actions) {
-    // Simulate reload between every completion; no patrol is needed to clear the daily list.
-    state = clone(state);
-    state.world.goals = normalizeGoalState(state.world.goals, state);
-    state = applyGoalProgress(clone(state), state, { action }).state;
-  }
-  assert.equal(state.world.goals.daily.objectives.length, 2);
-  assert(state.world.goals.daily.objectives.every(item => item.complete), `chapter ${stage}: daily stuck without patrol`);
+  state.world.goals = normalizeGoalState(state.world.goals, state);
+  state = applyGoalProgress(clone(state), state, { action: 'viewVisitors' }).state;
+  state = applyGoalProgress(clone(state), state, { action: 'habitat' }).state;
+  assert.equal(state.world.goals.daily.objectives.length, 0, `chapter ${stage}: daily tasks stay removed`);
   assert(state.world.goals.daily.fullClaimed);
   const balance = state.world.reserve.fund;
   for (let reopen = 0; reopen < 5; reopen++) state.world.goals = normalizeGoalState(clone(state.world.goals), state);

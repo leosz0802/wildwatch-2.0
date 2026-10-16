@@ -3,7 +3,7 @@ const path = require("path");
 
 const root = path.resolve(__dirname, "..");
 const gamePath = path.join(root, "js/game.js");
-const iconDir = path.join(root, "assets/art/ui-v3/icons");
+const iconDir = path.join(root, "assets/art/archive/ui-v3/icons");
 const source = fs.readFileSync(gamePath, "utf8");
 
 function fail(message) {

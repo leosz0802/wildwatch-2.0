@@ -245,6 +245,9 @@ const GUARDIAN_PROMISES = [
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(value || 0)));
 }
+function guardianPromisesRetired() {
+  return true;
+}
 function promiseByChapter(chapter) {
   return GUARDIAN_PROMISES.find((item) => item.chapter === Number(chapter)) || null;
 }
@@ -261,7 +264,7 @@ function normalizeGuardianPromises(saved) {
     if (!promiseChoice(chapter, record.choiceId)) return;
     choices[chapter] = Object.assign({}, record, { chapter });
   });
-  const pendingPromise = source.pending && promiseByChapter(source.pending.chapter);
+  const pendingPromise = !guardianPromisesRetired() && source.pending && promiseByChapter(source.pending.chapter);
   const pending = pendingPromise && !choices[pendingPromise.chapter]
     ? Object.assign({}, source.pending, {
       id: pendingPromise.id,
@@ -280,6 +283,11 @@ function normalizeGuardianPromises(saved) {
 }
 function maybePrepareGuardianPromise(reserve, context = {}) {
   const state = normalizeGuardianPromises(reserve.guardianPromises);
+  if (guardianPromisesRetired()) {
+    state.pending = null;
+    reserve.guardianPromises = state;
+    return null;
+  }
   if (state.pending) {
     reserve.guardianPromises = state;
     return state.pending;
@@ -307,6 +315,7 @@ function maybePrepareGuardianPromise(reserve, context = {}) {
   return state.pending;
 }
 function selectGuardianPromiseChoice(reserve, chapter, choiceId) {
+  if (guardianPromisesRetired()) return null;
   const state = normalizeGuardianPromises(reserve.guardianPromises);
   if (!state.pending || Number(state.pending.chapter) !== Number(chapter) || !promiseChoice(chapter, choiceId)) return null;
   state.pending.selectedChoiceId = choiceId;
@@ -362,6 +371,7 @@ function changesBetween(before, after) {
   return Object.keys(after).map((key) => ({ key, before: before[key], after: after[key], delta: after[key] - before[key] })).filter((item) => item.delta !== 0);
 }
 function applyGuardianPromiseChoice(reserve, chapter, choiceId, context = {}) {
+  if (guardianPromisesRetired()) return null;
   const state = normalizeGuardianPromises(reserve.guardianPromises);
   const promise = promiseByChapter(chapter);
   const choice = promiseChoice(chapter, choiceId);
@@ -387,6 +397,7 @@ function applyGuardianPromiseChoice(reserve, chapter, choiceId, context = {}) {
   return { promise, choice, record, before, after, changes: changesBetween(before, after) };
 }
 function chosenPromiseChoices(reserve) {
+  if (guardianPromisesRetired()) return [];
   const state = normalizeGuardianPromises((reserve || {}).guardianPromises);
   return Object.keys(state.choices).sort((a, b) => Number(a) - Number(b)).map((chapter) => {
     const record = state.choices[chapter];
@@ -434,6 +445,7 @@ function lifeCycleModifiers(reserve) {
 }
 module.exports = {
   GUARDIAN_PROMISES,
+  guardianPromisesRetired,
   promiseByChapter,
   normalizeGuardianPromises,
   maybePrepareGuardianPromise,

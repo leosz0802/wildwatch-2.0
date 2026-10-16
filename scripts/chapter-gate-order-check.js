@@ -6,9 +6,10 @@ const { normalizeChapterRescue, collectRescueItem, rescueAnimal } = require('../
 const { reconcileSpeciesPopulations } = require('../js/animalWorld');
 const { chapterTargets, chapterAdvanceReady, beginChapterAnimalCheckpoint, chapterAnimalTotal } = require('../js/chapterTargets');
 const { recordIncrease } = require('../js/animalSourceLedger');
+const { CHAPTERS } = require('../js/animalWorld');
 
 for (const reverse of [false, true]) {
-  for (let stage = 1; stage <= 20; stage++) {
+  for (let stage = 1; stage <= CHAPTERS.length; stage++) {
     const reserve = createCharacter(null, '章节晋级顺序回归').world.reserve;
     const level = Math.min(7, Math.ceil(stage / 2));
     // Isolate the promotion gate with satisfied story/numeric prerequisites.
@@ -61,8 +62,8 @@ for (const reverse of [false, true]) {
       assert(!rescueAnimal(reserve, target.targetId).ok, 'duplicate completion must be rejected');
     }
     const after = reserveProgressionFor(reserve);
-    assert.equal(after.stage, Math.min(20, stage + 1), `chapter ${stage} must promote once the three core metrics (and rare auction) are met`);
-    if (stage === 20) assert(after.chapterComplete);
+    assert.equal(after.stage, Math.min(CHAPTERS.length, stage + 1), `chapter ${stage} must promote once the three core metrics (and rare auction) are met`);
+    if (stage === CHAPTERS.length) assert(after.chapterComplete);
   }
 }
-console.log('chapter gate order check ok: 20 chapters × forward/reverse rescue order; no premature promotion, no blocked completed gate, final chapter completion');
+console.log(`chapter gate order check ok: ${CHAPTERS.length} chapters × forward/reverse rescue order; no premature promotion, no blocked completed gate, final chapter completion`);

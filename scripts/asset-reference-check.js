@@ -28,7 +28,7 @@ assets.forEach((asset) => {
 });
 
 [
-  "assets/art/core-map-anime-v1.jpg"
+  "assets/art/archive/core-map-anime-v1.jpg"
 ].forEach((asset) => {
   if (!assets.has(asset)) throw new Error(`core first-package asset is not referenced: ${asset}`);
   if (isIgnored(asset)) throw new Error(`core first-package asset must not be ignored: ${asset}`);
@@ -40,14 +40,14 @@ if (assets.has("assets/art/core-sprites-atlas.png")) {
 if (Array.from(assets).some((asset) => asset.startsWith("assets/art/ui-v2/"))) {
   throw new Error("runtime should not reference deprecated ui-v2 icon assets");
 }
-const runtimeIcons = Array.from(assets).filter((asset) => asset.startsWith("assets/art/ui-v3/icons/"));
+const runtimeIcons = Array.from(assets).filter((asset) => asset.startsWith("assets/art/archive/ui-v3/icons/"));
 if (runtimeIcons.length < 23) {
   throw new Error(`runtime should reference every active ui-v3 icon, got ${runtimeIcons.length}`);
 }
 runtimeIcons.forEach((asset) => {
   if (isIgnored(asset)) throw new Error(`runtime ui-v3 icon must not be ignored: ${asset}`);
 });
-if (!assets.has("assets/art/collection/collection-items-atlas.png")) {
+if (!assets.has("assets/art/archive/collection-items-atlas.png")) {
   throw new Error("collection V2 should reference its single lightweight item atlas");
 }
 

@@ -88,8 +88,7 @@ for (const [width, height] of [[320,568], [375,812], [430,932]]) {
   assert.equal(JSON.stringify(target), rescueBefore, 'reading mail must not modify flamingo rescue points');
   for (let i = 0; i < 3; i++) { game.openReserveLetterInbox({ unreadOnly: true }); close(game); }
   game.openChapterRescueTask(target.targetId);
-  assert.equal(game.infoDetailModal.kind, 'materialExploration', 'rescue must still open archery after reading mail');
-  assert.equal(game.infoDetailModal.explorationMode, 'archery');
+  assert.equal(game.infoDetailModal.kind, 'chapterRescueTask', 'rescue must still open the rescue card after reading mail');
   close(game);
   saveState(game.state); game.state = loadState();
   game.openReserveLetterInbox({ unreadOnly: true });
@@ -99,7 +98,7 @@ for (const [width, height] of [[320,568], [375,812], [430,932]]) {
 }
 // Reproduce the invisible-overlay bug: a result belongs to another screen.
 // Keep the result intact, but it must not suppress mail or sandbox input here.
-for (let chapter = 1; chapter <= 20; chapter++) {
+for (let chapter = 1; chapter <= CHAPTERS.length; chapter++) {
   saved.clear();
   const game = make(375, 812, chapter);
   const pending = { presentationScreen: 'survival', silent: false, revealAt: 0 };

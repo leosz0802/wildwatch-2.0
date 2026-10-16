@@ -11,7 +11,7 @@ global.wx = {
 };
 const { createCharacter, saveState, loadState } = require('../js/storage');
 const api = require('../js/chapterRescueSystem');
-const { speciesPopulationGroup } = require('../js/animalWorld');
+const { CHAPTERS, speciesPopulationGroup } = require('../js/animalWorld');
 const clone = value => JSON.parse(JSON.stringify(value));
 function complete(reserve, target) {
   for (const id of target.requiredItems) api.collectRescueItem(reserve, target.targetId, id);
@@ -106,7 +106,7 @@ saveState(unconfirmed);
 assert(api.nextRescueTask(loadState().world.reserve, 1), 'unconfirmed old status must not bypass chapter rescue');
 
 let targets = 0;
-for (let chapter = 1; chapter <= 20; chapter++) {
+for (let chapter = 1; chapter <= CHAPTERS.length; chapter++) {
   const r = { ecology: { herbivores: {}, predators: {}, birds: {} }, inventory: { rescueItems: {} } };
   const ids = api.normalizeChapterRescue(r, chapter).targets.map(target => target.targetId);
   for (const id of ids) {
@@ -122,4 +122,4 @@ for (let chapter = 1; chapter <= 20; chapter++) {
   }
 }
 assert(api.createPoacherRescue(reserve, 'antelope', 2, 15), 'later chapters may have an independent antelope poaching event');
-console.log(`chapter rescue no-repeat check ok: ${targets} targets / 20 chapters; actual random selection, old duplicate cleanup, restart, no duplicate population or rewards`);
+console.log(`chapter rescue no-repeat check ok: ${targets} targets / ${CHAPTERS.length} chapters; actual random selection, old duplicate cleanup, restart, no duplicate population or rewards`);

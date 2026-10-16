@@ -90,7 +90,8 @@ try {
         assert(completedAtTransition, `seed ${seed} upgraded before chapter ${priorLevel} story completed on day ${day}`);
       }
       priorLevel = level;
-      const allowed = getUnlockedSpecies(level);
+      const chapter = Math.max(1, Math.round(Number(reserve.progression.stage || reserve.progression.displayChapter || level) || level));
+      const allowed = getUnlockedSpecies(level, chapter);
       const allowedIds = new Set(allowed.map((species) => species.id));
       Object.keys(SPECIES_DB).forEach((id) => {
         const population = speciesPopulation(reserve, id);

@@ -15,10 +15,10 @@ const total = reserve => ["predators", "herbivores", "birds"]
     .reduce((subtotal, value) => subtotal + Math.max(0, Number(value) || 0), 0), 0);
 
 let previousTarget = 0;
-for (let chapter = 1; chapter <= 20; chapter++) {
+for (let chapter = 1; chapter <= CHAPTERS.length; chapter++) {
   const target = chapterTargets(chapter).animals;
   assert(target > 0, `chapter ${chapter}: this-chapter animal gate must stay positive`);
-  if (chapter === 1) assert.equal(target, 58, "chapter 1 this-chapter animal gate is 58");
+  if (chapter === 1) assert.equal(target, chapterTargets(1).animals, "chapter 1 gate must match the current chapter target");
   if (chapter > 1) assert.ok(target > previousTarget, `chapter ${chapter}: this-chapter animal gate must rise`);
   previousTarget = target;
 }
@@ -28,7 +28,7 @@ const reserve = state.world.reserve;
 Object.assign(reserve.progression, { stage: 1, displayChapter: 1, level: CHAPTERS[0].level });
 normalizeChapterRescue(reserve, 1, { fresh: true });
 
-for (let chapter = 1; chapter < 20; chapter++) {
+for (let chapter = 1; chapter < CHAPTERS.length; chapter++) {
   const currentRescue = normalizeChapterRescue(reserve, chapter);
   currentRescue.targets.forEach(record => {
     record.status = "rescued";

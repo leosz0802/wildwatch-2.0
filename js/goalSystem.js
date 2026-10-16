@@ -1,6 +1,6 @@
 const { chapterFeaturedSpecies, CHAPTERS } = require("./animalWorld");
 const { BALANCE_V2, chapterEconomy, ECOLOGY_THRESHOLDS, levelOf, supplyCapFor } = require("./balanceConfig");
-const { collectionSummary } = require("./collectionSystem");
+const { collectionSummary } = require("./packBridge").collectionSystem;
 const { facilityStates, nextFacilityUseTarget } = require("./reserveFacilities");
 const { eventStepGuidance } = require("./storyGuidance");
 const { addPendingRecovered, addSupply } = require("./resourceLedger");
@@ -67,7 +67,7 @@ const ACTION_META = Object.freeze({
   exploreMaterials: { label: "跟动物探索", icon: "trail", screen: "materials" },
   salvage: { label: "处理回收物", icon: "salvage", screen: "role" },
   buySupplies: { label: "采购短缺补给", icon: "buySupplies", screen: "role" },
-  collectionInvestigate: { label: "去沙盘收录", icon: "trail", screen: "home" },
+  collectionInvestigate: { label: "点数调查", icon: "trail", screen: "collection" },
   guideSandbox: { label: "回沙盘查看", icon: "nav_sandbox", screen: "home" },
   viewFund: { label: "查看星币", icon: "fund", screen: "home" },
   viewVisitors: { label: "发布游客招募", icon: "community", screen: "collection" },
@@ -241,16 +241,6 @@ const CHAPTER_THEME_TASKS = Object.freeze({
       validActions: Object.freeze(["houndScout"]),
       buttonLabel: "猎犬侦查",
       resultText: "猎犬确认了捕食者边界，保护区有了赢得信任的第一条线索。"
-    }),
-    Object.freeze({
-      id: "protect-predators",
-      title: "保护捕食者",
-      body: "安抚并观察一位命名动物，让捕食者知道这里不是新的威胁来源。",
-      action: "animalCare",
-      validActions: Object.freeze(["animalCare"]),
-      buttonLabel: "保护捕食者",
-      actionHint: "动物安抚 · 建立捕食者信任",
-      resultText: "捕食者的紧张感下降，保护区开始赢得更高层级动物的信任。"
     }),
     Object.freeze({
       id: "reduce-over-intervention",
@@ -476,7 +466,20 @@ const CHAPTER_THEME_TASKS = Object.freeze({
 });
 const SUPPLY_CAPS = BALANCE_V2.supplyCaps;
 function clone(value) {
-  return value == null ? value : JSON.parse(JSON.stringify(value));
+  if (value == null) return value;
+  const seen = new WeakSet();
+  try {
+    return JSON.parse(JSON.stringify(value, (key, item) => {
+      if (typeof item === "bigint") return Number(item);
+      if (item && typeof item === "object") {
+        if (seen.has(item)) return undefined;
+        seen.add(item);
+      }
+      return item;
+    }));
+  } catch (error) {
+    return Array.isArray(value) ? [] : {};
+  }
 }
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, Number(value) || 0));
@@ -526,7 +529,11 @@ function dailyObjectiveKinds() {
   ];
   return rotations[((dayIndex % rotations.length) + rotations.length) % rotations.length];
 }
+function dailyTasksRetired() {
+  return true;
+}
 function dailyNeedCount(daily = {}) {
+  if (dailyTasksRetired()) return 0;
   return Math.max(
     Number(GOAL_BALANCE.dailyRequiredCount) || 2,
     dailyObjectiveKinds().length,
@@ -534,6 +541,7 @@ function dailyNeedCount(daily = {}) {
   );
 }
 function dailyBatchComplete(daily = {}) {
+  if (dailyTasksRetired()) return false;
   const kinds = dailyObjectiveKinds();
   const objectives = daily.objectives || [];
   return kinds.length > 0 && kinds.every((kind) => objectives.some((item) => item && item.kind === kind && item.complete));
@@ -590,6 +598,23 @@ function systemGoalCanRepeat(state, goal = {}) {
       || /补充基金|基金不足|获得基金|保护基金|接通基金|补给/.test(text);
   }
   return false;
+}
+function rememberSettledSystemGoal(state, goal = {}) {
+  if (!state || !goal || !goal.id) return "";
+  if (goal.themeTask || /^theme:\d+:/.test(String(goal.id || ""))) return "";
+  if (goal.endlessContract || goal.kind === "crisis" || goal.expiresSoon) return "";
+  if (goal.taskCategory === TASK_CATEGORIES.userTriggered) return "";
+  if (systemGoalCanRepeat(state, goal)) return "";
+  const chapter = chapterSystemGuideChapter(state, goal);
+  const key = `chapter:${chapter}:goal:${goal.id}`;
+  const ui = state.ui || (state.ui = {});
+  const seen = Object.assign({}, ui.chapterSystemAutoGuides || {});
+  seen[key] = Date.now();
+  ui.chapterSystemAutoGuides = seen;
+  const keys = Array.isArray(ui.chapterSystemAutoGuideKeys) ? ui.chapterSystemAutoGuideKeys.slice() : [];
+  if (!keys.includes(key)) keys.push(key);
+  ui.chapterSystemAutoGuideKeys = keys.slice(-96);
+  return key;
 }
 function shouldSuppressSeenSystemGoal(state, goal = {}) {
   if (!goal) return false;
@@ -803,6 +828,21 @@ function syncDailyProjection(daily) {
 }
 function createDailyState(state, now = Date.now()) {
   const chapter = chapterNumberOf(state);
+  if (dailyTasksRetired()) {
+    return syncDailyProjection({
+      version: 3,
+      schemaVersion: GOAL_BALANCE.dailySchemaVersion,
+      dateKey: goalDateKey(now),
+      chapterNumber: chapter,
+      objectives: [],
+      required: 0,
+      coreClaimed: true,
+      fullClaimed: true,
+      completedPrevious: false,
+      cycle: 1,
+      creditedActions: []
+    });
+  }
   const kinds = dailyObjectiveKinds(state);
   return syncDailyProjection({
     version: 3,
@@ -883,6 +923,7 @@ function normalizeGoalState(saved, state = {}, now = Date.now()) {
     }]).slice(-80);
     next.daily = createDailyState(state, now);
   }
+  if (dailyTasksRetired()) next.daily = createDailyState(state, now);
   next.active = Object.assign({ primary: null, alternatives: [], generatedAtAction: 0, manualSelectedId: null }, saved.active || {});
   next.stage = Object.assign({ chapter: 1, objectiveIds: [] }, saved.stage || {});
   next.longTerm = Object.assign({ tracks: [], unlocks: {}, grandComplete: false, finalMemorial: false }, saved.longTerm || {});
@@ -1173,7 +1214,7 @@ function visitorFacilityCandidate(state) {
     ? `沙盘上还没有游客。去${target.nodeShort}建设${choiceName}，建成后接待人数会出现在地图上。`
     : `沙盘游客只有 ${crowd} 人。去${target.nodeShort}建设${choiceName}，把接待从临时招募变成固定步道。`;
   const missing = target.available || !(target.missing || []).length ? "" : ` 当前${target.missing[0]}。`;
-  return candidate(`metric:visitors:guest-build:${target.nodeId}`, "stage", title, body + missing, "facilityBuild", empty ? 98 : 80, state, {
+  return candidate(`metric:visitors:guest-build:${target.nodeId}`, "stage", title, body + missing, "facilityBuild", empty ? 86 : 72, state, {
     visitorFacilityGuidance: true,
     allowBlocked: true,
     nodeId: target.nodeId,
@@ -1500,6 +1541,15 @@ function chapterThemeSavedStep(saved = {}, chapter, taskCount) {
   if (chapter === 2 && saved.chapter === chapter && Math.round(Number(saved.version) || 1) < 4 && step > 0) {
     step += 1;
   }
+  // Chapter 5 removed "保护捕食者" from index 1. Players already on
+  // "减少过度干预" shift back one index. Players parked on the removed
+  // task stay at index 1, which is now the observation task. A finished
+  // chain stays finished. Version 2 means this shift already ran.
+  if (chapter === 5 && saved.chapter === chapter && Math.round(Number(saved.version) || 1) < 2) {
+    const rawStep = Math.max(0, Math.round(Number(saved.step) || 0));
+    if (rawStep === 2) step = 1;
+    else if (rawStep > 2) step = taskCount;
+  }
   // Chapters 8-10 now have a four-step field chain instead of a single
   // postcard task. Older saves can be parked on the old one-step chain;
   // restart at the first remaining task while preserving retired ids.
@@ -1511,6 +1561,7 @@ function chapterThemeSavedStep(saved = {}, chapter, taskCount) {
 function chapterThemeRecordVersion(chapter, saved = {}) {
   if (chapter >= 8) return 4;
   if (chapter === 2) return 4;
+  if (chapter === 5) return 2;
   return Math.max(1, Math.round(Number(saved.version) || 1));
 }
 const LATE_CHAPTER_OPERATION_ACTIONS = new Set([
@@ -1525,10 +1576,9 @@ function lateChapterAutoOperationGoal(state, item) {
   if (item.chapterSpecial || item.recommendedAction === "chapterSpecial") return false;
   const action = String(item.recommendedAction || "");
   if (["sharePostcard", "captureScreen", "realEvent", "neighborExchange"].includes(action)) return false;
-  if (item.themeTask) {
-    const actions = [action].concat(item.validThemeActions || []);
-    return !actions.some((name) => name === "sharePostcard" || name === "captureScreen" || name === "harshNature");
-  }
+  // The live chapter theme is the main thread. Hiding it because its action
+  // is also an ordinary patrol left late chapters with an empty goal bar.
+  if (item.themeTask || item.visitorFacilityGuidance) return false;
   return LATE_CHAPTER_OPERATION_ACTIONS.has(action);
 }
 function chapterThemeRetiredTaskIds(state, chapter, tasks = []) {
@@ -2088,9 +2138,11 @@ function resolveGoals(state, suppliedGoals = null, trigger = "refresh") {
     core.forEach((item) => candidates.push(item));
   }
   let valid = candidates
-    .filter((item) => item.executable && TASK_CATEGORY_SET.has(item.taskCategory))
-    .filter((item) => !shouldSuppressSeenSystemGoal(state, item))
-    .filter((item) => !lateChapterAutoOperationGoal(state, item));
+    .filter((item) => item.executable && TASK_CATEGORY_SET.has(item.taskCategory));
+  const unsuppressed = valid.filter((item) => !shouldSuppressSeenSystemGoal(state, item));
+  if (unsuppressed.length) valid = unsuppressed;
+  const withoutLateOps = valid.filter((item) => !lateChapterAutoOperationGoal(state, item));
+  if (withoutLateOps.length) valid = withoutLateOps;
   const stalePrimary = goals.noProgressActions >= GOAL_BALANCE.rerouteAfterNoProgress
     ? ((goals.active || {}).primary || null)
     : null;
@@ -2133,7 +2185,9 @@ function resolveGoals(state, suppliedGoals = null, trigger = "refresh") {
   });
   if (!deduped.length && valid[0]) deduped.push(valid[0]);
   if (deduped.some((item) => item && item.themeTask)) {
+    const sparseVisitorGuide = valid.find((item) => item && item.visitorFacilityGuidance && Number(item.progress) > 0);
     deduped.splice(2);
+    if (sparseVisitorGuide && !deduped.some((item) => item && item.visitorFacilityGuidance)) deduped.push(sparseVisitorGuide);
   }
   const mandatoryOverride = ["crisis", "recovery"].includes((deduped[0] || {}).kind);
   const manualSelectedId = (((goals.active || {}).manualSelectedId) || "");
@@ -2251,7 +2305,7 @@ function progressionMilestones(state) {
 function progressSignature(goals) {
   return (goals.daily.objectives || []).map((objective) => `${objective.id}:${objective.progress}`).join("|");
 }
-function applyGoalProgress(beforeState, afterState, context = {}) {
+function applyGoalProgressBody(beforeState, afterState, context = {}) {
   const now = context.now == null ? Date.now() : context.now;
   const action = context.action || "";
   const derivedOnly = !!context.derivedOnly;
@@ -2263,7 +2317,10 @@ function applyGoalProgress(beforeState, afterState, context = {}) {
   const level = levelOf(reserve);
   const rewards = [];
   const completions = [];
+  // Collecting the pending pile must not mint a new pending sample or fund.
+  const preserveCollectedPending = action === "collectRecovered";
   const today = goalDateKey(now);
+  if (dailyTasksRetired()) goals.daily = createDailyState(afterState, now);
   // Actual operation settlement may use `derivedOnly` to avoid issuing the
   // same instant/daily reward twice. Chapter-theme progress is a separate
   // state transition and must still advance for that real action.
@@ -2290,7 +2347,7 @@ function applyGoalProgress(beforeState, afterState, context = {}) {
     }
   }
   if (goals.daily.dateKey !== today) {
-    if (!goals.daily.coreClaimed && (goals.daily.objectives || []).filter((objective) => objective.complete).length >= goals.daily.required) {
+    if (!preserveCollectedPending && !goals.daily.coreClaimed && (goals.daily.objectives || []).filter((objective) => objective.complete).length >= goals.daily.required) {
       applyDailyCoreReward(reserve, level, rewards);
     }
     goals.daily = createDailyState(afterState, now);
@@ -2305,7 +2362,7 @@ function applyGoalProgress(beforeState, afterState, context = {}) {
         next.complete = next.progress >= (next.target || 1);
         if (next.complete) {
           creditedDailyId = next.id;
-          applyDailyObjectiveReward(reserve, next, rewards);
+          if (!preserveCollectedPending) applyDailyObjectiveReward(reserve, next, rewards);
           completions.push({ type: "daily_objective", id: next.id, title: next.title, reward: next.reward });
         }
       }
@@ -2322,7 +2379,7 @@ function applyGoalProgress(beforeState, afterState, context = {}) {
   const dailyAllDone = dailyBatchComplete(goals.daily) && dailyCompleteCount >= goals.daily.required;
   if (dailyAllDone && !goals.daily.coreClaimed) {
     goals.daily.coreClaimed = true;
-    applyDailyCoreReward(reserve, level, rewards);
+    if (!preserveCollectedPending) applyDailyCoreReward(reserve, level, rewards);
     completions.push({ type: "daily_core", id: `daily:${today}:core`, title: "每日任务全部完成", reward: "额外补给 +1 · 动物信任 +1" });
   }
   if (dailyAllDone && !goals.daily.fullClaimed) {
@@ -2333,6 +2390,12 @@ function applyGoalProgress(beforeState, afterState, context = {}) {
   if (!derivedOnly && dailyAllDone) goals.daily.cycle = Math.max(1, Number(goals.daily.cycle) || 1) + 1;
   goals.daily = syncDailyProjection(goals.daily);
   const priorPrimary = ((beforeGoals.active || {}).primary) || null;
+  // A system task is reminded once in the current goal. Settling that exact
+  // task retires it for this chapter. Player-started actions stay available,
+  // and goals that are allowed to repeat (rescue, shortage, crisis) stay too.
+  if (action && priorPrimary && priorPrimary.recommendedAction === action) {
+    rememberSettledSystemGoal(afterState, priorPrimary);
+  }
   if (!derivedOnly && action && priorPrimary && priorPrimary.executable && priorPrimary.recommendedAction === action) {
     const claimKey = `instant:${priorPrimary.id}:${(((beforeReserve.progression || {}).totalActions) || 0)}`;
     if (!goals.claims[claimKey]) {
@@ -2341,7 +2404,7 @@ function applyGoalProgress(beforeState, afterState, context = {}) {
         goals.fallbackCooldown = GOAL_BALANCE.fallbackCooldownActions;
         completions.unshift({ type: "fallback", id: priorPrimary.id, title: "观察保护区完成" });
       } else {
-        applyInstantReward(reserve, level, rewards);
+        if (action !== "collectRecovered") applyInstantReward(reserve, level, rewards);
         // Theme tasks also emit a chapter_theme completion below. Keep the
         // reward, but emit one presentation item so the same chapter action
         // cannot show two identical completion cards.
@@ -2356,7 +2419,7 @@ function applyGoalProgress(beforeState, afterState, context = {}) {
     if (item.complete && !(beforeMilestones[item.id] && beforeMilestones[item.id].complete)) {
       const chapter = chapterNumberFromProgression(beforeReserve.progression || reserve.progression);
       const key = `stage:${chapter}:milestone:${item.id}`;
-      if (claimFund(goals, reserve, key, GOAL_BALANCE.milestoneFundReward[level], item.label, "stage_milestone", rewards)) {
+      if (!preserveCollectedPending && claimFund(goals, reserve, key, GOAL_BALANCE.milestoneFundReward[level], item.label, "stage_milestone", rewards)) {
         completions.push({ type: "stage_milestone", id: key, title: `${item.label}里程碑完成` });
       }
     }
@@ -2369,7 +2432,7 @@ function applyGoalProgress(beforeState, afterState, context = {}) {
   if (afterStage > beforeStage || finalJustCompleted) {
     const completedStage = finalJustCompleted ? MAX_STORY_CHAPTER : beforeStage;
     const key = `stage:${completedStage}:complete`;
-    if (claimFund(goals, reserve, key, chapterCompleteFund(completedStage), `第${completedStage}章完成`, "stage_complete", rewards)) {
+    if (!preserveCollectedPending && claimFund(goals, reserve, key, chapterCompleteFund(completedStage), `第${completedStage}章完成`, "stage_complete", rewards)) {
       completions.push({ type: "stage_complete", id: key, title: `第${completedStage}章完成` });
     }
   }
@@ -2381,7 +2444,7 @@ function applyGoalProgress(beforeState, afterState, context = {}) {
       if (track.current >= node && old.current < node) {
         const key = `long:${track.id}:${index}`;
         if (index < 3) {
-          claimFund(goals, reserve, key, GOAL_BALANCE.longNodeFundReward[index], track.title, "long_term", rewards);
+          if (!preserveCollectedPending) claimFund(goals, reserve, key, GOAL_BALANCE.longNodeFundReward[index], track.title, "long_term", rewards);
         } else if (index === track.nodes.length - 1 && !goals.claims[key]) {
           goals.claims[key] = "cosmetic";
           goals.longTerm = goals.longTerm || {};
@@ -2425,6 +2488,51 @@ function applyGoalProgress(beforeState, afterState, context = {}) {
     };
   }
   return { state: afterState, goals, rewards, completions, dailyGoalDone: completions.some((item) => item.type === "daily_core" || item.type === "daily_full"), primary: goals.active.primary };
+}
+function applyGoalProgress(beforeState, afterState, context = {}) {
+  const action = context.action || "";
+  const reserve = reserveFor(afterState);
+  const beforeReserve = reserveFor(beforeState);
+  const chapter = Math.max(1, Math.round(Number(
+    (beforeReserve.progression || {}).stage
+    || (beforeReserve.progression || {}).displayChapter
+    || (reserve.progression || {}).stage
+    || 1
+  )));
+  const tasks = CHAPTER_THEME_TASKS[chapter] || [];
+  const beforeStep = chapterThemeSavedStep(beforeReserve.chapterTheme || {}, chapter, tasks.length);
+  try {
+    return applyGoalProgressBody(beforeState, afterState, context);
+  } catch (error) {
+    if (action && (!context.derivedOnly || context.advanceChapterTheme)) {
+      const stepNow = chapterThemeSavedStep(reserve.chapterTheme || {}, chapter, tasks.length);
+      if (stepNow === beforeStep) {
+        try { advanceChapterTheme(reserve, action); } catch (advanceError) {}
+      }
+    }
+    const world = (afterState && afterState.world) || (afterState.world = {});
+    const existing = world.goals;
+    const goals = existing && existing.daily && existing.active
+      ? existing
+      : {
+          version: 3,
+          active: { primary: null, alternatives: [] },
+          daily: { objectives: [], dateKey: goalDateKey(), required: 1, coreClaimed: false, fullClaimed: false },
+          claims: {},
+          history: []
+        };
+    if (!goals.daily) goals.daily = { objectives: [], required: 1, coreClaimed: false, fullClaimed: false };
+    if (!goals.active) goals.active = { primary: null, alternatives: [] };
+    world.goals = goals;
+    return {
+      state: afterState,
+      goals,
+      rewards: [],
+      completions: [],
+      dailyGoalDone: false,
+      primary: goals.active.primary || null
+    };
+  }
 }
 function buildGoalView(state, suppliedGoals = null) {
   const goals = suppliedGoals && suppliedGoals.version === 3

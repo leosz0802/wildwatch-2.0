@@ -30,20 +30,20 @@
       "version": ""
     },
     "animalPortraitAtlas": {
-      "url": "",
-      "version": ""
+      "url": "https://wild.hubao.tv/assets/animal-portraits-atlas-v4.jpg",
+      "version": "animal-portraits-v4"
     },
     "animalMapSprites": {
       "url": "",
       "version": ""
     },
     "facilities": {
-      "url": "",
-      "version": ""
+      "url": "https://wild.hubao.tv/assets/facility-sprites-atlas-v4.png",
+      "version": "facility-sprites-v4"
     },
     "collectionItems": {
-      "url": "",
-      "version": ""
+      "url": "https://wild.hubao.tv/assets/collection-items-atlas.png",
+      "version": "collection-items-v1"
     }
   },
   "messages": {

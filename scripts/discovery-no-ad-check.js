@@ -51,23 +51,44 @@ function mockContext() {
 const game = new Game();
 game.state = createCharacter(null, "保护区卫士");
 game.screen = "collection";
-game.drawNativeTemplateAdSlot = () => { throw new Error("发现频道不得创建广告槽"); };
 let shown = null;
-game.nativeTemplateAds = { setViewportSlot() {}, layoutSize() { return {height: 90}; }, setVisible(value) { shown = value; } };
+game.nativeTemplateAds = {
+  isSupported: () => true,
+  shown: false,
+  requestedVisible: false,
+  setViewportSlot() {},
+  layoutSize() { return { width: 300, height: 90 }; },
+  setVisible(value) { shown = value; }
+};
 for (const [width, height] of [[320,568],[375,667],[430,932]]) {
   game.width = width; game.height = height; game.ctx = mockContext(); game.scrollY = 0;
   for (const tab of ["visitors", "population"]) {
     game.discoveryTab = tab;
+    game.nativeTemplateAdSlot = null;
+    game.renderedNativeTemplateAdSlot = null;
+    shown = null;
     game.drawCollection(game.ctx);
-    // Even a stale slot from another page cannot make discovery display an ad.
-    game.nativeTemplateAdSlot = {y: 260, w: 300, h: 90};
-    game.syncNativeTemplateAd();
-    assert.strictEqual(shown, false);
-    if (tab === "visitors") assert.strictEqual(game.renderedVisitorTable.visibleBuildings, 4);
-    else {
+    const ad = game.renderedNativeTemplateAdSlot;
+    assert(ad && ad.frame, `${tab} must reserve a native ad below the page`);
+    if (tab === "visitors") {
+      assert.strictEqual(game.renderedVisitorTable.visibleBuildings, 4);
+      const lastCard = game.renderedVisitorTable.buildingCards[game.renderedVisitorTable.buildingCards.length - 1];
+      assert(lastCard, "visitor operations must keep its building cards");
+      assert(ad.frame.y >= 120, "visitor ad must stay at the bottom of the operations list");
+    } else {
       assert.strictEqual(game.renderedSpeciesCards.length, game.renderedSpeciesPagination.visible);
       assert.ok(game.renderedSpeciesCards.length > 0);
+      const lastCard = game.renderedSpeciesCards[game.renderedSpeciesCards.length - 1];
+      assert(ad.frame.y >= lastCard.y + lastCard.h - 1, "population ad must sit below the species cards");
     }
+    const slot = game.nativeTemplateAdSlot;
+    const safeTop = Math.max(10, game.compactStageTop() + 42);
+    const navTop = game.height - game.navHeight();
+    game.scrollY = Math.max(0, slot.y - safeTop);
+    game.syncNativeTemplateAd();
+    const screenTop = slot.y - game.scrollY;
+    const inside = screenTop >= safeTop && screenTop + 90 <= navTop - 8;
+    assert.strictEqual(shown, inside ? true : false, `${tab} ad is visible only when its slot is fully on screen`);
   }
 }
-console.log("discovery no-ad and complete cards check ok");
+console.log("discovery bottom native ad check ok");

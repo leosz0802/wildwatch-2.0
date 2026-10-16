@@ -69,8 +69,8 @@ const expected = {
     actions: ['habitat', 'antiPoacher', 'visitorReception']
   },
   5: {
-    titles: ['猎犬侦查', '保护捕食者', '减少过度干预'],
-    actions: ['houndScout', 'animalCare', 'observeReserve']
+    titles: ['猎犬侦查', '减少过度干预'],
+    actions: ['houndScout', 'observeReserve']
   }
 };
 
@@ -102,7 +102,7 @@ for (const chapter of [3, 4, 5]) {
     state = act(state, expected[chapter].actions[index]);
   }
 
-  assert.equal(state.world.reserve.chapterTheme.step, 3, `第${chapter}章主题链没有完成`);
+  assert.equal(state.world.reserve.chapterTheme.step, expected[chapter].titles.length, `第${chapter}章主题链没有完成`);
   assert.equal(state.world.reserve.chapterTheme.completed, true, `第${chapter}章主题链完成标记错误`);
 
   for (const unrelatedAction of ['houndScout', 'viewVisitors', 'facilityUse', 'habitat', 'antiPoacher']) {

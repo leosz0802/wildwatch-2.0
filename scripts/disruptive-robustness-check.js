@@ -57,7 +57,7 @@ global.wx = {
 
 const { Game } = require("../js/game");
 
-const SCREENS = ["home", "role", "action", "survival", "collection", "league", "social"];
+const SCREENS = ["home", "role", "survival", "collection", "league", "social"];
 const STATION_IDS = Object.keys(FACILITY_USE_PROFILES);
 const IDLE_COMMANDS = [
   "修复水源和草场",
@@ -65,7 +65,7 @@ const IDLE_COMMANDS = [
   "驱赶偷猎者：封锁可疑路线",
   "跟随动物探索物资 掷骰:3"
 ];
-const JUMP_ORDER = [7, 1, 14, 3, 20, 2, 11, 5, 18, 4, 9, 16, 6, 13, 8, 19, 10, 15, 12, 17];
+const JUMP_ORDER = [7, 1, 11, 3, 2, 5, 4, 9, 6, 8, 10];
 
 function finite(value, label) {
   assert(Number.isFinite(Number(value)), `${label} is not finite: ${value}`);
@@ -115,7 +115,7 @@ function makeGame(label, chapter = 1, extras = {}) {
 function jumpChapter(game, chapter) {
   const reserve = game.state.world.reserve;
   const before = livingAnimalTotal(reserve);
-  const safe = Math.max(1, Math.min(20, Math.round(Number(chapter) || 1)));
+  const safe = Math.max(1, Math.min(CHAPTERS.length, Math.round(Number(chapter) || 1)));
   Object.assign(reserve.progression, {
     stage: safe,
     displayChapter: safe,
@@ -255,7 +255,7 @@ function pokeSandbox(game, label, chapter) {
 }
 
 function runSkipStoryGate() {
-  [1, 4, 12].forEach((chapter) => {
+  [1, 4, 11].forEach((chapter) => {
     const game = makeGame(`跳过剧情门-第${chapter}章`, chapter);
     const reserve = game.state.world.reserve;
     const stageBefore = reserve.progression.stage;
@@ -378,4 +378,4 @@ runScreenSpam();
 runDirtyValues();
 runOnboardingUntouched();
 
-console.log("disruptive robustness check ok (skip-story gates, 20 out-of-order chapters, starvation, screen spam, dirty values, chapter-1 onboarding left untouched)");
+console.log("disruptive robustness check ok (skip-story gates, out-of-order chapters 1-11, starvation, screen spam, dirty values, chapter-1 onboarding left untouched)");

@@ -40,7 +40,7 @@ function addLivingAnimals(reserve, amount, source = "tasked") {
   const { chapterCaptiveSpeciesSet } = require("./chapterRescueSystem");
   const { getChapterSandboxSpecies } = require("./animalWorld");
   const ecology = reserve.ecology || (reserve.ecology = {});
-  ["predators", "herbivores", "birds"].forEach((group) => { ecology[group] = ecology[group] || {}; });
+  ["predators", "herbivores", "birds"].forEach((group) => { if (!ecology[group] || typeof ecology[group] !== "object") ecology[group] = {}; });
   const chapter = chapterKey(reserve);
   const captive = chapterCaptiveSpeciesSet(reserve);
   const ids = new Set();
@@ -104,7 +104,7 @@ function removeLivingAnimals(reserve, amount, source = "emigrated", options = {}
   if (!take || !reserve) return { removed: 0, before, after: before, speciesId: "" };
   const { chapterCaptiveSpeciesSet } = require("./chapterRescueSystem");
   const ecology = reserve.ecology || (reserve.ecology = {});
-  ["predators", "herbivores", "birds"].forEach((group) => { ecology[group] = ecology[group] || {}; });
+  ["predators", "herbivores", "birds"].forEach((group) => { if (!ecology[group] || typeof ecology[group] !== "object") ecology[group] = {}; });
   const living = [];
   const captive = chapterCaptiveSpeciesSet(reserve);
   ["herbivores", "predators", "birds"].forEach((group) => {

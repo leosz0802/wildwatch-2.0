@@ -17,10 +17,6 @@ function makeGame() {
   return game;
 }
 
-function kinds(game) {
-  return ((game.state.world.goals.daily || {}).objectives || []).map((item) => item.kind);
-}
-
 function completeByAction(game, action) {
   const before = JSON.parse(JSON.stringify(game.state));
   const result = applyGoalProgress(before, game.state, { action, now: Date.now() });
@@ -28,57 +24,32 @@ function completeByAction(game, action) {
   return result;
 }
 
-const visitorFirst = makeGame();
-assert.deepEqual(kinds(visitorFirst), ["visitor", "ecology"]);
-const visitorOnly = completeByAction(visitorFirst, "viewVisitors");
-assert(visitorOnly.completions.some((item) => item.type === "daily_objective" && item.id === "daily_visitor"));
-assert(!visitorOnly.completions.some((item) => item.type === "daily_core" || item.type === "daily_full"), "只完成招募不得发放全清");
-assert.equal(visitorFirst.dailyEventChecklist().complete, 1);
-assert.equal(visitorFirst.dailyEventChecklist().remaining, 1);
-assert.equal(visitorFirst.dailyPartialCompletionLine(visitorOnly), "招揽游客来访已完成");
-visitorFirst.markDailyPresentationSeen();
-visitorFirst.infoDetailModal = null;
-assert.equal(visitorFirst.maybeOpenMissionPush("settlement", { force: true }), true, "完成一项后仍可推进章节主线");
-assert.notEqual(visitorFirst.infoDetailModal && visitorFirst.infoDetailModal.kind, "dailyEvents", "完成一项后不得再自动弹出每日");
-assert.notEqual(visitorFirst.infoDetailModal && visitorFirst.infoDetailModal.goalId, "daily", "完成一项后不得再把每日任务当成章节任务");
-visitorFirst.infoDetailModal = null;
-assert.equal(visitorFirst.maybeOpenMissionPush("home"), false, "完成一项后主页也不得再弹出每日");
-
-const ecologyFirst = makeGame();
-const ecologyOnly = completeByAction(ecologyFirst, "habitat");
-assert(ecologyOnly.completions.some((item) => item.type === "daily_objective" && item.id === "daily_ecology"));
-assert(!ecologyOnly.completions.some((item) => item.type === "daily_core" || item.type === "daily_full"), "只完成水草不得发放全清");
-assert.equal(ecologyFirst.dailyEventChecklist().complete, 1);
-assert.equal(ecologyFirst.dailyEventChecklist().remaining, 1);
-ecologyFirst.markDailyPresentationSeen();
-ecologyFirst.infoDetailModal = null;
-assert.equal(ecologyFirst.maybeOpenMissionPush("settlement", { force: true }), true, "先做水草后仍可推进章节主线");
-assert.notEqual(ecologyFirst.infoDetailModal && ecologyFirst.infoDetailModal.kind, "dailyEvents", "先做水草后不得再自动弹出每日");
-
-const both = makeGame();
-completeByAction(both, "viewVisitors");
-const second = completeByAction(both, "habitat");
-assert(second.completions.some((item) => item.type === "daily_objective" && item.id === "daily_ecology"));
-assert(second.completions.some((item) => item.type === "daily_core"), "两项都完成后才结算全部完成");
-assert(second.completions.some((item) => item.type === "daily_full"));
-assert.equal(both.dailyEventChecklist().remaining, 0);
+for (const action of ["viewVisitors", "habitat"]) {
+  const game = makeGame();
+  const result = completeByAction(game, action);
+  assert.deepEqual(game.state.world.goals.daily.objectives, []);
+  assert(!result.completions.some((item) => String(item.type || "").startsWith("daily_")), `${action} 不得再完成每日任务`);
+  assert(!result.rewards.some((item) => String(item.source || "").startsWith("daily_")), `${action} 不得再发放每日奖励`);
+  assert.equal(game.dailyEventChecklist().total, 0);
+  assert.equal(game.dailyEventChecklist().remaining, 0);
+  game.infoDetailModal = null;
+  assert.notEqual(game.infoDetailModal && game.infoDetailModal.kind, "dailyEvents");
+}
 
 const staleRequired = makeGame();
 staleRequired.state.world.goals.daily.required = 1;
+staleRequired.state.world.goals.daily.objectives = [{ id: "daily_visitor", kind: "visitor", progress: 0, target: 1, complete: false }];
+staleRequired.state.world.goals.daily.coreClaimed = false;
+staleRequired.state.world.goals.daily.fullClaimed = false;
 const stale = completeByAction(staleRequired, "viewVisitors");
-assert(!stale.completions.some((item) => item.type === "daily_core" || item.type === "daily_full"), "旧存档 required=1 也不能把单项当成全清");
-assert.equal(staleRequired.state.world.goals.daily.required, 2);
+assert(!stale.completions.some((item) => String(item.type || "").startsWith("daily_")), "旧存档里的每日任务也不能再结算");
+assert(!stale.rewards.some((item) => String(item.source || "").startsWith("daily_")));
+assert.deepEqual(staleRequired.state.world.goals.daily.objectives, []);
+assert.equal(staleRequired.state.world.goals.daily.required, 0);
 
 const list = makeGame();
-let routed = null;
-list.executeGoalAction = (goal) => {
-  routed = goal;
-  return true;
-};
-assert(list.openDailyEvents());
-assert.equal(list.infoDetailModal.checklist.total, 2);
-assert(list.executeDailyEvent("daily_ecology", list.infoDetailModal.checklist.dateKey), "未完成招募时也可以先做水草");
-assert.equal(routed.recommendedAction, "habitat");
+assert.equal(list.openDailyEvents(), false);
+assert.equal(list.executeDailyEvent("daily_ecology", "today"), false);
 assert.equal(list.infoDetailModal, null);
 
-console.log("daily partial complete check ok (one item is not full clear, remaining daily does not auto-popup)");
+console.log("daily partial complete check ok (daily tasks removed, no partial reward, old saves do not settle)");

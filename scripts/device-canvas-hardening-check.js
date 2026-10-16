@@ -149,4 +149,116 @@ assert.equal(Game.prototype.waitingArcheryOrDiceConfirm.call(archery), true, 'ar
 assert.equal(Game.prototype.confirmArcheryScore.call(archery), true, 'manual confirmation must settle the arrow');
 assert.equal(archery.settled, true, 'archery must settle after 确认得分');
 
+function sandboxPhone(info, width, height, menu) {
+  const phone = Object.create(Game.prototype);
+  phone.info = info;
+  phone.width = width;
+  phone.height = height;
+  phone.screen = 'home';
+  phone.mapZoom = 0;
+  phone.mapCamera = { cx: 0.52, cy: 0.48 };
+  phone.menuButtonRect = menu;
+  return phone;
+}
+
+const shortAndroid = sandboxPhone({
+  platform: 'android',
+  windowWidth: 360,
+  windowHeight: 480,
+  screenWidth: 360,
+  screenHeight: 480,
+  statusBarHeight: 24,
+  safeArea: { top: 24, bottom: 480 }
+}, 360, 480, { left: 280, right: 348, top: 26, bottom: 56, width: 68, height: 30 });
+const shortMapY = shortAndroid.compactStageTop() + 32;
+const shortMapH = shortAndroid.homeSandboxMapHeight(shortMapY);
+assert.equal(shortMapY + shortMapH, shortAndroid.height - shortAndroid.navHeight(), '16:9 Android map must end on the tab bar');
+assert.ok(shortMapH < 420, 'a short Android window must not keep a 420px slab under the tab bar');
+
+const gestureAndroid = sandboxPhone({
+  platform: 'android',
+  windowWidth: 393,
+  windowHeight: 873,
+  screenWidth: 393,
+  screenHeight: 873,
+  statusBarHeight: 32,
+  safeArea: { top: 32, bottom: 837 }
+}, 393, 873, { left: 300, right: 380, top: 36, bottom: 68, width: 80, height: 32 });
+assert.equal(gestureAndroid.systemBottomInset(), 36, 'Android gesture bar still inside the canvas must lift the page');
+assert.equal(gestureAndroid.navHeight(), 98);
+const gestureMapY = gestureAndroid.compactStageTop() + 32;
+assert.equal(gestureMapY + gestureAndroid.homeSandboxMapHeight(gestureMapY), gestureAndroid.height - gestureAndroid.navHeight());
+
+const excludedNav = sandboxPhone({
+  platform: 'android',
+  windowWidth: 393,
+  windowHeight: 837,
+  screenWidth: 393,
+  screenHeight: 873,
+  safeArea: { top: 32, bottom: 837 }
+}, 393, 837, null);
+assert.equal(excludedNav.systemBottomInset(), 0, 'a window that already excludes the system bar must not pad twice');
+
+const denseAndroid = sandboxPhone({
+  platform: 'android',
+  windowWidth: 360,
+  windowHeight: 800,
+  screenWidth: 1080,
+  screenHeight: 2400,
+  pixelRatio: 3,
+  safeArea: { top: 90, bottom: 2256 }
+}, 360, 800, null);
+assert.equal(denseAndroid.systemBottomInset(), 48, 'physical-pixel Android safe area must convert into logical pixels');
+
+const iosHomeIndicator = sandboxPhone({
+  platform: 'ios',
+  model: 'iPhone 14',
+  windowWidth: 390,
+  windowHeight: 844,
+  screenWidth: 390,
+  screenHeight: 844,
+  safeArea: { top: 47, bottom: 810 }
+}, 390, 844, null);
+assert.equal(iosHomeIndicator.systemBottomInset(), 0, 'iPhone home indicator stays inside the existing tab bar');
+assert.equal(iosHomeIndicator.navHeight(), 62);
+
+const wideAndroid = sandboxPhone({
+  platform: 'android',
+  windowWidth: 717,
+  windowHeight: 652,
+  screenWidth: 717,
+  screenHeight: 652,
+  safeArea: { top: 0, bottom: 652 }
+}, 717, 652, null);
+const wideCamera = wideAndroid.mapCameraInfo(3, 80, 711, 500);
+assert.ok(Math.abs(wideCamera.worldH - 500 * 1.24) < 1, 'a wide Android fold must size the meadow from the visible height');
+const tallCamera = wideAndroid.mapCameraInfo(3, 80, 360, 700);
+assert.ok(Math.abs(tallCamera.worldH - 700 * 1.24) < 1, 'a tall Android phone must keep the same meadow proportion');
+
+const iosTap = Object.create(Game.prototype);
+iosTap.info = { platform: 'ios', model: 'iPhone 12', windowWidth: 390, windowHeight: 844, pixelRatio: 3 };
+iosTap.width = 390;
+iosTap.height = 844;
+iosTap.canvas = { width: 780, height: 1688 };
+iosTap.dpr = 2;
+iosTap.screen = 'home';
+iosTap.state = { character: { name: '苹果按钮' } };
+iosTap.infoDetailModal = { kind: 'facilityConstruction' };
+iosTap.touchCoordinateSpace = '';
+iosTap.hitAreas = [
+  { x: 0, y: 0, w: 390, h: 844, hud: true, onTap() {} },
+  { x: 36, y: 700, w: 150, h: 44, hud: true, modalAction: true, onTap() {} },
+  { x: 210, y: 700, w: 150, h: 44, hud: true, modalAction: true, onTap() {} }
+];
+const canvasPoint = iosTap.touchPoint({ clientX: 285 * 2, clientY: 722 * 2 });
+assert.ok(Math.abs(canvasPoint.x - 285) < 1 && Math.abs(canvasPoint.y - 722) < 1, 'iPhone canvas pixels must hit 整理线索, not the blank card');
+assert.equal(iosTap.hitAreaAt(canvasPoint.x, canvasPoint.y), iosTap.hitAreas[2]);
+iosTap.touchCoordinateSpace = '';
+const devicePoint = iosTap.touchPoint({ clientX: 111 * 3, clientY: 722 * 3 });
+assert.ok(Math.abs(devicePoint.x - 111) < 1 && Math.abs(devicePoint.y - 722) < 1, 'iPhone device pixels must still hit 关闭');
+assert.equal(iosTap.hitAreaAt(devicePoint.x, devicePoint.y), iosTap.hitAreas[1]);
+iosTap.touchCoordinateSpace = '';
+const logicalPoint = iosTap.touchPoint({ clientX: 285, clientY: 722 });
+assert.ok(Math.abs(logicalPoint.x - 285) < 1 && Math.abs(logicalPoint.y - 722) < 1, 'a logical iPhone tap must stay on the button');
+
 console.log('device canvas hardening check ok (android/harmony shadows, map hold, enter guard, archery delay)');

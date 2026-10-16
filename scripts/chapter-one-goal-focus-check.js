@@ -18,11 +18,8 @@ function visibleIds(state) {
 
 const opening = createCharacter(null, '第一章任务收束');
 opening.world.goals = normalizeGoalState(opening.world.goals, opening);
-const dailies = opening.world.goals.daily.objectives.map((item) => item.kind);
-assert.deepEqual(dailies, ['visitor', 'ecology']);
-assert.equal(opening.world.goals.daily.required, 2);
-assert.equal(opening.world.goals.daily.objectives[0].recommendedAction, 'viewVisitors');
-assert.equal(opening.world.goals.daily.objectives[1].recommendedAction, 'habitat');
+assert.deepEqual(opening.world.goals.daily.objectives, []);
+assert.equal(opening.world.goals.daily.required, 0);
 
 const cards = visibleIds(opening);
 assert.ok(cards.length <= 2, '第一章最多两张任务卡');
@@ -49,9 +46,8 @@ const later = createCharacter(null, '第二章任务对照');
 later.world.reserve.progression.stage = 2;
 later.world.reserve.progression.displayChapter = 2;
 later.world.goals = normalizeGoalState(later.world.goals, later);
-assert.deepEqual(later.world.goals.daily.objectives.map((item) => item.kind), ['visitor', 'ecology']);
-assert.equal(later.world.goals.daily.required, 2);
-assert.ok(later.world.goals.daily.objectives.every((item) => !['exploreMaterials', 'viewSurvival'].includes(item.recommendedAction)), '后续章节每日任务不得强制去生存频道');
+assert.deepEqual(later.world.goals.daily.objectives, []);
+assert.equal(later.world.goals.daily.required, 0);
 const laterCards = visibleIds(later);
 assert.ok(laterCards.length <= 2, '后续章节最多两张任务卡');
 assert.ok(laterCards.some((item) => item.recommendedAction === 'rescueAnimal' || /增加动物总数/.test(item.title || '')), '后续章节动物总数未达标时必须给出动物数量任务');
@@ -61,7 +57,7 @@ const late = createCharacter(null, '第八章任务对照');
 late.world.reserve.progression.stage = 8;
 late.world.reserve.progression.displayChapter = 8;
 late.world.goals = normalizeGoalState(late.world.goals, late);
-assert.ok(late.world.goals.daily.objectives.every((item) => ['visitor', 'ecology'].includes(item.kind)), '后期章节每日任务也只保留游客和水草');
+assert.deepEqual(late.world.goals.daily.objectives, [], '后期章节也不再生成每日任务');
 const lateCards = visibleIds(late);
 assert.ok(lateCards.length <= 2, '后期章节最多两张任务卡');
 assert.ok(lateCards.every((item) => !/channel:discovery|story:animal|development:.+:(build|upgrade)|facility:/.test(item.id)), '后期章节不得出现无关填空剧情卡');

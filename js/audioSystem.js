@@ -4,7 +4,8 @@ const AUDIO_ASSETS = {
   warning: "assets/audio/sfx-dice.m4a",
   dice: "assets/audio/sfx-dice.m4a"
 };
-const MUSIC_PROFILE = Object.freeze({ volume: 0.09 });
+const MUSIC_ASSET = "audio-pack/bgm-nature-loop.m4a";
+const MUSIC_PROFILE = Object.freeze({ volume: 0.16 });
 const EFFECT_PROFILES = Object.freeze({
   success: { volume: 0.30, playbackRate: 0.94, cooldown: 180 },
   taskComplete: { volume: 0.34, playbackRate: 1, cooldown: 260 },
@@ -30,6 +31,9 @@ class AudioSystem {
     this.cueEffects = {};
     this.music = null;
     this.musicStarted = false;
+    this.musicPaused = false;
+    this.musicReady = false;
+    this.musicLoading = false;
     this.userActivated = false;
     this.lastPlayedAt = {};
   }
@@ -68,17 +72,64 @@ class AudioSystem {
   }
   unlock() {
     this.userActivated = true;
+    if (this.isEnabled() && this.settings.music !== false && !this.musicStarted) this.playMusic();
     return true;
   }
   ensureMusic() {
-    return null;
+    if (this.music) return this.music;
+    this.music = this.createContext(MUSIC_ASSET, { loop: true, volume: MUSIC_PROFILE.volume });
+    return this.music;
+  }
+  startMusicContext() {
+    const music = this.ensureMusic();
+    if (!music || typeof music.play !== "function") return false;
+    try {
+      music.loop = true;
+      music.volume = MUSIC_PROFILE.volume;
+      if (music.src !== MUSIC_ASSET) music.src = MUSIC_ASSET;
+      music.play();
+      this.musicStarted = true;
+      this.musicPaused = false;
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
   playMusic() {
-    return false;
+    if (!this.userActivated || !this.isEnabled() || this.settings.music === false) return false;
+    if (this.musicStarted && !this.musicPaused) return true;
+    if (this.musicReady || typeof this.runtime.loadSubpackage !== "function") {
+      this.musicReady = true;
+      return this.startMusicContext();
+    }
+    if (this.musicLoading) return true;
+    this.musicLoading = true;
+    try {
+      this.runtime.loadSubpackage({
+        name: "audio-pack",
+        success: () => {
+          this.musicReady = true;
+          this.musicLoading = false;
+          if (this.userActivated && this.isEnabled() && this.settings.music !== false) this.startMusicContext();
+        },
+        fail: () => { this.musicLoading = false; }
+      });
+      return true;
+    } catch (error) {
+      this.musicLoading = false;
+      this.musicReady = true;
+      return this.startMusicContext();
+    }
   }
   pauseMusic() {
     if (!this.music || typeof this.music.pause !== "function") return false;
-    try { this.music.pause(); return true; } catch (error) { return false; }
+    try {
+      this.music.pause();
+      this.musicPaused = true;
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
   playEffect(name) {
     if (!this.userActivated || !this.isEnabled() || this.settings.sfx === false || !AUDIO_ASSETS[name]) return false;
@@ -135,6 +186,7 @@ class AudioSystem {
         } catch (error) {}
       });
       this.musicStarted = false;
+      this.musicPaused = true;
     }
     return this.settings.enabled;
   }
@@ -159,12 +211,14 @@ class AudioSystem {
     this.cueEffects = {};
     this.music = null;
     this.musicStarted = false;
+    this.musicPaused = false;
   }
 }
 module.exports = {
   AUDIO_ASSETS,
   EFFECT_PROFILES,
   CUE_PROFILES,
+  MUSIC_ASSET,
   MUSIC_PROFILE,
   normalizeAudioSettings,
   AudioSystem

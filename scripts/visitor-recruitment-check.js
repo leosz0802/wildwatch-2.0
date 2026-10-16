@@ -207,7 +207,7 @@ assert(gameSource.includes("游玩${PLAYTIME_RECRUIT_RESTORE_MINUTES}分钟") ||
 assert(!gameSource.includes("查看广告-招募"), "广告招募入口不得再使用生硬的查看广告-招募文案");
 assert(!gameSource.includes('免费 ${status.freeRemaining} · 广告次数 ${status.adCredits}'), "招募弹窗不应再显示冗余的免费/广告计数");
 assert(!gameSource.includes('["累计影响力", `${operations.influence || 0}`]'), "游客运营页不应再显示冗余累计影响力");
-assert(gameSource.includes('y = this.drawVisitorMailboxEntry(ctx, y, letters);'), "游客来信区域必须可点击打开收件箱");
+assert(gameSource.includes("drawVisitorMailboxEntry") && gameSource.includes('openReserveLetterInbox({ shareRewardType: "visitors" })'), "游客来信入口仍能打开收件箱");
 assert(gameSource.includes('kind: "visitorLetterInbox"'), "游客来信需要独立收件箱弹窗");
 assert(gameSource.includes('showsAllHistory: !modal.unreadOnly'), "游客收件箱必须保留并展示多封历史来信");
 assert(gameSource.includes("动物迁移动态"), "日报迁入迁出必须标明是动物迁移");

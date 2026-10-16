@@ -7,6 +7,18 @@
     {
       "name": "chapters",
       "root": "chapter-assets"
+    },
+    {
+      "name": "archive-art",
+      "root": "assets/art/archive"
+    },
+    {
+      "name": "archive-logic",
+      "root": "archive-logic"
+    },
+    {
+      "name": "audio-pack",
+      "root": "audio-pack"
     }
   ]
 }

@@ -334,11 +334,15 @@ function scaleRecruitmentVisitors(raw, stage = 1, publishCount = 0, disease = 0)
   const scale = clamp(PACE_ECONOMY.visitorRecruitmentScale, 0.1, 2);
   return Math.max(band.min, Math.min(band.max, Math.round(n(raw) * band.factor * scale)));
 }
+function recruitContributionIncome(reserve = {}, visitors = 0) {
+  const contribution = visitorContributionRate(reserve);
+  return Math.max(0, Math.round(n(visitors) * contribution.rate));
+}
 function consumeVisitorRecruitment(reserve = {}, gameDay = 1, random = Math.random, now = Date.now()) {
   const status = visitorRecruitmentStatus(reserve, gameDay, now); const operations = reserve.development.operations; const recruitment = operations.recruitment;
   const free = recruitment.freeRemaining > 0;
   if (free) recruitment.freeRemaining -= 1; else if (recruitment.adCredits > 0) recruitment.adCredits -= 1; else return { ok: false, reason: "no_credits", status };
-  const result = previewVisitorRecruitment(reserve, gameDay, random, now); const contribution = visitorContributionRate(reserve); const income = Math.round(result.visitors * contribution.rate);
+  const result = previewVisitorRecruitment(reserve, gameDay, random, now); const contribution = visitorContributionRate(reserve); const income = recruitContributionIncome(reserve, result.visitors);
   const migrationRatio = result.migrationRatio;
   result.feedback = result.factors.reason;
   result.activity = contribution.activity; result.retention = contribution.retention;
@@ -382,4 +386,4 @@ function grantVisitorRecruitmentAd(reserve = {}, gameDay = 1, now = Date.now()) 
   recruitment.lastAdGrantedAt = whole(now);
   return { ok: true, granted: AD_RECRUIT_GRANT, status: visitorRecruitmentStatus(reserve, gameDay, now) };
 }
-module.exports = { DAILY_FREE_RECRUITS, AD_RECRUIT_GRANT, DAILY_AD_WATCH_CAP, PLAYTIME_RECRUIT_RESTORE_SECONDS, BASE_VISITOR_RECRUITMENT, MIN_RECRUITMENT, MAX_RECRUITMENT, VISITOR_WATER_USE_CAP, VISITOR_WATER_CRISIS_LINE, VISITOR_WATER_WARNING_LINE, visitorRealDateKey, normalizeVisitorRecruitment, syncVisitorRecruitmentDay, syncVisitorOperationsRealDate, resetVisitorOperationsDay, restoreVisitorRecruitmentByPlaytime, populationSnapshot, visitorWaterUseForCount, visitorMigrationRatio, normalizeVisitorFlowLedger, visitorRecruitmentFactors, visitorRecruitmentStatus, previewVisitorRecruitment, recruitmentYieldBand, scaleRecruitmentVisitors, consumeVisitorRecruitment, grantVisitorRecruitmentAd };
+module.exports = { DAILY_FREE_RECRUITS, AD_RECRUIT_GRANT, DAILY_AD_WATCH_CAP, PLAYTIME_RECRUIT_RESTORE_SECONDS, BASE_VISITOR_RECRUITMENT, MIN_RECRUITMENT, MAX_RECRUITMENT, VISITOR_WATER_USE_CAP, VISITOR_WATER_CRISIS_LINE, VISITOR_WATER_WARNING_LINE, visitorRealDateKey, normalizeVisitorRecruitment, syncVisitorRecruitmentDay, syncVisitorOperationsRealDate, resetVisitorOperationsDay, restoreVisitorRecruitmentByPlaytime, populationSnapshot, visitorWaterUseForCount, visitorMigrationRatio, normalizeVisitorFlowLedger, visitorRecruitmentFactors, visitorRecruitmentStatus, previewVisitorRecruitment, recruitmentYieldBand, scaleRecruitmentVisitors, recruitContributionIncome, consumeVisitorRecruitment, grantVisitorRecruitmentAd };

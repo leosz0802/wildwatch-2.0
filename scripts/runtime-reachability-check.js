@@ -47,7 +47,31 @@ while (queue.length) {
 }
 
 const runtimeModules = walk(path.join(root, "js"), (file) => file.endsWith(".js"));
-const unreachableModules = runtimeModules.filter((file) => !reachable.has(file));
+const projectConfig = JSON.parse(fs.readFileSync(path.join(root, "project.config.json"), "utf8"));
+const ignoredPackageEntries = ((projectConfig.packOptions || {}).ignore || []).map((entry) => ({
+  value: String(entry.value || "").replace(/\/$/, ""),
+  type: entry.type
+}));
+function isPackageIgnored(asset) {
+  return ignoredPackageEntries.some((entry) => {
+    if (entry.type === "file") return asset === entry.value;
+    return asset === entry.value || asset.startsWith(`${entry.value}/`);
+  });
+}
+const packBridgeSource = fs.readFileSync(path.join(root, "js/packBridge.js"), "utf8");
+const packNames = [...packBridgeSource.matchAll(/loadPack\(\s*["']([A-Za-z0-9_-]+)["']\s*\)/g)].map((match) => match[1]);
+assert(packNames.includes("collectionSystem") && packNames.includes("wildernessKnowledge"), "pack bridge must load collection and wilderness modules");
+const dynamicPackModules = new Set(packNames.map((name) => path.join(root, "js", `${name}.js`)));
+dynamicPackModules.forEach((file) => {
+  const rel = relative(file);
+  const base = path.basename(file);
+  assert(fs.existsSync(file), `pack bridge module missing: ${rel}`);
+  assert(isPackageIgnored(rel), `${rel} must stay out of the main package`);
+  const source = fs.readFileSync(file, "utf8");
+  assert(source.includes(`../archive-logic/${base}`), `${rel} must re-export archive-logic`);
+  assert(fs.existsSync(path.join(root, "archive-logic", base)), `archive logic missing for ${rel}`);
+});
+const unreachableModules = runtimeModules.filter((file) => !reachable.has(file) && !dynamicPackModules.has(file));
 assert(!unreachableModules.length, `unreachable runtime modules: ${unreachableModules.map(relative).join(", ")}`);
 
 const assetReferences = new Set();
@@ -62,17 +86,6 @@ assetReferences.forEach((asset) => {
   assert(fs.existsSync(path.join(root, asset)), `referenced runtime asset is missing: ${asset}`);
 });
 
-const projectConfig = JSON.parse(fs.readFileSync(path.join(root, "project.config.json"), "utf8"));
-const ignoredPackageEntries = ((projectConfig.packOptions || {}).ignore || []).map((entry) => ({
-  value: String(entry.value || "").replace(/\/$/, ""),
-  type: entry.type
-}));
-function isPackageIgnored(asset) {
-  return ignoredPackageEntries.some((entry) => {
-    if (entry.type === "file") return asset === entry.value;
-    return asset === entry.value || asset.startsWith(`${entry.value}/`);
-  });
-}
 const runtimeAssets = walk(path.join(root, "assets")).concat(walk(path.join(root, "chapter-assets")))
   .map(relative)
   .filter((asset) => !isPackageIgnored(asset))

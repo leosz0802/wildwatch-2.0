@@ -112,8 +112,8 @@ const groupCounts = game.mapAnimalVisualGroupCounts(cachedRoster, game.state.wor
 if (eventReads !== 0) {
   throw new Error(`single-herd group sizing must not rescan map events, got ${eventReads} reads`);
 }
-if (Object.values(groupCounts).some((count) => count < 1 || count > 2)) {
-  throw new Error("sandbox group sizing must keep one herd per species and at most two animals");
+if (Object.values(groupCounts).some((count) => count !== 1)) {
+  throw new Error("each sandbox species should be drawn as one animal");
 }
 
 // Cached regional grouping must be pixel-equivalent to the original layout.

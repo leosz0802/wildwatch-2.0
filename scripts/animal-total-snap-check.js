@@ -108,8 +108,8 @@ assert.equal(rescueAnimal(afterIdle, target.targetId).ok, true);
 assert.equal(afterIdle.ecology.herbivores.antelope, 45, 'rescuing the trapped antelope releases its starter herd, not the 1-count placeholder');
 assert.equal(livingAnimalTotal(afterIdle), beforeRescue + 44, 'the live herd must gain the released animals minus the 1 already counted while trapped');
 assert.ok(livingAnimalTotal(afterIdle) >= 120, 'rescuing antelope must add the starter herd into the live total');
-assert.ok(chapterAnimalTotal(afterIdle) < chapterTargets(1).animals, 'a single rescue must not finish the chapter 1 animal total');
-assert.equal(chapterCoreMetrics(afterIdle, 1).met.animals, false, 'chapter 1 animal gate stays open after the antelope release');
+assert.ok(chapterAnimalTotal(afterIdle) >= chapterTargets(1).animals, 'a single antelope rescue must reach the chapter 1 animal total');
+assert.equal(chapterCoreMetrics(afterIdle, 1).met.animals, true, 'chapter 1 animal gate closes after the antelope release');
 assert.equal(chapterCoreMetrics(afterIdle, 1).species, 7, 'rescuing antelope should complete the chapter 1 species goal');
 
 const poachState = createCharacter(null, '盗猎困住扣减动物');

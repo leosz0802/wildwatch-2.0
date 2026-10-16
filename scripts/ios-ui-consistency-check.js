@@ -55,9 +55,9 @@ function requireSource(fragment, message) {
   "label: 11",
   "auxiliary: 10",
   "modalButtonHeight: 44",
-  '["materialWarehouse", "fundRelief", "environmentMetric", "sandboxBrief"].includes(modal.kind)',
+  '["materialWarehouse", "fundRelief", "environmentMetric", "sandboxBrief", "friendContract", "friendContractPicker", "friendContractInbox", "friendContractHistoryDetail"].includes(modal.kind)',
   "const hiddenGlyphSize = this.normalizeTypeSize",
-  'this.text(ctx, row.mine ? "我的市值 ›" : "市值 ›", x + w - 14, y + rowH * 0.76, 10',
+  'this.text(ctx, row.mine ? "我的市值 ›" : "市值 ›", x + w - 16, y + rowH * 0.76, 10',
   "controlRole(fill, onTap)",
   "controlStyle(role, fill, color)",
   "drawPremiumParchmentPanel(ctx, x, y, w, h",
@@ -125,6 +125,66 @@ game.scrollY = 0;
   if (!ctaHit) throw new Error(`${width}x${height}: modal CTA is smaller than the shared 44pt control baseline`);
   game.infoDetailModal = null;
 });
+
+const iphone12 = {
+  platform: "ios",
+  system: "iOS 15.4",
+  model: "iPhone 12",
+  windowWidth: 390,
+  windowHeight: 844,
+  screenHeight: 844,
+  pixelRatio: 3,
+  statusBarHeight: 0,
+  safeArea: { top: 0, bottom: 810 }
+};
+game.info = iphone12;
+game.menuButtonRect = null;
+game.menuButtonRectRetryAt = Date.now() + 60000;
+if (game.compactStageTop() < 80) {
+  throw new Error("iPhone 12 with an empty capsule rect still paints the chapter row under the status band");
+}
+game.menuButtonRect = { left: 296, right: 383, top: 48, bottom: 80, width: 87, height: 32 };
+const belowCapsule = game.compactStageTop();
+if (belowCapsule < 84) {
+  throw new Error(`iPhone 12 chapter navigation must start below the capsule, got ${belowCapsule}`);
+}
+game.info = Object.assign({}, iphone12, { model: "iPhone 14", statusBarHeight: 47, safeArea: { top: 47, bottom: 810 } });
+const otherIphone = game.compactStageTop();
+if (otherIphone > 60) {
+  throw new Error(`other iPhones should keep the chapter row on the capsule line, got ${otherIphone}`);
+}
+game.dpr = 2;
+game.runtime.getMenuButtonBoundingClientRect = () => ({ left: 888, right: 1149, top: 144, bottom: 240, width: 261, height: 96 });
+game.menuButtonRect = null;
+game.menuButtonRectRetryAt = 0;
+const scaled = game.refreshMenuButtonRectIfNeeded();
+if (!scaled || Math.abs(scaled.top - 48) > 1 || Math.abs(scaled.bottom - 80) > 1) {
+  throw new Error(`iPhone 12 physical capsule rect was not converted to points: ${JSON.stringify(scaled)}`);
+}
+game.info = iphone12;
+if (game.compactStageTop() < 84) throw new Error("scaled iPhone 12 capsule still covers the chapter row");
+game.width = 390;
+game.height = 844;
+game.screen = "home";
+game.info = iphone12;
+game.menuButtonRect = { left: 296, right: 383, top: 48, bottom: 80, width: 87, height: 32 };
+const iphone12MapY = game.compactStageTop() + 32;
+const iphone12MapH = game.homeSandboxMapHeight(iphone12MapY);
+if (iphone12MapY + iphone12MapH > game.height - game.navHeight() + 1) {
+  throw new Error(`iPhone 12 map runs behind the tab bar: bottom ${iphone12MapY + iphone12MapH}`);
+}
+game.height = 932;
+game.info = Object.assign({}, iphone12, { model: "iPhone 14 Pro Max", windowHeight: 932, screenHeight: 932, statusBarHeight: 54, safeArea: { top: 59, bottom: 912 } });
+const iphone14MapY = game.compactStageTop() + 32;
+const iphone14MapH = game.homeSandboxMapHeight(iphone14MapY);
+if (iphone14MapY + iphone14MapH > game.height - game.navHeight() + 1) {
+  throw new Error(`iPhone 14 map runs behind the tab bar: bottom ${iphone14MapY + iphone14MapH}`);
+}
+const iphone12Visible = iphone12MapH / 844;
+const iphone14Visible = iphone14MapH / 932;
+if (Math.abs(iphone12Visible - iphone14Visible) > 0.08) {
+  throw new Error(`map should fill a similar share of each phone, got ${iphone12Visible.toFixed(2)} vs ${iphone14Visible.toFixed(2)}`);
+}
 
 delete global.wx;
 console.log("ios ui consistency check ok (3 viewports, 5 page variants)");

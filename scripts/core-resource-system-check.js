@@ -77,7 +77,7 @@ for (const [command, supply] of patrolCases) {
     assert.strictEqual(result.visual.actionFundCost.cost, actionCost, `${command}必须披露行动成本`);
   }
   if (command.includes("修复水源") && reward) {
-    assert.strictEqual(reward, 8, "完成稳住水草每日任务应发放基金 +8");
+    assert.strictEqual(reward, 0, "每日任务基金奖励已删除");
   }
   assert(after.supplies[supply] < before.supplies[supply], `${command}应消耗具体补给${supply}`);
 }

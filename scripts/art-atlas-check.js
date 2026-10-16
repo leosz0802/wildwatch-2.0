@@ -3,11 +3,11 @@ const path = require("path");
 
 const root = path.resolve(__dirname, "..");
 const coreSpritesPath = path.join(root, "assets/art/core-sprites-atlas.png");
-const coreMapPath = path.join(root, "assets/art/core-map-anime-v1.jpg");
-const animalPortraitsPath = path.join(root, "assets/art/animal-portraits-atlas-v4.jpg");
-const animalMapSpritesPath = path.join(root, "assets/art/animal-map-sprites-atlas-v2.png");
-const facilitiesPath = path.join(root, "assets/art/facility-sprites-atlas-v4.png");
-const collectionItemsPath = path.join(root, "assets/art/collection/collection-items-atlas.png");
+const coreMapPath = path.join(root, "assets/art/archive/core-map-anime-v1.jpg");
+const animalPortraitsPath = path.join(root, "assets/art/archive/animal-portraits-atlas-v4.jpg");
+const animalMapSpritesPath = path.join(root, "assets/art/archive/animal-map-sprites-atlas-v2.png");
+const facilitiesPath = path.join(root, "assets/art/archive/facility-sprites-atlas-v4.png");
+const collectionItemsPath = path.join(root, "assets/art/archive/collection-items-atlas.png");
 const gamePath = path.join(root, "js/game.js");
 const projectPath = path.join(root, "project.config.json");
 
@@ -75,9 +75,9 @@ if (animalPortraits.length < 90 * 1024 || animalPortraits.length > 140 * 1024) t
 });
 
 const game = fs.readFileSync(gamePath, "utf8");
-if (!/assets\/art\/core-map-anime-v1\.jpg/.test(game)
-  || !/ANIMAL_PORTRAITS_SRC/.test(game) || !/ensureLocalArtSlot\("animalPortraits"/.test(game) || !/assets\/art\/animal-map-sprites-atlas-v2\.png/.test(game)
-  || !/assets\/art\/facility-sprites-atlas-v4\.png/.test(game)) {
+if (!/assets\/art\/archive\/core-map-anime-v1\.jpg/.test(game)
+  || !/ANIMAL_PORTRAITS_SRC/.test(game) || !/ensureLocalArtSlot\("animalPortraits"/.test(game) || !/assets\/art\/archive\/animal-map-sprites-atlas-v2\.png/.test(game)
+  || !/assets\/art\/archive\/facility-sprites-atlas-v4\.png/.test(game)) {
   throw new Error("game should load core art, local animal portraits and local sandbox sprites");
 }
 if (/assets\/art\/core-sprites-atlas\.png/.test(game) || /ensureLocalArtSlot\("atlas"/.test(game)) {
@@ -113,18 +113,16 @@ const project = fs.readFileSync(projectPath, "utf8");
 if (/"value": "assets\/art\/core-map-anime-v1\.jpg"/.test(project)) {
   throw new Error("core map must stay in the first package");
 }
-if (/"value": "assets\/art\/animal-portraits-atlas-v4\.jpg"/.test(project)) {
-  throw new Error("animal portraits should stay in the first package");
-}
 [
-  "assets/art/facility-sprites-atlas-v4.png",
-  "assets/art/collection/collection-items-atlas.png"
+  "assets/art/archive/animal-portraits-atlas-v4.jpg",
+  "assets/art/archive/facility-sprites-atlas-v4.png",
+  "assets/art/archive/collection-items-atlas.png"
 ].forEach((asset) => {
-  if (!project.includes(`"value": "${asset}"`)) {
-    throw new Error(`${asset} should stay outside the first package and download after login`);
+  if (project.includes(`"value": "${asset}"`)) {
+    throw new Error(`${asset} should stay in the first package`);
   }
 });
-if (project.includes(`"value": "assets/art/animal-map-sprites-atlas-v2.png"`)) {
+if (project.includes(`"value": "assets/art/archive/animal-map-sprites-atlas-v2.png"`)) {
   throw new Error("sandbox animal sprites should stay in the first package");
 }
 [

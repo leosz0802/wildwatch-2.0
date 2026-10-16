@@ -305,7 +305,8 @@ function worldEventIdleTriggerTypeRaw(reserve = {}, seasonState = {}, random = M
   else if (water <= ECOLOGY_THRESHOLDS.criticalWater || disease >= ECOLOGY_THRESHOLDS.warningDisease) push("water_contamination", 1.05);
   if ((social.pressure || 0) > 0) push("neighbor_animal_dispute", neighborIdleWeight(chapter, 0.72));
   if (hasVisitorTrouble((((reserve.development || {}).operations || {}).today || {}))) {
-    if (chapter < 7 && !blocked("visitor_conflict")) return "visitor_conflict";
+    // Chapters 1–6 repeat this event on a cooldown, not once per chapter.
+    if (chapter < 7) return "visitor_conflict";
     push("visitor_conflict", 1.35);
   }
   const today = (((reserve.development || {}).operations || {}).today) || {};
@@ -338,9 +339,11 @@ function eventTriggerCategory(type = "") {
   if (value.startsWith("real_nature_")) {
     const definition = REAL_NATURE_EVENT_DEFINITIONS[value];
     const theme = definition && definition.themeId;
-    if (theme === "fire") return "fire";
-    if (theme === "water") return "water";
-    if (theme === "disease") return "disease";
+    // Field records keep their own theme slot. A water-themed archive must
+    // not consume the operational contamination event.
+    if (theme === "fire") return "real-fire";
+    if (theme === "water") return "real-water";
+    if (theme === "disease") return "real-disease";
     if (theme === "coexistence") return "coexistence";
     if (theme === "species") return "species";
     return "realNature";
@@ -354,10 +357,12 @@ function blockedChapterEventType(type = "", blockedTypes = null) {
   if (!type || !blockedTypes || !blockedTypes.size) return false;
   if (blockedTypes.has(type)) return true;
   const category = eventTriggerCategory(type);
-  if (!["fire", "water", "disease"].includes(category)) return false;
+  if (!["fire", "water", "disease", "real-fire", "real-water", "real-disease"].includes(category)) return false;
   return Array.from(blockedTypes).some((seen) => eventTriggerCategory(seen) === category);
 }
 function eventTriggerAllowed(reserve = {}, type = "", now = Date.now()) {
+  // Visitor trouble repeats on an action-count cadence, not a 20s wall clock.
+  if (type === "visitor_conflict") return true;
   const emergency = reserve.emergency || {};
   const chapter = reserveChapterNumber(reserve);
   const lastChapter = Math.max(0, Math.round(Number(emergency.lastTriggerChapter) || 0));

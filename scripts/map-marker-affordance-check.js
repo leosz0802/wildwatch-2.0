@@ -318,7 +318,7 @@ assert.strictEqual(openedExploration, 1, "跟随动物线索必须进入剧情�
 
 const stableReserve = createInitialWorld().reserve;
 const stableView = buildReserveView(stableReserve, stableReserve, { action: "buySupplies", day: 1, regionId: "center" });
-assert.strictEqual(stableView.mapMarkers.length, 0, "没有实际风险或变化时不得强制生成水滴/铃铛任务点");
+assert.deepEqual(stableView.mapMarkers.map((item) => item.label), ["水灾隐患"], "没有暴雨和偷猎时，只保留浅滩未建成的水灾隐患");
 const riskyReserve = JSON.parse(JSON.stringify(stableReserve));
 riskyReserve.poacherPressure = 72;
 riskyReserve.progression = Object.assign({}, riskyReserve.progression, { stage: 2 });
@@ -387,7 +387,8 @@ rescueBeforePan.forEach((before) => {
   assert(Math.abs(after.worldX - before.worldX) < 0.0001 && Math.abs(after.worldY - before.worldY) < 0.0001, "困住的动物必须固定在出现时的沙盘坐标");
   assert(Math.abs(after.x - before.x) > 1 || Math.abs(after.y - before.y) > 1, "困住的动物应随沙盘地形一起平移，不能钉在屏幕上");
   const expected = chapter3.mapPoint(before.worldX, before.worldY, frameAfter);
-  assert(Math.abs((after.x + after.w / 2) - expected.x) < 1 && Math.abs((after.y + 36) - expected.y) < 1, "困住的动物屏幕位置必须跟着种植点走");
+  const anchorY = after.compact ? after.y + 20 : after.y + 36;
+  assert(Math.abs((after.x + after.w / 2) - expected.x) < 1 && Math.abs(anchorY - expected.y) < 1, "困住的动物屏幕位置必须跟着种植点走");
 });
 const afterPan = Object.assign({}, chapter3.mapCamera);
 chapter3.applyFocusedRescueCamera(0, 0, 375, 500);

@@ -96,9 +96,9 @@ assert(routeGame.routedVisitorMarker && routeGame.routedVisitorMarker.recommendA
 
 const staleGoalState = { world: { reserve: createReserveState() } };
 const staleGoals = createGoalState(staleGoalState);
-staleGoals.daily.objectives[0] = Object.assign({}, staleGoals.daily.objectives[0], { recommendedAction: "visitorAdjust", buttonLabel: "调节游客现场" });
+staleGoals.daily.objectives = [{ id: "daily_visitor", kind: "visitor", recommendedAction: "visitorAdjust", buttonLabel: "调节游客现场", progress: 0, target: 1, complete: false }];
 const migratedGoals = normalizeGoalState(staleGoals, staleGoalState);
-assert.notStrictEqual(migratedGoals.daily.objectives[0].recommendedAction, "visitorAdjust", "游客事件结束后旧的每日游客目标必须迁移");
+assert.equal(migratedGoals.daily.objectives.length, 0, "旧的每日游客目标必须删除，不能迁回沙盘");
 
 const game = Object.create(Game.prototype);
 game.state = { world: { reserve } };

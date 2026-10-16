@@ -62,10 +62,10 @@ Game.prototype.render.call(directBoot);
 assert(directBootScreenDrawn, "cold start should draw the real first screen immediately instead of waiting behind a splash screen");
 
 const chapterMinutes = Object.values(CHAPTER_PROGRESSION_GATES).map((gate) => gate.expectedMinutes);
-assert(chapterMinutes.join(",") === "5,20,30,35,40,45,50,55,60,60,65,70,75,80,86,92,98,104,110,120", `twenty-stage pacing drifted: ${chapterMinutes.join("/")}`);
+assert(chapterMinutes.join(",") === "5,20,30,35,40,45,50,55,60,60,120", `eleven-chapter pacing drifted: ${chapterMinutes.join("/")}`);
 assert(chapterMinutes.every((minutes, index) => !index || minutes >= chapterMinutes[index - 1]), "stage forecasts should rise smoothly without a late-game cliff");
-assert(chapterMinutes.reduce((sum, value) => sum + value, 0) === 1300, "the twenty stages should forecast 1300 minutes of effective play");
-assert(Object.values(CHAPTER_PROGRESSION_GATES).every((gate) => gate.stage >= 1 && gate.stage <= 20 && gate.storyLevel >= 1 && gate.storyLevel <= 7), "twenty operating stages should map cleanly onto the story chapter range");
+assert(chapterMinutes.reduce((sum, value) => sum + value, 0) === 520, "the eleven chapters should forecast 520 minutes of effective play");
+assert(Object.values(CHAPTER_PROGRESSION_GATES).every((gate) => gate.stage >= 1 && gate.stage <= 11 && gate.storyLevel >= 1 && gate.storyLevel <= 7), "eleven operating stages should map cleanly onto the story chapter range");
 
 const game = prepareGame();
 game.state.character = null;
@@ -94,8 +94,8 @@ assert(game.renderedPlayablePrologue.stage === "fog"
   && game.renderedPlayablePrologue.lateLoadHold
   && game.renderedPlayablePrologue.avoidsDoubleExposure
   && /解救 1 只动物/.test(game.renderedPlayablePrologue.dialogue.line)
-  && /招募 95 名游客/.test(game.renderedPlayablePrologue.dialogue.line)
-  && /扩大到 58 只/.test(game.renderedPlayablePrologue.dialogue.line)
+  && /招募 50 名游客/.test(game.renderedPlayablePrologue.dialogue.line)
+  && /扩大到 12 只/.test(game.renderedPlayablePrologue.dialogue.line)
   && /没有无代价的善意/.test(game.renderedPlayablePrologue.dialogue.rule)
   && game.renderedPlayablePrologue.dialogue.layeredCloud,
 "first frame should foreground chapter-one goals without showing a premature fake button");

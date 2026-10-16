@@ -5,7 +5,7 @@ const { execFileSync } = require("child_process");
 
 const root = path.resolve(__dirname, "..");
 const sourceDir = path.join(root, "art-source/ui-icons-legacy");
-const iconDir = path.join(root, "assets/art/ui-v3/icons");
+const iconDir = path.join(root, "assets/art/archive/ui-v3/icons");
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "wild-guardian-icons-"));
 const files = fs.readdirSync(sourceDir).filter((file) => file.endsWith(".png")).sort();
 

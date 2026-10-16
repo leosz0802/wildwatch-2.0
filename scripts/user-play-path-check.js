@@ -75,10 +75,11 @@ function completeAd() {
 }
 
 function seedReserve(reserve, chapter = 2) {
+  const safe = Math.max(1, Math.min(CHAPTERS.length, Math.round(Number(chapter) || 1)));
   Object.assign(reserve.progression, {
-    stage: chapter,
-    displayChapter: chapter,
-    level: CHAPTERS[Math.max(0, chapter - 1)].level
+    stage: safe,
+    displayChapter: safe,
+    level: CHAPTERS[safe - 1].level
   });
   reserve.guardianCycle = Object.assign({}, reserve.guardianCycle || {}, { day: Math.max(3, Number((reserve.guardianCycle || {}).day) || 1) });
   reserve.fund = 1800;
@@ -146,7 +147,7 @@ function assertHealthy(game, label) {
   const ids = [view.primary].concat(view.alternatives || []).filter(Boolean).map((item) => item.id);
   assert.equal(new Set(ids).size, ids.length, `${label}: duplicate task cards`);
   JSON.stringify(game.state.world.reserve);
-  ["home", "role", "action"].forEach((screen) => {
+  ["home", "role", "survival"].forEach((screen) => {
     game.settlementModal = null;
     game.patrolTaskModal = null;
     game.infoDetailModal = null;
@@ -455,7 +456,7 @@ runJumpSkipSpecial(2);
 runJumpSkipSpecial(8);
 runDisruptive(2);
 runDisruptive(4);
-runDisruptive(12);
+runDisruptive(11);
 runInterleave(3);
 
-console.log(`user play path check ok (linear 1/3 with special, jump 2/5, skip-special 2/8, disruptive fund-ad/animal-ad/recruit/comfort/explore/special on 2/4/12, interleaved chapter 3, ${linearSeen} linear task ids)`);
+console.log(`user play path check ok (linear 1/3 with special, jump 2/5, skip-special 2/8, disruptive fund-ad/animal-ad/recruit/comfort/explore/special on 2/4/11, interleaved chapter 3, ${linearSeen} linear task ids)`);

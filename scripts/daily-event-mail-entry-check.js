@@ -30,23 +30,19 @@ const g = makeGame();
 g.drawSandboxOpportunityAggregate({}, camera, plan);
 assert.equal(g.renderedMapOpportunityAggregate.mode, 'rescue', '待解救动物存在时主入口必须优先解救，避免误弹每日任务');
 assert.match(g.renderedMapOpportunityAggregate.label, /^解救/, '待解救入口文案必须明确指向动物');
-assert(g.openDailyEvents(), '今日每日仍可从任务入口打开清单');
-assert.equal(g.infoDetailModal.kind, 'dailyEvents');
-assert.equal(g.infoDetailModal.checklist.total, 2, '每日任务只展示游客和水草两项');
-const objective = g.infoDetailModal.checklist.objectives.find(item => !item.complete);
-let routed;
-g.executeGoalAction = goal => { routed = goal; return true; };
-g.executeDailyEvent(objective.id, g.infoDetailModal.checklist.dateKey);
-assert.equal(routed.recommendedAction, objective.recommendedAction);
-assert.notEqual(routed.recommendedAction, 'exploreMaterials', '每日入口不得再送去生存频道');
-// 使用正式目标结算更新每日进度，重复打开入口不能提前完成目标。
+assert.equal(g.openDailyEvents(), false, '每日事件入口已删除');
+assert.equal(g.dailyEventChecklist().total, 0, '每日任务不再生成');
+assert.equal(g.infoDetailModal, null);
+assert.equal(g.executeDailyEvent('daily_visitor', 'today'), false, '不能再发起每日任务');
+const fundBefore = g.state.world.reserve.fund;
 for (const action of ['viewVisitors', 'habitat']) {
   const before = JSON.parse(JSON.stringify(g.state));
-  g.state = applyGoalProgress(before, g.state, { action }).state;
+  const progress = applyGoalProgress(before, g.state, { action });
+  g.state = progress.state;
+  assert(!progress.rewards.some((item) => String(item.source || '').startsWith('daily_')), '日常操作不得再发每日奖励');
+  assert(!progress.completions.some((item) => String(item.type || '').startsWith('daily_')));
 }
-assert.equal(g.dailyEventChecklist().remaining, 0);
-assert(g.state.world.goals.daily.fullClaimed, '全部每日任务应领取额外奖励');
-  assert((g.state.world.reserve.lastTaskReward || {}).fund >= 16, '两项任务奖励应累计进入保护基金');
+assert.equal(g.state.world.reserve.fund, fundBefore, '每日任务基金奖励已删除');
 g.drawSandboxOpportunityAggregate({}, camera, plan);
 assert.equal(g.renderedMapOpportunityAggregate.mode, 'rescue');
 const pendingChapterRescue = g.chapterRescueState().targets.find(target => target.status !== 'rescued');
@@ -55,19 +51,15 @@ assert(pendingChapterRescue
   : g.renderedMapOpportunityAggregate.label.includes('更多线索'), '每日任务完成后，入口应展示仍待处理的独立解救或地图线索');
 saveState(g.state);
 g.state = loadState();
-assert.equal(g.dailyEventChecklist().remaining, 0, '重载存档不能重复生成今日必做事项');
-routed = null;
-g.executeDailyEvent(objective.id, g.dailyEventChecklist().dateKey);
-assert.equal(routed, null, '完成后的旧按钮不得再次执行');
+assert.equal(g.dailyEventChecklist().remaining, 0, '重载存档不能再生成每日事项');
+assert.equal(g.executeDailyEvent('daily_visitor', 'today'), false, '旧按钮不得再执行每日任务');
 const originalNow = Date.now;
 let clock = originalNow();
 Date.now = () => clock;
 try {
-  const yesterdayKey = g.dailyEventChecklist().dateKey;
   clock += 86400000;
-assert.equal(g.dailyEventChecklist().remaining, 2, '下一自然日恢复两项每日事项');
-  g.executeDailyEvent(objective.id, yesterdayKey);
-  assert.equal(routed, null, '跨日的旧清单必须先刷新');
+  assert.equal(g.dailyEventChecklist().remaining, 0, '下一自然日也不再恢复每日事项');
+  assert.equal(g.executeDailyEvent('daily_visitor', 'yesterday'), false);
 
   const mail = makeGame();
   const reserve = mail.state.world.reserve;
@@ -137,6 +129,7 @@ assert.equal(g.dailyEventChecklist().remaining, 2, '下一自然日恢复两项�
   assert(animal.infoDetailModal.unreadOnly);
   assert(!animal.infoDetailModal.letters.some(item => item.id === 'animal_test'), '动物信底部返回按钮也必须回到未读列表');
 
+  clock = Date.parse("2026-10-13T20:00:00Z");
   const chapter1 = makeGame();
   chapter1.state.world.reserve.progression.stage = 1;
   chapter1.state.world.reserve.progression.displayChapter = 1;
@@ -149,13 +142,13 @@ assert.equal(g.dailyEventChecklist().remaining, 2, '下一自然日恢复两项�
   chapter1.markMissionPushSeen(seenKey);
   const beforeRecruit = JSON.parse(JSON.stringify(chapter1.state));
   chapter1.state = applyGoalProgress(beforeRecruit, chapter1.state, { action: 'viewVisitors' }).state;
-  assert(chapter1.state.world.goals.daily.objectives.find((item) => item.kind === 'visitor').complete, '从当前目标招募应完成今日游客每日');
+  assert.equal(chapter1.state.world.goals.daily.objectives.length, 0, '招募不得再生成游客每日任务');
   chapter1.infoDetailModal = null;
-  assert.equal(chapter1.maybeOpenMissionPush('settlement', { force: true }), false, '招募后不得再弹出同日每日');
-  assert.equal(chapter1.missionPushKey(), seenKey, '同一章同一天每日弹窗键不得因下一项每日而变化');
+  assert.equal(chapter1.maybeOpenMissionPush('settlement', { force: true }), false, '招募后不得再弹出每日任务');
+  assert.equal(chapter1.missionPushKey(), seenKey, '同一章同一天任务键不得因每日任务变化');
   clock += 86400000;
   chapter1.currentGoalView(true);
-  assert.equal(chapter1.dailyEventChecklist().remaining, 2, '隔日登录可以再次出现每日任务');
+  assert.equal(chapter1.dailyEventChecklist().remaining, 0, '隔日登录也不再出现每日任务');
   assert.notEqual(chapter1.missionPushKey(), seenKey, '隔日登录应允许再次出现每日');
 
 } finally { Date.now = originalNow; }
@@ -166,35 +159,8 @@ for (const [width, height] of [[320,568], [375,667], [430,932]]) {
   ui.hitAreas = [];
   ui.drawPremiumParchmentPanel = () => {};
   ui.truncateTextToWidth = (_ctx,text) => text;
-  ui.openDailyEvents();
-  const ctx = {
-    font: '14px sans-serif', fillText() {},
-    measureText(text) { return { width: Array.from(String(text)).reduce((sum, ch) => sum + (/[^\x00-\x7f]/.test(ch) ? 1 : .55), 0) * (parseFloat(this.font.match(/([\d.]+)px/)[1]) || 14) }; }
-  };
-  const buttons = [];
-  ui.modalButton = (_ctx,x,y,w,h,label,fill,action) => { buttons.push({ x,y,w,h,label,action }); };
-  const bodyH = Math.min(ui.infoDetailModalHeight(ui.infoDetailModal), height - 34) - 178;
-  ui.drawDailyEventsContent(ctx, ui.infoDetailModal, 20, 112, width - 40, bodyH);
-  const rows = ui.infoDetailModal.renderedDailyItems;
-  assert.equal(rows.length, 2, "每日清单只展示游客和水草两项");
-  assert.equal(rows.filter(row => row.button).length, 2, '未完成的每日事项都可以直接去做');
-  for (let i = 0; i < rows.length; i++) {
-    assert(rows[i].y + rows[i].h <= 112 + bodyH);
-    assert(rows[i].description.size >= 13 && !rows[i].description.truncated, '描述字号可读且完整换行');
-    assert(rows[i].reward.size >= 12 && !rows[i].reward.truncated, '奖励数字高亮且完整换行');
-    if (rows[i].button) assert(rows[i].button.y >= rows[i].y + rows[i].h - 24, '按钮不能覆盖两行奖励');
-    if (i) assert(rows[i].y >= rows[i-1].y + rows[i-1].h + 4);
-  }
-  let chosenId;
-  ui.executeDailyEvent = id => { chosenId = id; };
-  buttons.find(button => button.label.startsWith('去完成')).action();
-  assert.equal(chosenId, rows[0].id, '任务按钮准确执行当前每日任务');
-  if (ui.infoDetailModal.renderedDailyPagination.pageCount > 1) {
-    buttons.find(button => button.label === '下一页').action();
-    ui.drawDailyEventsContent(ctx, ui.infoDetailModal, 20, 112, width - 40, bodyH);
-    assert.equal(ui.infoDetailModal.renderedDailyItems.length, 1);
-    assert(ui.infoDetailModal.renderedDailyItems.every(row => !row.complete), '翻页后仍是未完成事项');
-  }
+  assert.equal(ui.openDailyEvents(), false, `${width}宽屏幕也不再打开每日清单`);
+  assert.equal(ui.dailyEventChecklist().total, 0);
   ui.hitAreas = [];
   ui.drawVisitorMailboxEntry({}, 200, []);
   assert(ui.renderedVisitorMailboxEntry.clickable, '没有邮件时入口也必须可用');

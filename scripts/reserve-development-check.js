@@ -206,13 +206,13 @@ const pausedFrame = game.mapVisitorPlacements(restoredView)[0].motion;
 assert.strictEqual(pausedFrame.x, pausedVisitor.x, "打开弹窗时游客移动应暂停，避免背景继续争夺注意力");
 assert.strictEqual(pausedFrame.y, pausedVisitor.y, "打开弹窗时游客移动应暂停，避免背景继续争夺注意力");
 game.infoDetailModal = null;
-assert.notStrictEqual(game.visitorMapDialogue(restoredView, { nodeIndex: 0 }), game.visitorMapDialogue(restoredView, { nodeIndex: 7 }), "游客对白应随所在地图区域变化");
-const visitorLine = `游客：${game.visitorMapDialogue(restoredView, { nodeIndex: 7 })}`;
-game.drawMapMarkerDialogueBubble(fakeContext(), { dialogue: visitorLine, type: "visitor" }, 80, 220, camera, 0);
-const bubble = game.renderedMapDialogueBubble || {};
-assert.strictEqual(bubble.text, visitorLine, "游客对白应完整落入对话框，不能截断");
-assert(bubble.w >= (bubble.textW || 0) + (bubble.padX || 0) * 2 - 1, "游客对话框必须宽于文字");
-assert(bubble.h >= 36, "游客对话框应放大");
+game.renderedMapDialogueBubble = null;
+game.renderedMapSpeechBubbles = [];
+game.drawLivingReserveNode(fakeContext(), camera, false, { view: restoredView, interactive: true, showDialogue: true });
+assert(!(game.renderedMapSpeechBubbles || []).some((bubble) => bubble.kind === "tourist"), "沙盘不再选中游客对白");
+assert(!/^游客[:：]/.test(String((game.renderedMapDialogueBubble || {}).text || "")), "画出游客后不再挂出游客对白");
+game.drawMapMarkerDialogueBubble(fakeContext(), { dialogue: "游客：这条路线有14位游客，向导仍把水边留给动物。", type: "visitor" }, 80, 220, camera, 0);
+assert.notStrictEqual((game.renderedMapDialogueBubble || {}).text, "游客：这条路线有14位游客，向导仍把水边留给动物。", "游客对白不能再画到沙盘上");
 
 const uiBuildReserve = createReserveState();
 const uiBuildFund = uiBuildReserve.fund;
@@ -260,7 +260,7 @@ game.state.world.goals = require('../js/goalSystem').normalizeGoalState(game.sta
 const beforeDaily = JSON.stringify((game.state.world.goals.daily.objectives || []).map((item) => ({
   id: item.id, kind: item.kind, progress: item.progress, complete: item.complete
 })));
-assert.deepStrictEqual((game.state.world.goals.daily.objectives || []).map((item) => item.kind), ["visitor", "ecology"], "建设前每日任务只应保留游客和水草");
+assert.deepStrictEqual((game.state.world.goals.daily.objectives || []).map((item) => item.kind), [], "每日任务已删除");
 assert(game.openRiverShallowsChoiceConfirm("community_waterpoint"), "节点任务弹窗应继续进入二次确认");
 assert(game.confirmRiverShallowsPlan("community_waterpoint"), "确认建设应返回成功，避免按钮无反馈");
 const afterDaily = JSON.stringify((((game.state.world.goals || {}).daily || {}).objectives || []).map((item) => ({
@@ -289,9 +289,9 @@ assert(game.renderedVisitorTable.buildingCards.length > 0, "游客建筑列表�
 assert(game.renderedVisitorTable.buildingCards.every((card) => card.routeMode === "sandbox-task-location" && card.directBuild === false), "游客建筑列表必须标记为沙盘任务定位入口");
 assert(game.renderedVisitorTable.buildingCards.every((card) => !/[建设升级]/.test(`${card.primaryLabel}${card.secondaryLabel}`)), "游客建筑列表不得再显示直接建设/升级按钮");
 const beforeHits = game.hitAreas.slice();
-const mailboxBottom = game.renderedVisitorMailboxEntry.y + game.renderedVisitorMailboxEntry.h - (game.scrollY || 0);
-const buildingHit = beforeHits.find((hit) => hit.y >= mailboxBottom && hit.w > 70 && hit.h >= 24);
-assert(buildingHit, "邮箱下方应保留游客建筑入口");
+const collectionBottom = game.renderedStoryCollectionEntry.y + game.renderedStoryCollectionEntry.h - (game.scrollY || 0);
+const buildingHit = beforeHits.find((hit) => hit.y >= collectionBottom && hit.w > 70 && hit.h >= 24);
+assert(buildingHit, "收藏入口下方应保留游客建筑入口");
 buildingHit.onTap();
 assert(listFocusCount >= 1, "点击游客建筑列表应定位沙盘任务");
 assert.strictEqual(listDirectModalCount, 0, "点击游客建筑列表不得绕过沙盘直接打开建设详情");
@@ -489,10 +489,10 @@ assert(facilityOperations.every((task) => task.taskMode === "facilityOperation" 
 
 assert.equal(developmentVisitorScale(9), 2.76, "第9章游客倍率不再按章节线性放大");
 assert.ok(developmentVisitorScale(10) < 10, "第10章起游客倍率必须低于线性章节倍数");
-assert.ok(developmentVisitorScale(14) < 6, "第14章游客倍率不得再按14倍放大");
-assert.ok(developmentVisitorCapacityScale(14) < developmentVisitorScale(14), "每日接待容量要比单次运营压得更低");
+assert.ok(developmentVisitorScale(11) < 6, "第11章游客倍率不得再按章节线性放大");
+assert.ok(developmentVisitorCapacityScale(11) < developmentVisitorScale(11), "每日接待容量要比单次运营压得更低");
 assert.equal(capLateChapterStoryVisitors(294, 9), 294, "第9章运营游客不得被后期封顶误伤");
-assert.ok(capLateChapterStoryVisitors(294, 14) <= 96, "第14章单次运营游客必须封在本章目标的5%以内");
+assert.ok(capLateChapterStoryVisitors(294, 11) <= 194, "第11章单次运营游客必须封在本章目标的5%以内");
 
 function waterlineReward(chapter, level = 8) {
   const reserve = createReserveState();
@@ -502,19 +502,19 @@ function waterlineReward(chapter, level = 8) {
 const earlyWaterline = waterlineReward(4, 3);
 const chapterNine = waterlineReward(9, 8);
 const chapterTen = waterlineReward(10, 8);
-const chapterFourteen = waterlineReward(14, 8);
+const chapterEleven = waterlineReward(11, 8);
 assert.ok(earlyWaterline.visitors < 40, "前中期调节水线应保持小额游客");
 assert.equal(chapterNine.visitors, 22, "第9章8级调节水线改为低倍率游客");
 assert.ok(chapterTen.visitors < 40, "第10章调节水线必须明显低于线性放大");
-assert.ok(chapterFourteen.visitors <= 40, "第14章调节水线不得再给294游客");
-assert.ok(chapterFourteen.visitors < 40 && chapterNine.visitors < 40, "中后期单次运营游客都应压在低倍率");
+assert.ok(chapterEleven.visitors <= 40, "第11章调节水线不得再按旧的线性章节放大");
+assert.ok(chapterEleven.visitors < 40 && chapterNine.visitors < 40, "中后期单次运营游客都应压在低倍率");
 
 const lateCapacity = createReserveState();
-lateCapacity.progression = { stage: 14, displayChapter: 14, level: 7 };
+lateCapacity.progression = { stage: 11, displayChapter: 11, level: 7 };
 assert(buildReserveDevelopmentPlan(lateCapacity, "river_shallows", "visitor_boardwalk", 1).ok);
 lateCapacity.development.nodes.river_shallows.buildingLevel = 8;
 const lateBuilding = require("../js/reserveDevelopment").developmentBuildingView(lateCapacity, "river_shallows", 1);
-assert.ok(lateBuilding.visitorCapacity < 8 * 5 * 1.65 * 14 * 0.35, "第14章每日接待容量必须从线性章节倍数里压下来");
+assert.ok(lateBuilding.visitorCapacity < 8 * 5 * 1.65 * 11 * 0.35, "第11章每日接待容量必须从线性章节倍数里压下来");
 
 delete global.wx;
 console.log(`reserve development check ok (${RESERVE_DEVELOPMENT_NODES.length} living nodes, visitors, ledger, animal routes, responsive modal)`);

@@ -1,5 +1,5 @@
 "use strict";
-const { proposeAutoExchange, proposalWithWant, settleAutoExchange, wildernessTradeDailyUsage, wildernessFindById, wildernessTradePreview, sandboxExchangeIconReady, consumeSandboxExchangeIcon } = require("./wildernessKnowledge");
+const { proposeAutoExchange, proposalWithWant, settleAutoExchange, wildernessTradeDailyUsage, wildernessFindById, wildernessTradePreview, sandboxExchangeIconReady, consumeSandboxExchangeIcon } = require("./packBridge").wildernessKnowledge;
 const { chapterSpecialDef, applySpecialMetric, METRIC_LABELS, changeSummary } = require("./chapterSpecialSystem");
 const AID_FRACTION = 1 / 3;
 const FRIEND_AID_FALLBACK_MS = 24 * 60 * 60 * 1000;

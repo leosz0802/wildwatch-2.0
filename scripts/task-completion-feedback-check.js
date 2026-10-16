@@ -60,7 +60,7 @@ assert.equal(metricProgress(999, 1000).complete, false);
 assert.equal(metricProgress(1000, 1000).color, COMPLETE_COLOR);
 assert.equal(metricProgress(1001, 1000).percentage, 100);
 assert.equal(metricProgress(0, 0).complete, false);
-for (let chapter = 1; chapter <= 20; chapter++) {
+for (let chapter = 1; chapter <= CHAPTERS.length; chapter++) {
   const game = make(375, 812, chapter), goals = chapterTargets(chapter);
   for (const [id, key] of [['visitors','visitors'],['speciesCount','species'],['animalTotal','animals']]) {
     for (const value of [goals[key] - 1, goals[key], goals[key] + 1]) {
@@ -77,18 +77,12 @@ for (let chapter = 1; chapter <= 20; chapter++) {
     assert.equal(metric.valueColor, expected.color);
     assert.equal(metric.percentage, expected.percentage, 'overview and HUD must use the same chapter target');
   });
-  // Real goal completion across all chapters, including partial daily progress.
-  const daily = game.state.world.goals.daily.objectives[0];
-  for (let i = 0; i < daily.target; i++) {
-    const before = JSON.parse(JSON.stringify(game.state));
-    game.state = applyGoalProgress(before, game.state, { action: daily.recommendedAction }).state;
-    game.collectTaskCompletionFeedback();
-    const notices = game.taskCompletionFeedback.pending.filter(item => item.title === daily.title);
-    assert.equal(notices.length, i + 1 >= daily.target ? 1 : 0, 'partial daily progress is not completion');
-  }
-  const notices = drain(game);
-  assert(notices.includes(daily.title), `chapter ${chapter}: daily completion must announce its name`);
-  assert.equal(drain(game).length, 0, 'completed tasks must not announce again each frame');
+  const daily = (game.state.world.goals.daily.objectives || [])[0];
+  assert.equal(daily, undefined, `chapter ${chapter}: daily tasks must not be generated`);
+  const before = JSON.parse(JSON.stringify(game.state));
+  game.state = applyGoalProgress(before, game.state, { action: 'viewVisitors' }).state;
+  game.collectTaskCompletionFeedback();
+  assert.equal(drain(game).length, 0, 'removed daily tasks must not announce completion');
   game.resetTaskCompletionFeedback();
   assert.equal(drain(game).length, 0, 'loading old completed history must not replay notifications');
 }
@@ -152,11 +146,8 @@ for (const [w,h] of [[320,568],[375,812],[430,932]]) {
 }
 {
   const game = make();
-  const daily = game.state.world.goals.daily.objectives[0];
-  for (let i = 0; i < daily.target; i++) {
-    const before = JSON.parse(JSON.stringify(game.state));
-    game.state = applyGoalProgress(before, game.state, { action: daily.recommendedAction }).state;
-  }
+  const beforeDaily = JSON.parse(JSON.stringify(game.state));
+  game.state = applyGoalProgress(beforeDaily, game.state, { action: 'viewVisitors' }).state;
   const lastResult = game.state.world.goals.lastResult || {};
   game.settlementModal = {
     actionType: 'houndScout',
@@ -186,11 +177,8 @@ for (const [w,h] of [[320,568],[375,812],[430,932]]) {
 }
 {
   const game = make();
-  const daily = game.state.world.goals.daily.objectives.find((item) => item.kind === 'visitor') || game.state.world.goals.daily.objectives[0];
-  for (let i = 0; i < daily.target; i++) {
-    const before = JSON.parse(JSON.stringify(game.state));
-    game.state = applyGoalProgress(before, game.state, { action: daily.recommendedAction }).state;
-  }
+  const beforeDaily = JSON.parse(JSON.stringify(game.state));
+  game.state = applyGoalProgress(beforeDaily, game.state, { action: 'viewVisitors' }).state;
   const lastResult = game.state.world.goals.lastResult || {};
   game.infoDetailModal = {
     kind: 'visitorIncidentDice',

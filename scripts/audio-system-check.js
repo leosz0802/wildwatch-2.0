@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { AudioSystem, AUDIO_ASSETS, EFFECT_PROFILES, CUE_PROFILES, MUSIC_PROFILE, normalizeAudioSettings } = require("../js/audioSystem");
+const { AudioSystem, AUDIO_ASSETS, EFFECT_PROFILES, CUE_PROFILES, MUSIC_ASSET, MUSIC_PROFILE, normalizeAudioSettings } = require("../js/audioSystem");
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -34,11 +34,14 @@ assert(defaults.enabled && defaults.sfx && defaults.music, "新存档应默认�
 const audio = new AudioSystem(runtime, state);
 assert(audio.isAvailable(), "InnerAudioContext 可用时声音系统必须启用");
 assert(!audio.playEffect("success"), "用户首次交互前不得自动播放音效");
+assert(audio.playMusic() === false, "用户首次交互前不得自动播放背景音乐");
+assert(contexts.length === 0, "首次交互前不得创建背景音播放器");
 audio.unlock();
-assert(!AUDIO_ASSETS.music, "背景循环音频已移除，不得再引用");
-assert(contexts.length === 0, "首次交互不得创建背景音播放器");
-assert(audio.playMusic() === false, "背景循环音频已移除，不得再播放");
-assert(MUSIC_PROFILE.volume <= 0.10, "残留音量配置不得压过玩法音效");
+assert(MUSIC_ASSET === "audio-pack/bgm-nature-loop.m4a", "背景音乐必须放在音频分包");
+assert(!AUDIO_ASSETS.music, "操作音效表不得再塞进背景音乐");
+assert(contexts.some((context) => context.src === MUSIC_ASSET && context.loop && context.plays === 1), "首次交互后背景音乐要循环播放");
+assert(audio.playMusic() === true && contexts.filter((context) => context.src === MUSIC_ASSET).length === 1, "背景音乐已经在播时不得再开一个播放器");
+assert(MUSIC_PROFILE.volume < EFFECT_PROFILES.success.volume, "背景音乐音量不得压过玩法音效");
 assert(audio.playEffect("success"), "用户交互后成功音应可播放");
 assert(contexts.some((context) => context.src === AUDIO_ASSETS.success && context.plays === 1), "成功音资源必须实际进入播放上下文");
 assert(!AUDIO_ASSETS.confirm && !EFFECT_PROFILES.confirm, "按钮不得再保留第二套确认音");
@@ -82,7 +85,14 @@ assert(gameSource.includes("drawAudioToggle"), "阶段栏必须提供声音开�
 assert(/toggleAudio\(\), "none"/.test(gameSource), "声音开关关闭前不得额外播放点击音");
 assert(gameSource.includes('this.playSfx("dice")'), "六面骰必须接入独立结果音效");
 assert(!gameSource.includes('this.playSfx("confirm")') && /if \(name === "tap"\) return false;/.test(gameSource), "普通按钮不得重新接入已移除的按键音");
-assert(!fs.existsSync(path.join(root, "assets/audio/bgm-nature-loop.m4a")), "背景循环音频文件必须删除");
-assert(!/bgm-nature-loop/.test(fs.readFileSync(path.join(root, "js/audioSystem.js"), "utf8")), "声音系统不得再引用背景循环音频");
+const musicFile = path.join(root, MUSIC_ASSET);
+const gameConfig = JSON.parse(fs.readFileSync(path.join(root, "game.json"), "utf8"));
+const musicPackage = (gameConfig.subpackages || []).find((item) => item.name === "audio-pack");
+assert(musicPackage && musicPackage.root === "audio-pack", "背景音乐必须注册为独立分包");
+assert(fs.existsSync(musicFile), "分包里要有可循环的背景音乐");
+assert(!fs.existsSync(path.join(root, "assets/audio/bgm-nature-loop.m4a")), "背景音乐不能留在主包音频目录");
+const musicBytes = fs.readFileSync(musicFile);
+assert(musicBytes.subarray(4, 8).toString("ascii") === "ftyp", "背景音乐要是 m4a");
+assert(musicBytes.length < 400 * 1024, "循环背景音乐要保持在 400KiB 以内");
 
 console.log(`audio system check ok (operation sounds only, ${(totalBytes / 1024).toFixed(1)}KiB)`);

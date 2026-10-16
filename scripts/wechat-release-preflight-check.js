@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const zlib = require("zlib");
 
 const root = path.resolve(__dirname, "..");
 const project = JSON.parse(fs.readFileSync(path.join(root, "project.config.json"), "utf8"));
@@ -54,11 +55,30 @@ function packageSize(relativeDirectory = ".", mainOnly = false) {
   return total;
 }
 
+function shippedPackageSize(relativeDirectory = ".", mainOnly = false) {
+  let total = 0;
+  const absoluteDirectory = path.join(root, relativeDirectory);
+  fs.readdirSync(absoluteDirectory, { withFileTypes: true }).forEach((entry) => {
+    const relativePath = relativeDirectory === "." ? entry.name : `${relativeDirectory}/${entry.name}`;
+    if (isIgnored(relativePath)) return;
+    if (mainOnly && subpackageRoots.some((subpackageRoot) => relativePath === subpackageRoot || relativePath.startsWith(`${subpackageRoot}/`))) return;
+    const absolutePath = path.join(root, relativePath);
+    if (entry.isDirectory()) total += shippedPackageSize(relativePath, mainOnly);
+    else {
+      const bytes = fs.readFileSync(absolutePath);
+      total += relativePath.endsWith(".js") ? zlib.gzipSync(bytes, { level: 9 }).length : bytes.length;
+    }
+  });
+  return total;
+}
+
 function runtimeText() {
-  return [path.join(root, "game.js")]
-    .concat(walk(path.join(root, "js")).filter((file) => file.endsWith(".js")))
-    .map((file) => fs.readFileSync(file, "utf8"))
-    .join("\n");
+  const files = [path.join(root, "game.js")]
+    .concat(walk(path.join(root, "js")).filter((file) => file.endsWith(".js")));
+  subpackageRoots.forEach((subpackageRoot) => {
+    files.push(...walk(path.join(root, subpackageRoot)).filter((file) => file.endsWith(".js")));
+  });
+  return files.map((file) => fs.readFileSync(file, "utf8")).join("\n");
 }
 
 if (project.compileType === "game") pass("项目类型为微信小游戏");
@@ -84,12 +104,16 @@ if (openDataRoot && fs.existsSync(openDataEntry)) pass(`微信开放数据域已
 else fail("缺少微信好友榜开放数据域配置或 index.js");
 
 const mainBytes = packageSize(".", true);
+const shippedMainBytes = shippedPackageSize(".", true);
 const subpackageBytes = subpackageRoots.reduce((sum, subpackageRoot) => sum + packageSize(subpackageRoot, false), 0);
 const totalBytes = mainBytes + subpackageBytes;
 const mib = (bytes) => (bytes / 1024 / 1024).toFixed(3);
 
-if (mainBytes <= 4 * 1024 * 1024) pass(`主包 ${mib(mainBytes)} MiB（官方上限 4 MiB）`);
-else fail(`主包 ${mib(mainBytes)} MiB 超过官方 4 MiB 上限`);
+if (mainBytes <= 4 * 1024 * 1024) pass(`主包源码 ${mib(mainBytes)} MiB，未超过微信 4 MiB 源码上限`);
+else fail(`主包源码 ${mib(mainBytes)} MiB 超过微信 4 MiB 源码上限`);
+
+if (shippedMainBytes <= 4 * 1024 * 1024) pass(`主包 ${mib(shippedMainBytes)} MiB（上传压缩后，官方上限 4 MiB；源码 ${mib(mainBytes)} MiB）`);
+else fail(`主包 ${mib(shippedMainBytes)} MiB 超过官方 4 MiB 上限`);
 
 if (totalBytes <= 20 * 1024 * 1024) pass(`总包 ${mib(totalBytes)} MiB（官方上限 20 MiB）`);
 else fail(`总包 ${mib(totalBytes)} MiB 超过官方 20 MiB 上限`);

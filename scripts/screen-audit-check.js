@@ -681,61 +681,19 @@ viewports.forEach((viewport) => {
     || ecologyFullTextAudit.texts.some((item) => /任务生成器|完成结算|完整记录|返回后/.test(item.text))) {
     fail(`${viewport.name}/ecology-full-text`, "expanded ecology text still includes redundant implementation or navigation commentary");
   }
-  const { resolveEcologyNarrativeEvent } = require("../js/ecologyNarrativeSystem");
-  const seedEcologyUi = (g, type, extra = {}) => {
-    const reserve = g.state.world.reserve;
-    reserve.ecology = reserve.ecology || {};
-    reserve.ecology.herbivores = Object.assign({}, reserve.ecology.herbivores || {}, {
-      hare: 36,
-      deer: 18,
-      antelope: 24,
-      zebra: 22
-    });
-    reserve.seasonState = Object.assign({}, reserve.seasonState || {}, extra.weather ? { weather: extra.weather } : {});
-    reserve.ecologyNarrative = { pendingDecision: null, lastEvent: null, history: [], artifacts: {}, threads: {} };
-    resolveEcologyNarrativeEvent(reserve, JSON.parse(JSON.stringify(reserve)), Object.assign({
-      day: 2,
-      dayClosed: true,
-      forceType: type
-    }, extra));
-  };
-  [
-    { type: "competition", choiceId: "seasonal_zones", label: "competition" },
-    { type: "weather", choiceId: "open_shelter", extra: { weather: "寒雾" }, label: "cold-fog" }
-  ].forEach((scene) => {
-    runRenderAudit(game, viewport, "home", 0, (g) => {
-      seedEcologyUi(g, scene.type, scene.extra || {});
-      const realRender = g.render;
-      g.render = () => {};
-      g.openPendingEcologyDecision();
-      g.render = realRender;
-    });
-    const decision = game.infoDetailModal || {};
-    const dilemma = (decision.summaryItems || []).find((item) => item.tag === "两难");
-    if (decision.kind !== "ecologyNarrativeDecision" || (decision.choices || []).length !== 1
-      || (decision.summaryItems || []).length !== 2
-      || !(decision.summaryItems || []).some((item) => item.tag === "游客影响")
-      || !dilemma || dilemma.title.length > 12) {
-      fail(`${viewport.name}/ecology-${scene.label}-decision`, "ecology single-choice cards still overflow or drop visitor impact");
-    }
-    runRenderAudit(game, viewport, "home", 0, (g) => {
-      seedEcologyUi(g, scene.type, scene.extra || {});
-      const realRender = g.render;
-      g.render = () => {};
-      g.openPendingEcologyDecision();
-      const choice = (g.infoDetailModal.choices || []).find((item) => item.id === scene.choiceId);
-      if (choice) choice.action();
-      if (g.infoDetailModal) g.infoDetailModal.revealAt = 0;
-      g.render = realRender;
-    });
-    const outcome = game.infoDetailModal || {};
-    if (outcome.kind !== "ecologyNarrativeDecision" || outcome.phase !== "result"
-      || (outcome.summaryItems || []).length !== 2
-      || !(outcome.summaryItems || []).some((item) => item.tag === "游客影响")
-      || (outcome.summaryItems || []).some((item) => String(item.title || "").length > 12)) {
-      fail(`${viewport.name}/ecology-${scene.label}-outcome`, "ecology result still overflows or drops visitor impact");
-    }
+  runRenderAudit(game, viewport, "home", 0, (g) => {
+    g.state.world.reserve.ecologyNarrative = {
+      pendingDecision: { id: "retired_nature_rule", title: "自然规则", choices: [{ id: "observe", label: "观察" }] }
+    };
+    const realRender = g.render;
+    g.render = () => {};
+    g.openPendingEcologyDecision();
+    g.render = realRender;
   });
+  if ((game.infoDetailModal || {}).kind === "ecologyNarrativeDecision"
+    || String((game.infoDetailModal || {}).kicker || "").includes("自然规则")) {
+    fail(`${viewport.name}/ecology-retired`, "nature-rule tasks still open on the sandbox");
+  }
   const letterHomeAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
     g.state.world.lifeMemory.animalLetters = [];
     g.state.world.lifeMemory.animalLetterDateKey = "";
@@ -775,9 +733,8 @@ viewports.forEach((viewport) => {
   const prologueVisual = game.renderedPlayablePrologue || {};
   if (!chooseAudit.texts.some((item) => item.text === "进入游戏")
     || !chooseAudit.texts.some((item) => /解救 1 只动物/.test(item.text))
-    || !chooseAudit.texts.some((item) => /招募 95 名游客/.test(item.text))
-    || !chooseAudit.texts.some((item) => /扩大到 58 只/.test(item.text))
-    || !chooseAudit.texts.some((item) => /这里没有无代价的善意/.test(item.text))
+    || !chooseAudit.texts.some((item) => /招募 50 名游客/.test(item.text))
+    || !chooseAudit.texts.some((item) => /扩大到 12 只/.test(item.text))
     || prologueVisual.stage !== "fog" || prologueVisual.dynamicMap || !prologueVisual.staticUnderlay || prologueVisual.staticChapterArt
     || !prologueVisual.cinematicArt || prologueVisual.beat !== "enter" || prologueVisual.soundCue !== "叮——"
     || prologueVisual.comicPanels !== 1 || prologueVisual.panel !== 1
@@ -1834,29 +1791,21 @@ viewports.forEach((viewport) => {
     || !/迁徙没有中断/.test(strategyOutcomeCard.item.body)) {
     fail(`${viewport.name}/strategy-result`, "长期后果仍把叙事长句挤在标题行，或正文换行不可读");
   }
-  const guardianChoiceAudit = runRenderAudit(game, viewport, "home", 0, (g) => {
+  runRenderAudit(game, viewport, "home", 0, (g) => {
     const { maybePrepareGuardianPromise } = require("../js/guardianPromises");
-    g.state.world.reserve.guardianPromises = null;
+    g.state.world.reserve.guardianPromises = { pending: { id: "contact_boundary", chapter: 1, selectedChoiceId: "" } };
     g.state.world.reserve.progression.level = 1;
     g.state.world.reserve.progression.totalActions = 3;
     maybePrepareGuardianPromise(g.state.world.reserve, { day: 3, totalActions: 3 });
+    g.infoDetailModal = null;
     const realRender = g.render;
     g.render = () => {};
     g.openPendingGuardianPromise();
-    g.selectGuardianPromise(1, "adaptive_contact");
     g.render = realRender;
   });
-  if (guardianChoiceAudit.texts.some((item) => /^(长期|数值|动物) · .*…$/.test(item.text))) {
-    fail(`${viewport.name}/guardian-choice`, "selected guardian promise still hides core copy behind an ellipsis");
-  }
-  const guardianLayout = (game.infoDetailModal && game.infoDetailModal.renderedChoiceLayout) || [];
-  const guardianText = (game.infoDetailModal && game.infoDetailModal.renderedChoiceText) || [];
-  if (!game.infoDetailModal || game.infoDetailModal.renderedPromiseMode !== "focused"
-    || guardianLayout.filter((item) => item.selected).length !== 1
-    || guardianLayout.filter((item) => item.collapsed).length !== 2
-    || guardianText.length !== 3
-    || guardianText.some((item) => !item.layout || item.layout.truncated)) {
-    fail(`${viewport.name}/guardian-choice`, "永久守则未保持单卡聚焦，或完整收益、代价与长期影响不可读");
+  if ((game.infoDetailModal && game.infoDetailModal.kind === "guardianPromise")
+    || (game.state.world.reserve.guardianPromises || {}).pending) {
+    fail(`${viewport.name}/guardian-choice`, "守护承诺不得再弹出，也不得留在待处理队列");
   }
   runRenderAudit(game, viewport, "collection", 0, (g) => {
     g.state.world.collection.legacyArchive = { count: 2, entries: { old_a: {}, old_b: {} }, history: [{ id: "old_a", name: "旧版收藏", day: 8 }] };

@@ -124,7 +124,7 @@ function primaryReasons(before = {}, reserve = {}, context = {}) {
   if (!visitorEmergency && hasVisitorTrouble(visitorToday)) {
     reasons.push({
       id: "visitor_trouble",
-      priority: 90,
+      priority: 130,
       label: "游客现场需要处置",
       body: visitorToday.trouble,
       action: "visitorAdjust",

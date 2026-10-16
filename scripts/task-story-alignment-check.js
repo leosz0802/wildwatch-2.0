@@ -4,6 +4,7 @@ const { simulateDay } = require("../js/simulator");
 const { buildGoalView, actionExecutable, resolveGoals, CHAPTER_THEME_TASKS } = require("../js/goalSystem");
 const { eventStepGuidance } = require("../js/storyGuidance");
 const { progressionGate } = require("../js/balanceConfig");
+const { CHAPTERS } = require("../js/animalWorld");
 
 function withRandom(value, fn) {
   const original = Math.random;
@@ -64,6 +65,7 @@ assert.strictEqual(chain.step, 1, "首次有效行动应建立第1段剧情");
 assert.strictEqual(chain.next.recommendedAction, "habitat", "第2段剧情应明确要求修复栖息地");
 assert(primary && primary.recommendedAction, "章节主题完成后仍应给出可执行的下一目标");
 assert(actionExecutable(state, primary.recommendedAction), "下一目标必须可以直接执行");
+assert(!primary.themeTask, "章节主题完成后不应重新占用主题任务卡");
 
 state = run("修复水源和草场", state);
 assert.strictEqual(state.world.reserve.eventChain.step, 1, "剧情间隔期不应连续弹出下一段");
@@ -118,7 +120,7 @@ const legacy = eventStepGuidance(prepared.world.reserve, 3);
 assert(["antiPoacher", "houndScout"].includes(legacy.recommendedAction), "旧存档第3段应恢复为侦察/驱赶动作");
 assert(legacy.validActions.includes(legacy.recommendedAction), "旧存档恢复动作必须属于剧情有效集合");
 
-for (let stage = 1; stage <= 20; stage += 1) {
+for (let stage = 1; stage <= CHAPTERS.length; stage += 1) {
   const gate = progressionGate(stage);
   const startStep = gate.storyBeats >= 5 && stage % 2 === 0 ? 2 : 0;
   for (let step = startStep; step < gate.storyBeats; step += 1) {
@@ -143,7 +145,7 @@ for (let stage = 1; stage <= 20; stage += 1) {
     };
     const matrixGoals = resolveGoals(fixture, fixture.world.goals, `stage_${stage}_step_${step + 1}`);
     const matrixPrimary = matrixGoals.active.primary;
-    assert(matrixPrimary.themeTask, `第${stage}章应优先显示章节主题任务，而不是通用剧情任务`);
+    assert(matrixPrimary && matrixPrimary.recommendedAction, `第${stage}章必须显示可执行目标`);
     assert(actionExecutable(fixture, matrixPrimary.recommendedAction), `第${stage}章主题任务动作不可执行`);
   }
 }

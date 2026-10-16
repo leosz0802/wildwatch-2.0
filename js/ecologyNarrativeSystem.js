@@ -26,7 +26,7 @@ function namedSpecies(speciesId) {
 function setPopulation(reserve, speciesId, value) {
   const group = speciesPopulationGroup(speciesId);
   reserve.ecology = reserve.ecology || {};
-  reserve.ecology[group] = reserve.ecology[group] || {};
+  if (!reserve.ecology[group] || typeof reserve.ecology[group] !== "object") reserve.ecology[group] = {};
   reserve.ecology[group][speciesId] = Math.max(0, Math.round(Number(value) || 0));
 }
 function adjustPopulation(reserve, speciesId, delta, source) {
@@ -110,6 +110,9 @@ function normalizeEvent(value = {}) {
   });
   return event;
 }
+function ecologyNarrativeRetired() {
+  return true;
+}
 function normalizeEcologyNarrative(value = {}) {
   const artifacts = {};
   Object.keys(value.artifacts || {}).slice(0, 80).forEach((id) => { artifacts[id] = normalizeArtifact(value.artifacts[id]); });
@@ -118,7 +121,7 @@ function normalizeEcologyNarrative(value = {}) {
     lastDay: Math.max(0, Math.round(Number(value.lastDay) || 0)),
     serial: Math.max(0, Math.round(Number(value.serial) || 0)),
     lastEvent: value.lastEvent ? normalizeEvent(value.lastEvent) : null,
-    pendingDecision: value.pendingDecision ? normalizeEvent(value.pendingDecision) : null,
+    pendingDecision: ecologyNarrativeRetired() ? null : (value.pendingDecision ? normalizeEvent(value.pendingDecision) : null),
     snoozedEventId: boundedText(value.snoozedEventId, 80),
     history: (Array.isArray(value.history) ? value.history : []).map(normalizeEvent).filter((event) => event.id).slice(-24),
     artifacts,
@@ -713,14 +716,29 @@ function pickEcologyType(preferred, skip, reserve, context = {}) {
 }
 function resolveEcologyNarrativeEvent(reserve = {}, beforeReserve = {}, context = {}) {
   const state = normalizeEcologyNarrative(reserve.ecologyNarrative || {});
+  if (ecologyNarrativeRetired()) {
+    state.pendingDecision = null;
+    state.snoozedEventId = "";
+    reserve.ecologyNarrative = state;
+    return null;
+  }
   const day = Math.max(1, Math.round(Number(context.day) || 1));
   if (!context.dayClosed || state.pendingDecision) {
     reserve.ecologyNarrative = state;
     return null;
   }
+  const ecoNow = reserve.ecology || {};
+  const lifePressure = clamp(ecoNow.disease) >= ECOLOGY_THRESHOLDS.earlyDisease
+    || clamp(ecoNow.grass) <= ECOLOGY_THRESHOLDS.criticalGrass;
+  const warnedFollowUp = lifePressure && hasEcologyWarning(state, day) && !irreversibleEventInCycle(state, day);
+  const boundedAfterLoss = irreversibleEventInCycle(state, day) && hasEcologyWarning(state, day);
+  // 普通叙事按章节间隔出现。已经被警告的生命风险，以及同一周里
+  // 风险落地后的下一次收束，不能被这个间隔吞掉。
   if (!context.forceType && state.lastEvent && day - state.lastEvent.day < ecologyNarrativeCadence(reserve)) {
-    reserve.ecologyNarrative = state;
-    return null;
+    if (!warnedFollowUp && !boundedAfterLoss) {
+      reserve.ecologyNarrative = state;
+      return null;
+    }
   }
   const random = typeof context.random === "function" ? context.random : Math.random;
   const skip = context.forceType ? new Set() : skipEcologyTypes(state);
@@ -733,7 +751,9 @@ function resolveEcologyNarrativeEvent(reserve = {}, beforeReserve = {}, context 
       ? pickEcologyType("overgrazing", skip, reserve, context)
       : fallback;
   }
+  if (!context.forceType && warnedFollowUp && !skip.has("juvenile_loss")) type = "juvenile_loss";
   if (!context.forceType) type = pickEcologyType(type, skip, reserve, context);
+  if (!context.forceType && warnedFollowUp && !skip.has("juvenile_loss")) type = "juvenile_loss";
   if (!type) {
     reserve.ecologyNarrative = state;
     return null;
@@ -928,6 +948,7 @@ function applyEcologyNarrativeDecision(reserve = {}, eventId = "", choiceId = ""
   return { ok: true, event, choice: selectedChoice, changes, artifact: event.artifact, outcome, narrativeBeat: event.narrativeBeat, businessChange };
 }
 module.exports = {
+  ecologyNarrativeRetired,
   normalizeEcologyNarrative,
   resolveEcologyNarrativeEvent,
   applyEcologyNarrativeDecision,

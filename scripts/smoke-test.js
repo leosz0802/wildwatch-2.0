@@ -80,8 +80,8 @@ if (!result.world.goals || !result.world.goals.longTerm || !result.world.goals.d
   throw new Error("goals were not generated");
 }
 
-if (result.world.goals.version !== 3 || !Array.isArray(result.world.goals.daily.objectives) || result.world.goals.daily.objectives.length < 1 || result.world.goals.daily.objectives.length > 3) {
-  throw new Error("V3 goal system did not preserve its objective state after the action");
+if (result.world.goals.version !== 3 || !Array.isArray(result.world.goals.daily.objectives) || result.world.goals.daily.objectives.length !== 0) {
+  throw new Error("daily tasks must stay removed after an action");
 }
 
 if (!result.world.npcMovements || result.world.npcMovements.length < 4) {

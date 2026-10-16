@@ -128,11 +128,17 @@ async function main() {
 
   assert.ok(NATIVE_TEMPLATE_AD_CONFIG.sideInset >= 24 && NATIVE_TEMPLATE_AD_CONFIG.maxWidth <= 320, "原生广告两侧必须保留可滑动画布通道");
   const gameSource = fs.readFileSync(path.resolve(__dirname, "../js/game.js"), "utf8");
-  assert.ok(/\["role",\s*"survival"\]\.includes\(this\.screen\)[\s\S]{0,220}!blockingModal/.test(gameSource), "原生模板广告只能跟随物资/生存页且应避开游戏弹窗");
-  assert.ok(/drawCurrentScreen\(ctx\)[\s\S]{0,260}syncNativeTemplateAd\(\)/.test(gameSource), "应先计算页面内广告槽，再同步原生广告位置和显隐");
+  assert.ok(/\["role",\s*"survival",\s*"archive"\]\.includes\(this\.screen\)[\s\S]{0,320}!blockingModal/.test(gameSource), "原生模板广告跟随物资、生存、档案和发现页，并避开游戏弹窗");
+  assert.ok(/\["visitors",\s*"population"\]\.includes\(this\.discoveryTab\)/.test(gameSource), "发现频道只在种群观察和游客运营显示原生模板广告");
+  assert.ok(/drawCurrentScreen\(ctx\)[\s\S]{0,400}syncNativeTemplateAd\(\)/.test(gameSource), "应先计算页面内广告槽，再同步原生广告位置和显隐");
   assert.ok(/drawNativeTemplateAdSlot[\s\S]{0,2200}nativeTemplateAdSlot/.test(gameSource), "物资页必须为原生模板广告预留独立内容槽");
   assert.ok(/林间公告/.test(gameSource) && /field-bulletin-v2/.test(gameSource), "原生广告槽必须使用林间公告栏而不是灰色占位框");
   assert.ok(/if \(this\.screen === "choose"\) return false/.test(gameSource), "序章不得初始化广告 SDK");
+  assert.ok(/renderedExtinctionArchive[\s\S]{0,420}placeNativeTemplateAd\(ctx, y\)/.test(gameSource), "物种消失记录最下方要留原生广告");
+  assert.ok(/drawSpeciesArchiveBox\(ctx, 12, y, this\.width - 24, reserve\) \+ 14;[\s\S]*?\} else \{\s*y = this\.placeNativeTemplateAd\(ctx, y\);/.test(gameSource), "物种档案盒最下方要留原生广告");
+  assert.ok(/renderedSurvivalGroups\.push[\s\S]{0,800}placeNativeTemplateAd\(ctx, y\)/.test(gameSource), "生存频道目录最下方要留原生广告");
+  assert.ok(/renderedVisitorTable[\s\S]{0,1600}placeNativeTemplateAd\(ctx, y\)/.test(gameSource), "游客运营最下方要留原生广告");
+  assert.ok(/drawSpeciesSelector\(ctx, 12, y[\s\S]{0,160}placeNativeTemplateAd\(ctx, y\)/.test(gameSource), "种群观察最下方要留原生广告");
   console.log("custom ad check ok");
 }
 

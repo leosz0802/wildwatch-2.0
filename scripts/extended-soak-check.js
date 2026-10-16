@@ -100,7 +100,8 @@ function validateState(state, seedIndex, day, previousLevel) {
   const level = reserve.progression.level;
   assert(level >= previousLevel, `${prefix} level regressed`);
   assert(level <= previousLevel + 1, `${prefix} level skipped`);
-  const unlocked = getUnlockedSpecies(level);
+  const chapter = Math.max(1, Math.round(Number(reserve.progression.stage || reserve.progression.displayChapter || level) || level));
+  const unlocked = getUnlockedSpecies(level, chapter);
   const unlockedIds = new Set(unlocked.map((item) => item.id));
   Object.keys(SPECIES_DB).forEach((id) => {
     const count = speciesPopulation(reserve, id);
@@ -118,8 +119,7 @@ function validateState(state, seedIndex, day, previousLevel) {
   assert(((reserve.emergency || {}).history || []).length <= 8, `${prefix} emergency history cap exceeded`);
   const goals = state.world.goals || {};
   const visibleGoals = [((goals.active || {}).primary)].concat(((goals.active || {}).alternatives) || []).filter(Boolean);
-  assert(goals.version === 3 && goals.daily && goals.daily.target >= 1, `${prefix} V3 daily goal is missing or impossible`);
-  assert((goals.daily.objectives || []).length === 2, `${prefix} daily objective set must stay at visitor and ecology`);
+  assert(goals.version === 3 && goals.daily && (goals.daily.objectives || []).length === 0, `${prefix} daily tasks must stay removed`);
   assert(visibleGoals.length >= 1 && visibleGoals.length <= 3, `${prefix} must expose one to three visible goals`);
   visibleGoals.forEach((goal) => assert(goal.executable && (goal.allowBlocked || actionExecutable(state, goal.recommendedAction)), `${prefix} recommended goal ${goal.id} is not executable`));
   assert(new Set(visibleGoals.map((goal) => goal.id)).size === visibleGoals.length, `${prefix} visible goals contain duplicates`);

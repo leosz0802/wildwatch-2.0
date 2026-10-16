@@ -151,6 +151,69 @@ try {
   assert.equal(missingGame.infoDetailModal.targetId, missingItem,
     'archery exploration must target the missing rescue item');
 
+  // Chapters 5 and 6 reuse an item that an earlier animal already finished.
+  // The new animal must still open archery; the old score and leftover item
+  // cannot release it.
+  function reuseGame(previousChapter, previousSpecies, nextChapter, nextSpecies) {
+    const game = makeGame(previousChapter);
+    game.setScreen = function (screen) { this.screen = screen; };
+    game.requestRender = () => {};
+    game.toast = () => {};
+    game.playSfx = () => {};
+    const reserve = game.state.world.reserve;
+    const previous = findRecord(reserve.chapterRescue, previousSpecies);
+    assert(previous, `${previousSpecies} must be a chapter ${previousChapter} rescue`);
+    const itemId = previous.requiredItems[0];
+    previous.status = 'rescued';
+    previous.rescuedAt = Date.now();
+    previous.pointProgress = { [itemId]: 12 };
+    reserve.inventory = Object.assign({}, reserve.inventory, {
+      rescueItems: Object.assign({}, (reserve.inventory || {}).rescueItems, { [itemId]: 1 })
+    });
+    reserve.materialExplorationProgress = Object.assign({}, reserve.materialExplorationProgress, { [itemId]: 12 });
+    reserve.archeryHistory = [{
+      targetId: itemId,
+      rescueTargetId: previous.targetId,
+      rescueItemId: itemId,
+      itemId,
+      score: 6,
+      totalScore: 12,
+      chapter: previousChapter,
+      recordedAt: Date.now()
+    }];
+    reserve.lastRescueShot = {
+      rescueTargetId: previous.targetId,
+      itemId,
+      shotScore: 6,
+      totalScore: 12,
+      recordedAt: Date.now()
+    };
+    reserve.chapterRescue.completedTargets = Object.assign({}, reserve.chapterRescue.completedTargets, {
+      [previous.targetId]: { rescuedAt: previous.rescuedAt, speciesId: previousSpecies, source: 'chapter-rescue' }
+    });
+    Object.assign(reserve.progression, {
+      stage: nextChapter,
+      displayChapter: nextChapter,
+      level: CHAPTERS[nextChapter - 1].level
+    });
+    reserve.chapterRescue._normalizedChapter = undefined;
+    normalizeChapterRescue(reserve, nextChapter);
+    const next = findRecord(reserve.chapterRescue, nextSpecies);
+    assert(next && next.status === 'captive', `${nextSpecies} must still be captive in chapter ${nextChapter}`);
+    assert.notEqual(next.requiredItems[0], itemId, `${nextSpecies} must use its own rescue item`);
+    next.pointProgress = { [itemId]: 12 };
+    assert(game.activateRescueMapMarker(next.targetId), `${nextSpecies} tap must open rescue`);
+    assert.equal(findRecord(reserve.chapterRescue, next.targetId).status, 'captive',
+      `chapter ${nextChapter} ${nextSpecies} must not be rescued by the previous animal's score`);
+    assert.equal(game.infoDetailModal && game.infoDetailModal.kind, 'materialExploration');
+    assert.equal(game.infoDetailModal.explorationMode, 'archery',
+      `chapter ${nextChapter} ${nextSpecies} must open archery`);
+    assert.equal(game.infoDetailModal.targetId, next.requiredItems[0],
+      `chapter ${nextChapter} ${nextSpecies} archery must target its own item`);
+  }
+  reuseGame(4, 'lion', 5, 'giraffe');
+  reuseGame(1, 'antelope', 6, 'bear');
+
   // A malformed legacy portrait must degrade to a small result card instead
   // of aborting the frame after clearRect.
   const pulse = boarGame.mapConsequencePulse;

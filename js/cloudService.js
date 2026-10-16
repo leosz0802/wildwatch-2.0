@@ -423,7 +423,7 @@ class CloudServiceController {
           method: options.method || "GET",
           header: headers,
           data: options.body,
-          timeout: this.requestTimeout,
+          timeout: Math.max(this.requestTimeout, Number(options.timeout) || 0),
           enableCache: false,
           success: (response = {}) => {
             const statusCode = Number(response.statusCode) || 0;
@@ -881,7 +881,7 @@ class CloudServiceController {
     const eventName = String(event || "").slice(0, 64);
     // 守护行动是后台核心经营数据。即使远程配置暂时没有打开完整遥测，
     // 也必须上传这类事件，否则后台只能看到打开游戏，看不到真实行动。
-    const coreBehaviorEvent = eventName === "reserve.action_completed" || eventName === "chapter.enter";
+    const coreBehaviorEvent = eventName === "reserve.action_completed" || eventName === "chapter.enter" || eventName === "chapter.leave";
     if (!this.feature("telemetry") && !coreBehaviorEvent) return Promise.resolve(false);
     if (this.networkBackoffActive()) return Promise.resolve(false);
     const sampleRate = coreBehaviorEvent ? 1 : this.config().balance.eventUploadSampleRate;
@@ -891,6 +891,67 @@ class CloudServiceController {
       auth: true,
       body: { event: eventName, installId: this.installId, properties }
     }).then(() => true).catch(() => false);
+  }
+  playerSaveEnabled() {
+    return this.feature("cloudSave") === true && this.playerSaveUnsupported !== true;
+  }
+  notePlayerSaveUnsupported(error) {
+    const statusCode = Number(error && error.statusCode) || 0;
+    if (statusCode !== 404) return false;
+    this.playerSaveUnsupported = true;
+    this.queuedPlayerSave = null;
+    return true;
+  }
+  pullPlayerSave() {
+    if (!this.supported || !this.playerSaveEnabled()) return Promise.resolve(null);
+    return this.login().then((ok) => {
+      if (!ok || !this.session.token || !this.playerSaveEnabled()) return null;
+      return this.request("/v1/player-save", { auth: true, timeout: 15000 });
+    }).then((response) => {
+      const data = response && response.data;
+      if (!data || data.found !== true || !data.state || !data.state.world) return null;
+      return { savedAt: Math.max(0, Number(data.savedAt) || 0), state: data.state };
+    }).catch((error) => {
+      this.notePlayerSaveUnsupported(error);
+      return null;
+    });
+  }
+  schedulePlayerSave(state) {
+    if (!this.playerSaveEnabled() || !this.playerSavePullDone || !state || !state.character || !state.world) return false;
+    this.queuedPlayerSave = state;
+    this.armPlayerSaveTimer();
+    return true;
+  }
+  markPlayerSavePullDone() {
+    this.playerSavePullDone = true;
+  }
+  armPlayerSaveTimer() {
+    if (this.playerSaveTimer) return;
+    this.playerSaveTimer = setTimeout(() => {
+      this.playerSaveTimer = null;
+      const next = this.queuedPlayerSave;
+      this.queuedPlayerSave = null;
+      this.pushPlayerSave(next);
+    }, 1500);
+  }
+  pushPlayerSave(state) {
+    if (!this.supported || !this.playerSaveEnabled() || !state || !state.character || !state.world) return Promise.resolve(false);
+    let encoded = "";
+    try { encoded = JSON.stringify(state); } catch (error) { return Promise.resolve(false); }
+    const bytes = typeof TextEncoder === "function" ? new TextEncoder().encode(encoded).length : encoded.length;
+    if (bytes > 700 * 1024) return Promise.resolve(false);
+    return this.login().then((ok) => {
+      if (!ok || !this.session.token) return false;
+      return this.request("/v1/player-save", {
+        method: "PUT",
+        auth: true,
+        timeout: 15000,
+        body: { state }
+      });
+    }).then((response) => !!(response && response.data && response.data.ok)).catch((error) => {
+      this.notePlayerSaveUnsupported(error);
+      return false;
+    });
   }
   bootstrap(reserve = {}, valuation) {
     if (!this.supported) return Promise.resolve(false);

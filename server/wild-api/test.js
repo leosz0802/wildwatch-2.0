@@ -77,6 +77,49 @@ async function main() {
     assert.equal(response.status, 200);
     const userTwoToken = (await response.json()).token;
 
+    response = await fetch(`${base}/v1/player-save`);
+    assert.equal(response.status, 401);
+    response = await fetch(`${base}/v1/player-save`, { headers: { authorization: `Bearer ${userOneToken}` } });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).found, false);
+    const cloudSavedAt = Date.now() - 60000;
+    const savedState = {
+      cloudSavedAt,
+      character: { id: "player_character", role: "warden", animalName: "云端卫士" },
+      world: { day: 12, name: "云端保护区", reserve: { fund: 880 } },
+      reports: [],
+      ui: { prologue: { version: 1, completed: true } }
+    };
+    response = await fetch(`${base}/v1/player-save`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", authorization: `Bearer ${userOneToken}` },
+      body: JSON.stringify({ state: savedState })
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).stored, true);
+    response = await fetch(`${base}/v1/player-save`, { headers: { authorization: `Bearer ${userOneToken}` } });
+    const storedSave = await response.json();
+    assert.equal(storedSave.found, true);
+    assert.equal(storedSave.state.character.animalName, "云端卫士");
+    assert.equal(storedSave.state.world.reserve.fund, 880);
+    response = await fetch(`${base}/v1/player-save`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", authorization: `Bearer ${userOneToken}` },
+      body: JSON.stringify({ state: Object.assign({}, savedState, { cloudSavedAt: cloudSavedAt - 1000, character: { role: "warden", animalName: "旧档" } }) })
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).stored, false);
+    response = await fetch(`${base}/v1/player-save`, { headers: { authorization: `Bearer ${userOneToken}` } });
+    assert.equal((await response.json()).state.character.animalName, "云端卫士");
+    response = await fetch(`${base}/v1/player-save`, { headers: { authorization: `Bearer ${userTwoToken}` } });
+    assert.equal((await response.json()).found, false);
+    response = await fetch(`${base}/v1/player-save`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", authorization: `Bearer ${userOneToken}` },
+      body: JSON.stringify({ state: Object.assign({}, savedState, { cloudSavedAt: Date.now() + 2 * 86400000 }) })
+    });
+    assert.equal(response.status, 400);
+
     response = await fetch(`${base}/v1/leaderboard`);
     assert.equal(response.status, 200);
     assert.deepEqual((await response.json()).leaderboard, []);

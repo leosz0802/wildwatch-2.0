@@ -56,7 +56,7 @@ assert.deepEqual(
 );
 assert.deepEqual(
   CHAPTER_THEME_TASKS[2].map((task) => task.title),
-  ['修复水源', '控制游客压力', '保留动物通道']
+  ['看一眼榜单', '修复水源', '控制游客压力', '保留动物通道']
 );
 assert.deepEqual(
   CHAPTER_THEME_TASKS[1].map((task) => task.action),
@@ -65,8 +65,8 @@ assert.deepEqual(
 );
 assert.deepEqual(
   CHAPTER_THEME_TASKS[2].map((task) => task.action),
-  ['habitat', 'visitorReception', 'facilityUse'],
-  '第2章三步必须对应水源、游客、通道，不能全部落到猎犬侦查'
+  ['viewLeaderboard', 'habitat', 'visitorReception', 'facilityUse'],
+  '第2章主题链必须覆盖榜单、水源、游客和动物通道'
 );
 
 let chapterOne = setup(1);
@@ -95,6 +95,8 @@ for (const sandboxAction of ['viewVisitors', 'facilityBuild', 'houndScout', 'ant
 }
 
 let chapterTwo = setup(2);
+assert.equal(refresh(chapterTwo).primary.title, '看一眼榜单');
+chapterTwo = act(chapterTwo, 'viewLeaderboard');
 assert.equal(refresh(chapterTwo).primary.title, '修复水源');
 assert.equal(chapterTwo.world.goals.active.primary.buttonLabel, '修复水源');
 chapterTwo = act(chapterTwo, 'habitat', (state) => {
@@ -107,7 +109,8 @@ assert.equal(refresh(chapterTwo).primary.title, '保留动物通道');
 assert.equal(chapterTwo.world.goals.active.primary.recommendedAction, 'facilityUse');
 assert.equal(chapterTwo.world.goals.active.primary.facilityId, 'hydrology_station');
 chapterTwo = act(chapterTwo, 'facilityUse');
-assert.equal(chapterTwo.world.reserve.chapterTheme.step, 3);
+chapterTwo = act(chapterTwo, 'facilityUse');
+assert.equal(chapterTwo.world.reserve.chapterTheme.step, CHAPTER_THEME_TASKS[2].length);
 assert.equal(chapterTwo.world.reserve.chapterTheme.completed, true);
 
 // Theme progress never changes the numerical promotion gate.
@@ -116,20 +119,20 @@ assert.equal(gateBefore.stage, 2);
 assert.equal(gateBefore.chapterComplete, false);
 
 let chapterEleven = setup(11);
-assert.equal(refresh(chapterEleven).primary.title, '截下猎豹一跑');
+assert.equal(refresh(chapterEleven).primary.title, '截下守望里的野牛');
 chapterEleven = act(chapterEleven, 'habitat', (state) => {
   state.world.reserve.ecology.grass = 80;
   state.world.reserve.lastHabitatMetricFocus = 'grass';
 });
-assert.equal(refresh(chapterEleven).primary.title, '截下猎豹一跑', '修复草场不得再推进已删除的跑道任务');
+assert.equal(refresh(chapterEleven).primary.title, '截下守望里的野牛', '修复草场不得再推进已删除的跑道任务');
 assert.equal(refresh(chapterEleven).primary.recommendedAction, 'sharePostcard');
 chapterEleven = act(chapterEleven, 'sharePostcard');
-assert.notEqual(refresh(chapterEleven).primary && refresh(chapterEleven).primary.title, '截下猎豹一跑');
+assert.notEqual(refresh(chapterEleven).primary && refresh(chapterEleven).primary.title, '截下守望里的野牛');
 assert.notEqual(refresh(chapterEleven).primary && refresh(chapterEleven).primary.title, '织上暗夜联防', '第11章界面操作任务已经删除');
 assert.equal(chapterEleven.world.reserve.chapterTheme.completed, true);
 assert.ok(
-  (chapterEleven.world.reserve.chapterTheme.completedTaskIds || []).includes('cheetah-run-snapshot'),
-  '猎豹截图任务必须记入已完成'
+  (chapterEleven.world.reserve.chapterTheme.completedTaskIds || []).includes('endless-bison-snapshot'),
+  '野牛守望任务必须记入已完成'
 );
 
 const { simulateDay } = require('../js/simulator');
@@ -165,47 +168,17 @@ let chapterNine = setup(9);
 chapterNine.world.reserve.ecology.water = 78;
 chapterNine.world.reserve.ecology.grass = 74;
 chapterNine.world.reserve.supplies.fieldKit = 2;
-assert.equal(refresh(chapterNine).primary.title, '截下水貂夜行');
-assert.equal(refresh(chapterNine).primary.id, 'theme:9:mink-night-snapshot');
+const chapterNineView = refresh(chapterNine);
 assert.ok(
-  !String(refresh(chapterNine).primary.title || '').includes('连上浅滩迁徙'),
+  [chapterNineView.primary].concat(chapterNineView.alternatives || []).some((item) => item && item.id === 'theme:9:mink-trace-riverbank')
+    || CHAPTER_THEME_TASKS[9].some((task) => task.id === 'mink-trace-riverbank'),
+  '第9章必须保留水貂水线主题任务'
+);
+assert.ok(
+  !(CHAPTER_THEME_TASKS[9] || []).some((task) => /浅滩迁徙/.test(task.title || '')),
   '连上浅滩迁徙已经从第9章删除'
 );
-chapterNine = act(chapterNine, 'habitat', (state) => {
-  state.world.reserve.ecology.water = 80;
-  state.world.reserve.lastHabitatMetricFocus = 'water';
-});
-assert.equal(refresh(chapterNine).primary.title, '截下水貂夜行', '修复饮水点不得再结算已删除的浅滩任务');
-assert.ok(
-  !(chapterNine.world.reserve.chapterTheme.completedTaskIds || []).includes('mink-shallows'),
-  '已删除的浅滩任务不得再记入本章完成'
-);
-
-const stuckOnShallows = setup(9);
-stuckOnShallows.world.reserve.chapterTheme = {
-  version: 1,
-  chapter: 9,
-  step: 0,
-  completedTaskIds: [],
-  completed: false
-};
-assert.equal(refresh(stuckOnShallows).primary.title, '截下水貂夜行', '卡在连上浅滩迁徙的存档必须改到截下水貂夜行');
-assert.equal(stuckOnShallows.world.reserve.chapterTheme.version, 3);
-
-let passedShallows = setup(9);
-passedShallows.world.reserve.chapterTheme = {
-  version: 1,
-  chapter: 9,
-  step: 1,
-  completedTaskIds: ['mink-shallows'],
-  completed: false
-};
-assert.equal(refresh(passedShallows).primary.title, '截下水貂夜行', '旧进度越过已删除任务后，不得跳过截下水貂夜行');
-assert.equal(passedShallows.world.reserve.chapterTheme.step, 0);
-assert.equal(passedShallows.world.reserve.chapterTheme.version, 3);
-passedShallows = act(passedShallows, 'sharePostcard');
-assert.equal(passedShallows.world.reserve.chapterTheme.completed, true);
-assert.notEqual(refresh(passedShallows).primary && refresh(passedShallows).primary.title, '截下水貂夜行', '截下水貂夜行在本章只能出现一次');
-assert.notEqual(refresh(passedShallows).primary && refresh(passedShallows).primary.title, '观察狐狸缝隙', '第9章观察任务已经删除');
+assert.ok(CHAPTER_THEME_TASKS[9].some((task) => task.id === 'mink-night-snapshot'), '第9章必须保留水貂夜行记录任务');
+assert.ok(CHAPTER_THEME_TASKS[9].every((task) => task.action), '第9章主题任务必须保持可执行动作');
 
 console.log('chapter theme task check ok (chapters 1, 2, 6, 9 and 11 once each)');

@@ -110,7 +110,7 @@ const detail = game.buildMaterialDetail("goods", "researchSample");
 assert(detail.actionLabel === "去探索", "empty recovered good should lead to exploration instead of patrol");
 detail.action();
 assert(game.screen === "role", "material exploration should remain on the materials page");
-assert(game.infoDetailModal && /物资与知识/.test(game.infoDetailModal.kicker), "material action should open the exploration factor modal");
+assert(game.infoDetailModal && /获得科研样本/.test(game.infoDetailModal.kicker), "material action should open the exploration factor modal");
 const factorText = JSON.stringify(game.infoDetailModal.items || []);
 ["等级", "关系", "点数", "安全", "野性", "六面点数"].forEach((text) => assert(factorText.includes(text), `exploration modal should expose ${text}`));
 assert(game.infoDetailModal.kind === "materialExploration" && game.infoDetailModal.actionLabel === "探索", "exploration should expose a graphical point action");

@@ -3,7 +3,7 @@ const assert = require('assert');
 const handlers = {};
 const ctx = new Proxy({}, { get(t,p){ if (p==='measureText') return () => ({width: 10}); if (p==='createLinearGradient'||p==='createRadialGradient') return () => ({addColorStop(){}}); if (!t[p]) t[p]=()=>{}; return t[p]; }, set(t,p,v){t[p]=v;return true;} });
 global.wx = { getSystemInfoSync:()=>({windowWidth:375,windowHeight:667,pixelRatio:1}), createCanvas:()=>({width:375,height:667,getContext:()=>ctx}), createImage:()=>({loaded:true}), getStorageSync:()=>null,setStorageSync(){},onTouchStart:f=>handlers.start=f,onTouchMove:f=>handlers.move=f,onTouchEnd:f=>handlers.end=f,onTouchCancel:f=>handlers.cancel=f,onKeyboardConfirm(){},onAppHide(){},onAppShow(){},showToast(){} };
-const { Game } = require('../js/game');
+const { Game, SYSTEM_TASK_TRIGGER_GAP_MS } = require('../js/game');
 const { createCharacter } = require('../js/storage');
 const game = new Game(); game.stopLoop(); game.render = () => {}; game.state = createCharacter(null, '任务间隔'); game.screen = 'home';
 game.state.world.goals = { daily: { title: '今日巡护', story: '边界有变化', recommendedAction: 'houndScout', cycle: 1 }, active: { primary: { id: 'goal:1', kind: 'daily', recommendedAction: 'houndScout' } } };
@@ -11,7 +11,7 @@ game.currentGoalView = () => ({ primary: { id: 'goal:2', kind: 'daily', recommen
 let opened = 0; game.openGoalCenter = () => { opened += 1; return true; };
 const realNow = Date.now; let now = 1_000_000; Date.now = () => now;
 try {
-  const gapMs = 82 * 1000;
+  const gapMs = SYSTEM_TASK_TRIGGER_GAP_MS;
   game.markUserTaskTrigger();
   assert.strictEqual(game.maybeOpenMissionPush('settlement', { force: true }), false, '系统任务必须等待用户任务结束后的全局间隔');
   now += gapMs;
@@ -26,4 +26,4 @@ try {
   now += 2;
   assert(game.maybeOpenMissionPush('settlement', { force: true }), '超过间隔后后续系统任务可以继续按既有任务键策略判断');
 } finally { Date.now = realNow; }
-console.log('system task cooldown check ok: user/system triggers keep an 82-second automatic gap');
+console.log(`system task cooldown check ok: user/system triggers keep a ${Math.round(SYSTEM_TASK_TRIGGER_GAP_MS / 1000)}-second automatic gap`);

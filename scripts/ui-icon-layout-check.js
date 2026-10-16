@@ -179,7 +179,7 @@ function resetRecords(phase) {
 }
 
 function uiImages(records) {
-  return records.images.filter((image) => image.src.includes("assets/art/ui-v"));
+  return records.images.filter((image) => image.src.includes("assets/art/ui-v") || image.src.includes("assets/art/archive/ui-v3/"));
 }
 
 function fail(message) {
@@ -191,7 +191,7 @@ function checkUiImageBasics(records, context) {
     if (image.src.includes("icons-complete-sheet-640.png") || image.src.includes("assets/art/ui-v2/")) {
       fail(`${context}: runtime drew the deprecated ui icon sheet`);
     }
-    if (!image.src.includes("assets/art/ui-v3/icons/")) {
+    if (!image.src.includes("assets/art/archive/ui-v3/icons/")) {
       fail(`${context}: ui image should come from independent icon files: ${image.src}`);
     }
     const centeredCrop = image.argCount === 9 && image.sx === 12 && image.sy === 12 && image.sw === 72 && image.sh === 72;

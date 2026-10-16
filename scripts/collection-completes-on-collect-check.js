@@ -79,13 +79,9 @@ recoveredGame.activeTaskLock = {
   goal: { id: "goal:salvage", kind: "recovery", recommendedAction: "salvage" }
 };
 recoveredGame.collectRecoveredGood("researchSample");
-assert(recoveredGame.activeTaskLock && recoveredGame.activeTaskLock.awaitingMaterialDetail, "recovered goods did not enter the detail guidance state");
-assert.strictEqual(recoveredGame.activeTaskLock.requiredMaterialId, "researchSample");
-assert(/任务未完成/.test(recoveredGame.activeTaskLock.taskHint) && /研究样本/.test(recoveredGame.activeTaskLock.taskHint) && /物资详情/.test(recoveredGame.activeTaskLock.taskHint), "recovered goods prompt must name the item and say the task is unfinished until its detail opens");
-const detailPrompt = recoveredGame.recoveredGoodsDetailPrompt("研究样本");
-assert(detailPrompt.banner.includes("研究样本") && detailPrompt.banner.includes("打开详情") && detailPrompt.goalTitle.includes("任务才完成"), "recovered goods banner and goal must say opening this item's detail finishes the task");
-recoveredGame.openMaterialDetail("goods", "researchSample");
-assert.strictEqual(recoveredGame.activeTaskLock, null, "recovered goods detail view did not complete the task");
-assert(recoveredGame.infoDetailModal && recoveredGame.infoDetailModal.taskCompleted, "recovered goods detail view did not show completion guidance");
+assert.strictEqual(recoveredGame.activeTaskLock, null, "collecting recovered goods should finish the task by opening the detail");
+assert(recoveredGame.infoDetailModal && recoveredGame.infoDetailModal.taskCompleted, "collecting recovered goods should show the completed detail");
+assert.strictEqual(recoveredGame.infoDetailModal.actionLabel, "完成", "completed collection detail needs one obvious close button");
+assert(/研究样本/.test(recoveredGame.infoDetailModal.title || ""), "completed collection detail must name the collected item");
 
 console.log("collection completes on collect check ok (story, ecology drop, recovered goods)");

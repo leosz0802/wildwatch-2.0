@@ -1,5 +1,5 @@
 const { getUnlockedSpecies } = require("./animalWorld");
-const { survivalFindForExploration, capCollectibleMinQuality, wildernessFindById } = require("./wildernessKnowledge");
+const { survivalFindForExploration, capCollectibleMinQuality, wildernessFindById } = require("./packBridge").wildernessKnowledge;
 const { RESCUE_ITEM_CATALOG, rescueTargetScore } = require("./chapterRescueSystem");
 const { ARCHIVE_ITEMS } = require("./speciesArchiveBox");
 const EXPLORATION_GOODS = [
@@ -9,22 +9,25 @@ const EXPLORATION_GOODS = [
   { id: "naturalHide", label: "自然生命档案", minLevel: 2, minQuality: 8, story: "动物把你领到安静的自然死亡点，一份完整的生命记录被保存下来。" },
   { id: "shedAntlerA", label: "A级岩角", minLevel: 3, minQuality: 9, story: "熟悉你的鹿群没有避开旧角脱落地，一枚完整岩角得以被合规回收。" }
 ].map((item) => Object.assign({}, item, { minQuality: capCollectibleMinQuality(item.minLevel, item.minQuality) }));
-// 物种档案线索复用动物引路探索的点数判定，但不进入回收物库存；结算时直接写入档案盒。
+// 动物引路探索只发放科研与执法样本。物种档案线索不走这条结算。
 const ARCHIVE_EXPLORATION_GOODS = ARCHIVE_ITEMS.map((item) => Object.assign({}, item, {
   label: item.name,
   story: item.note,
   kind: "speciesArchive",
-  // 章节 3～11 映射到现有 1～7 经营等级，避免第11章因为直接拿章节号
+  // 章节 2～8 映射到现有 1～7 经营等级，避免直接拿章节号
   // 作为等级而永远无法通过动物探索获得。
   minLevel: Math.max(1, Math.min(7, Math.ceil(item.chapter / 2))),
   minQuality: capCollectibleMinQuality(item.chapter, 5 + ((item.chapter + item.id.length) % 3))
 }));
-const RESCUE_GOODS = RESCUE_ITEM_CATALOG.map((item, index) => Object.assign({}, item, {
-  kind: "rescue",
-  minLevel: 1 + Math.floor(index / 3),
-  minQuality: capCollectibleMinQuality(1 + Math.floor(index / 3), 5 + (index % 2)),
-  story: item.story
-}));
+const RESCUE_GOODS = RESCUE_ITEM_CATALOG.map((item, index) => {
+  const minLevel = Math.max(1, Math.round(Number(item.minLevel) || (1 + Math.floor(index / 3))));
+  return Object.assign({}, item, {
+    kind: "rescue",
+    minLevel,
+    minQuality: capCollectibleMinQuality(minLevel, 5 + (index % 2)),
+    story: item.story
+  });
+});
 const POACHER_RESCUE_TARGET_SCORE = 10;
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -137,16 +140,17 @@ function resolveMaterialExploration(reserve, knownCharacters, targetId = "", ran
   } else if (wildernessTarget) {
     success = qualityScore >= wildernessTarget.minQuality && wildernessTarget.minLevel <= preview.level;
   }
-  const eligible = EXPLORATION_GOODS.concat(ARCHIVE_EXPLORATION_GOODS)
+  const survivalReward = context.rewardChannel === "survival";
+  const eligible = EXPLORATION_GOODS
     .filter((item) => item.minLevel <= preview.level && item.minQuality <= qualityScore);
   const rescueTarget = target && target.kind === "rescue" ? target : null;
   if (rescueTarget && rescueTarget.minLevel <= preview.level && rescueTarget.minQuality <= qualityScore) eligible.push(rescueTarget);
   let reward = null;
   if (rescueTarget) {
     if (collectionProgress.completed && !previouslyComplete) reward = rescueTarget;
-  } else if (wildernessTarget) {
+  } else if (wildernessTarget || survivalReward) {
     reward = null;
-  } else if (target && target.kind !== "rescue") {
+  } else if (target && target.kind !== "rescue" && target.kind !== "speciesArchive") {
     if (eligible.some((item) => item.id === target.id)) reward = target;
   } else if (success && eligible.length && !target) {
     const resultSeed = ((roll * 17 + preview.level * 13 + preview.relationship.average) % 100) / 100;
@@ -155,21 +159,22 @@ function resolveMaterialExploration(reserve, knownCharacters, targetId = "", ran
   const amount = reward ? (rescueTarget || reward.kind === "speciesArchive" ? 1 : qualityScore >= 10 ? 3 : qualityScore >= 8 ? 2 : 1) : 0;
   const helperName = preview.relationship.helper ? preview.relationship.helper.name : "附近动物";
   const survivalFind = survivalFindForExploration(Object.assign({}, preview, { success, qualityScore }), roll, targetId, Object.assign({ reserve }, context));
+  const survivalOutcome = !!(wildernessTarget || survivalReward);
   const summary = collectionProgress.required
     ? `本次获得 ${roll} 点，累计 ${collectionProgress.current}/${collectionProgress.required} 点。${reward ? `${target.label}收集完成。` : collectionProgress.completed ? "物品已完成收集。" : "继续射箭即可累计收集。"}`
-    : survivalFind && wildernessTarget
-    ? `${helperName}带你找到了${wildernessTarget.label}。`
-    : wildernessTarget
-    ? `${helperName}指出了${wildernessTarget.label}的方向，但本次点数未达到 ${wildernessTarget.minQuality}。`
+    : survivalFind && survivalOutcome
+    ? `${helperName}带你找到了${survivalFind.label}。`
+    : survivalOutcome
+    ? `${helperName}指出了${wildernessTarget ? wildernessTarget.label : "生存物资"}的方向，但本次点数不足。`
     : reward
     ? `${helperName}带你绕开危险路线，发现${reward.label} ×${amount}，${reward.kind === "speciesArchive" ? "已写入物种档案盒。" : "已进入待收取区。"}`
     : `${helperName}提供了方向，但本次点数不足，未形成可回收发现。`;
   return Object.assign({}, preview, {
     targetId: targetId || "",
-    targetLabel: target ? target.label : wildernessTarget ? wildernessTarget.label : "随机线索",
+    targetLabel: target ? target.label : wildernessTarget ? wildernessTarget.label : survivalReward ? "生存物资" : "随机线索",
     roll,
     luck,
-    success: wildernessTarget ? !!survivalFind : success,
+    success: survivalOutcome ? !!survivalFind : success,
     quality,
     qualityScore,
     collectionProgress,

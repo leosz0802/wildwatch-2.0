@@ -4,13 +4,13 @@ const { normalizeFacilityConstruction } = require("./reserveFacilities");
 const { reconcileSpeciesPopulations, CHAPTERS } = require("./animalWorld");
 const { normalizeMysteryEvidence } = require("./mysteryRecoveries");
 const { normalizeStrategyState } = require("./strategySystem");
-const { normalizeCollectionState } = require("./collectionSystem");
+const { normalizeCollectionState } = require("./packBridge").collectionSystem;
 const { normalizeEcologyEconomy } = require("./ecologyEconomy");
 const { normalizeGuardianPromises } = require("./guardianPromises");
 const { normalizeGoalState } = require("./goalSystem");
 const { normalizeGuardianCycle, normalizeMastery } = require("./guardianCycle");
 const { consistentMigrationSnapshot } = require("./ecologyConsistency");
-const { normalizeWildernessKnowledge } = require("./wildernessKnowledge");
+const { normalizeWildernessKnowledge } = require("./packBridge").wildernessKnowledge;
 const { normalizeEcologyNarrative } = require("./ecologyNarrativeSystem");
 const { normalizePatrolState } = require("./worldHoundPatrol");
 const { ensureChapterVisitorCheckpoint, repairChapterAnimalHud } = require("./chapterTargets");
@@ -159,8 +159,12 @@ function loadState() {
       const hadReserveSerial = !!(saved.world.reserve && saved.world.reserve.base && saved.world.reserve.base.serial);
       const rescueVersion = Number((((saved.world || {}).reserve || {}).chapterRescue || {}).version) || 0;
       const normalized = normalizeState(saved);
-      if (rescueVersion < 3 || !hadReserveSerial && normalized.world && normalized.world.reserve && normalized.world.reserve.base && normalized.world.reserve.base.serial) {
-        runtime.setStorageSync(STORAGE_KEY, normalized);
+      const shouldRewrite = rescueVersion < 3
+        || (!hadReserveSerial && normalized.world && normalized.world.reserve && normalized.world.reserve.base && normalized.world.reserve.base.serial);
+      if (shouldRewrite) {
+        // A full storage key must not discard a readable old save. The player
+        // keeps the normalized session even when the rewrite cannot land.
+        try { runtime.setStorageSync(STORAGE_KEY, normalized); } catch (error) {}
       }
       return normalized;
     }
@@ -394,6 +398,9 @@ function normalizeReserve(saved, fallback) {
   const restoredStage = savedHadStage
     ? finiteOr(saved.progression.stage, 1)
     : (legacyStage != null ? finiteOr(legacyStage, 1) : 1);
+  // A save from the retired 12+ campaign is capped onto the finale. That cap
+  // is not a chapter transition and must not take another 10% visitor cut.
+  const savedBeyondCampaign = restoredStage > CHAPTERS.length;
   reserve.progression.stage = Math.max(1, Math.min(CHAPTERS.length, Math.round(restoredStage)));
   reserve.progression.displayChapter = reserve.progression.stage;
   // Enforce the current warehouse capacities when loading older saves. This
@@ -424,6 +431,15 @@ function normalizeReserve(saved, fallback) {
   };
   const savedChapterStart = saved && saved.progression && (saved.progression.chapterStart || saved.progression.stageStart);
   reserve.progression.chapterStart = Object.assign({}, base.progression.chapterStart || {}, savedChapterStart || {});
+  if (savedBeyondCampaign) {
+    const finalChapter = CHAPTERS.length;
+    const start = reserve.progression.chapterStart;
+    if (start && Math.round(Number(start.stage) || 0) > finalChapter) start.stage = finalChapter;
+    const chapterVisitors = (((reserve.development || {}).operations || {}).chapterVisitors);
+    if (chapterVisitors && Math.round(Number(chapterVisitors.stage) || 0) > finalChapter) {
+      chapterVisitors.stage = finalChapter;
+    }
+  }
   reserve.progression.chapterComplete = !!(saved && saved.progression && saved.progression.chapterComplete);
   reserve.progression.stageComplete = !!(saved && saved.progression && (saved.progression.stageComplete || saved.progression.chapterComplete));
   if (saved && saved.endlessMode && typeof saved.endlessMode === "object") {
@@ -507,7 +523,7 @@ function normalizeReserve(saved, fallback) {
   const pendingCarryoverChapters = (rescueState.targets || [])
     .filter((record) => record && record.carryover && record.status !== "rescued")
     .map((record) => Math.max(1, Math.round(Number(record.chapter) || 1)));
-  if (pendingCarryoverChapters.length) {
+  if (!savedBeyondCampaign && pendingCarryoverChapters.length) {
     const repairChapter = Math.min(...pendingCarryoverChapters);
     if (repairChapter < rescueChapter) {
       reserve.progression.stage = repairChapter;
@@ -647,10 +663,73 @@ function normalizeCharacter(character) {
     rank: 3
   }, character);
 }
-function saveState(state) {
-  normalizeCollectionState(state);
-  getRuntime().setStorageSync(STORAGE_KEY, compactStateForStorage(state));
+function clipStoredList(owner, key, keep) {
+  if (!owner || !Array.isArray(owner[key]) || owner[key].length <= keep) return;
+  owner[key] = owner[key].slice(-keep);
+}
+function shrinkStateForStorage(state, pass) {
+  const world = (state && state.world) || {};
+  const reserve = world.reserve || {};
+  const goals = world.goals || {};
+  const collection = world.collection || {};
+  const letters = reserve.social && reserve.social.friendLetters;
+  if (pass <= 1) {
+    clipStoredList(state, "reports", 8);
+    clipStoredList(goals, "history", 40);
+    clipStoredList(reserve, "fundLedger", 60);
+    clipStoredList(reserve, "archeryHistory", 12);
+    clipStoredList(reserve.emergency, "history", 4);
+    clipStoredList(collection, "history", 40);
+    clipStoredList(collection, "leads", 12);
+    clipStoredList(collection.discovery, "history", 20);
+    clipStoredList(letters, "sent", 12);
+    clipStoredList(letters, "received", 12);
+    if (Array.isArray(world.natureKnowledge)) world.natureKnowledge = world.natureKnowledge.slice(-4);
+    return state;
+  }
+  clipStoredList(goals, "history", 8);
+  clipStoredList(state, "reports", 4);
+  clipStoredList(collection, "history", 8);
+  clipStoredList(collection, "leads", 4);
+  reserve.fundLedger = [];
+  reserve.economyLedger = null;
+  if (collection.legacyArchive) collection.legacyArchive = null;
+  if (Array.isArray(world.knownCharacters)) {
+    world.knownCharacters = world.knownCharacters.map((character) => Object.assign({}, character, { memory: [] }));
+  }
   return state;
+}
+function writeStoredState(state) {
+  const runtime = getRuntime();
+  try {
+    runtime.setStorageSync(STORAGE_KEY, compactStateForStorage(state));
+    return state;
+  } catch (error) {}
+  // WeChat rejects a single key above 1MB. Old saves trip that on the first
+  // write after an upgrade, which used to abort 进入游戏 before the card closed.
+  try {
+    shrinkStateForStorage(state, 1);
+    runtime.setStorageSync(STORAGE_KEY, compactStateForStorage(state));
+    return state;
+  } catch (error) {}
+  try {
+    shrinkStateForStorage(state, 2);
+    runtime.setStorageSync(STORAGE_KEY, compactStateForStorage(state));
+  } catch (error) {}
+  return state;
+}
+let cloudSaveHook = null;
+function setCloudSaveHook(fn) {
+  cloudSaveHook = typeof fn === "function" ? fn : null;
+}
+function saveState(state, options = {}) {
+  try { normalizeCollectionState(state); } catch (error) {}
+  if (state && !options.keepStamp) state.cloudSavedAt = Date.now();
+  const stored = writeStoredState(state);
+  if (!options.silentCloud && cloudSaveHook) {
+    try { cloudSaveHook(stored); } catch (error) {}
+  }
+  return stored;
 }
 function resetState() {
   const state = defaultState();
@@ -718,6 +797,7 @@ function createCharacter(_animal, name) {
 module.exports = {
   loadState,
   saveState,
+  setCloudSaveHook,
   resetState,
   createCharacter,
   normalizeReserve,

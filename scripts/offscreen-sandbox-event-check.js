@@ -76,10 +76,10 @@ ecologyGame.state.world.reserve.ecologyNarrative = {
     ]
   }
 };
-assert(!ecologyGame.openPendingEcologyDecision(), "an ecology decision opened over the survival screen");
-assert(ecologyGame.state.world.reserve.ecologyNarrative.pendingDecision, "an offscreen ecology decision was consumed");
+assert(!ecologyGame.openPendingEcologyDecision(), "a retired nature-rule task opened over the survival screen");
+assert(ecologyGame.state.world.reserve.ecologyNarrative.pendingDecision == null, "a retired nature-rule task stayed pending off the sandbox");
 ecologyGame.screen = "home";
-assert(ecologyGame.openPendingEcologyDecision(), "the ecology decision did not open after returning to the sandbox");
+assert(ecologyGame.openPendingEcologyDecision() === false, "a retired nature-rule task opened after returning to the sandbox");
 
 const chapterGame = testGame("role");
 chapterGame.chapterStorySeen = () => false;

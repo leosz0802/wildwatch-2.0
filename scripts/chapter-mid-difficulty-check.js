@@ -6,7 +6,7 @@ const { chapterTargets, chapterVisitorDailyAttrition } = require("../js/chapterT
 const { lateChapterRealNatureChance, neighborEventChance } = require("../js/worldEventSystem");
 const { sandboxTaskCap, proposeEcologyCrises } = require("../js/sandboxTaskCadence");
 
-assert.deepEqual(chapterTargets(1), { species: 7, animals: 70, visitors: 114, expectedMinutes: 4 });
+assert.deepEqual(chapterTargets(1), { species: 7, animals: 12, visitors: 50, expectedMinutes: 4 });
 assert.deepEqual(chapterTargets(2), { species: 7, animals: 84, visitors: 174, expectedMinutes: 9 });
 assert.ok(chapterTargets(2).animals > chapterTargets(1).animals, "chapter 2 animal gate must rise above chapter 1");
 

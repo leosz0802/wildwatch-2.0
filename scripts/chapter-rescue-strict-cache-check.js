@@ -10,9 +10,9 @@ const file = path.resolve(__dirname, '../js/chapterRescueSystem.js');
 const box = { module: { exports: {} }, require: createRequire(file) };
 vm.runInNewContext('"use strict";\n' + fs.readFileSync(file, 'utf8'), box, { filename: file });
 const api = box.module.exports;
-const { speciesPopulationGroup } = require('../js/animalWorld');
+const { CHAPTERS, speciesPopulationGroup } = require('../js/animalWorld');
 let checked = 0;
-for (let chapter = 1; chapter <= 20; chapter++) {
+for (let chapter = 1; chapter <= CHAPTERS.length; chapter++) {
   const reserve = { inventory: { rescueItems: {} }, ecology: { herbivores: {}, predators: {}, birds: {} } };
   let state = api.normalizeChapterRescue(reserve, chapter, { fresh: true });
   assert.strictEqual(api.normalizeChapterRescue(reserve, chapter), state, 'unchanged normalization should reuse cache');

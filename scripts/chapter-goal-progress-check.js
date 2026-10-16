@@ -87,7 +87,7 @@ function makeGame(state) {
 }
 
 let days = 0;
-for (let chapter = 1; chapter <= 20; chapter++) {
+for (let chapter = 1; chapter <= CHAPTERS.length; chapter++) {
   let state = fixture(chapter);
   const visible = cards(state);
   assert(visible.length <= 3, `chapter ${chapter}: must keep at most 3 triggered task cards`);
@@ -102,12 +102,10 @@ for (let chapter = 1; chapter <= 20; chapter++) {
   assert(game.executeGoalAction(visible[0]) !== false, `chapter ${chapter}: primary card must route`);
   assert(!toasts.some(text => /请先完成或关闭当前任务/.test(text)), `chapter ${chapter}: opening the primary card must not deadlock`);
   if (visible[0].recommendedAction === 'viewVisitors') {
-    const visitor = game.state.world.goals.daily.objectives.find(item => item.kind === 'visitor');
-    assert(visitor && !visitor.complete, `chapter ${chapter}: opening recruitment is not completion`);
-    assert.equal(game.infoDetailModal && game.infoDetailModal.kind, 'visitorRecruitment', `chapter ${chapter}: visitor daily must open recruitment`);
+    assert.equal(game.state.world.goals.daily.objectives.length, 0, `chapter ${chapter}: opening recruitment must not create a daily task`);
+    assert.equal(game.infoDetailModal && game.infoDetailModal.kind, 'visitorRecruitment', `chapter ${chapter}: visitor goal must open recruitment`);
     assert(game.publishVisitorRecruitment(), `chapter ${chapter}: recruitment publish must succeed`);
-    const after = game.state.world.goals.daily.objectives.find(item => item.kind === 'visitor');
-    assert(after && after.complete, `chapter ${chapter}: publishing recruitment must complete the visitor daily`);
+    assert.equal(game.state.world.goals.daily.objectives.length, 0, `chapter ${chapter}: publishing recruitment must not complete a daily task`);
   }
   if (game.activeTaskLock && !game.taskLockAllowsMaterialGathering()) {
     game.dismissInfoDetailModal();
@@ -171,4 +169,4 @@ gathering.activeTaskLock = { id: 'goal:facility', kind: 'goal', goal: { recommen
 assert.equal(gathering.taskLockAllowsMaterialGathering(), true, 'facility lock must still allow survival gathering');
 assert(gathering.openMaterialExploration('reed'), 'facility shortage must still open exploration');
 
-console.log(`chapter goal progress check ok (20 chapters, ${days} simulated days, no deadlock)`);
+console.log(`chapter goal progress check ok (${CHAPTERS.length} chapters, ${days} simulated days, no deadlock)`);

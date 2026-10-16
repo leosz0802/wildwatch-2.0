@@ -70,48 +70,44 @@ function barFor(state) {
   return game.sandboxGoalBarData();
 }
 
-for (const chapter of [15, 16, 17]) {
-  const tasks = CHAPTER_THEME_TASKS[chapter];
-  const state = setup(chapter);
-  const view = refresh(state);
-  const chapterTitle = getCurrentChapter(state.world.reserve).title;
-  assert.equal(view.stage.chapter, chapter, `第${chapter}章目标舞台不得钳在第10章`);
-  assert.equal(view.primary.themeChapter, chapter, `第${chapter}章主题必须带本章编号`);
-  assert.equal(view.primary.title, tasks[0].title, `第${chapter}章当前目标应是本章第一步`);
-  assert.ok(!String(view.primary.title || "").includes("水草线"), `第${chapter}章不得显示第10章水草线`);
-  const bar = barFor(state);
-  assert.equal(bar.chapter, chapter, `第${chapter}章目标条不得写成第10章`);
-  assert.equal(bar.chapterTitle, chapterTitle, `第${chapter}章目标条标题必须是${chapterTitle}`);
-  assert.equal(bar.title, tasks[0].title, `第${chapter}章目标条必须显示本章主题`);
-}
+const finaleChapter = 11;
+const finaleTasks = CHAPTER_THEME_TASKS[finaleChapter];
+const finaleState = setup(finaleChapter);
+const finaleView = refresh(finaleState);
+const finaleTitle = getCurrentChapter(finaleState.world.reserve).title;
+assert.equal(finaleView.stage.chapter, finaleChapter, "第11章目标舞台不得钳在第10章");
+assert.equal(finaleView.primary.themeChapter, finaleChapter, "第11章主题必须带本章编号");
+assert.equal(finaleView.primary.title, finaleTasks[0].title, "第11章当前目标应是终章分享");
+assert.ok(!String(finaleView.primary.title || "").includes("水草线"), "第11章不得显示第10章水草线");
+const finaleBar = barFor(finaleState);
+assert.equal(finaleBar.chapter, finaleChapter, "第11章目标条不得写成第10章");
+assert.equal(finaleBar.chapterTitle, finaleTitle, "第11章目标条标题必须是无限守望");
+assert.equal(finaleBar.title, finaleTasks[0].title, "第11章目标条必须显示终章主题");
 
-let chapterSixteen = setup(16);
-assert.equal(refresh(chapterSixteen).primary.title, "截下鹈鹕白帆");
-chapterSixteen.world.reserve.progression.visitors = 5000;
-chapterSixteen.world.reserve.animals = { otter: 80, pelican: 40 };
-assert.equal(refresh(chapterSixteen).primary.title, "截下鹈鹕白帆", "核心指标已完成时仍要显示本章分享任务");
-chapterSixteen = act(chapterSixteen, "habitat", (state) => {
+let chapterEleven = setup(11);
+assert.equal(refresh(chapterEleven).primary.title, "截下守望里的野牛");
+chapterEleven = act(chapterEleven, "habitat", (state) => {
   state.world.reserve.ecology.water = 80;
   state.world.reserve.lastHabitatMetricFocus = "water";
 });
-assert.equal(refresh(chapterSixteen).primary.title, "截下鹈鹕白帆", "水源修复不得推进或替换本章分享任务");
-assert.equal(chapterSixteen.world.reserve.chapterTheme.step, 0);
-chapterSixteen = act(chapterSixteen, "sharePostcard");
-assert.notEqual(refresh(chapterSixteen).primary && refresh(chapterSixteen).primary.title, "截下鹈鹕白帆", "分享完成后不得复活");
-assert.equal(chapterSixteen.world.reserve.chapterTheme.completed, true);
+assert.equal(refresh(chapterEleven).primary.title, "截下守望里的野牛", "水源修复不得推进或替换终章分享任务");
+assert.equal(chapterEleven.world.reserve.chapterTheme.step, 0);
+chapterEleven = act(chapterEleven, "sharePostcard");
+assert.notEqual(refresh(chapterEleven).primary && refresh(chapterEleven).primary.title, "截下守望里的野牛", "分享完成后不得复活");
+assert.equal(chapterEleven.world.reserve.chapterTheme.completed, true);
 
-let chapterSeventeen = setup(17);
+let finaleBusy = setup(11);
 const drought = {
   id: "real_nature_drought_extra",
-  type: "real_nature_climate-17",
+  type: "real_nature_climate-11",
   title: "南部非洲长期干旱重创内陆生态系统",
   daysRemaining: 3,
   recommendedAction: "habitat"
 };
-chapterSeventeen.world.reserve.emergency = {
+finaleBusy.world.reserve.emergency = {
   active: drought,
   cooldown: 0,
-  realNatureChapter: 17,
+  realNatureChapter: 11,
   realNatureChapterCount: 2,
   history: [{
     id: "required_done",
@@ -120,21 +116,21 @@ chapterSeventeen.world.reserve.emergency = {
     title: "本章已处理真实事件"
   }]
 };
-const lateView = refresh(chapterSeventeen);
-assert.equal(lateView.primary.title, "截下林冠猩猩", "额外干旱不得抢走第17章未完成分享任务");
+const lateView = refresh(finaleBusy);
+assert.equal(lateView.primary.title, "截下守望里的野牛", "额外干旱不得抢走第11章未完成分享任务");
 assert.equal(lateView.primary.themeTask, true);
 assert.ok(
   !lateView.primary.kind || lateView.primary.kind !== "crisis",
   "额外真实事件不得继续当主目标"
 );
-const lateBar = barFor(chapterSeventeen);
-assert.equal(lateBar.chapter, 17, "第17章目标条必须写第17章");
-assert.equal(lateBar.chapterTitle, "林冠交换");
-assert.equal(lateBar.title, "截下林冠猩猩");
+const lateBar = barFor(finaleBusy);
+assert.equal(lateBar.chapter, 11, "第11章目标条必须写第11章");
+assert.equal(lateBar.chapterTitle, "无限守望");
+assert.equal(lateBar.title, "截下守望里的野牛");
 
 {
   const game = Object.create(Game.prototype);
-  game.state = chapterSeventeen;
+  game.state = finaleBusy;
   game.screen = "home";
   game.infoDetailModal = null;
   game.chapterStoryModal = null;
@@ -147,7 +143,7 @@ assert.equal(lateBar.title, "截下林冠猩猩");
   game.systemGoalCanRepeat = () => false;
   game.isTodaysDailyGoal = () => false;
   game.todaysDailyAlreadyPresented = () => true;
-  game.missionPushKey = () => "ch17-extra-drought";
+  game.missionPushKey = () => "ch11-extra-drought";
   game.chapterTaskCadence = () => ({ actionGap: 4, intervalMs: 55000, cooldownMs: 60000, routineSlots: 4, mapGuided: true });
   game.missionExperienceSeconds = () => 400;
   game.remainingDailyObjective = () => null;

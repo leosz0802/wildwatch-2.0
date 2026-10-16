@@ -5,11 +5,11 @@ const {
   chapterRescueSummary
 } = require("./chapterRescueSystem");
 const { rareAnimalChapterGate } = require("./rareAnimalSystem");
-const { getUnlockedSpecies, CHAPTERS } = require("./animalWorld");
+const { getUnlockedSpecies, CHAPTERS, speciesPopulationGroup } = require("./animalWorld");
 const TARGETS = Object.freeze([
-  [7, 70, 114], [7, 84, 174], [9, 101, 378], [11, 118, 486], [12, 137, 594],
+  [7, 12, 50], [7, 84, 174], [9, 101, 378], [11, 118, 486], [12, 137, 594],
   [14, 158, 714], [16, 182, 984], [18, 209, 1104], [20, 238, 1320], [22, 269, 1488],
-  [33, 715, 3888]
+  [27, 715, 3888]
 ]);
 const CHAPTER_ANIMAL_HUD_INFLOWS = Object.freeze([
   "rescued", "comforted", "tasked", "advertised", "shared", "rareAuction", "breeding"
@@ -320,7 +320,12 @@ function repairShortVisitorInherit(reserve, record, stage) {
   if (stage <= 1 || floor <= 0) return record;
   const gains = chapterVisitorGains(reserve, record);
   if (chapterVisitorEarned(reserve, record) > 0 || gains.lostVisitors > 0) return record;
-  if (wholeVisitors(record.inherited) < floor) record.inherited = floor;
+  // 锁定继承若只比上章目标的 10% 少 1 人，保留上章实际结束人数。
+  // 明显偏小或丢失的继承仍补到可确认的下限。
+  const inherited = wholeVisitors(record.inherited);
+  const locked = ((((reserve.progression || {}).chapterStart) || {}).baselineLocked) === true;
+  if (locked && inherited > 0 && inherited + 1 >= floor) return record;
+  if (inherited < floor) record.inherited = floor;
   return record;
 }
 function repairFreshChapterAnimalCarryover(reserve) {
@@ -514,6 +519,17 @@ function ensureChapterVisitorCheckpoint(reserve = {}) {
   const progression = reserve.progression || (reserve.progression = {});
   const stage = liveChapterStage(reserve);
   const existing = ((reserve.development || {}).operations || {}).chapterVisitors;
+  const existingStage = Math.round(Number(existing && existing.stage) || 0);
+  if (existing && existingStage > CHAPTERS.length && stage === CHAPTERS.length && existingStage !== stage) {
+    existing.stage = stage;
+    return writeChapterVisitorCheckpoint(reserve, {
+      stage,
+      totalVisitors: wholeVisitors(existing.startLifetime),
+      inheritedVisitors: wholeVisitors(existing.inherited),
+      visitorLedger: existing.start || snapshotVisitorLedger(reserve),
+      baselineLocked: true
+    });
+  }
   if (existing && Math.round(Number(existing.stage) || 0) === stage) {
     return writeChapterVisitorCheckpoint(reserve, {
       stage,
@@ -529,6 +545,17 @@ function ensureChapterVisitorCheckpoint(reserve = {}) {
   const hasInherited = Object.prototype.hasOwnProperty.call(start, "inheritedVisitors");
   const hasLifetime = Object.prototype.hasOwnProperty.call(start, "totalVisitors");
   if (startStage !== stage) {
+    const existingStage = Math.round(Number(existing && existing.stage) || 0);
+    if (existing && existingStage > CHAPTERS.length && stage === CHAPTERS.length) {
+      existing.stage = stage;
+      return writeChapterVisitorCheckpoint(reserve, {
+        stage,
+        totalVisitors: wholeVisitors(existing.startLifetime),
+        inheritedVisitors: wholeVisitors(existing.inherited),
+        visitorLedger: existing.start || snapshotVisitorLedger(reserve),
+        baselineLocked: true
+      });
+    }
     if (stage <= 1) {
       return writeChapterVisitorCheckpoint(reserve, {
         stage: 1,
@@ -616,6 +643,8 @@ function ensureChapterVisitorRecord(reserve = {}) {
   const saved = operations.chapterVisitors;
   if (saved && typeof saved === "object") {
     const record = normalizeChapterVisitorRecord(saved, stage);
+    const foldedFromCampaignEnd = record.stage > CHAPTERS.length && stage === CHAPTERS.length;
+    if (foldedFromCampaignEnd) record.stage = stage;
     if (record.stage === stage) {
       const repaired = repairShortVisitorInherit(reserve, repairLegacyChapterVisitorRecord(reserve, record, stage), stage);
       return persistChapterVisitorRecord(reserve, repaired);
@@ -758,7 +787,11 @@ function chapterSpeciesCount(reserve = {}, chapter = null) {
   const captive = chapterCaptiveSpeciesSet(reserve);
   return getUnlockedSpecies(level, currentChapter).filter((species) => {
     const id = species && species.id ? species.id : species;
-    return id && !captive.has(id);
+    if (!id) return false;
+    if (!captive.has(id)) return true;
+    const group = speciesPopulationGroup(id);
+    const population = Math.max(0, Number((((reserve.ecology || {})[group]) || {})[id]) || 0);
+    return population > 1;
   }).length;
 }
 function chapterCoreLiveSnapshot(reserve = {}, chapter = 1) {
@@ -779,11 +812,14 @@ function chapterCoreLiveSnapshot(reserve = {}, chapter = 1) {
     rescue,
     // Rare cubs enrich visitors and ecology, but they are never a chapter
     // promotion gate. A player can advance with zero cubs as long as the
-    // chapter's species, population, visitors and rescue work are complete.
+    // chapter's species, population and visitors are complete. Rescue stays
+    // required unless this reserve explicitly waived it for a legacy save.
     complete: species >= target.species
       && animals >= target.animals
       && visitors >= target.visitors
-      && rescue.complete
+      && ((reserve.chapterRescue || {}).enforceCompletion === false
+        || (reserve.chapterRescue || {}).legacyGateBypass === true
+        || rescue.complete)
   };
 }
 function chapterCoreLiveComplete(reserve = {}, chapter = 1) {

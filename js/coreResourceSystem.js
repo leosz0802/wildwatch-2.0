@@ -20,7 +20,7 @@ function syncCoreResources(reserve, options = {}) {
     version: 1,
     energy,
     energyMax: 3,
-    fund: Math.max(0, Math.round(reserve.fund || 0)),
+    fund: Math.max(0, Math.round(Number(reserve.fund) || 0)),
     capacity: capacity.effectiveCapacity,
     population: capacity.totalPopulation,
     capacityLoad: Math.round(capacity.loadRatio * 100),
@@ -35,10 +35,10 @@ function prepareCoreAction(reserve, action) {
 }
 function applyChapterActionCost(reserve, action) {
   const chapter = Math.max(1, Math.round((((reserve || {}).progression || {}).level) || 1));
-  const economy = require("./balanceConfig").chapterEconomy(chapter);
-  const cost = action === "habitat" ? Math.max(0, Math.round(economy.habitatCost || 0))
-    : action === "intervention" ? Math.max(0, Math.round(economy.interventionCost || 0)) : 0;
-  const before = Math.max(0, Math.round((reserve || {}).fund || 0));
+  const cost = action === "habitat" || action === "intervention"
+    ? require("./balanceConfig").paceEcologyFundCost(reserve, action)
+    : 0;
+  const before = Math.max(0, Math.round(Number((reserve || {}).fund) || 0));
   const after = Math.max(0, before - cost);
   if (reserve && cost > 0) {
     reserve.fund = after;

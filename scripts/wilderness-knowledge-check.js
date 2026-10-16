@@ -220,6 +220,22 @@ game.renderedSurvivalGroups.forEach((group) => {
   if (firstCard) assert(firstCard.y >= group.y + 74, `level ${group.level} cards must clear the 70px green header with a 4px gap`);
 });
 assert(!game.nativeTemplateAdSlot && !game.renderedNativeTemplateAdSlot, "survival catalog should not insert a native ad into the reading flow");
+const previousNativeAds = game.nativeTemplateAds;
+game.nativeTemplateAds = {
+  isSupported: () => true,
+  layoutSize: () => ({ width: 320, height: 90 }),
+  shown: false
+};
+game.hitAreas = [];
+game.drawSurvival(game.ctx);
+const survivalAd = game.renderedNativeTemplateAdSlot;
+const survivalGroup = game.renderedSurvivalGroups[0];
+assert(survivalAd && survivalAd.frame && survivalGroup && survivalAd.frame.y >= survivalGroup.y + survivalGroup.h - 1, "survival native ad must sit below the catalog");
+game.nativeTemplateAds = previousNativeAds;
+game.nativeTemplateAdSlot = null;
+game.renderedNativeTemplateAdSlot = null;
+game.hitAreas = [];
+game.drawSurvival(game.ctx);
 assert(game.renderedSurvivalCards.some((card) => card.unlocked && card.stock === 1), "standalone survival screen should surface owned exchange stock");
 assert(game.renderedSurvivalCards.every((card) => card.imageDominant && card.imageSize >= 60 && card.summaryLines === 1 && card.disclosure === "detail-modal"), "survival cards should prioritize art and defer long copy to a detail modal");
 assert(new Set(game.renderedSurvivalCards.map((card) => card.materialIconId)).size === visibleMaterials.length, "each visible survival material should keep a distinct icon identity");
@@ -257,10 +273,17 @@ assert(game.renderedSurvivalCards.every((card) => card.iconSource === "cartoon-v
 assert(game.renderedSurvivalCards.every((card) => card.transparentArtwork), "cartoon material artwork should render as clean shapes without a photo backdrop");
 const lockedSurvivalCard = game.renderedSurvivalCards.find((card) => !card.unlocked);
 assert(lockedSurvivalCard, "survival fixture should include a locked material card");
-const lockedSurvivalHit = game.hitAreaAt(
-  lockedSurvivalCard.cta.x + lockedSurvivalCard.cta.w / 2,
-  lockedSurvivalCard.cta.y + lockedSurvivalCard.cta.h / 2 - game.scrollY
-);
+const navLimit = game.height - game.navHeight() - 24;
+const lockedTapX = lockedSurvivalCard.cta.x + lockedSurvivalCard.cta.w / 2;
+let lockedTapY = lockedSurvivalCard.cta.y + lockedSurvivalCard.cta.h / 2 - game.scrollY;
+if (lockedTapY >= navLimit) {
+  game.scrollY = Math.max(0, lockedSurvivalCard.cta.y + lockedSurvivalCard.cta.h / 2 - (navLimit - 8));
+  game.hitAreas = [];
+  game.drawSurvival(game.ctx);
+  const scrolledCard = game.renderedSurvivalCards.find((card) => card.id === lockedSurvivalCard.id);
+  lockedTapY = scrolledCard.cta.y + scrolledCard.cta.h / 2 - game.scrollY;
+}
+const lockedSurvivalHit = game.hitAreaAt(lockedTapX, lockedTapY);
 assert(lockedSurvivalHit && typeof lockedSurvivalHit.onTap === "function", "locked survival CTA must remain clickable");
 lockedSurvivalHit.onTap();
 assert(game.infoDetailModal && game.infoDetailModal.kind === "wildernessKnowledgeLockedItem", "locked survival CTA must explain its discovery conditions");
@@ -292,7 +315,7 @@ assert(/物件故事/.test(JSON.stringify(game.infoDetailModal.items)) && /生�
 assert(game.infoDetailModal.actionLabel === "关闭" && /沙盘求援或排行榜/.test(JSON.stringify(game.infoDetailModal.items)), "owned material detail should point to sandbox and leaderboard exchange, not a third catalog entry");
 const lockedItem = WILDERNESS_FIND_CATALOG.find((item) => item.id !== exploration.survivalFind.id);
 game.openWildernessKnowledgeItem(lockedItem.id);
-assert(game.infoDetailModal && game.infoDetailModal.kind === "wildernessKnowledgeLockedItem" && /剧情门槛/.test(JSON.stringify(game.infoDetailModal.items)) && /数值门槛/.test(JSON.stringify(game.infoDetailModal.items)), "locked survival cards should explain their story and reserve-value activation instead of a random condition");
+assert(game.infoDetailModal && game.infoDetailModal.kind === "wildernessKnowledgeLockedItem" && /剧情/.test(JSON.stringify(game.infoDetailModal.items)) && /数值门槛/.test(JSON.stringify(game.infoDetailModal.items)), "locked survival cards should explain their story and reserve-value activation instead of a random condition");
 game.setScreen("animalworld");
 assert(game.screen === "collection" && game.discoveryTab === "population", "legacy population routes should enter the population tab inside Discovery");
 
@@ -326,7 +349,7 @@ async function checkWechatFriendTradeBridge() {
     refreshRelationFriends() { return Promise.resolve(this.friendRows); }
   };
   game.cloudService = cloud;
-  game.wechatFriends = { status: "ready" };
+  game.wechatFriends = { status: "ready", parkOverlay() { return false; } };
   game.selectedRivalId = "";
   game.selectedRival = () => pendingFriend;
   game.screen = "league";

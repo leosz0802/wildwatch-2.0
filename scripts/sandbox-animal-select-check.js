@@ -144,7 +144,7 @@ early.state.world.reserve.ecology = early.state.world.reserve.ecology || {};
 early.state.world.reserve.ecology.herbivores = Object.assign({}, (early.state.world.reserve.ecology || {}).herbivores, { deer: 24 });
 late.state.world.reserve.ecology = late.state.world.reserve.ecology || {};
 late.state.world.reserve.ecology.herbivores = Object.assign({}, (late.state.world.reserve.ecology || {}).herbivores, { deer: 24 });
-assert.strictEqual(early.mapAnimalVisualGroupCounts([deer], early.state.world.reserve)[deer.id], 2, "前9章种群足够时仍可画一对同种动物");
+assert.strictEqual(early.mapAnimalVisualGroupCounts([deer], early.state.world.reserve)[deer.id], 1, "每种动物在地图上只画1只");
 assert.strictEqual(late.mapAnimalVisualGroupCounts([deer], late.state.world.reserve)[deer.id], 1, "第10章起每种动物只画1只");
 
 const tapGame = makeGame(1);

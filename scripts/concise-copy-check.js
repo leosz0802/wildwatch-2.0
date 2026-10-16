@@ -29,7 +29,6 @@ const allSource = `${gameSource}\n${simulatorSource}\n${emotionSource}`;
   "确认后生效",
   "库存决定可执行的巡护。",
   "探索 → 收取 → 移交",
-  "发生 · 影响 · 风险 · 行动",
   "安全感决定停留，野性决定独立。"
 ].forEach((phrase) => assert(gameSource.includes(phrase), `missing concise action copy: ${phrase}`));
 

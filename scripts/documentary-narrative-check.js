@@ -60,40 +60,11 @@ function ecologyReserve() {
 }
 
 const eventTypes = ["predation", "disease", "overgrazing", "territorial", "birth", "migration", "juvenile_loss", "competition", "symbiosis", "weather"];
-let resolvedChoices = 0;
-eventTypes.forEach((type, typeIndex) => {
+eventTypes.forEach((type) => {
   const probe = ecologyReserve();
-  const event = resolveEcologyNarrativeEvent(probe, clone(probe), { day: typeIndex * 2 + 1, dayClosed: true, forceType: type });
-  assert(event, `${type} did not produce an ecology event`);
-  assertBeat(event.narrativeBeat, `ecology/${type}`);
-  assert(event.dialogues.every((line) => line.text.length <= 22), `${type} contains an overlong animal speech`);
-  assert(event.choices.length === 1 && event.choices.every((choice) => choice.label.length >= 4 && choice.label.length <= 8), `${type} choice labels must stay within 4-8 characters`);
-  event.choices.forEach((choice, choiceIndex) => {
-    const reserve = ecologyReserve();
-    const fresh = resolveEcologyNarrativeEvent(reserve, clone(reserve), { day: typeIndex * 4 + choiceIndex + 1, dayClosed: true, forceType: type });
-    const result = applyEcologyNarrativeDecision(reserve, fresh.id, choice.id);
-    assert(result.ok, `${type}/${choice.id} could not settle`);
-    assertBeat(result.narrativeBeat, `${type}/${choice.id}`);
-    assert(result.narrativeBeat.immediateConsequence === result.outcome, `${type}/${choice.id} outcome did not feed the shared beat`);
-    resolvedChoices += 1;
-  });
+  assert.strictEqual(resolveEcologyNarrativeEvent(probe, clone(probe), { day: 1, dayClosed: true, forceType: type }), null, `${type} nature-rule task must stay removed`);
+  assert.strictEqual(probe.ecologyNarrative.pendingDecision, null, `${type} must not leave a pending nature-rule task`);
 });
-assert.strictEqual(resolvedChoices, 10, "all remaining ecology choice outcomes must be covered");
-
-const warningReserve = ecologyReserve();
-warningReserve.ecology.disease = 28;
-warningReserve.ecology.grass = 70;
-warningReserve.migration = { trend: "stable", delta: 0, reason: "路线暂时稳定" };
-let warning = resolveEcologyNarrativeEvent(warningReserve, clone(warningReserve), { day: 1, dayClosed: true, random: () => 0 });
-assert(warning && warning.type !== "juvenile_loss", "an irreversible life event must not occur before a warning beat");
-applyEcologyNarrativeDecision(warningReserve, warning.id, warning.choices[0].id);
-warningReserve.ecology.disease = 28;
-let hardEvent = resolveEcologyNarrativeEvent(warningReserve, clone(warningReserve), { day: 3, dayClosed: true, random: () => 0 });
-assert(hardEvent && hardEvent.type === "juvenile_loss", "a warned life risk should remain possible");
-applyEcologyNarrativeDecision(warningReserve, hardEvent.id, "emergency_care");
-warningReserve.ecology.disease = 28;
-const bounded = resolveEcologyNarrativeEvent(warningReserve, clone(warningReserve), { day: 5, dayClosed: true, random: () => 0 });
-assert(bounded && bounded.type !== "juvenile_loss" && !Object.values(bounded.populationChanges || {}).some((value) => value < 0), "a seven-day cycle must not produce a second irreversible loss");
 
 const state = createCharacter(null, "叙事测试员");
 const world = state.world;

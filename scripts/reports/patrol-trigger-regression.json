@@ -1,24 +1,24 @@
 {
-  "startedAt": "2026-10-10T14:34:11.679Z",
+  "startedAt": "2026-10-15T13:11:40.369Z",
   "rounds": 1,
   "testsPerRound": 39,
   "results": [
     {
       "round": 1,
       "target": "patrol-trigger-policy-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 235,
-      "stdout": "",
-      "stderr": "node:internal/assert/utils:146\n  throw error;\n  ^\n\nAssertionError [ERR_ASSERTION]: chapter 1: daily tasks must stay visitor/ecology\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/patrol-trigger-policy-check.js:49:7)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: false,\n  expected: true,\n  operator: '==',\n  diff: 'simple'\n}\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 2465,
+      "stdout": "patrol trigger policy check ok (165 stable chapter/history/milestone cases; 100 threshold cases; four explicit patrols; legacy daily resume; 20 daily completions without patrol)\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "patrol-single-step-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 2467,
+      "durationMs": 3167,
       "stdout": "patrol single-step check ok: 20 chapters x 4 actions, real settlement, no duplicate execution, confirmation releases values, stale draft reset\n",
       "stderr": "",
       "error": ""
@@ -26,49 +26,49 @@
     {
       "round": 1,
       "target": "daily-third-task-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 216,
-      "stdout": "",
-      "stderr": "node:internal/assert/utils:146\n  throw error;\n  ^\n\nAssertionError [ERR_ASSERTION]: Expected values to be loosely deep-equal:\n\n[\n  'animal',\n  'guard'\n]\n\nshould loosely deep-equal\n\n[\n  'visitor',\n  'ecology'\n]\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/daily-third-task-check.js:30:8)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  generatedMessage: true,\n  code: 'ERR_ASSERTION',\n  actual: [ 'animal', 'guard' ],\n  expected: [ 'visitor', 'ecology' ],\n  operator: 'deepEqual',\n  diff: 'simple'\n}\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 256,
+      "stdout": "daily third task check ok (daily tasks removed, no checklist, no survival route)\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "daily-event-mail-entry-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 241,
-      "stdout": "",
-      "stderr": "node:internal/assert/utils:146\n  throw error;\n  ^\n\nAssertionError [ERR_ASSERTION]: 1 == 0\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/daily-event-mail-entry-check.js:47:8)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  generatedMessage: true,\n  code: 'ERR_ASSERTION',\n  actual: 1,\n  expected: 0,\n  operator: '==',\n  diff: 'simple'\n}\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 395,
+      "stdout": "daily event/mail entry check ok (daily completion/reset, single slot, 5s expiry, read return, full mailbox, retention, reload, 3 sizes)\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "task-lock-recovery-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 254,
-      "stdout": "",
-      "stderr": "node:internal/assert/utils:146\n  throw error;\n  ^\n\nAssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:\n\n  assert(game.executeDailyEvent('daily_visitor', dateKey))\n\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/task-lock-recovery-check.js:63:3)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  generatedMessage: true,\n  code: 'ERR_ASSERTION',\n  actual: false,\n  expected: true,\n  operator: '==',\n  diff: 'simple'\n}\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 349,
+      "stdout": "task lock recovery check ok (X close, unfinished resume, completed stale lock, real goal-card hit, single-task ownership, nested return, facility material gathering)\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "goal-system-v3-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 161,
-      "stdout": "",
-      "stderr": "node:internal/assert/utils:146\n  throw error;\n  ^\n\nAssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n+ actual - expected\n\n  [\n+   'animal',\n+   'guard'\n-   'visitor',\n-   'ecology'\n  ]\n\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/goal-system-v3-check.js:31:8)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  generatedMessage: true,\n  code: 'ERR_ASSERTION',\n  actual: [ 'animal', 'guard' ],\n  expected: [ 'visitor', 'ecology' ],\n  operator: 'deepStrictEqual',\n  diff: 'simple'\n}\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 340,
+      "stdout": "goal system v3 check ok\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "goal-ui-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 413,
+      "durationMs": 482,
       "stdout": "goal ui check ok\n",
       "stderr": "",
       "error": ""
@@ -78,7 +78,7 @@
       "target": "goal-material-routing-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 206,
+      "durationMs": 234,
       "stdout": "goal material routing check ok\n",
       "stderr": "",
       "error": ""
@@ -86,19 +86,19 @@
     {
       "round": 1,
       "target": "navigation-routing-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 471,
-      "stdout": "",
-      "stderr": "/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/navigation-routing-check.js:29\n  if (!condition) throw new Error(message);\n                  ^\n\nError\n    at assert (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/navigation-routing-check.js:29:25)\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/navigation-routing-check.js:154:3)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 734,
+      "stdout": "navigation routing check ok\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "sandbox-task-navigation-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 237,
+      "durationMs": 281,
       "stdout": "sandbox task navigation check ok\n",
       "stderr": "",
       "error": ""
@@ -108,7 +108,7 @@
       "target": "settlement-pending-escape-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 451,
+      "durationMs": 517,
       "stdout": "settlement pending escape check ok\n",
       "stderr": "",
       "error": ""
@@ -116,29 +116,29 @@
     {
       "round": 1,
       "target": "sandbox-task-sync-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 216,
-      "stdout": "",
-      "stderr": "node:internal/assert/utils:146\n  throw error;\n  ^\n\nAssertionError [ERR_ASSERTION]: first task push should remain available\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/sandbox-task-sync-check.js:26:1)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: false,\n  expected: true,\n  operator: '==',\n  diff: 'simple'\n}\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 393,
+      "stdout": "sandbox task sync check ok\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "system-task-cooldown-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 222,
-      "stdout": "",
-      "stderr": "node:internal/assert/utils:146\n  throw error;\n  ^\n\nAssertionError [ERR_ASSERTION]: 超过全局间隔后系统任务应可触发\n\nfalse !== true\n\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/system-task-cooldown-check.js:20:10)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: false,\n  expected: true,\n  operator: 'strictEqual',\n  diff: 'simple'\n}\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 274,
+      "stdout": "system task cooldown check ok: user/system triggers keep a 90-second automatic gap\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "nonlinear-task-routing-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 2144,
+      "durationMs": 2362,
       "stdout": "nonlinear task routing check ok (4 permutations × 32 days, stable resolver, stage monotonicity, independent rescue gate)\n",
       "stderr": "",
       "error": ""
@@ -146,59 +146,59 @@
     {
       "round": 1,
       "target": "user-play-path-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 222,
-      "stdout": "",
-      "stderr": "node:internal/assert/utils:146\n  throw error;\n  ^\n\nAssertionError [ERR_ASSERTION]: linear-1-start: cannot open action\n\n'role' !== 'action'\n\n    at /Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/user-play-path-check.js:155:12\n    at Array.forEach (<anonymous>)\n    at assertHealthy (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/user-play-path-check.js:149:30)\n    at runLinear (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/user-play-path-check.js:271:3)\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/user-play-path-check.js:451:20)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19) {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: 'role',\n  expected: 'action',\n  operator: 'strictEqual',\n  diff: 'simple'\n}\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 3567,
+      "stdout": "user play path check ok (linear 1/3 with special, jump 2/5, skip-special 2/8, disruptive fund-ad/animal-ad/recruit/comfort/explore/special on 2/4/11, interleaved chapter 3, 3 linear task ids)\n[EmergencyFundAd] 完播结算 {\n  completed: true,\n  reason: '',\n  ok: true,\n  amount: 1000,\n  before: 3660,\n  after: 4660,\n  reasonAfterApply: ''\n}\n[EmergencyFundAd] 完播结算 {\n  completed: true,\n  reason: '',\n  ok: true,\n  amount: 1000,\n  before: 3740,\n  after: 4740,\n  reasonAfterApply: ''\n}\n[EmergencyFundAd] 完播结算 {\n  completed: true,\n  reason: '',\n  ok: true,\n  amount: 2200,\n  before: 7966,\n  after: 10166,\n  reasonAfterApply: ''\n}\n[EmergencyFundAd] 完播结算 {\n  completed: true,\n  reason: '',\n  ok: true,\n  amount: 1000,\n  before: 2047,\n  after: 3047,\n  reasonAfterApply: ''\n}\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "mixed-task-deadlock-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 389,
-      "stdout": "",
-      "stderr": "node:internal/assert/utils:146\n  throw error;\n  ^\n\nAssertionError [ERR_ASSERTION]: fresh poacher task must start incomplete\n+ actual - expected\n\n+ undefined\n- false\n\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/mixed-task-deadlock-check.js:108:12)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: undefined,\n  expected: false,\n  operator: 'strictEqual',\n  diff: 'simple'\n}\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 3965,
+      "stdout": "mixed task deadlock check ok: 4 completion orders, 32 arrows, 24 visitor/disaster interruptions, restart after interruptions, independent materials, old-save recovery, bounded completion\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "task-resource-pipeline-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 376,
-      "stdout": "",
-      "stderr": "/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/task-resource-pipeline-check.js:160\nassert(state.world.goals.daily.objectives.find((item) => item.kind === \"visitor\").complete, \"发布招募应完成游客每日任务\");\n                                                                                 ^\n\nTypeError: Cannot read properties of undefined (reading 'complete')\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/task-resource-pipeline-check.js:160:82)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 1422,
+      "stdout": "task/resource pipeline check ok\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "task-story-alignment-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 505,
-      "stdout": "",
-      "stderr": "node:internal/assert/utils:146\n  throw error;\n  ^\n\nAssertionError [ERR_ASSERTION]: 第8章应优先显示章节主题任务，而不是通用剧情任务\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/task-story-alignment-check.js:146:5)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: undefined,\n  expected: true,\n  operator: '==',\n  diff: 'simple'\n}\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 618,
+      "stdout": "task/story alignment check ok\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "story-system-consistency-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 168,
-      "stdout": "",
-      "stderr": "/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/story-system-consistency-check.js:11\n  if (!condition) throw new Error(message);\n                  ^\n\nError: Lv.6 species count mismatch\n    at assert (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/story-system-consistency-check.js:11:25)\n    at /Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/story-system-consistency-check.js:40:3\n    at Array.forEach (<anonymous>)\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/story-system-consistency-check.js:38:31)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 330,
+      "stdout": "story/system consistency check ok (11 story chapters, chapters 1-10 unchanged, endless finale)\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "story-activation-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 172,
+      "durationMs": 199,
       "stdout": "story activation check ok (collection order, visible gates, deterministic survival, reserve feedback)\n",
       "stderr": "",
       "error": ""
@@ -206,29 +206,29 @@
     {
       "round": 1,
       "target": "chapter-story-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 224,
-      "stdout": "",
-      "stderr": "/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/chapter-story-check.js:10\n  if (!condition) throw new Error(message);\n                  ^\n\nError: Lv20 final ending metadata is wrong\n    at assert (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/chapter-story-check.js:10:25)\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/chapter-story-check.js:79:1)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 310,
+      "stdout": "chapter story check ok\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "chapter-gate-order-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 215,
-      "stdout": "",
-      "stderr": "node:internal/assert/utils:146\n  throw error;\n  ^\n\nAssertionError [ERR_ASSERTION]: chapter 11 must promote once the three core metrics (and rare auction) are met\n\n11 !== 12\n\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/chapter-gate-order-check.js:64:12)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: 11,\n  expected: 12,\n  operator: 'strictEqual',\n  diff: 'simple'\n}\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 277,
+      "stdout": "chapter gate order check ok: 11 chapters × forward/reverse rescue order; no premature promotion, no blocked completed gate, final chapter completion\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "ledger-story-task-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 152,
+      "durationMs": 176,
       "stdout": "ledger story task check ok\n",
       "stderr": "",
       "error": ""
@@ -238,7 +238,7 @@
       "target": "task-story-resource-match-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 285,
+      "durationMs": 315,
       "stdout": "task/story/resource match check ok\n",
       "stderr": "",
       "error": ""
@@ -246,19 +246,19 @@
     {
       "round": 1,
       "target": "map-task-story-dedupe-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 226,
-      "stdout": "",
-      "stderr": "node:internal/assert/utils:146\n  throw error;\n  ^\n\nAssertionError [ERR_ASSERTION]: 同一相邻事件应优先保留带事件类型的具体卡片\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/map-task-story-dedupe-check.js:51:1)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: false,\n  expected: true,\n  operator: '==',\n  diff: 'simple'\n}\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 271,
+      "stdout": "map task/story dedupe check ok\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "reserve-presentation-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 196,
+      "durationMs": 224,
       "stdout": "reserve presentation check ok\n",
       "stderr": "",
       "error": ""
@@ -268,7 +268,7 @@
       "target": "action-system-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 277,
+      "durationMs": 319,
       "stdout": "action system check ok\n",
       "stderr": "",
       "error": ""
@@ -278,7 +278,7 @@
       "target": "season-emergency-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 450,
+      "durationMs": 498,
       "stdout": "season emergency check ok\n",
       "stderr": "",
       "error": ""
@@ -286,19 +286,19 @@
     {
       "round": 1,
       "target": "world-event-system-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 217,
-      "stdout": "",
-      "stderr": "/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/world-event-system-check.js:7\n  if (!value) throw new Error(message);\n              ^\n\nError: real events need the new category and a single response route\n    at assert (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/world-event-system-check.js:7:21)\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/world-event-system-check.js:32:1)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 294,
+      "stdout": "world event system check ok\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "world-event-idle-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 152,
+      "durationMs": 171,
       "stdout": "world event idle check ok\n",
       "stderr": "",
       "error": ""
@@ -308,7 +308,7 @@
       "target": "threat-action-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 416,
+      "durationMs": 460,
       "stdout": "threat action check ok\n",
       "stderr": "",
       "error": ""
@@ -318,8 +318,8 @@
       "target": "water-grass-guidance-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 366,
-      "stdout": "系统已自动收取 3 份巡护样本\nwater grass guidance check ok\n",
+      "durationMs": 493,
+      "stdout": "water grass guidance check ok\n",
       "stderr": "",
       "error": ""
     },
@@ -328,7 +328,7 @@
       "target": "task-social-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 192,
+      "durationMs": 224,
       "stdout": "task social check ok\n",
       "stderr": "",
       "error": ""
@@ -338,7 +338,7 @@
       "target": "settlement-causality-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 252,
+      "durationMs": 291,
       "stdout": "settlement causality check ok\n",
       "stderr": "",
       "error": ""
@@ -348,7 +348,7 @@
       "target": "numeric-feedback-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 217,
+      "durationMs": 252,
       "stdout": "numeric feedback check ok\n",
       "stderr": "",
       "error": ""
@@ -358,7 +358,7 @@
       "target": "early-entry-task-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 209,
+      "durationMs": 241,
       "stdout": "early entry task check ok (first 5 minutes tourism guidance and normal follow-up)\n",
       "stderr": "",
       "error": ""
@@ -366,35 +366,35 @@
     {
       "round": 1,
       "target": "recent-ui-regression-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 229,
-      "stdout": "",
-      "stderr": "AssertionError [ERR_ASSERTION]: 建筑卡片不得压到页脚\n    at main (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/recent-ui-regression-check.js:81:5)\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/recent-ui-regression-check.js:99:1)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47 {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: false,\n  expected: true,\n  operator: '==',\n  diff: 'simple'\n}\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 302,
+      "stdout": "recent UI regression ok (notifications, letters, buildings, ad touch protection; 3 viewports)\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "loop-safety-check.js",
-      "passed": false,
-      "exitCode": 1,
-      "durationMs": 217,
-      "stdout": "",
-      "stderr": "/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/loop-safety-check.js:13\n  if (!condition) throw new Error(message);\n                  ^\n\nError: an overlapping animal still steals the story collectible tap\n    at assert (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/loop-safety-check.js:13:25)\n    at Object.<anonymous> (/Users/edy/Documents/Codex/2026-07-10/z/outputs/forest-kingdom-ui-polish-v1/scripts/loop-safety-check.js:123:1)\n    at Module._compile (node:internal/modules/cjs/loader:1944:14)\n    at Object..js (node:internal/modules/cjs/loader:2084:10)\n    at Module.load (node:internal/modules/cjs/loader:1666:32)\n    at Module._load (node:internal/modules/cjs/loader:1447:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:260:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v26.4.0\n",
-      "error": "Missing test completion message"
+      "passed": true,
+      "exitCode": 0,
+      "durationMs": 359,
+      "stdout": "loop safety check ok (queues, stale recovery, collectible reachability, hit priority, bounded guardian days)\n",
+      "stderr": "",
+      "error": ""
     },
     {
       "round": 1,
       "target": "long-run-soak-check.js",
       "passed": true,
       "exitCode": 0,
-      "durationMs": 16330,
+      "durationMs": 18697,
       "stdout": "long run soak check ok (4 seeds × 120 guardian days × 3 actions)\n",
       "stderr": "",
       "error": ""
     }
   ],
-  "finishedAt": "2026-10-10T14:34:42.270Z",
-  "passed": 20,
-  "failed": 19
+  "finishedAt": "2026-10-15T13:12:26.902Z",
+  "passed": 39,
+  "failed": 0
 }

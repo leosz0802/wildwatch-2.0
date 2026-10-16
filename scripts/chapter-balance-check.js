@@ -18,7 +18,7 @@ const { previewVisitorRecruitment } = require('../js/visitorRecruitment');
 
 // The duration curve is part of the product contract: chapter 1 is onboarding,
 // later chapters require an 8–10 minute story-led session.
-for (let chapter = 1; chapter <= 20; chapter += 1) {
+for (let chapter = 1; chapter <= CHAPTERS.length; chapter += 1) {
   const current = chapterTargets(chapter);
   assert(current.species > 0 && current.animals > 0 && current.visitors > 0);
   if (chapter === 1) assert(current.expectedMinutes >= 3 && current.expectedMinutes <= 5);
@@ -30,7 +30,7 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
 // never be backfilled from an older chapter, and a species may occupy only one
 // chapter rescue slot in the whole 20-chapter run.
 const rescueSpecies = new Set();
-for (let chapter = 1; chapter <= 20; chapter += 1) {
+for (let chapter = 1; chapter <= CHAPTERS.length; chapter += 1) {
   const definition = chapterDefinition(chapter);
   const current = new Set(CHAPTERS[chapter - 1].newSpecies || []);
   for (const speciesId of definition.targets) {
@@ -47,7 +47,7 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
   }
   assert(chapterRescueSummary(reserve, chapter).complete, `chapter ${chapter} rescue ledger should settle`);
 }
-assert.equal(rescueSpecies.size, 28, 'the rescue schedule should contain every chapter rescue species exactly once');
+assert.equal(rescueSpecies.size, 21, 'the rescue schedule should contain every chapter rescue species exactly once');
 
 // Water, grass and safety are strategic inputs to both population health and
 // visitor recruitment. Keep a deterministic smoke run so future balance edits
@@ -102,10 +102,8 @@ visitorStrained.poacherPressure = 80;
 assert(previewVisitorRecruitment(visitorHealthy, 1, 0.5).visitors > previewVisitorRecruitment(visitorStrained, 1, 0.5).visitors,
   'healthy water/grass/safety should recruit more visitors');
 
-// Keep the first-chapter target aligned with its only required rescue: six
-// starter populations + the released antelope = seven species. Trapped
-// antelope must not count as an owned herd at the opening. Released herds
-// count toward the animal total, but the gate stays above a single rescue.
+// Chapter 1 still needs seven species. One antelope rescue plus the small
+// comfort gain is enough to reach the animal gate.
 assert.equal(chapterTargets(1).species, 7);
 assert.equal(chapterDefinition(1).targets[0], 'antelope');
 
@@ -123,9 +121,8 @@ const releasedHud = chapterAnimalTotal(openingReserve);
 const antelopeHerd = Math.max(1, Math.round(Number(SPECIES_DB.antelope.initialPop) || 1));
 assert.equal(openingReserve.ecology.herbivores.antelope, antelopeHerd);
 assert.equal(releasedAnimals, openingAnimals + antelopeHerd - 1);
-assert.ok(releasedHud < chapterOneTarget, `releasing the antelope herd must count toward, not finish, chapter 1 animal total: ${releasedHud}/${chapterOneTarget}`);
-assert.ok(chapterOneTarget - releasedHud >= 12, `chapter 1 must still need patrol/comfort after rescue: ${releasedHud}/${chapterOneTarget}`);
-for (let chapter = 1; chapter <= 20; chapter += 1) {
+assert.ok(releasedHud >= chapterOneTarget, `releasing the antelope herd must reach the chapter 1 animal gate: ${releasedHud}/${chapterOneTarget}`);
+for (let chapter = 1; chapter <= CHAPTERS.length; chapter += 1) {
   const later = createCharacter(null, `第${chapter}章解救`);
   const reserve = later.world.reserve;
   Object.assign(reserve.progression, { stage: chapter, displayChapter: chapter, level: CHAPTERS[chapter - 1].level });
@@ -142,7 +139,11 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
   });
   const after = chapterAnimalTotal(reserve);
   assert.equal(after - before, expectedGain, `chapter ${chapter} rescue must add the released starter herds to the chapter animal HUD`);
-  assert.ok(after < chapterTargets(chapter).animals, `chapter ${chapter} rescue alone must not finish the animal total: ${after}/${chapterTargets(chapter).animals}`);
+  if (chapter === 1) {
+    assert.ok(after >= chapterTargets(chapter).animals, `chapter 1 rescue alone must reach the animal total: ${after}/${chapterTargets(chapter).animals}`);
+  } else {
+    assert.ok(after < chapterTargets(chapter).animals, `chapter ${chapter} rescue alone must not finish the animal total: ${after}/${chapterTargets(chapter).animals}`);
+  }
 }
 
-console.log('chapter balance check ok: 20 target rows, 10% visitor carryover, two-free/ad-quick visitor pacing, 28 unique rescue slots, ecology and visitor sensitivity');
+console.log('chapter balance check ok: 11 target rows, 10% visitor carryover, two-free/ad-quick visitor pacing, 21 unique rescue slots, ecology and visitor sensitivity');

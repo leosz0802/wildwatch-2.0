@@ -12,19 +12,20 @@ function assert(condition, message) {
 
 const gates = Object.values(BALANCE_V2.progression);
 const minutes = gates.map((gate) => gate.expectedMinutes);
-assert(gates.length === 20, `V2 must expose twenty operating stages, got ${gates.length}`);
-assert(minutes.join(",") === "5,20,30,35,40,45,50,55,60,60,65,70,75,80,86,92,98,104,110,120", `unexpected stage forecast: ${minutes.join("/")}`);
-assert(minutes.reduce((sum, value) => sum + value, 0) === 1300, "campaign forecast should total 1300 effective minutes");
-assert(Math.ceil(1300 / 15) === 87 && Math.ceil(1300 / 10) === 130, "10-15 minute daily play should forecast 87-130 days");
+assert(gates.length === 11, `V2 must expose eleven operating stages, got ${gates.length}`);
+assert(minutes.join(",") === "5,20,30,35,40,45,50,55,60,60,120", `unexpected stage forecast: ${minutes.join("/")}`);
+assert(minutes.reduce((sum, value) => sum + value, 0) === 520, "campaign forecast should total 520 effective minutes");
+assert(Math.ceil(520 / 15) === 35 && Math.ceil(520 / 10) === 52, "10-15 minute daily play should forecast 35-52 days");
 gates.forEach((gate, index) => {
   assert(gate.stage === index + 1, `stage ${index + 1} id mismatch`);
-  assert(gate.storyLevel === Math.min(7, Math.ceil(gate.stage / 2)), `stage ${gate.stage} story mapping mismatch`);
+  const storyLevel = gate.stage === 11 ? 7 : Math.min(7, Math.ceil(gate.stage / 2));
+  assert(gate.storyLevel === storyLevel, `stage ${gate.stage} story mapping mismatch`);
   assert(!Object.prototype.hasOwnProperty.call(gate, "activeMinutes"), `stage ${gate.stage} must not restore a hard online-time gate`);
   if (index) assert(gate.expectedMinutes >= gates[index - 1].expectedMinutes, `stage ${gate.stage} has a pacing cliff`);
 });
-assert([2, 4, 6, 8, 10, 12, 14].map((stage) => BALANCE_V2.progression[stage].strategicChoices).join(",") === "3,4,5,5,5,5,4", "story strategy totals drifted");
-assert([2, 4, 6, 8, 10, 12, 14].map((stage) => BALANCE_V2.progression[stage].majorChoices).join(",") === "1,1,2,2,2,2,1", "story major-choice totals drifted");
-assert(Object.values(BALANCE_V2.progression).reduce((sum, gate) => sum + gate.actions, 0) === 206, "expanded campaign action total drifted");
+assert([2, 4, 6, 8, 10].map((stage) => BALANCE_V2.progression[stage].strategicChoices).join(",") === "3,4,5,5,5", "story strategy totals drifted");
+assert([2, 4, 6, 8, 10].map((stage) => BALANCE_V2.progression[stage].majorChoices).join(",") === "1,1,2,2,2", "story major-choice totals drifted");
+assert(Object.values(BALANCE_V2.progression).reduce((sum, gate) => sum + gate.actions, 0) === 111, "eleven-chapter action total drifted");
 
 const state = createCharacter(null, "保护区卫士");
 const reserve = state.world.reserve;
@@ -64,7 +65,7 @@ assert(advanced.stage === 2 && advanced.level === 1, "stage 1 should advance wit
 
 Object.keys(BALANCE_V2.supplyBasePrices).forEach((id) => {
   let previous = 0;
-  for (let chapter = 1; chapter <= 20; chapter += 1) {
+  for (let chapter = 1; chapter <= 11; chapter += 1) {
     const expected = 5 * Math.round((
       BALANCE_V2.supplyBasePrices[id]
       * BALANCE_V2.tuning.supplyPriceScale
@@ -91,4 +92,4 @@ for (let level = 1; level <= 7; level += 1) {
   assert(band.danger < band.healthyMin && band.healthyMin < band.healthyMax && band.healthyMax < band.high, `Lv.${level} fund health bands overlap`);
 }
 
-console.log("balance V2 check ok (14 stages, 47-70 day forecast, no hard time gate, economy curves exact)");
+console.log("balance V2 check ok (11 stages, 35-52 day forecast, no hard time gate, economy curves exact)");

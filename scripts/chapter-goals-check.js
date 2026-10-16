@@ -163,7 +163,7 @@ beginChapterVisitorCheckpoint(chapterVisitors, 2, 100);
 chapterVisitors.progression.stage = 2;
 chapterVisitors.progression.displayChapter = 2;
 const visitorBefore = game.reserveProgression(chapterVisitors).coreMetrics.visitors;
-assert.strictEqual(visitorBefore, chapterVisitorCarryover(chapterTargets(1).visitors, 2), "new chapter should start at 10% of the previous chapter gate when that floor is higher than the raw total");
+assert.strictEqual(visitorBefore, Math.round(100 * 0.1), "a known ending total keeps its own 10% when that is only one visitor under the previous gate");
 beginChapterVisitorCheckpoint(chapterVisitors, 14, 100);
 chapterVisitors.progression.stage = 14;
 chapterVisitors.progression.displayChapter = 14;
@@ -210,7 +210,7 @@ game.state = previousState;
   recruitHud.progression.stage = 2;
   recruitHud.progression.displayChapter = 2;
   const hudBefore = chapterVisitorTotal(recruitHud);
-  assert.strictEqual(hudBefore, chapterVisitorCarryover(chapterTargets(1).visitors, 2), "chapter 2 HUD starts at 10% of the previous visitor gate");
+  assert.strictEqual(hudBefore, Math.round(100 * 0.1), "chapter 2 HUD starts at 10% of the known previous ending total");
   const wave = consumeVisitorRecruitment(recruitHud, 2, 0.5, Date.now());
   game.commitReserveProgression(recruitHud);
   assert.strictEqual(chapterVisitorTotal(recruitHud), hudBefore + wave.visitors, "recruitment must add the displayed count after progression commit");
@@ -245,7 +245,7 @@ game.state = previousState;
   buildingHud.progression.displayChapter = 2;
   assert(buildReserveDevelopmentPlan(buildingHud, "river_shallows", "visitor_boardwalk", 1).ok);
   const hudBefore = chapterVisitorTotal(buildingHud);
-  assert.strictEqual(hudBefore, chapterVisitorCarryover(chapterTargets(1).visitors, 2), "building settlement must start from the previous chapter visitor floor");
+  assert.strictEqual(hudBefore, Math.round(100 * 0.1), "building settlement must start from 10% of the known previous ending total");
   const settlement = settleReserveDevelopmentDay(buildingHud, 2, { weather: "阴" });
   assert(settlement && settlement.visitors > 0, "visitor buildings should produce this chapter's facility visits");
   game.commitReserveProgression(buildingHud);
@@ -255,7 +255,7 @@ game.state = previousState;
     return visitorMixBody(game.buildChapterProgressDetail());
   })();
   assert(new RegExp(`到访 ${settlement.visitors} 人`).test(buildingMix), "mix must attribute facility visits to this chapter");
-  assert(new RegExp(`继承 ${chapterVisitorCarryover(chapterTargets(1).visitors, 2)} 人`).test(buildingMix), "building visits must not replace the chapter inherit");
+  assert(new RegExp(`继承 ${Math.round(100 * 0.1)} 人`).test(buildingMix), "building visits must not replace the chapter inherit");
 }
 
 const incompleteVisitorSnap = {
@@ -317,6 +317,8 @@ assert.strictEqual(opening.renderedAdvance.theme, "dark-prologue", "chapter adva
 assert.strictEqual(opening.renderedAdvance.sharedImage, "prologue-fog-v1.jpg", "chapter advance must reuse the same chapter background image");
 assert.strictEqual(opening.buttonLabel, "进入游戏", "later chapter start must keep the gold enter-game action");
 assert.strictEqual(opening.renderedAdvance.headerLabel, "荒野守望 · 第2章", "chapter 2 header must keep a single chapter title");
+assert.strictEqual(opening.renderedAdvance.sloganText, "守望荒野，唤生命重返大地。", "chapter advance must keep the prologue slogan");
+assert(String(opening.renderedAdvance.sloganFamily).indexOf("Ma Shan Zheng") >= 0 || String(opening.renderedAdvance.sloganFamily).indexOf("MaShanZheng") >= 0, "chapter advance slogan must use the display face from the prologue");
 assert.strictEqual(opening.renderedAdvance.guideLabel, "引导", "chapter 2 must keep one guide chip");
 assert.strictEqual(opening.renderedAdvance.prologueChrome, false, "chapter 2 must not also draw the prologue 序章/引导 labels");
 game.screen = "home";
@@ -338,7 +340,7 @@ assert.strictEqual((ending.renderedAdvance.goals || []).length, 3, "chapter endi
 assert.strictEqual(ending.buttonLabel, "走向下一章", "chapter ending must keep the gold next-chapter action");
 assert.strictEqual(ending.renderedAdvance.headerLabel, "荒野守望 · 第5章", "chapter 5 ending must keep a single chapter title");
 assert.strictEqual(ending.renderedAdvance.prologueChrome, false, "chapter endings must not also draw the prologue 序章/引导 labels");
-for (let chapter = 1; chapter <= 20; chapter += 1) {
+for (let chapter = 1; chapter <= 11; chapter += 1) {
   const story = game.buildChapterStory(chapter, "start");
   assert(Array.isArray(story.goalItems) && story.goalItems.length === 3, `chapter ${chapter} opening should expose three goal tiles`);
   assert(story.goalItems.every((item) => item.target > 0 && item.current >= 0), `chapter ${chapter} goal tiles should have numeric progress`);
@@ -346,6 +348,9 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
   game.chapterStoryModal = story;
   game.drawChapterStoryModal();
   assert.strictEqual(story.renderedAdvance.headerLabel, `荒野守望 · 第${chapter}章`, `chapter ${chapter} opening must show the chapter title once`);
+  assert.strictEqual(story.renderedAdvance.sloganText, "守望荒野，唤生命重返大地。", `chapter ${chapter} opening must keep the prologue slogan`);
+  assert.strictEqual(story.renderedAdvance.sloganFamily, opening.renderedAdvance.sloganFamily, `chapter ${chapter} slogan must use the prologue display font`);
+  assert.strictEqual(story.renderedAdvance.sloganSize, opening.renderedAdvance.sloganSize, `chapter ${chapter} slogan must keep the prologue size`);
   assert.strictEqual((story.renderedAdvance.metrics || []).length, 3, `chapter ${chapter} opening must keep three numeric goal cards`);
   assert.strictEqual(story.renderedAdvance.guideLabel, "引导", `chapter ${chapter} opening must keep one guide chip`);
   assert.strictEqual(story.renderedAdvance.theme, "dark-prologue", `chapter ${chapter} opening must keep the original dark prologue theme`);

@@ -13,7 +13,8 @@ const {
   chapterAnimalTotal
 } = require('../js/chapterTargets');
 const { recordIncrease } = require('../js/animalSourceLedger');
-const { SPECIES_DB, speciesPopulationGroup } = require('../js/animalWorld');
+const { SPECIES_DB, speciesPopulationGroup, CHAPTERS } = require('../js/animalWorld');
+const { normalizeChapterRescue } = require('../js/chapterRescueSystem');
 
 const game = new Game();
 if (typeof game.stopLoop === 'function') game.stopLoop();
@@ -154,13 +155,18 @@ allChaptersReserve.development.operations.visitorLedger = {
   lostVisitors: 0
 };
 
-for (let from = 1; from < 20; from += 1) {
+for (let from = 1; from < CHAPTERS.length; from += 1) {
   const target = chapterTargets(from).visitors;
   const before = chapterVisitorTotal(allChaptersReserve);
   if (before < target) applyChapterVisitorDelta(allChaptersReserve, target - before, 'recruit', { skipToday: true });
   const animalNeed = Math.max(0, chapterTargets(from).animals - chapterAnimalTotal(allChaptersReserve));
   if (animalNeed) recordIncrease(allChaptersReserve, 'tasked', animalNeed);
   const endingTotal = chapterVisitorTotal(allChaptersReserve);
+  const rescueState = normalizeChapterRescue(allChaptersReserve, from);
+  (rescueState.targets || []).forEach((record) => {
+    record.status = "rescued";
+    record.rescuedAt = 1;
+  });
   assert.equal(allChaptersGame.armPendingChapterPromotion(allChaptersReserve, from), true, `chapter ${from} should queue promotion`);
   assert.equal(allChaptersGame.applyPendingChapterPromotion(), true, `chapter ${from} should enter chapter ${from + 1}`);
   const expected = chapterVisitorCarryover(endingTotal, from + 1);

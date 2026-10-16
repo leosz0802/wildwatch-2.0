@@ -24,11 +24,7 @@ const state = {
 
 function dailyStillOpen(daily) {
   const objectives = (daily && daily.objectives) || [];
-  return objectives.map((item) => item.kind).join(",") === "visitor,ecology"
-    && objectives.every((item) => !item.complete && (item.progress || 0) === 0)
-    && (daily.progress || 0) === 0
-    && !daily.completedPrevious
-    && daily.cycle === 1;
+  return objectives.length === 0 && Number(daily && daily.required) === 0;
 }
 
 const before = JSON.parse(JSON.stringify(state.world.reserve));

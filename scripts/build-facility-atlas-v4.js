@@ -4,7 +4,7 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 
 const root = path.resolve(__dirname, "..");
-const output = path.join(root, "assets/art/facility-sprites-atlas-v4.png");
+const output = path.join(root, "assets/art/archive/facility-sprites-atlas-v4.png");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "wild-guardian-facilities-"));
 const svgPath = path.join(temp, "facility-atlas-v4.svg");
 const rawPath = path.join(temp, "facility-atlas-v4-raw.png");

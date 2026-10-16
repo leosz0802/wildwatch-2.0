@@ -4,9 +4,9 @@ const { SPECIES_DB, speciesPopulationGroup, chapterFeaturedSpecies } = require("
 const { livingAnimalTotal, chapterCaptiveSpeciesSet } = require("./chapterRescueSystem");
 const { recordIncrease } = require("./animalSourceLedger");
 const SHARE_IMAGES = {
-  warm: "assets/art/share/share-warm.jpg",
-  rescue: "assets/art/share/share-rescue.jpg",
-  rare: "assets/art/share/share-rare.jpg"
+  warm: "assets/art/archive/share/share-warm.jpg",
+  rescue: "assets/art/archive/share/share-rescue.jpg",
+  rare: "assets/art/archive/share/share-rare.jpg"
 };
 const SHARE_EVENT_TYPES = new Set([
   "rare", "injury", "departure", "return", "birth", "death", "strategic_permanent",

@@ -188,8 +188,9 @@ function seedEcology(game, type, extra = {}) {
     dayClosed: true,
     forceType: type
   }, extra));
-  assert(event, `ecology ${type} did not spawn`);
-  return event;
+  assert.strictEqual(event, null, `ecology ${type} must stay removed`);
+  assert.equal(game.openPendingEcologyDecision(), false, `ecology ${type} must not open`);
+  return null;
 }
 
 function completeEcology(game, label) {
@@ -264,11 +265,9 @@ function runLinear() {
   note("ok", "linear-event", `${eventType} 详情→射箭→清除`);
   assertHealthy(game, "linear-after-event");
 
-  const ecology = seedEcology(game, "predation");
-  const ecologyResult = completeEcology(game, "linear-ecology");
-  assert.equal(ecologyResult.blocked, false, "linear: free predation action was blocked");
-  assert.equal(ecologyResult.choiceId, ecology.choices[0].id, "linear: ecology executed a hidden second route");
-  note("ok", "linear-ecology", `捕食只执行 ${ecologyResult.choiceId}`);
+  seedEcology(game, "predation");
+  assert.equal(game.openPendingEcologyDecision(), false, "linear: nature-rule task opened");
+  note("ok", "linear-ecology", "自然规则任务已删除，主线继续");
   assertHealthy(game, "linear-after-ecology");
 
   const dilemma = seedTactical(game);
@@ -304,9 +303,7 @@ function runJump() {
   const game = makeGame("跳跃执行", { chapter: 3 });
   seedEcology(game, "competition");
   closeLayers(game);
-  assert(game.openPendingEcologyDecision(), "jump: ecology did not open");
-  const pendingId = normalizeEcologyNarrative(game.state.world.reserve.ecologyNarrative).pendingDecision.id;
-  closeLayers(game);
+  assert.equal(game.openPendingEcologyDecision(), false, "jump: nature-rule task opened");
   const option = (game.reserveActionOptions() || []).find((item) => item.id === "habitat");
   if (option) {
     game.openPatrolTaskModal(option);
@@ -314,15 +311,8 @@ function runJump() {
   }
   game.setScreen("role");
   game.setScreen("home");
-  const pendingAfterDetour = normalizeEcologyNarrative(game.state.world.reserve.ecologyNarrative).pendingDecision;
-  assert(pendingAfterDetour && pendingAfterDetour.id === pendingId, "jump: ecology pending was lost after a patrol detour");
-  if (!(game.infoDetailModal && game.infoDetailModal.kind === "ecologyNarrativeDecision")) {
-    closeLayers(game);
-    assert(game.openPendingEcologyDecision(), "jump: ecology pending survived but could not reopen");
-  }
-  assert.equal((game.infoDetailModal.choices || []).length, 1, "jump: ecology grew extra choices after detour");
-  completeEcology(game, "jump-ecology-resume");
-  note("ok", "jump-ecology-detour", "先关生态、去做巡护，回来仍能单选完成");
+  assert.equal(game.openPendingEcologyDecision(), false, "jump: nature-rule task returned after a patrol detour");
+  note("ok", "jump-ecology-detour", "自然规则任务不再拦住巡护和回沙盘");
   assertHealthy(game, "jump-after-ecology");
 
   const eventType = realEventType();
@@ -348,12 +338,11 @@ function runJump() {
 
   seedTactical(game, "patrol_split");
   assert(game.openPendingStrategicDilemma(), "jump: tactical did not open");
-  assert.equal(game.openPendingEcologyDecision(), false, "jump: a second decision opened on top of tactical");
+  assert.equal(game.openPendingEcologyDecision(), false, "jump: a nature-rule task opened on top of tactical");
   closeLayers(game);
   seedEcology(game, "symbiosis");
-  assert(game.openPendingEcologyDecision(), "jump: ecology after dismissing tactical failed");
-  completeEcology(game, "jump-after-tactical");
-  note("ok", "jump-modal-mutex", "未确认的战术抉择会挡住生态，关掉后才能继续");
+  assert.equal(game.openPendingEcologyDecision(), false, "jump: nature-rule task opened after tactical");
+  note("ok", "jump-modal-mutex", "战术抉择仍可打开，自然规则任务不再插进来");
   assertHealthy(game, "jump-after-mutex");
 
   const active = spawnAnimalStory(game);
@@ -374,19 +363,14 @@ function runDisruptive() {
 
   ECOLOGY_TYPES.forEach((type) => {
     const fresh = makeGame(`破坏-生态-${type}`, { chapter: 4 });
-    const event = seedEcology(fresh, type, { weather: "寒雾" });
-    assert.equal(event.choices.length, 1, `disrupt: ${type} still has two ecology routes`);
+    seedEcology(fresh, type, { weather: "寒雾" });
     DELETED_ECOLOGY_IDS.forEach((choiceId) => {
-      const result = applyEcologyNarrativeDecision(fresh.state.world.reserve, event.id, choiceId);
-      assert.equal(result.ok, false, `disrupt: deleted ecology ${type}/${choiceId} still settled`);
+      const result = applyEcologyNarrativeDecision(fresh.state.world.reserve, "retired", choiceId);
+      assert.equal(result.ok, false, `disrupt: removed ecology ${type}/${choiceId} still settled`);
     });
-    const remaining = event.choices[0].id;
-    const applied = applyEcologyNarrativeDecision(fresh.state.world.reserve, event.id, remaining);
-    assert.equal(applied.ok, true, `disrupt: remaining ecology ${type}/${remaining} failed with stocked resources`);
-    const again = applyEcologyNarrativeDecision(fresh.state.world.reserve, event.id, remaining);
-    assert.equal(again.ok, false, `disrupt: ecology ${type} settled twice`);
+    assert.equal(applyEcologyNarrativeDecision(fresh.state.world.reserve, "retired", "observe").ok, false, `disrupt: ${type} nature-rule task still settled`);
   });
-  note("ok", "disrupt-deleted-ecology", "已删除的第二条生态路线全部失效，剩下的一条只能结算一次");
+  note("ok", "disrupt-deleted-ecology", "自然规则任务不再生成，也不能结算");
 
   seedTactical(game, "patrol_split");
   closeLayers(game);
@@ -416,22 +400,14 @@ function runDisruptive() {
   const weatherGame = makeGame("破坏-无工具包天气", { chapter: 2, supplies: { fieldKit: 0, medicalKit: 6, dogFood: 8 } });
   seedEcology(weatherGame, "weather", { weather: "热浪" });
   closeLayers(weatherGame);
-  assert(weatherGame.openPendingEcologyDecision(), "disrupt: weather did not open");
-  weatherGame.infoDetailModal.choices[0].action();
-  const weatherAvailability = weatherGame.ecologyChoiceAvailability((weatherGame.infoDetailModal.choices || [])[0].id);
-  assert.equal(weatherAvailability.available, false, "disrupt: weather shelter still looks free without a field kit");
-  assert.equal(weatherGame.confirmEcologyNarrativeChoice(), false, "disrupt: weather confirmed without a field kit");
-  assert.equal(weatherGame.infoDetailModal.kind, "ecologyNarrativeDecision", "disrupt: failed weather confirm closed the task");
-  note("ok", "disrupt-weather-cost", "打开避险点缺工具包时不能偷偷结算");
+  assert.equal(weatherGame.openPendingEcologyDecision(), false, "disrupt: weather nature-rule task opened");
+  note("ok", "disrupt-weather-cost", "缺工具包时也不会再弹出自然规则任务");
   assertHealthy(weatherGame, "disrupt-weather-empty-kit");
 
   const broke = makeGame("破坏-零基金", { chapter: 3, fund: 0 });
   seedEcology(broke, "territorial");
   closeLayers(broke);
-  assert(broke.openPendingEcologyDecision(), "disrupt: territorial did not open");
-  broke.infoDetailModal.choices[0].action();
-  assert.equal(broke.confirmEcologyNarrativeChoice(), false, "disrupt: buffer confirmed with 0 fund");
-  closeLayers(broke);
+  assert.equal(broke.openPendingEcologyDecision(), false, "disrupt: territorial nature-rule task opened");
   const option = (broke.reserveActionOptions() || []).find((item) => item.id === "houndScout");
   if (option) {
     broke.openPatrolTaskModal(option);
@@ -454,35 +430,25 @@ function runDisruptive() {
   assertHealthy(spam, "disrupt-after-double-archery");
 
   const sticky = makeGame("破坏-过期按钮", { chapter: 2 });
-  const stickyEvent = seedEcology(sticky, "predation");
+  seedEcology(sticky, "predation");
   closeLayers(sticky);
-  assert(sticky.openPendingEcologyDecision());
-  const staleAction = sticky.infoDetailModal.choices[0].action;
-  staleAction();
-  assert.equal(sticky.infoDetailModal.kind, "ecologyNarrativeDecision", "disrupt: first ecology tap did not settle");
-  assert.equal(sticky.infoDetailModal.phase, "result", "disrupt: ecology result left the original screen");
-  const after = sticky.confirmEcologyNarrativeChoice();
-  assert.equal(after, false, "disrupt: outcome screen accepted a second confirm");
-  staleAction();
-  assert.notEqual(sticky.infoDetailModal && sticky.infoDetailModal.kind, "ecologyNarrativeChoiceConfirm", "disrupt: stale ecology button rebuilt a live confirm");
-  const staleApply = applyEcologyNarrativeDecision(sticky.state.world.reserve, stickyEvent.id, stickyEvent.choices[0].id);
-  assert.equal(staleApply.ok, false, "disrupt: stale ecology id still wrote a second outcome");
-  closeLayers(sticky);
-  note("ok", "disrupt-stale-button", "结算后的旧按钮不能再写一次结果");
+  assert.equal(sticky.openPendingEcologyDecision(), false, "disrupt: stale nature-rule task opened");
+  assert.equal(sticky.confirmEcologyNarrativeChoice(), false, "disrupt: removed nature-rule task still confirmed");
+  note("ok", "disrupt-stale-button", "自然规则任务的旧确认不能再写结果");
   assertHealthy(sticky, "disrupt-after-stale");
 
   const persist = makeGame("破坏-中途存档", { chapter: 2 });
-  seedEcology(persist, "birth");
-  closeLayers(persist);
-  assert(persist.openPendingEcologyDecision());
+  persist.state.world.reserve.ecologyNarrative = {
+    pendingDecision: { id: "saved_nature_rule", title: "自然规则", choices: [{ id: "observe", label: "观察" }, { id: "extra", label: "第二条" }] }
+  };
   saveState(persist.state);
   const restored = loadState();
   persist.state = restored;
   closeLayers(persist);
   const restoredEvent = normalizeEcologyNarrative(persist.state.world.reserve.ecologyNarrative).pendingDecision;
-  assert(restoredEvent && restoredEvent.choices.length === 1, "disrupt: save/load restored two ecology routes");
-  completeEcology(persist, "disrupt-after-reload");
-  note("ok", "disrupt-saveload", "确认前存档，读档后仍是单选且能完成");
+  assert.equal(restoredEvent, null, "disrupt: save/load restored a nature-rule task");
+  assert.equal(persist.openPendingEcologyDecision(), false, "disrupt: reloaded nature-rule task opened");
+  note("ok", "disrupt-saveload", "读档后自然规则任务被清掉，游戏还能继续");
   assertHealthy(persist, "disrupt-after-saveload");
 
   const poison = makeGame("破坏-脏数据", { chapter: 2 });
@@ -492,12 +458,8 @@ function runDisruptive() {
     seedEcology(poison, "overgrazing");
     closeLayers(poison);
     poison.openPendingEcologyDecision();
-    if (poison.infoDetailModal && poison.infoDetailModal.choices && poison.infoDetailModal.choices[0]) {
-      poison.infoDetailModal.choices[0].action();
-      poison.confirmEcologyNarrativeChoice();
-    }
   } catch (error) {
-    assert.fail(`disrupt: NaN reserve crashed ecology (${error.message})`);
+    assert.fail(`disrupt: NaN reserve crashed after nature-rule removal (${error.message})`);
   }
   poison.state.world.reserve.fund = 800;
   poison.state.world.reserve.ecology.water = 60;

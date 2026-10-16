@@ -259,4 +259,63 @@ assertHarshNatureGraphicOverlay(dry, fireView, "火灾");
 assertHarshNatureGraphicOverlay(wet, buildReserveView(wet, wet, { day: 2, season: "雨季", weather: "暴雨", now: 1_000 }), "水灾");
 assertHarshNatureGraphicOverlay(sickView, buildReserveView(sickView, sickView, { day: 3, season: "雨季", weather: "阴", now: 1_000 }), "病虫害");
 
+const { REAL_NATURE_EVENT_DEFINITIONS } = require("../js/realNatureEventSystem");
+const { untreatedDisasterKinds } = require("../js/sandboxTaskCadence");
+const fireType = Object.keys(REAL_NATURE_EVENT_DEFINITIONS).find((key) => {
+  const item = REAL_NATURE_EVENT_DEFINITIONS[key];
+  return item.themeId === "fire" && item.visualKind === "wildfire" && !/火警|火灾预警|山火|野火/.test(`${item.title || ""}`);
+});
+const fireDef = REAL_NATURE_EVENT_DEFINITIONS[fireType];
+assert(fireDef, "必须有一条复用火灾图的野外实录");
+assert.equal(fireDef.target, 3, "野外实录本身带 3 次处置窗口");
+const chapter6 = createReserveState();
+chapter6.progression = Object.assign({}, chapter6.progression, { stage: 6, displayChapter: 6, level: 4 });
+chapter6.emergency = Object.assign({}, chapter6.emergency || {}, {
+  active: Object.assign({}, fireDef, { type: fireType, id: fireType, progress: 0, daysRemaining: 3, target: 3 })
+});
+assert.equal(untreatedDisasterKinds(chapter6).includes("wildfire"), false, "热浪图的野外实录不得冒充未处理火灾");
+game.state.world.reserve = chapter6;
+game.screen = "home";
+game.infoDetailModal = null;
+game.openActiveWorldEventFromMap(chapter6.emergency.active);
+assert.notEqual(game.infoDetailModal && game.infoDetailModal.kind, "harshNatureDice", "火主题野外实录不得打开火灾预警");
+assert.notEqual(game.infoDetailModal && game.infoDetailModal.kicker, "火灾预警");
+game.infoDetailModal = null;
+game.openMapMarkerDetail({
+  eventType: fireType,
+  type: fireType,
+  title: fireDef.title,
+  label: fireDef.title,
+  visualKind: "wildfire",
+  category: "realNature",
+  recommendAction: "realEvent",
+  target: 3,
+  daysRemaining: 3,
+  progress: 0
+});
+assert.notEqual(game.infoDetailModal && game.infoDetailModal.kind, "harshNatureDice", "点击火主题标记不得进入火灾射箭");
+game.openHarshNatureArchery(Object.assign({}, chapter6.emergency.active, { eventType: fireType, type: fireType }));
+assert.equal(game.finishResolvedFireEmergency(chapter6, game.infoDetailModal.marker, "wildfire"), true, "同一场事件射箭一次后必须结束");
+assert.equal(chapter6.emergency.active, null, "进度不得停在 0/3");
+
+const repeat = createReserveState();
+repeat.progression = Object.assign({}, repeat.progression, { stage: 6, displayChapter: 6, level: 4 });
+repeat.seasonState = { name: "旱季", weather: "热浪", day: 4, cycleDay: 16 };
+repeat.ecology.grass = 50;
+repeat.development = repeat.development || {};
+repeat.development.nodes = Object.assign({}, repeat.development.nodes, {
+  river_shallows: { id: "river_shallows", phase: "operational", planId: "reed_refuge", buildingLevel: 1 }
+});
+const firstFire = buildReserveView(repeat, repeat, { day: 4, season: "旱季", weather: "热浪", now: 10_000 });
+assert((firstFire.mapMarkers || []).some((item) => harshNatureKind(item) === "wildfire"), "第6章旱季必须能出现一次火灾预警");
+applyHarshNatureOutcome(repeat, "wildfire", 4);
+for (let step = 1; step <= 3; step += 1) {
+  const next = buildReserveView(repeat, repeat, { day: 4, season: "旱季", weather: "热浪", now: 10_000 + step * 25_000 });
+  assert.equal((next.mapMarkers || []).some((item) => item.eventType === "sandbox_wildfire" || /火灾预警/.test(`${item.title || ""} ${item.label || ""}`)), false, `第6章火灾处理后第${step}次刷新不得再出现`);
+}
+game.state.world.reserve = repeat;
+game.infoDetailModal = null;
+assert.equal(game.openReserveViewAction("harshNature", "sandbox-task"), false, "灾害结束后不得再造一条火灾预警");
+assert.notEqual(game.infoDetailModal && game.infoDetailModal.kind, "harshNatureDice");
+
 console.log("harsh nature archery check ok");

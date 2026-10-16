@@ -24,7 +24,7 @@ const { survivalImpact } = require('../js/survivalImpact');
 const { habitatMigrationAssessment } = require('../js/ecologyConsistency');
 const { Game } = require('../js/game');
 const total = reserve => Object.values(populationSnapshot(reserve)).reduce((sum, n) => sum + n, 0);
-for (let chapter = 1; chapter <= 20; chapter++) {
+for (let chapter = 1; chapter <= CHAPTERS.length; chapter++) {
   const state = createCharacter(null, '动物来源回归'), reserve = state.world.reserve;
   Object.assign(reserve.progression, { stage: chapter, displayChapter: chapter, level: CHAPTERS[chapter - 1].level });
   normalizeChapterRescue(reserve, chapter, { fresh: true });
@@ -112,7 +112,7 @@ for (const [width, height] of [[320, 568], [375, 812], [430, 932]]) {
   game.drawSurvival(context);
   assert.equal(game.renderedSurvivalImpacts.length, 1);
   assert.deepEqual(game.renderedSurvivalImpacts.map(item => item.id), ['safety']);
-  assert.ok(rendered.some(text => text.includes('生存经营')));
+  assert.ok(rendered.some(text => text.includes('安全')));
   assert.ok(!game.renderedSurvivalImpacts.some(item => /物资|可应急|库存保障/.test(`${item.title} ${item.lines.join(' ')}`)), 'survival ops must not show the emergency-supplies block');
   game.infoDetailModal = game.buildChapterProgressDetail().metricDetails.animals;
   game.drawInfoDetailModal();

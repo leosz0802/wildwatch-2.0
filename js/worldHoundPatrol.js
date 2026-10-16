@@ -357,13 +357,20 @@ function settlePatrolRecord(record = {}, now = Date.now()) {
     cost: record.cost,
     chapter: record.chapter
   }));
+  const volleyReward = record.volley && record.rewardApplied ? {
+    fund: Math.round(Number(record.volley.fund) || 0),
+    visitors: 0,
+    animals: Math.round(Number(record.volley.animals) || 0)
+  } : null;
   return Object.assign({}, record, {
     status: "settled",
     settledAt: Number(now) || Date.now(),
     // The initiator's payout follows the chapter recorded when the patrol
     // started. A server copy can still be stale, so the local chapter formula
-    // is the reward the player actually receives.
-    actorReward: result.actorReward,
+    // is the reward the player actually receives. A finished two-round volley
+    // already paid its own fund, animals and poacher shift, so that record
+    // keeps the volley reward instead of the chapter formula.
+    actorReward: volleyReward || result.actorReward,
     targetLoss: result.targetLoss,
     transferRate: result.transferRate,
     risk: result.risk,
@@ -446,6 +453,12 @@ function patrolLossFigures(row = {}) {
   return row.targetLoss || row.loss || {};
 }
 
+function signedPatrolDelta(value) {
+  const amount = Math.round(Number(value) || 0);
+  if (amount > 0) return `+${amount}`;
+  return String(amount);
+}
+
 function patrolHistoryCopy(row = {}) {
   const reward = patrolRewardFigures(row);
   const loss = patrolLossFigures(row);
@@ -459,7 +472,9 @@ function patrolHistoryCopy(row = {}) {
     body: settled
       ? received
         ? `损失 基金 -${Math.max(0, Math.round(Number(loss.fund) || 0))} · 游客 -${Math.max(0, Math.round(Number(loss.visitors) || 0))} · 动物 -${Math.max(0, Math.round(Number(loss.animals) || 0))}`
-        : `收益 基金 +${Math.max(0, Math.round(Number(reward.fund) || 0))} · 游客 +${Math.max(0, Math.round(Number(reward.visitors) || 0))} · 动物 +${Math.max(0, Math.round(Number(reward.animals) || 0))}`
+        : row.volley
+          ? `${row.volley.name || "齐射"} 基金 ${signedPatrolDelta(row.volley.fund)} · 动物 ${signedPatrolDelta(row.volley.animals)} · 偷猎 ${signedPatrolDelta(row.volley.poacher)}`
+          : `收益 基金 +${Math.max(0, Math.round(Number(reward.fund) || 0))} · 游客 +${Math.max(0, Math.round(Number(reward.visitors) || 0))} · 动物 +${Math.max(0, Math.round(Number(reward.animals) || 0))}`
       : received ? "有人正在巡逻你的保护区" : "5分钟后结算",
     lossBody: `对方损失 基金 -${Math.max(0, Math.round(Number(loss.fund) || 0))} · 游客 -${Math.max(0, Math.round(Number(loss.visitors) || 0))} · 动物 -${Math.max(0, Math.round(Number(loss.animals) || 0))}`
   };

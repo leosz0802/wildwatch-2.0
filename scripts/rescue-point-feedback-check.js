@@ -142,7 +142,7 @@ function make() {
 }
 // All chapter records, including later chapters sharing the same material,
 // must retain their own points through a save/load and subsequent arrow.
-for (let chapter = 1; chapter <= 20; chapter++) {
+for (let chapter = 1; chapter <= require('../js/animalWorld').CHAPTERS.length; chapter++) {
   const game = make();
   const { CHAPTERS } = require('../js/animalWorld');
   const { normalizeChapterRescue } = require('../js/chapterRescueSystem');

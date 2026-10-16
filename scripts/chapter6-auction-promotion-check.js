@@ -2,7 +2,7 @@
 
 const assert = require("node:assert/strict");
 const { createCharacter } = require("../js/storage");
-const { reconcileSpeciesPopulations, SPECIES_DB, speciesPopulationGroup } = require("../js/animalWorld");
+const { CHAPTERS, reconcileSpeciesPopulations, SPECIES_DB, speciesPopulationGroup } = require("../js/animalWorld");
 const {
   chapterTargets,
   beginChapterAnimalCheckpoint,
@@ -178,7 +178,7 @@ assert.equal(animalSourceSummary(landedReserve).rareAuction, 1, "落地幼崽也
 // A legacy save can already show chapter 7–20 while the chapter-6 auction is
 // still submitted. Every later chapter must reconcile it without writing the
 // rare-animal inflow into the later chapter's ledger.
-for (let stage = 7; stage <= 20; stage += 1) {
+for (let stage = 7; stage <= CHAPTERS.length; stage += 1) {
   const state = createCharacter(null, `后续章节拍卖回归${stage}`);
   const reserve = state.world.reserve;
   const target = chapterTargets(stage);

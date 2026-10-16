@@ -206,13 +206,13 @@ assert.strictEqual(restored.world.collection.cases.case_1.itemIds.length, 8, "�
 assert.strictEqual(collectionSummary(restored).total, 45, "汇总必须读取45件唯一目录");
 
 const gameSource = fs.readFileSync(path.join(__dirname, "../js/game.js"), "utf8");
-const atlasPath = path.join(__dirname, "../assets/art/collection/collection-items-atlas.png");
+const atlasPath = path.join(__dirname, "../assets/art/archive/collection-items-atlas.png");
 assert(fs.existsSync(atlasPath), "45件剧情发现物的图集缺失");
 const atlasData = fs.readFileSync(atlasPath);
 assert.strictEqual(atlasData.readUInt32BE(16), 864, "图集必须提供每格96px的清晰宽度");
 assert.strictEqual(atlasData.readUInt32BE(20), 480, "图集必须保持9×5切片");
 assert(fs.statSync(atlasPath).size <= 140 * 1024, "高清简笔图集必须控制在140KiB内");
-assert(gameSource.includes("剧情发现") && gameSource.includes("主证据推动剧情"), "发现首页必须解释剧情与设施关系");
+assert(gameSource.includes("剧情发现") && gameSource.includes("案件已结 · 设施可建设"), "发现页必须说明剧情结案后设施可以建设");
 assert(gameSource.includes('["collection", "发现", "reserve_prosperity"]'), "底部频道必须显示为发现");
 assert(gameSource.includes("drawStoryDiscoveryMarker") && gameSource.includes("collectMapStoryDiscovery"), "沙盘必须展示并可点击收录现场物件");
 assert(gameSource.includes('const labels = ["迹象", "守护", "现场", "收录"]'), "详情页必须展示新的剧情发现链路");

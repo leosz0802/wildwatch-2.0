@@ -66,15 +66,15 @@ async function verifyNewPlayerFirstEntryArt() {
 
   [
     "assets/art/prologue/prologue-fog-v1.jpg",
-    "assets/art/core-map-anime-v1.jpg",
-    "assets/art/animal-map-sprites-atlas-v2.png",
-    "assets/art/ui-v3/icons/nav_sandbox.png",
-    "assets/art/ui-v3/icons/leaf.png",
-    "assets/art/ui-v3/icons/reserve_prosperity.png",
-    "assets/art/ui-v3/icons/nav_materials.png",
-    "assets/art/ui-v3/icons/eye.png",
-    "assets/art/ui-v3/icons/fund_v3.png",
-    "assets/art/ui-v3/icons/water.png"
+    "assets/art/archive/core-map-anime-v1.jpg",
+    "assets/art/archive/animal-map-sprites-atlas-v2.png",
+    "assets/art/archive/ui-v3/icons/nav_sandbox.png",
+    "assets/art/archive/ui-v3/icons/leaf.png",
+    "assets/art/archive/ui-v3/icons/reserve_prosperity.png",
+    "assets/art/archive/ui-v3/icons/nav_materials.png",
+    "assets/art/archive/ui-v3/icons/eye.png",
+    "assets/art/archive/ui-v3/icons/fund_v3.png",
+    "assets/art/archive/ui-v3/icons/water.png"
   ].forEach(firstEntryAssetPackaged);
 
   const game = new Game();
@@ -126,7 +126,7 @@ async function verifyNewPlayerFirstEntryArt() {
   const wechatHome = images.map((image) => image.src);
   assert(wechatHome.some((src) => /core-map-anime-v1\.jpg$/.test(src)), "WeChat first sandbox frame must still load the packed map");
   assert(wechatHome.some((src) => /animal-map-sprites-atlas-v2\.png$/.test(src)), "WeChat first sandbox frame must still load packed animal sprites");
-  assert(!wechatHome.some((src) => /facility-sprites-atlas|collection-items|animal-portraits-atlas|core-sprites-atlas/.test(src)), "WeChat first sandbox frame should download facilities later and keep collection/portraits off the first home paint");
+  assert(!wechatHome.some((src) => /facility-sprites-atlas|collection-items|animal-portraits-atlas|core-sprites-atlas|extinct-species|species-archive-items/.test(src)), "WeChat first sandbox frame should download facilities later and keep collection, portraits and archive atlases off the first home paint");
   assert(wechatGame.remoteAssetQueue.length === 0 && !wechatGame.remoteAssetActive,
     "WeChat first home paint must not queue or decode any non-essential remote atlas");
 

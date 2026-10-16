@@ -43,7 +43,7 @@ function makeGame(screen = "home") {
   return game;
 }
 
-const tabs = ["home", "survival", "collection", "role", "league"];
+const tabs = ["home", "survival", "collection", "role", "archive"];
 const tabGame = makeGame();
 tabs.forEach((screen) => {
   tabGame.infoDetailModal = { kind: "stale" };
@@ -137,23 +137,11 @@ for (const conflict of [false, true]) {
   dailyGame.state.world.reserve.progression.stage = 2;
   const { createGoalState } = require("../js/goalSystem");
   dailyGame.state.world.goals = createGoalState(dailyGame.state);
-  const savedDaily = dailyGame.state.world.goals.daily;
-  delete savedDaily.schemaVersion;
-  savedDaily.objectives.forEach((item) => { item.complete = item.kind !== "visitor"; item.progress = item.complete ? item.target : 0; });
-  savedDaily.objectives.push({ id: "daily_visitor", kind: "visitor", progress: 0, target: 1, complete: false });
-  const oldVisitor = savedDaily.objectives.find(item => item.kind === "visitor");
-  Object.assign(oldVisitor, { title: "修复游客现场", recommendedAction: "habitat", buttonLabel: "修复栖息地" });
-  savedDaily.objectives.reverse(); // Migrate by identity, not saved row position.
   const reserve = dailyGame.state.world.reserve;
   reserve.emergency.active = conflict ? { id: "visitor_test", type: "visitor_conflict", title: "游客越线", progress: 0, target: 1 } : null;
   reserve.development.operations.today.trouble = conflict ? "游客越线" : "尚无明显麻烦";
-  dailyGame.openDailyEvents();
-  assert(dailyGame.infoDetailModal.kind === "dailyEvents", "the intermediate daily list must stay");
-  const checklist = dailyGame.infoDetailModal.checklist;
-  assert(checklist.total === 2, "migration must keep only visitor and ecology dailies");
-  assert(checklist.objectives.every(item => ["visitor", "ecology"].includes(item.kind)));
-  const visitor = checklist.objectives.find(item => item.kind === "visitor");
-  assert(visitor.recommendedAction === "viewVisitors", "miswired visitor/habitat rows must be rewritten to recruitment");
+  assert(dailyGame.openDailyEvents() === false, "daily checklist must stay closed");
+  assert(dailyGame.dailyEventChecklist().total === 0, "daily tasks must not be recreated");
   dailyGame.infoDetailModal = null;
   const openedVisitor = dailyGame.openVisitorIncidentDice({ type: "visitorIncident" });
   if (!conflict) {
@@ -165,8 +153,8 @@ for (const conflict of [false, true]) {
     "independent visitor event must never route to habitat repair or the patrol selector");
   dailyGame.animateInlineDiceRoll = (_modal, _roll, _key, done) => done();
   dailyGame.infoDetailModal.action();
-  assert(dailyGame.infoDetailModal.phase === "result" && dailyGame.dailyEventChecklist().total === 2,
-    "visitor settlement must not regenerate extra daily tasks");
+  assert(dailyGame.infoDetailModal.phase === "result" && dailyGame.dailyEventChecklist().total === 0,
+    "visitor settlement must not regenerate daily tasks");
   const after = JSON.stringify(dailyGame.state);
   assert(dailyGame.resolveVisitorIncidentDice() === false && JSON.stringify(dailyGame.state) === after,
     "repeated confirmation must not duplicate income, progress or rewards");

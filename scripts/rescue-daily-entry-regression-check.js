@@ -54,9 +54,10 @@ const aggregate = game.renderedMapOpportunityAggregate;
 assert.equal(aggregate.opportunityMode, 'rescue');
 assert.equal(aggregate.mode, 'rescue');
 assert.match(aggregate.label, /^解救野猪/);
-assert.equal(aggregate.dailyShortcut, true, 'pending daily task must retain a separate side entry');
+assert.equal(aggregate.dailyShortcut, false, 'daily side entry is removed');
 assert.equal(aggregate.w, 210);
-assert.equal(game.hitAreas.length, 2, 'rescue and daily must have separate hit regions');
+assert.equal(game.hitAreas.length, 1, 'rescue keeps the only hit region');
+assert.doesNotMatch(aggregate.label, /每日事件/);
 
 // A system push arriving on the same home frame must defer instead of opening
 // the daily card over the visible captive.
@@ -79,7 +80,7 @@ assert.equal(game.opened, 'rescue:chapter:2:rescue:1');
 // rescue priority for the next map frame.
 game.opened = null;
 game.handleTap(aggregate.x + aggregate.w - 8, aggregate.y + 15);
-assert.equal(game.opened, 'daily');
+assert.notEqual(game.opened, 'daily');
 game.hitAreas = [];
 game.drawSandboxOpportunityAggregate(game.ctx, camera, plan);
 assert.equal(game.renderedMapOpportunityAggregate.opportunityMode, 'rescue');
@@ -105,12 +106,12 @@ game.hitAreas = [];
 game.currentDailyMatchesGoal = () => false;
 game.drawSandboxOpportunityAggregate(game.ctx, camera, plan);
 const daily = game.renderedMapOpportunityAggregate;
-assert.equal(daily.opportunityMode, 'daily');
-assert.equal(daily.mode, 'dailyEvents');
-assert.match(daily.label, /^每日事件/);
+assert.notEqual(daily.opportunityMode, 'daily');
+assert.notEqual(daily.mode, 'dailyEvents');
+assert.doesNotMatch(daily.label, /每日事件/);
 game.opened = null;
 game.handleTap(daily.x + 12, daily.y + 15);
-assert.equal(game.opened, 'daily');
+assert.notEqual(game.opened, 'daily');
 
 delete global.wx;
-console.log('rescue/daily entry regression ok: rescue priority, separate daily access, overlap hit order, post-rescue daily routing');
+console.log('rescue/daily entry regression ok: rescue priority, no daily chip, overlap hit order');

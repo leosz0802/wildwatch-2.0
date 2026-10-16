@@ -24,7 +24,7 @@ game.dpr = 1;
 game.scrollY = 0;
 // Use the actual sandbox terrain in raster previews, and a loaded-image double
 // in headless checks so the image path cannot silently regress to primitives.
-const terrainImage = canvasLibrary ? await canvasLibrary.loadImage(require("path").join(__dirname, "../assets/art/core-map-anime-v1.jpg")) : { width: 1672, height: 941 };
+const terrainImage = canvasLibrary ? await canvasLibrary.loadImage(require("path").join(__dirname, "../assets/art/archive/core-map-anime-v1.jpg")) : { width: 1672, height: 941 };
 terrainImage.loaded = true;
 game.art = Object.assign({}, game.art, { map: terrainImage });
 const kinds = ["materialExploration", "collectionDice", "strategicDice", "neighborEventDice", "visitorIncidentDice"];

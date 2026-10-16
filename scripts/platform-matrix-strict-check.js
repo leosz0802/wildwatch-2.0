@@ -73,14 +73,14 @@ function makeGame(platform) {
 }
 
 const PLATFORMS = [
-  { id: "ios", fade: "short", shadows: true },
-  { id: "android", fade: "skip", shadows: false },
-  { id: "ohos", fade: "skip", shadows: false }
+  { id: "ios", fade: "short", fragile: false, shadows: true },
+  { id: "android", fade: "skip", fragile: true, shadows: false },
+  { id: "ohos", fade: "skip", fragile: true, shadows: false }
 ];
 
 PLATFORMS.forEach((spec) => {
   assert.equal(canvasPlatformId({ platform: spec.id }), spec.id, `${spec.id} platform id`);
-  assert.equal(usesFragileCanvas({ platform: spec.id }), !spec.shadows, `${spec.id} fragile canvas`);
+  assert.equal(usesFragileCanvas({ platform: spec.id }), spec.fragile, `${spec.id} fragile canvas`);
 
   const game = makeGame(spec.id);
   game.markScreenChange();
@@ -108,8 +108,8 @@ PLATFORMS.forEach((spec) => {
   const gate = chapterTargets(1);
   assert.ok(hudAnimals > 0, `${spec.id} animal HUD must have a live count`);
   assert.ok(hudVisitors >= 0, `${spec.id} visitor HUD must be chapter-scoped`);
-  assert.equal(gate.animals, 70, `${spec.id} chapter 1 animal gate stays this-chapter 70`);
-  assert.equal(gate.visitors, 114, `${spec.id} chapter 1 visitor gate stays 114`);
+  assert.equal(gate.animals, 12, `${spec.id} chapter 1 animal gate stays 12`);
+  assert.equal(gate.visitors, 50, `${spec.id} chapter 1 visitor gate stays 50`);
 
   const diceKinds = ["collectionDice", "strategicDice"];
   diceKinds.forEach((kind) => {

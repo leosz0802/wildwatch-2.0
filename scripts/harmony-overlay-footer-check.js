@@ -217,7 +217,7 @@ assert.equal(stock.settlementBlocksCurrentScreen(), false, '这张结算不能�
 assert.equal(stock.overlayLocksBottomNav(), false, '物资页没有弹层时不能锁底栏');
 assert.equal(stock.sandboxTaskNavigationBlocked('home'), false, '采购后必须还能回沙盘看结算');
 const stockNav = stock.hitAreas.filter((hit) => hit.hud && hit.y >= stock.height - 70);
-assert.equal(stockNav.length, 4, `补充物资后四个页签必须可点，实际 ${stockNav.length}`);
+assert.equal(stockNav.length, 5, `补充物资后五个页签必须可点，实际 ${stockNav.length}`);
 tap(stock.width / 8, stock.height - 20, 'logical');
 assert.equal(stock.screen, 'home', '点沙盘必须能离开物资页');
 
@@ -237,7 +237,7 @@ waiting.render = function paintWaiting() {
 waiting.render();
 assert.equal(waiting.settlementAwaitingPresentation(), true, '沙盘上未到点的结算只是待展示');
 assert.equal(waiting.overlayLocksBottomNav(), false, '结算还没亮出时不能锁沙盘底栏');
-assert.equal(waiting.hitAreas.filter((hit) => hit.hud && hit.y >= waiting.height - 70).length, 4, '待展示结算必须留着四个页签');
+assert.equal(waiting.hitAreas.filter((hit) => hit.hud && hit.y >= waiting.height - 70).length, 5, '待展示结算必须留着五个页签');
 assert.equal(waiting.sandboxTaskNavigationBlocked('home'), false, '待展示结算必须还能点沙盘');
 
 console.log('harmony overlay footer check ok: settlement, supply and archery footers catch nav-band taps');

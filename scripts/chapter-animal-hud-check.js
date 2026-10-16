@@ -45,7 +45,7 @@ const startHud = chapterAnimalTotal(reserve);
 assert.ok(living >= 80, `chapter 1 still has a live herd, got ${living}`);
 assert.equal(startHud, 0, `chapter 1 animal HUD must start at 0 like visitors, got ${startHud}`);
 assert.equal(chapterCoreMetrics(reserve, 1).animals, 0, "core animal metric must ignore opening stock");
-assert.equal(gate.animals, 70, "chapter 1 animal gate is this-chapter 70, not career 140");
+assert.equal(gate.animals, 12, "chapter 1 animal gate is 12, not the later-chapter herd");
 assert.ok(startHud < gate.animals, "chapter 1 must not start already complete");
 
 normalizeChapterRescue(reserve, 1, { fresh: true });
@@ -59,9 +59,8 @@ const afterLiving = livingAnimalTotal(reserve);
 assert.ok(afterRescue > 0, "rescue must add this-chapter animals");
 assert.equal(afterRescue, 44, `antelope 1→45 must credit 44, got ${afterRescue}`);
 assert.ok(afterLiving > living, "the live herd still grows");
-assert.ok(afterRescue < gate.animals, `rescue alone must not finish animals: ${afterRescue}/${gate.animals}`);
-assert.ok(afterRescue / gate.animals < 0.9, `rescue must leave a visible gap, got ${afterRescue}/${gate.animals}`);
-assert.equal(chapterCoreMetrics(reserve, 1).percentages.animals < 100, true, "antelope rescue must leave chapter 1 animals visibly short of 100%");
+assert.ok(afterRescue >= gate.animals, `one antelope rescue must reach the chapter 1 animal gate: ${afterRescue}/${gate.animals}`);
+assert.equal(chapterCoreMetrics(reserve, 1).percentages.animals >= 100, true, "antelope rescue must complete the chapter 1 animal gate");
 
 const game = Object.create(Game.prototype);
 game.state = state;
@@ -143,7 +142,8 @@ mid.progression.animalHudVersion = 0;
 const midHud = chapterCoreMetrics(mid, 1);
 assert.equal(midHud.animals, 50, "this-chapter rescue and patrol must not be rewritten");
 assert.equal(animalSourceSummary(mid).rescued, ledgerBefore, "migration must not rewrite the animal ledger");
-assert.ok(midHud.animals < gate.animals, "unfinished old progress stays short of the new gate");
+assert.ok(midHud.animals >= gate.animals, "rescue plus patrol already clears the chapter 1 animal gate");
+assert.equal(midHud.met.animals, true, "chapter 1 animal gate closes once the rescued herd is counted");
 
 const ch2Done = createCharacter(null, "第二章旧关已满").world.reserve;
 ch2Done.progression.stage = 2;
@@ -163,8 +163,9 @@ beginChapterAnimalCheckpoint(ch2Mid, 2, gate.animals);
 recordIncrease(ch2Mid, "comforted", 10);
 ch2Mid.progression.animalHudVersion = 0;
 const ch2MidHud = chapterCoreMetrics(ch2Mid, 2);
-assert.equal(chapterAnimalInherited(ch2Mid), 7);
-assert.equal(ch2MidHud.animals, 17, "unfinished chapter 2 must keep inherit + comfort and ignore the opening herd");
+const ch2Inherit = chapterAnimalCarryover(gate.animals, 2);
+assert.equal(chapterAnimalInherited(ch2Mid), ch2Inherit);
+assert.equal(ch2MidHud.animals, ch2Inherit + 10, "unfinished chapter 2 must keep inherit + comfort and ignore the opening herd");
 assert.ok(livingAnimalTotal(ch2Mid) >= 80);
 assert.ok(ch2MidHud.animals < chapterTargets(2).animals);
 

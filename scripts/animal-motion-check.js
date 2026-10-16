@@ -406,4 +406,84 @@ if (walkedAway < 8) {
   assertGroundedMetrics(game, animal, moved, species);
 });
 
+const scatterAnimals = game.visibleSandAnimals(game.state.world);
+const scatterLayout = game.animalMapLayoutContext(scatterAnimals, game.state.world);
+const scatterPoints = scatterAnimals.map((animal, index) => (
+  game.animalMapLayoutPosition(animal, index, scatterAnimals, scatterLayout)
+));
+if (scatterPoints.length >= 4) {
+  let nearest = 1;
+  let outsideCore = 0;
+  scatterPoints.forEach((point, index) => {
+    if (Math.hypot(point.x - 0.50, point.y - 0.52) > 0.16) outsideCore += 1;
+    for (let other = index + 1; other < scatterPoints.length; other += 1) {
+      nearest = Math.min(nearest, Math.hypot(point.x - scatterPoints[other].x, point.y - scatterPoints[other].y));
+    }
+  });
+  if (nearest < 0.10) {
+    throw new Error(`sandbox animals are still packed together, nearest pair ${nearest.toFixed(3)}`);
+  }
+  if (outsideCore < Math.ceil(scatterPoints.length * 0.6)) {
+    throw new Error(`sandbox animals are still gathered in the map core (${outsideCore}/${scatterPoints.length} left the center)`);
+  }
+  const territorySpan = Math.hypot(
+    Math.max(...scatterPoints.map((point) => point.x)) - Math.min(...scatterPoints.map((point) => point.x)),
+    Math.max(...scatterPoints.map((point) => point.y)) - Math.min(...scatterPoints.map((point) => point.y))
+  );
+  if (territorySpan < 0.45) {
+    throw new Error(`sandbox territories do not cover the map, span ${territorySpan.toFixed(3)}`);
+  }
+  const center = game.animalOperationCenter();
+  scatterPoints.forEach((point, index) => {
+    const inside = point.x >= center.minX && point.x <= center.maxX && point.y >= center.minY && point.y <= center.maxY;
+    if (inside) {
+      throw new Error(`${scatterAnimals[index].species} home sits in the operation center`);
+    }
+  });
+  for (let frame = 1; frame <= 40; frame += 1) {
+    game.anim.t += 320;
+    scatterAnimals.forEach((animal, index) => {
+      const moved = game.movingAnimalPosition(animal, index, scatterPoints[index]);
+      const inside = moved.x >= center.minX && moved.x <= center.maxX && moved.y >= center.minY && moved.y <= center.maxY;
+      if (inside) {
+        throw new Error(`${animal.species} walked into the operation center`);
+      }
+    });
+  }
+}
+
+game.width = 390;
+game.height = 844;
+game.mapZoom = 0;
+game.scrollY = 0;
+game.info = Object.assign({}, game.info || {}, { windowWidth: 390, windowHeight: 844, statusBarHeight: 47, safeArea: { top: 47 } });
+const hudMapY = game.compactStageTop() + 32;
+const hudCamera = game.mapCameraInfo(2, hudMapY, game.width - 4, game.homeSandboxMapHeight(hudMapY));
+const hudFloor = game.sandboxHudFloorY(hudCamera);
+const crow = scatterAnimals.find((animal) => animal.species === "乌鸦");
+if (!crow) throw new Error("chapter sandbox should include the crow");
+const crowIndex = scatterAnimals.indexOf(crow);
+for (let frame = 0; frame < 24; frame += 1) {
+  game.anim.t += 700;
+  const habitat = game.animalMapLayoutPosition(crow, crowIndex, scatterAnimals, scatterLayout);
+  if (habitat.y < 0.40) throw new Error(`crow home is still on the HUD rim (${habitat.y.toFixed(3)})`);
+  const motion = game.movingAnimalPosition(crow, crowIndex, habitat);
+  const point = game.sandboxVisibleActorPoint(motion.x, motion.y, hudCamera);
+  const placement = { animal: crow, motion, sx: point.x, sy: point.y };
+  game.keepAirAnimalBelowHud(placement, hudCamera);
+  const metrics = game.groundedAnimalRenderMetrics(
+    crow,
+    motion,
+    placement.sy,
+    game.sandboxAnimalDrawScale(hudCamera.scale),
+    hudCamera.scale,
+    false,
+    false
+  );
+  const hitTop = metrics.hitY - metrics.hitSize / 2;
+  if (hitTop < hudFloor - 0.5) {
+    throw new Error(`crow tap target overlaps the HUD (${hitTop.toFixed(1)} < ${hudFloor.toFixed(1)})`);
+  }
+}
+
 console.log("animal motion check ok");

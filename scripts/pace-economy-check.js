@@ -45,6 +45,7 @@ assert.equal(PACE_ECONOMY.animalAdChapterCap, 4, "lucky animal migration is 4 ti
 const { REWARDED_FACILITY_AD_CONFIG } = require("../js/adSystem");
 assert.equal(REWARDED_FACILITY_AD_CONFIG.adUnitId, "adunit-a74d65c9384d70b7");
 assert.equal(PACE_ECONOMY.sellFundFreeBatches, 2, "every chapter gets 2 free sell times");
+assert.equal(PACE_ECONOMY.fundAdDailyCap, 3, "fund ads stay at 3 a day; prices inflate instead");
 assert.equal(PACE_ECONOMY.fundAdMinReward, 1000, "each fund ad pays at least 1000");
 assert.equal(paceSellFundFreeCap(1), 150, "chapter 1 free sell cap is 150");
 assert.equal(paceSellFundFreeCap(4), 250, "chapter 4 free sell cap is 250");

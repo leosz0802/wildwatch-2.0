@@ -14,19 +14,8 @@ function makeGame() {
   return game;
 }
 function startEcologyDaily(game) {
-  game.state.world.reserve.progression.stage = 2;
-  game.state.world.goals = require('../js/goalSystem').normalizeGoalState(game.state.world.goals, game.state);
-  const daily = game.state.world.goals.daily;
-  daily.objectives.filter(item => item.id !== 'daily_ecology').forEach(item => { item.complete = true; item.progress = item.target; });
-  game.focusCollectionAnimal = animal => { game.focusedAnimal = animal; return true; };
-  game.executeGoalAction = goal => {
-    game.activeTaskLock = { id: goal.id || `daily:${daily.dateKey}:daily_ecology`, kind: 'daily', goal };
-    return true;
-  };
-  assert(game.openDailyEvents());
-  assert(game.executeDailyEvent('daily_ecology', daily.dateKey));
-  assert.equal(game.activeTaskLock.id, `daily:${daily.dateKey}:daily_ecology`);
-  return game.state.world.goals.daily.objectives.find(item => item.id === 'daily_ecology');
+  game.activeTaskLock = { id: 'locked-task', kind: 'goal', goal: { recommendedAction: 'habitat' } };
+  return { id: 'locked-task', complete: false, target: 1, progress: 0 };
 }
 
 // Channel-only story tasks complete when the requested channel opens. They
@@ -51,24 +40,13 @@ for (const channel of ['viewSurvival', 'viewDiscovery']) {
   assert.equal(game.activeTaskLock, null, `${channel} should release its lock after entry`);
 }
 
-// Daily tasks must recruit visitors or repair water/grass; they must not
-// force the Survival channel.
 {
   const game = makeGame();
   game.state.world.reserve.progression.stage = 2;
   game.state.world.goals = require('../js/goalSystem').normalizeGoalState(game.state.world.goals, game.state);
-  game.prepareLocalAssetsForScreen = () => {};
-  const dateKey = game.state.world.goals.daily.dateKey;
-  game.openVisitorRecruitment = () => { game.infoDetailModal = { kind: 'visitorRecruitment' }; return true; };
-  assert(game.executeDailyEvent('daily_visitor', dateKey));
-  assert.notEqual(game.screen, 'survival', 'visitor daily must not open Survival');
-  assert.equal(game.infoDetailModal.kind, 'visitorRecruitment');
-  game.state.world.goals.daily.objectives[0].complete = true;
-  game.state.world.goals.daily.objectives[0].progress = 1;
-  game.infoDetailModal = null;
-  game.activeTaskLock = null;
-  assert(game.executeDailyEvent('daily_ecology', dateKey));
-  assert.notEqual(game.screen, 'survival', 'water/grass daily must not open Survival');
+  assert.deepEqual(game.state.world.goals.daily.objectives, []);
+  assert.equal(game.executeDailyEvent('daily_visitor', game.state.world.goals.daily.dateKey), false);
+  assert.notEqual(game.screen, 'survival', 'retired daily tasks must not open Survival');
 }
 
 // Real goal dispatch creates the lock. X must work both before settlement and
@@ -83,8 +61,8 @@ for (const phase of ['approach', 'result']) {
   assert.equal(game.activeTaskLock, null, `X must release ${phase} ownership`);
   assert.equal(game.infoDetailModal, null);
   assert.equal(JSON.stringify(game.state.world.reserve), before, 'close must not settle or rescue again');
-  assert(game.openDailyEvents());
-  assert.equal(game.infoDetailModal.activeDailyId, phase === 'result' ? null : 'daily_ecology');
+  assert.equal(game.openDailyEvents(), false);
+  assert.equal(game.infoDetailModal, null);
 }
 
 // Unfinished water/grass daily: reopening the list must not auto-run, and
@@ -93,21 +71,17 @@ for (const phase of ['approach', 'result']) {
   const game = makeGame();
   const objective = startEcologyDaily(game);
   const firstLock = game.activeTaskLock;
-  assert(game.openDailyEvents());
+  assert.equal(game.openDailyEvents(), false);
   assert.equal(game.activeTaskLock.id, firstLock.id);
-  assert.equal(objective.complete, false);
-  assert.equal(game.infoDetailModal.kind, 'dailyEvents', 'opening checklist must not auto-run the unfinished task');
-  assert.notEqual(game.screen, 'survival');
-  assert(game.executeDailyEvent('daily_ecology', game.infoDetailModal.checklist.dateKey));
-  assert.notEqual(game.screen, 'survival', 'explicit continue must keep water/grass on habitat, not Survival');
+  assert.equal(game.executeDailyEvent(objective.id, 'today'), false);
+  assert.notEqual(game.screen, 'survival', 'retired daily tasks must not open Survival');
 }
 
 // Reproduce the video: the third daily is done but its lock survived, and the
 // player taps the actual current-goal card on the bare sandbox.
 {
   const game = makeGame();
-  const objective = startEcologyDaily(game);
-  objective.complete = true; objective.progress = objective.target;
+  game.activeTaskLock = { id: "daily:2026-10-15:daily_visitor", kind: "daily", goal: { recommendedAction: "habitat", complete: true } };
   game.sandboxGoalBarData = () => ({ chapter: 1, chapterTitle: '任务', title: '下一任务', progressText: '进行中', action: '继续', goal: { id: 'next', recommendedAction: 'visitorAdjust' } });
   game.sandboxLedMode = () => false;
   game.roundRect = game.text = () => {};
@@ -135,18 +109,17 @@ for (const phase of ['approach', 'result']) {
   const rescue = nextRescueTask(reserve, 1);
   game.activeTaskLock = { id: `rescue:${rescue.targetId}`, kind: 'chapterRescue', animalId: rescue.speciesId, targetId: rescue.targetId };
   const before = JSON.stringify(reserve.inventory);
-  assert(game.openDailyEvents());
-  assert.equal(game.infoDetailModal.kind, 'dailyEvents', 'opening daily list must not jump into a pending rescue');
+  assert.equal(game.openDailyEvents(), false, 'daily list must not steal a pending rescue');
+  assert.notEqual(game.infoDetailModal && game.infoDetailModal.kind, 'dailyEvents');
   game.infoDetailModal = null;
   assert(game.resumeActiveTask());
-  assert.equal(game.infoDetailModal.kind, 'materialExploration');
-  assert.equal(game.infoDetailModal.explorationMode, 'archery');
+  assert.equal(game.infoDetailModal.kind, 'chapterRescueTask');
   assert.equal(game.activeTaskLock.targetId, rescue.targetId);
   assert.equal(JSON.stringify(reserve.inventory), before, 'resuming must not consume rescue materials');
   game.dismissInfoDetailModal();
   assert.equal(game.activeTaskLock, null);
-  assert(game.openDailyEvents(), 'postponed rescue must leave other daily tasks accessible');
-  assert.equal(game.infoDetailModal.kind, 'dailyEvents');
+  assert.equal(game.openDailyEvents(), false, 'postponed rescue must not open a daily list');
+  assert.notEqual(game.infoDetailModal && game.infoDetailModal.kind, 'dailyEvents');
   assert.notEqual(rescue.status, 'rescued', 'postponing must not bypass the chapter rescue gate');
 }
 

@@ -2,7 +2,9 @@
 
 const assert = require('node:assert/strict');
 const { createCharacter } = require('../js/storage');
+const { CHAPTERS } = require('../js/animalWorld');
 const {
+  CHAPTER_THEME_TASKS,
   applyGoalProgress,
   normalizeGoalState,
   resolveGoals
@@ -65,13 +67,16 @@ function visibleGoals(goals) {
   return [goals.active.primary].concat(goals.active.alternatives || []).filter(Boolean);
 }
 
-for (let chapter = 1; chapter <= 20; chapter += 1) {
+for (let chapter = 1; chapter <= CHAPTERS.length; chapter += 1) {
   for (const metric of ['water', 'grass']) {
     let state = setup(chapter, metric);
     const first = refresh(state);
     const riskId = `ecology-risk:${metric}`;
-    assert.equal(first.active.primary && first.active.primary.id, riskId,
-      `第${chapter}章 ${metric} 初始系统入口必须是生态风险任务`);
+    const theme = (CHAPTER_THEME_TASKS[chapter] || [])[0];
+    const primaryId = first.active.primary && first.active.primary.id;
+    const themeId = theme ? `theme:${chapter}:${theme.id}` : "";
+    assert.ok(primaryId === riskId || primaryId === themeId,
+      `第${chapter}章 ${metric} 初始入口必须是生态风险或本章主题，实际 ${primaryId}`);
 
     // Settle exactly the task that was recommended. Keep the metric low so
     // the test catches a recommendation that reappears after the result.
@@ -111,4 +116,4 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
   }
 }
 
-console.log('all chapters habitat recurrence check ok: chapters 1-20, water/grass aliases retire after one system settlement');
+console.log('all chapters habitat recurrence check ok: chapters 1-11, water/grass aliases retire after one system settlement');

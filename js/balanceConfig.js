@@ -130,6 +130,34 @@ function paceFundAdReward(chapter = 1) {
   const scaled = Math.max(0, Math.round(PACE_ECONOMY.fundAdPerChapter * n));
   return Math.max(Math.round(Number(PACE_ECONOMY.fundAdMinReward) || 0), scaled);
 }
+function paceInflationChapter(chapter = 1) {
+  return Math.max(1, Math.min(11, Math.round(Number(chapter) || 1)));
+}
+const PACE_OPERATING_INFLATION = Object.freeze({
+  1: 1, 2: 1, 3: 1.06, 4: 1.12, 5: 1.18, 6: 1.26, 7: 1.28, 8: 1.28, 9: 1.24, 10: 1.26, 11: 1.12
+});
+const PACE_RUSH_INFLATION = Object.freeze({
+  1: 4, 2: 3.2, 3: 2.2, 4: 1.5, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1, 11: 1
+});
+function paceOperatingInflation(chapter = 1) {
+  return PACE_OPERATING_INFLATION[paceInflationChapter(chapter)];
+}
+function paceRushInflation(chapter = 1) {
+  return PACE_RUSH_INFLATION[paceInflationChapter(chapter)];
+}
+function paceStationInflation(facilityId, chapter = 1) {
+  return facilityId === "old_patrol_post" ? paceOperatingInflation(chapter) : paceRushInflation(chapter);
+}
+function paceEcologyFundCost(reserve, action) {
+  const economy = chapterEconomy(reserve);
+  const base = action === "intervention" ? economy.interventionCost : economy.habitatCost;
+  const chapter = paceChapter(reserve);
+  const inflated = Math.max(0, Math.round((Number(base) || 0) * paceOperatingInflation(chapter)));
+  // Archive sales stop after chapter 8. Habitat work from chapter 10 has to
+  // stay expensive enough that a careful day still finishes short.
+  if (action === "intervention" || chapter < 10) return inflated;
+  return inflated + Math.round(6 * paceOperatingInflation(chapter));
+}
 function paceStationChapterTax(chapter = 1) {
   return Math.max(1, Math.round(Number(chapter) || 1)) >= 2 ? PACE_ECONOMY.stationChapterTax : 1;
 }
@@ -153,11 +181,11 @@ function paceSellFundFreeCap(chapter = 1) {
 function paceSlowDayFund(reserve = {}) {
   const chapter = paceChapter(reserve);
   const economy = chapterEconomy(reserve);
-  return Math.max(0, Math.round(Number(economy.habitatCost) || 0))
+  return paceEcologyFundCost(reserve, "habitat")
     + supplyPrice("dogFood", reserve)
     + paceStationFund("old_patrol_post", chapter);
 }
 const MAX_STORY_CHAPTER=18;
 const CHAPTER_ECOLOGY_BALANCE=Object.freeze({1:{eventInterval:3,conflictRate:.18,waterTarget:68,grassTarget:70,safetyTarget:56,visitorPressure:.02},2:{eventInterval:3,conflictRate:.24,waterTarget:70,grassTarget:68,safetyTarget:58,visitorPressure:.03},3:{eventInterval:4,conflictRate:.28,waterTarget:68,grassTarget:66,safetyTarget:60,visitorPressure:.04},4:{eventInterval:4,conflictRate:.36,waterTarget:66,grassTarget:64,safetyTarget:60,visitorPressure:.05},5:{eventInterval:4,conflictRate:.40,waterTarget:64,grassTarget:62,safetyTarget:62,visitorPressure:.06},6:{eventInterval:4,conflictRate:.48,waterTarget:62,grassTarget:60,safetyTarget:64,visitorPressure:.07},7:{eventInterval:5,conflictRate:.52,waterTarget:64,grassTarget:58,safetyTarget:66,visitorPressure:.08},8:{eventInterval:5,conflictRate:.60,waterTarget:62,grassTarget:56,safetyTarget:66,visitorPressure:.09},9:{eventInterval:5,conflictRate:.64,waterTarget:60,grassTarget:54,safetyTarget:68,visitorPressure:.10},10:{eventInterval:6,conflictRate:.72,waterTarget:58,grassTarget:52,safetyTarget:70,visitorPressure:.11},11:{eventInterval:6,conflictRate:.78,waterTarget:60,grassTarget:50,safetyTarget:70,visitorPressure:.12}});
 function chapterEcologyBalance(chapter=1){return CHAPTER_ECOLOGY_BALANCE[Math.max(1,Math.min(11,Math.round(Number(chapter)||1)))]||CHAPTER_ECOLOGY_BALANCE[1];}
-module.exports={BALANCE_V2:BALANCE_V2,MAX_STORY_CHAPTER:MAX_STORY_CHAPTER,PACE_ECONOMY:PACE_ECONOMY,paceChapter:paceChapter,paceFundAdReward:paceFundAdReward,paceStationChapterTax:paceStationChapterTax,paceStationFund:paceStationFund,paceRushStationFund:paceRushStationFund,paceSlowDayFund:paceSlowDayFund,paceSellFundFreeBatches:paceSellFundFreeBatches,paceSellFundFreeCap:paceSellFundFreeCap,ECOLOGY_THRESHOLDS:ECOLOGY_THRESHOLDS,SPECIES_VITALS:SPECIES_VITALS,speciesVitalFor:speciesVitalFor,levelOf:levelOf,chapterEconomy:chapterEconomy,progressionGate:progressionGate,supplyPrice:supplyPrice,fundHealth:fundHealth,metricGainMultiplier:metricGainMultiplier,poacherReductionMultiplier:poacherReductionMultiplier,habitatRecoveryMultiplier:habitatRecoveryMultiplier,habitatRecoveryGain:habitatRecoveryGain,habitatCrisisLevel:habitatCrisisLevel,roundToFive:roundToFive,supplyCapUnlocked:supplyCapUnlocked,supplyCapMultiplier:supplyCapMultiplier,supplyCapFor:supplyCapFor,SUPPLY_CAP_OVERRIDES:SUPPLY_CAP_OVERRIDES,SUPPLY_CAP_AFTER_FIRST_PURCHASE:SUPPLY_CAP_AFTER_FIRST_PURCHASE,SUPPLY_CAP_LATE_CHAPTER:SUPPLY_CAP_LATE_CHAPTER,SUPPLY_CAP_LATE_MULTIPLIER:SUPPLY_CAP_LATE_MULTIPLIER,CHAPTER_ECOLOGY_BALANCE:CHAPTER_ECOLOGY_BALANCE,chapterEcologyBalance:chapterEcologyBalance};
+module.exports={BALANCE_V2:BALANCE_V2,MAX_STORY_CHAPTER:MAX_STORY_CHAPTER,PACE_ECONOMY:PACE_ECONOMY,paceChapter:paceChapter,paceFundAdReward:paceFundAdReward,paceOperatingInflation:paceOperatingInflation,paceRushInflation:paceRushInflation,paceStationInflation:paceStationInflation,paceEcologyFundCost:paceEcologyFundCost,paceStationChapterTax:paceStationChapterTax,paceStationFund:paceStationFund,paceRushStationFund:paceRushStationFund,paceSlowDayFund:paceSlowDayFund,paceSellFundFreeBatches:paceSellFundFreeBatches,paceSellFundFreeCap:paceSellFundFreeCap,ECOLOGY_THRESHOLDS:ECOLOGY_THRESHOLDS,SPECIES_VITALS:SPECIES_VITALS,speciesVitalFor:speciesVitalFor,levelOf:levelOf,chapterEconomy:chapterEconomy,progressionGate:progressionGate,supplyPrice:supplyPrice,fundHealth:fundHealth,metricGainMultiplier:metricGainMultiplier,poacherReductionMultiplier:poacherReductionMultiplier,habitatRecoveryMultiplier:habitatRecoveryMultiplier,habitatRecoveryGain:habitatRecoveryGain,habitatCrisisLevel:habitatCrisisLevel,roundToFive:roundToFive,supplyCapUnlocked:supplyCapUnlocked,supplyCapMultiplier:supplyCapMultiplier,supplyCapFor:supplyCapFor,SUPPLY_CAP_OVERRIDES:SUPPLY_CAP_OVERRIDES,SUPPLY_CAP_AFTER_FIRST_PURCHASE:SUPPLY_CAP_AFTER_FIRST_PURCHASE,SUPPLY_CAP_LATE_CHAPTER:SUPPLY_CAP_LATE_CHAPTER,SUPPLY_CAP_LATE_MULTIPLIER:SUPPLY_CAP_LATE_MULTIPLIER,CHAPTER_ECOLOGY_BALANCE:CHAPTER_ECOLOGY_BALANCE,chapterEcologyBalance:chapterEcologyBalance};

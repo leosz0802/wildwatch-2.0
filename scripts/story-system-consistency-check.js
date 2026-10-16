@@ -3,7 +3,7 @@ const { simulateDay, CHAPTER_PROGRESSION_GATES } = require("../js/simulator");
 const { reserveActionById } = require("../js/actions");
 const { CHAPTERS, SPECIES_DB, getUnlockedSpecies, speciesStoryChapter } = require("../js/animalWorld");
 const { CASES, ITEMS, ENDINGS, itemsForCase } = require("../js/collectionSystem");
-const { GUARDIAN_PROMISES } = require("../js/guardianPromises");
+const { GUARDIAN_PROMISES, guardianPromisesRetired, maybePrepareGuardianPromise } = require("../js/guardianPromises");
 const { facilityByCaseId } = require("../js/reserveFacilities");
 const { Game } = require("../js/game");
 
@@ -12,7 +12,7 @@ function assert(condition, message) {
 }
 
 assert(CHAPTERS.length === 11, `expected eleven chapters, found ${CHAPTERS.length}`);
-const expectedSpeciesCounts = [7, 13, 15, 19, 23, 25, 25];
+const expectedSpeciesCounts = [7, 13, 15, 19, 23, 23, 23];
 const seenSpecies = new Set();
 CHAPTERS.forEach((chapter, index) => {
   const expected = index + 1;
@@ -34,7 +34,7 @@ Object.keys(SPECIES_DB).forEach((id) => {
   assert(speciesStoryChapter(id) <= 10 || speciesStoryChapter(id) === 11, `${id} must stay in the first ten chapters or the endless chapter`);
 });
 
-const expectedUnlockedSpeciesCounts = [7, 13, 15, 19, 23, 25, 25];
+const expectedUnlockedSpeciesCounts = [7, 13, 15, 19, 23, 23, 23];
 expectedUnlockedSpeciesCounts.forEach((count, level) => {
   const chapterLevel = level + 1;
   assert(getUnlockedSpecies(chapterLevel).length === count, `Lv.${chapterLevel} species count mismatch`);
@@ -59,6 +59,7 @@ CASES.forEach((caseDef) => {
 });
 assert(new Set(ITEMS.map((item) => item.id)).size === ITEMS.length, "collection item ids are not unique");
 
+assert(guardianPromisesRetired(), "guardian promises must stay retired");
 assert(GUARDIAN_PROMISES.length === 5, `expected five legacy guardian promises, found ${GUARDIAN_PROMISES.length}`);
 GUARDIAN_PROMISES.forEach((promise, index) => {
   assert(promise.chapter === index + 1, `guardian promise chapter order mismatch at ${index + 1}`);
@@ -68,6 +69,11 @@ GUARDIAN_PROMISES.forEach((promise, index) => {
     assert(choice.immediateEffects && Object.keys(choice.immediateEffects).length, `${promise.id}/${choice.id} lacks immediate effects`);
   });
 });
+const retiredReserve = createCharacter(null, "保护区卫士").world.reserve;
+retiredReserve.progression.totalActions = 8;
+retiredReserve.guardianPromises = { pending: { id: "contact_boundary", chapter: 1, selectedChoiceId: "" } };
+assert(!maybePrepareGuardianPromise(retiredReserve, { day: 4, totalActions: 8 }), "retired guardian promise must not be prepared");
+assert(!retiredReserve.guardianPromises.pending, "retired guardian promise must clear a saved pending card");
 
 const storyGame = Object.create(Game.prototype);
 storyGame.state = createCharacter(null, "保护区卫士");
@@ -81,7 +87,7 @@ CHAPTERS.forEach((chapter) => {
 });
 
 const { applyGoalProgress, normalizeGoalState } = require("../js/goalSystem");
-const reachableDailyFollowups = ["viewVisitors", "visitorReception", "habitat", "animalCare", "rescueAnimal", "facilityBuild", "buySupplies", "salvage", "visitorAdjust", "neighborExchange"];
+const reachableDailyFollowups = ["viewVisitors", "viewLeaderboard", "visitorReception", "habitat", "animalCare", "rescueAnimal", "facilityBuild", "buySupplies", "salvage", "visitorAdjust", "neighborExchange"];
 const missionFixtures = [
   ["visitor", "viewVisitors", null, 1],
   ["ecology", "habitat", "修复水源和草场", 1]
@@ -96,21 +102,13 @@ missionFixtures.forEach(([kind, actionId, command, steps]) => {
   state.world.reserve.supplies.tranquilizer = 10;
   state.world.reserve.supplies.fieldKit = 10;
     state.world.reserve.inventory.researchSample = 2;
-  const dailyObjectives = state.world.goals.daily.objectives;
-  const objective = dailyObjectives.find((item) => item.kind === kind);
-  assert(objective, `${kind} V3 objective is missing`);
-  const targetIndex = dailyObjectives.findIndex((item) => item.kind === kind);
-  dailyObjectives.slice(0, targetIndex).forEach((item) => {
-    item.progress = item.target || 1;
-    item.complete = true;
-  });
+  assert(state.world.goals.daily.objectives.length === 0, `${kind} daily task must stay removed`);
   if (command) {
     for (let step = 0; step < steps; step += 1) state = simulateDay(command, state);
   } else {
     state = applyGoalProgress(state, state, { action: actionId }).state;
   }
-  const completed = state.world.goals.daily.objectives.find((item) => item.kind === kind);
-  assert(completed && completed.complete, `${kind}/${actionId} completed without advancing the V3 objective`);
+  assert(state.world.goals.daily.objectives.length === 0, `${kind}/${actionId} must not recreate a daily task`);
   const next = state.world.goals.active.primary;
   assert(!next || (next.id && next.title && next.recommendedAction), `${kind}/${actionId} generated an incomplete follow-up goal`);
   assert(!next || reserveActionById(next.recommendedAction) || reachableDailyFollowups.includes(next.recommendedAction), `${kind}/${actionId} generated an unreachable action ${next ? next.recommendedAction : "none"}`);

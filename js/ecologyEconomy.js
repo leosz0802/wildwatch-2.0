@@ -1,6 +1,6 @@
 const { getUnlockedSpecies, speciesPopulation } = require("./animalWorld");
 const { BALANCE_V2, levelOf, supplyCapFor } = require("./balanceConfig");
-const { wildernessStockReadiness } = require("./wildernessKnowledge");
+const { wildernessStockReadiness } = require("./packBridge").wildernessKnowledge;
 const FRAGMENT_CATALOG = {
   fieldNote: { id: "fieldNote", name: "生态记录碎片", short: "记录", rarity: "common", color: "#54a980" },
   migrationTrace: { id: "migrationTrace", name: "迁徙轨迹碎片", short: "迁徙", rarity: "uncommon", color: "#4f95ad" },
@@ -113,13 +113,21 @@ function namedAnimalForProduction(knownCharacters, day) {
   if (!animals.length) return { name: "动物伙伴", species: "动物", id: "wildlife" };
   return animals[Math.abs(roundNonNegative(day)) % animals.length];
 }
-function dropPosition(type, day) {
+function dropSpotTaken(points, x, y) {
+  return (points || []).some((point) => Number.isFinite(point.x) && Number.isFinite(point.y) && Math.hypot(point.x - x, point.y - y) < 0.1);
+}
+function openDropPosition(type, day, occupied) {
   const positions = type === "migrationTrace"
     ? [[0.32, 0.68], [0.58, 0.58], [0.72, 0.43]]
     : type === "coGuardShard"
       ? [[0.48, 0.36], [0.66, 0.62], [0.36, 0.52]]
       : [[0.40, 0.72], [0.62, 0.47], [0.78, 0.67], [0.28, 0.42]];
-  return positions[Math.abs(roundNonNegative(day)) % positions.length];
+  const start = Math.abs(roundNonNegative(day)) % positions.length;
+  for (let step = 0; step < positions.length; step += 1) {
+    const position = positions[(start + step) % positions.length];
+    if (!dropSpotTaken(occupied, position[0], position[1])) return position;
+  }
+  return null;
 }
 function contributionForAction(action, reserve, ledger) {
   const ecology = (reserve && reserve.ecology) || {};
@@ -165,23 +173,29 @@ function applyAnimalEcologyEconomy(reserve, knownCharacters, context = {}) {
   state.productionMeter += productionGain;
   const animal = namedAnimalForProduction(knownCharacters, day);
   const drops = [];
+  const occupied = (state.mapDrops || []).map((drop) => ({ x: Number(drop.x), y: Number(drop.y) }))
+    .concat(((((reserve || {}).extinctionClueTask || {}).drops) || []).map((drop) => ({ x: Number(drop.x), y: Number(drop.y) })))
+    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
   if (state.productionMeter >= 1.65 && state.mapDrops.length < 3) {
-    state.productionMeter -= 1.65;
     const migrationPositive = (((reserve || {}).migration || {}).delta || 0) > 0;
     const type = migrationPositive || action === "habitat" ? "migrationTrace" : "fieldNote";
-    const position = dropPosition(type, day + state.totalProduced);
-    drops.push({
-      id: `eco_${day}_${state.totalProduced + 1}`,
-      type,
-      amount: 1,
-      x: position[0],
-      y: position[1],
-      createdDay: day,
-      animalId: animal.id,
-      animalName: animal.name,
-      species: animal.species,
-      label: FRAGMENT_CATALOG[type].name
-    });
+    const position = openDropPosition(type, day + state.totalProduced, occupied);
+    if (position) {
+      state.productionMeter -= 1.65;
+      drops.push({
+        id: `eco_${day}_${state.totalProduced + 1}`,
+        type,
+        amount: 1,
+        x: position[0],
+        y: position[1],
+        createdDay: day,
+        animalId: animal.id,
+        animalName: animal.name,
+        species: animal.species,
+        label: FRAGMENT_CATALOG[type].name
+      });
+      occupied.push({ x: position[0], y: position[1] });
+    }
   }
   state.rarePity += 1;
   const seasonalMatch = (seasonName === "雨季" && action === "habitat") || (seasonName === "旱季" && ["houndScout", "antiPoacher"].includes(action));
@@ -192,20 +206,23 @@ function applyAnimalEcologyEconomy(reserve, knownCharacters, context = {}) {
       + (seasonalMatch ? BALANCE_V2.rarity.seasonBonus : 0)) * BALANCE_V2.tuning.rareDropScale);
   const rareReady = state.rarePity >= BALANCE_V2.rarity.pity || Math.random() < rareChance;
   if (rareReady && state.mapDrops.length + drops.length < 3) {
-    const position = dropPosition("coGuardShard", day + state.totalProduced);
-    drops.push({
-      id: `scarce_${day}_${state.totalProduced + drops.length + 1}`,
-      type: "forestGift",
-      amount: 1,
-      x: position[0],
-      y: position[1],
-      createdDay: day,
-      animalId: animal.id,
-      animalName: animal.name,
-      species: animal.species,
-      label: FRAGMENT_CATALOG.forestGift.name
-    });
-    state.rarePity = 0;
+    const position = openDropPosition("coGuardShard", day + state.totalProduced, occupied);
+    if (position) {
+      drops.push({
+        id: `scarce_${day}_${state.totalProduced + drops.length + 1}`,
+        type: "forestGift",
+        amount: 1,
+        x: position[0],
+        y: position[1],
+        createdDay: day,
+        animalId: animal.id,
+        animalName: animal.name,
+        species: animal.species,
+        label: FRAGMENT_CATALOG.forestGift.name
+      });
+      state.rarePity = 0;
+      occupied.push({ x: position[0], y: position[1] });
+    }
   }
   state.mapDrops = state.mapDrops.concat(drops).slice(-3);
   state.totalProduced += drops.length;

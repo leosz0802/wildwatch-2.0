@@ -46,7 +46,7 @@ function isVisitorKind(item, eventType, title) {
 }
 function isUserInitiatedSandboxTask(item = {}) {
   if (!item || typeof item !== "object") return false;
-  if (item.userInitiated === true || item.source === "user") return true;
+  if (item.userInitiated === true || item.source === "user" || item.source === "animal") return true;
   if (item.presentation === "resource-flow") return true;
   const type = String(item.type || "");
   const kind = String(item.kind || "");
@@ -237,7 +237,7 @@ function proposeEcologyCrises(reserve = {}, context = {}) {
     const hazardOnly = !weatherFlood && !riverOpen;
     crises.push({
       id: "flood",
-      priority: hazardOnly ? 107 : 108,
+      priority: hazardOnly ? 90 : 108,
       label: hazardOnly ? "水灾隐患" : "水灾改道",
       body: hazardOnly
         ? "浅滩还没建成，水灾隐患会反复出现。射箭能压低这一次，建成浅滩后才会停。"
@@ -354,6 +354,16 @@ function applySandboxTaskCadence(reserve = {}, reasons = [], now = Date.now()) {
       acceptSystem(challenger, challengerKind === "realNature" || challengerKind === "dailyReturn");
     } else if (current) acceptSystem(current);
   } else {
+    const offeredKinds = new Set(rankedSystem.map((reason) => sandboxTaskKind(reason)));
+    let lastShownKind = "";
+    let lastShownStamp = 0;
+    Object.entries(rhythm.lastShownAt || {}).forEach(([kind, shownAt]) => {
+      if (shownAt >= lastShownStamp) {
+        lastShownStamp = shownAt;
+        lastShownKind = kind;
+      }
+    });
+    const previousStillOffered = !!(lastShownKind && offeredKinds.has(lastShownKind));
     const next = rankedSystem.find((reason) => {
       const kind = sandboxTaskKind(reason);
       if (sandboxTaskWasSeen(rhythm, reason)) return false;
@@ -361,7 +371,16 @@ function applySandboxTaskCadence(reserve = {}, reasons = [], now = Date.now()) {
         && (kind === "realNature" || kind === "dailyReturn"
           || crossKindReady(rhythm, kind, stamp, SYSTEM_TASK_CROSS_KIND_GAP_MS));
     });
-    if (next) acceptSystem(next);
+    if (next) acceptSystem(next, sandboxTaskKind(next) === "realNature" || sandboxTaskKind(next) === "dailyReturn");
+    else if (!previousStillOffered && !(lastShownKind && (rhythm.lastClosedAt || {})[lastShownKind])) {
+      // A marker left on screen by an earlier scene is not a closed task.
+      // Let the current map card take the slot without waiting out that gap.
+      const replacement = rankedSystem.find((reason) => {
+        if (sandboxTaskWasSeen(rhythm, reason)) return false;
+        return kindReady(rhythm, sandboxTaskKind(reason), stamp, gapMs);
+      });
+      if (replacement) acceptSystem(replacement, true);
+    }
   }
   const kept = userReasons.concat(keptSystem);
   Object.keys(rhythm.visible).forEach((kind) => {
@@ -519,6 +538,14 @@ function applyHarshNatureOutcome(reserve = {}, kind = "wildfire", roll = HARSH_N
     pulse.expiresAt = Date.now();
   }
   closeSandboxTaskKinds(reserve, [profile.kind], Date.now());
+  const rhythm = reserve.sandboxTaskRhythm;
+  if (rhythm && DISASTER_KINDS.includes(profile.kind)) {
+    rememberSandboxTask(rhythm, {
+      id: profile.kind,
+      eventType: `sandbox_${profile.kind}`,
+      label: profile.title
+    });
+  }
   return {
     success: reduced,
     roll: score,
@@ -543,10 +570,19 @@ function isDisasterEmergency(active = {}) {
   return false;
 }
 function disasterKindFromEmergency(active = {}) {
-  const text = `${active.type || ""} ${active.title || ""} ${active.visualKind || ""}`;
-  if (/flood|flash_flood|水灾|山洪|水质|污染/.test(text)) return "flood";
-  if (/disease|病/.test(text)) return "disease";
-  return "wildfire";
+  const type = String(active.type || active.eventType || "");
+  const title = `${active.title || ""} ${active.label || ""}`;
+  const visual = String(active.visualKind || "");
+  const text = `${type} ${title}`;
+  const realNature = type.startsWith("real_nature_")
+    || active.category === "realNature"
+    || active.recommendAction === "realEvent"
+    || active.recommendedAction === "realEvent";
+  if (/flood|flash_flood|水灾|山洪|水质|污染/.test(text) || (!realNature && visual === "flood")) return "flood";
+  if (/disease|病/.test(text) || (!realNature && /disease/.test(visual))) return "disease";
+  if (realNature) return /火警|火灾预警|山火|野火/.test(title) ? "wildfire" : "";
+  if (/wildfire|sandbox_wildfire|火灾|山火|火警|火点|火季|野火/.test(text) || visual === "wildfire") return "wildfire";
+  return "";
 }
 function untreatedDisasterKinds(reserve = {}) {
   const kinds = [];
@@ -557,7 +593,7 @@ function untreatedDisasterKinds(reserve = {}) {
   const active = ((reserve.emergency || {}).active) || null;
   if (active && isDisasterEmergency(active)) {
     const kind = disasterKindFromEmergency(active);
-    if (!kinds.includes(kind)) kinds.push(kind);
+    if (kind && !kinds.includes(kind)) kinds.push(kind);
   }
   return kinds;
 }

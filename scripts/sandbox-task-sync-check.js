@@ -27,7 +27,7 @@ assert(game.maybeOpenMissionPush("login"), "first task push should remain availa
 game.infoDetailModal = null;
 game.state.ui.missionPushSeenKey = "";
 game.state.ui.lastMissionAutoPushAt = Date.now();
-assert(!game.maybeOpenMissionPush("home"), "a second task must wait inside the 82 second window");
+assert(!game.maybeOpenMissionPush("home"), "a second task must wait inside the 90 second window");
 // Advance the clock, not just one timestamp: both user/system quiet windows
 // and the current 105-second card cadence must actually have elapsed.
 clock += 105001;

@@ -43,35 +43,17 @@ for (let chapter = 1; chapter <= CHAPTERS.length; chapter++) {
   }
 
   const reserve = state.world.reserve;
-  assert.equal(ecologyNarrativeCadence(reserve), chapter >= 3 ? 4 : 3);
-  const eventDays = [];
-  const eventTypes = [];
+  assert(ecologyNarrativeCadence(reserve) >= 1, `chapter ${chapter}: retired nature-rule cadence should stay a harmless number`);
   for (let day = 1; day <= 12; day++) {
-    const event = resolveEcologyNarrativeEvent(reserve, reserve, { day, dayClosed: true, random: () => .999 });
-    if (!event) continue;
-    eventDays.push(day);
-    eventTypes.push(event.type);
-    const result = applyEcologyNarrativeDecision(reserve, event.id, event.choices[0].id);
-    assert(result.ok, `chapter ${chapter}, day ${day}: generated story must be completable`);
-  }
-  if (chapter >= 3) {
-    const expectedGap = 4;
-    assert(eventDays.length >= 3, `chapter ${chapter}: too few guaranteed story tasks`);
-    eventDays.slice(1).forEach((day, index) => {
-      assert(day - eventDays[index] <= expectedGap, `chapter ${chapter}: story gap exceeds ${expectedGap} guardian days`);
-    });
-    eventTypes.slice(1).forEach((type, index) => {
-      assert.notEqual(type, eventTypes[index], `chapter ${chapter}: consecutive ecology stories must not repeat type ${type}`);
-    });
+    assert.equal(resolveEcologyNarrativeEvent(reserve, reserve, { day, dayClosed: true, random: () => .999 }), null, `chapter ${chapter}: nature-rule tasks must stay removed`);
+    assert.equal((reserve.ecologyNarrative || {}).pendingDecision || null, null, `chapter ${chapter}: day ${day} left a nature-rule task`);
   }
 }
 
 {
   const reserve = stateFor(CHAPTERS.length).world.reserve;
-  const first = resolveEcologyNarrativeEvent(reserve, reserve, { day: 1, dayClosed: true, random: () => .999 });
-  assert(first);
-  assert.equal(resolveEcologyNarrativeEvent(reserve, reserve, { day: 2, dayClosed: true, random: () => .999 }), null,
-    "an unresolved story must block stacking even at the fastest late-game cadence");
+  assert.equal(resolveEcologyNarrativeEvent(reserve, reserve, { day: 1, dayClosed: true, random: () => .999 }), null, "late chapters must not spawn a nature-rule task");
+  assert.equal(applyEcologyNarrativeDecision(reserve, "retired", "observe").ok, false, "a removed nature-rule task must not settle");
 }
 
 console.log(`late chapter task frequency ok: ${CHAPTERS.length} chapter bands, map guidance, 4/5 routine slots, 6–12 action cadence and non-stacking story guarantees`);

@@ -31,8 +31,8 @@ assert.ok(second.visitors / first.visitors <= 1.6, `chapter 1 waves should stay 
 assert.ok(second.visitors - first.visitors <= 16, `chapter 1 wave gap should stay within 16, got ${second.visitors - first.visitors}`);
 assert.ok(first.visitors < chapterTargets(1).visitors, 'a single recruit should not finish the chapter 1 visitor goal');
 assert.ok(
-  first.visitors + second.visitors < chapterTargets(1).visitors,
-  'two free recruits should leave a small chapter 1 gap so the quick path needs an ad'
+  first.visitors + second.visitors >= chapterTargets(1).visitors,
+  'two free recruits should finish the chapter 1 visitor goal; an ad only speeds the next waves'
 );
 assert.ok(
   first.visitors + second.visitors < chapterTargets(2).visitors,
@@ -44,8 +44,8 @@ const adWaveA = consumeVisitorRecruitment(opening, 1, 0.5, day);
 const adWaveB = consumeVisitorRecruitment(opening, 1, 0.5, day);
 assert.ok(adWaveA.ok && adWaveB.ok, 'the ad grant must provide two usable recruit opportunities');
 assert.ok(
-  first.visitors + second.visitors + adWaveA.visitors + adWaveB.visitors >= chapterTargets(1).visitors,
-  'two free recruits plus one ad grant should finish the chapter 1 visitor goal quickly'
+  adWaveA.visitors + adWaveB.visitors > 0,
+  'an ad grant should still add visitors after chapter 1 is already reachable without it'
 );
 
 function seedChapterAnimals(reserve, chapter) {
@@ -67,7 +67,7 @@ function seedChapterAnimals(reserve, chapter) {
   reserve.poacherPressure = 20;
 }
 
-for (let chapter = 1; chapter <= 20; chapter += 1) {
+for (let chapter = 1; chapter <= CHAPTER_TARGETS.length; chapter += 1) {
   const reserve = createInitialWorld().reserve;
   reserve.progression = Object.assign({}, reserve.progression, {
     stage: chapter,
@@ -99,10 +99,17 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
     waveA.visitors < need,
     `chapter ${chapter} one recruit (${waveA.visitors}) must not finish this chapter's +${need} visitor need`
   );
-  assert.ok(
-    waveA.visitors + waveB.visitors < need,
-    `chapter ${chapter} two free recruits must leave a visitor gap: ${waveA.visitors}+${waveB.visitors} < ${need}`
-  );
+  if (chapter === 1) {
+    assert.ok(
+      waveA.visitors + waveB.visitors >= need,
+      `chapter 1 two free recruits must finish +${need}: ${waveA.visitors}+${waveB.visitors}`
+    );
+  } else {
+    assert.ok(
+      waveA.visitors + waveB.visitors < need,
+      `chapter ${chapter} two free recruits must leave a visitor gap: ${waveA.visitors}+${waveB.visitors} < ${need}`
+    );
+  }
   if (chapter <= 2) {
     const reception = visitorReceptionPlan(chapter).budget;
     assert.ok(
@@ -130,7 +137,7 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
 }
 
 const healthyEco = { water: 90, grass: 74, disease: 5, safety: 90, poacher: 10 };
-for (let chapter = 1; chapter <= 20; chapter += 1) {
+for (let chapter = 1; chapter <= CHAPTER_TARGETS.length; chapter += 1) {
   const reserve = createInitialWorld().reserve;
   reserve.progression = Object.assign({}, reserve.progression, {
     stage: chapter,

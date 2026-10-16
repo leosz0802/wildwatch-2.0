@@ -35,7 +35,7 @@ function populationOf(reserve, speciesId) {
 
 const reserve = createReserveState();
 
-for (let chapter = 1; chapter <= 20; chapter += 1) {
+for (let chapter = 1; chapter <= CHAPTERS.length; chapter += 1) {
   const info = CHAPTERS[chapter - 1];
   const definition = chapterDefinition(chapter);
   const required = definition.starter.concat(definition.targets);
@@ -128,4 +128,4 @@ const migratedFour = normalizeChapterRescue(staleFour, 4);
 assert(migratedFour.targets.some((record) => record.speciesId === 'leopard'));
 assert(migratedFour.targets.some((record) => record.speciesId === 'lion'));
 
-console.log('chapter required unlock check ok: 20 chapters, every novel species is actionable, chapter 4/8 coverage and species gates reachable');
+console.log(`chapter required unlock check ok: ${CHAPTERS.length} chapters, every novel species is actionable, chapter 4/8 coverage and species gates reachable`);

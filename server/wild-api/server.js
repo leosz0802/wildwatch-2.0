@@ -8,8 +8,9 @@ const net = require("node:net");
 const { DatabaseSync } = require("node:sqlite");
 const { calculateReserveValuation } = require("./reserveValuation");
 
-const SERVICE_VERSION = "1.8.1";
+const SERVICE_VERSION = "1.8.2";
 const MAX_JSON_BYTES = 16 * 1024;
+const PLAYER_SAVE_MAX_BYTES = 700 * 1024;
 const PUBLIC_STYLES = new Set(["综合守护", "水源经营", "夜间巡护", "草场恢复", "社区共生", "迁徙通道", "动物救助"]);
 const MODERATION_STATUS = Object.freeze({
   review: "pending_review",
@@ -328,6 +329,12 @@ function openDatabase(dbPath) {
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS moderation_actions_target_idx ON moderation_actions(target_user_id, created_at DESC);
+    CREATE TABLE IF NOT EXISTS player_saves (
+      user_id TEXT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+      saved_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      payload TEXT NOT NULL
+    );
   `);
   // Existing production databases predate friend placeholders. Keep the
   // migration local and idempotent so relation friends can receive a pending
@@ -380,6 +387,26 @@ function openDatabase(dbPath) {
 function loadConfig(configPath) {
   const body = JSON.parse(fs.readFileSync(configPath, "utf8"));
   return Object.assign({ version: 1, features: {} }, body);
+}
+
+function playerSaveSnapshot(value, now = Date.now()) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const world = value.world;
+  if (!world || typeof world !== "object" || Array.isArray(world)) return null;
+  const savedAt = Math.round(Number(value.cloudSavedAt) || 0);
+  if (!Number.isFinite(savedAt) || savedAt <= 0 || savedAt > now + 86400000) return null;
+  const snapshot = {
+    world,
+    character: value.character && typeof value.character === "object" && !Array.isArray(value.character) ? value.character : null,
+    reports: Array.isArray(value.reports) ? value.reports.slice(-8) : [],
+    messages: Array.isArray(value.messages) ? value.messages.slice(-8) : [],
+    lastCommand: String(value.lastCommand || "").slice(0, 200),
+    ui: value.ui && typeof value.ui === "object" && !Array.isArray(value.ui) ? value.ui : {},
+    cloudSavedAt: savedAt
+  };
+  const payload = JSON.stringify(snapshot);
+  if (Buffer.byteLength(payload) > PLAYER_SAVE_MAX_BYTES) return null;
+  return { savedAt, payload, snapshot };
 }
 
 function bearer(req) {
@@ -516,7 +543,7 @@ function publicFriendContract(row = {}, viewerId = "") {
 
 function houndPatrolChapterNeed(chapter = 1) {
   const targets = [
-    [7, 70, 114], [7, 84, 174], [9, 101, 378], [11, 118, 486], [12, 137, 594],
+    [7, 12, 50], [7, 84, 174], [9, 101, 378], [11, 118, 486], [12, 137, 594],
     [14, 158, 714], [16, 182, 984], [18, 209, 1104], [20, 238, 1320], [22, 269, 1488],
     [33, 715, 3888]
   ];
@@ -609,6 +636,10 @@ function createApiServer(options = {}) {
 
   const statements = {
     health: db.prepare("SELECT 1 AS ok"),
+    playerSave: db.prepare("SELECT saved_at AS savedAt, payload FROM player_saves WHERE user_id=?"),
+    upsertPlayerSave: db.prepare(`INSERT INTO player_saves(user_id, saved_at, updated_at, payload) VALUES (?, ?, ?, ?)
+      ON CONFLICT(user_id) DO UPDATE SET saved_at=excluded.saved_at, updated_at=excluded.updated_at, payload=excluded.payload
+      WHERE excluded.saved_at > player_saves.saved_at`),
     upsertActiveUser: db.prepare(`INSERT INTO users(user_id, display_name, created_at, updated_at, activated_at) VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET display_name=excluded.display_name, updated_at=excluded.updated_at, activated_at=MAX(users.activated_at, excluded.activated_at)`),
     upsertPendingUser: db.prepare(`INSERT INTO users(user_id, display_name, created_at, updated_at, activated_at) VALUES (?, ?, ?, ?, 0)
@@ -1213,6 +1244,38 @@ function createApiServer(options = {}) {
           throw error;
         }
         return json(res, 200, { ok: true, targetId, moderationStatus: status, reason, visible: status === "active" });
+      }
+
+      if (req.method === "GET" && url.pathname === "/v1/player-save") {
+        const rate = limiter.consume(`player-save-read:${ip}`, 60, 60000);
+        if (!rate.allowed) return json(res, 429, { ok: false, code: "RATE_LIMITED" }, { "retry-after": "60" });
+        const token = verifyToken(sessionSecret, bearer(req));
+        if (!token) return json(res, 401, { ok: false, code: "UNAUTHORIZED" });
+        const row = statements.playerSave.get(token.sub);
+        if (!row || !row.payload) return json(res, 200, { ok: true, found: false });
+        let state = null;
+        try { state = JSON.parse(row.payload); } catch (error) { state = null; }
+        if (!state || !state.world) return json(res, 200, { ok: true, found: false });
+        return json(res, 200, { ok: true, found: true, savedAt: Number(row.savedAt) || 0, state });
+      }
+
+      if (req.method === "PUT" && url.pathname === "/v1/player-save") {
+        const rate = limiter.consume(`player-save-write:${ip}`, 30, 60000);
+        if (!rate.allowed) return json(res, 429, { ok: false, code: "RATE_LIMITED" }, { "retry-after": "60" });
+        const token = verifyToken(sessionSecret, bearer(req));
+        if (!token) return json(res, 401, { ok: false, code: "UNAUTHORIZED" });
+        const body = await readJson(req, PLAYER_SAVE_MAX_BYTES + 4096);
+        const packed = playerSaveSnapshot(body.state, Date.now());
+        if (!packed) return json(res, 400, { ok: false, code: "INVALID_SAVE" });
+        const now = Date.now();
+        const displayName = serverGeneratedIdentity(token.sub).title;
+        statements.upsertActiveUser.run(token.sub, displayName, now, now, now);
+        const existing = statements.playerSave.get(token.sub);
+        if (existing && Number(existing.savedAt) >= packed.savedAt) {
+          return json(res, 200, { ok: true, stored: false, savedAt: Number(existing.savedAt) || 0 });
+        }
+        statements.upsertPlayerSave.run(token.sub, packed.savedAt, now, packed.payload);
+        return json(res, 200, { ok: true, stored: true, savedAt: packed.savedAt });
       }
 
       if (req.method === "POST" && url.pathname === "/v1/leaderboard/score") {

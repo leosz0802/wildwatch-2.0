@@ -28,10 +28,10 @@ assert.strictEqual(goalDateKey(Date.parse("2026-07-16T20:00:00Z")), "2026-07-17"
 const state = createCharacter(null, "目标闭环测试");
 let goals = normalizeGoalState(state.world.goals, state, Date.parse("2026-07-17T04:30:00Z"));
 assert.strictEqual(goals.version, 3);
-assert.deepStrictEqual(goals.daily.objectives.map((item) => item.kind), ["visitor", "ecology"]);
-assert.strictEqual(goals.daily.required, 2);
-assert.strictEqual(goals.daily.objectives[0].recommendedAction, "viewVisitors");
-assert.strictEqual(goals.daily.objectives[1].recommendedAction, "habitat");
+assert.deepStrictEqual(goals.daily.objectives, []);
+assert.strictEqual(goals.daily.required, 0);
+assert.strictEqual(goals.daily.coreClaimed, true);
+assert.strictEqual(goals.daily.fullClaimed, true);
 assert.strictEqual(goals.longTerm.tracks.length, 4);
 assert.strictEqual(goals.longTerm.tracks.find((item) => item.id === "guardian_journey").current, 0, "初始存档不能误算为已完成第一章");
 
@@ -122,44 +122,39 @@ assert(executableDiscoveryCards.every((goal) => !/storyEvidence|rareRecovered|st
 assert(executableDiscoveryCards.every((goal) => !/找到案件主证据|隐踪器/.test(`${goal.title || ""}${goal.body || ""}`)), "任务卡文案不得再循环案件主证据");
 
 const futureAttempt = advance(state, "antiPoacher");
-assert(futureAttempt.goals.daily.objectives.every((item) => !item.complete), "未来任务操作不得提前完成其他每日任务");
+assert.deepStrictEqual(futureAttempt.goals.daily.objectives, [], "未来任务操作不得再生成每日任务");
 assert(!futureAttempt.rewards.some((item) => item.source === "daily_objective"), "未解锁任务不应领取每日奖励");
 
 const later = createCharacter(null, "第二章每日闭环测试");
 later.world.reserve.progression.stage = 2;
 later.world.goals = normalizeGoalState(later.world.goals, later, Date.parse("2026-07-17T04:30:00Z"));
-assert.deepStrictEqual(later.world.goals.daily.objectives.map((item) => item.kind), ["visitor", "ecology"]);
-assert.strictEqual(later.world.goals.daily.required, 2);
+assert.deepStrictEqual(later.world.goals.daily.objectives, []);
+assert.strictEqual(later.world.goals.daily.required, 0);
 const laterView = buildGoalView(later);
 assert(laterView.primary, "后续章节动物总数未达标时必须给出动物数量任务");
-assert.ok(["rescueAnimal", "habitat", "animalCare"].includes(laterView.primary.recommendedAction), "健康局面不得改成游客或无关填充卡");
+assert.equal(laterView.primary.themeTask, true, "健康局面应显示本章主题任务，而不是每日填充卡");
+assert.notEqual(laterView.primary.kind, "daily");
 assert.notEqual(laterView.primary.recommendedAction, "viewVisitors", "健康局面不应自动生成游客填充卡");
 assert(later.world.goals.daily.objectives.every((item) => item.recommendedAction !== "exploreMaterials" && item.targetScreen !== "survival"));
 
 let current = later;
 let result = advance(current, "viewVisitors");
 current = result.state;
-assert.strictEqual(current.world.goals.daily.objectives[0].progress, 1);
-assert(current.world.goals.daily.objectives[0].complete, "招募游客一次即可完成当日游客任务");
-assert(!current.world.goals.daily.coreClaimed, "只完成游客任务时不能领取全清奖励");
-const samplesBefore = ((current.world.reserve.pendingRecovered || {}).researchSample) || 0;
+assert.deepStrictEqual(current.world.goals.daily.objectives, []);
+assert(!result.completions.some((item) => String(item.type || "").startsWith("daily_")), "招募不得再完成每日任务");
+assert(!result.rewards.some((item) => String(item.source || "").startsWith("daily_")), "招募不得再发放每日奖励");
 result = advance(current, "habitat");
 current = result.state;
-assert(current.world.goals.daily.objectives[1].complete, "栖息地修复应完成水草任务");
-assert(current.world.goals.daily.coreClaimed, "完成全部每日任务应领取核心奖励");
-const samplesAfterCore = ((current.world.reserve.pendingRecovered || {}).researchSample) || 0;
-assert(samplesAfterCore >= samplesBefore + 1, "每项每日任务奖励应进入研究样本待收区");
+assert(!result.completions.some((item) => String(item.type || "").startsWith("daily_")), "栖息地修复不得再完成每日任务");
+assert(!result.rewards.some((item) => String(item.source || "").startsWith("daily_")), "栖息地修复不得再发放每日奖励");
 const fundAfterCore = current.world.reserve.fund;
-const claimsAfterCore = Object.keys(current.world.goals.claims).length;
 result = advance(current, "habitat");
 current = result.state;
-assert(!result.completions.some((item) => item.type === "daily_core"), "全清奖励不得重复领取");
-assert(Object.keys(current.world.goals.claims).length >= claimsAfterCore);
+assert(!result.completions.some((item) => item.type === "daily_core"), "全清奖励不得再领取");
 assert(current.world.reserve.fund - fundAfterCore <= GOAL_BALANCE.instantRewardBudget[1], "重复操作不得再次发放核心基金");
-
-assert(current.world.goals.daily.fullClaimed, "完成2/2必须发放补给和动物关系奖励");
+assert(current.world.goals.daily.fullClaimed, "每日任务关闭后不再等待全清奖励");
 result = advance(current, "visitorAdjust");
-assert(!result.completions.some((item) => item.type === "daily_full"), "已移除的额外每日项不得重复发放奖励");
+assert(!result.completions.some((item) => item.type === "daily_full"), "已删除的每日项不得发放奖励");
 
 const stale = createCharacter(null, "无推进改派测试");
 stale.world.reserve.progression.stage = 2;
@@ -202,7 +197,7 @@ const afterFinal = clone(beforeFinal);
 afterFinal.world.reserve.progression.chapterComplete = true;
 const finalResult = applyGoalProgress(beforeFinal, afterFinal, { action: "houndScout", now: Date.parse("2026-07-17T04:30:00Z") });
 const guardianUnlock = finalResult.state.world.goals.longTerm.unlocks.guardian_journey;
-assert(finalResult.state.world.reserve.fund - beforeFinal.world.reserve.fund === GOAL_BALANCE.chapterFundReward[10], "终章联合项目拨款必须完整且只结算一次");
+assert.strictEqual(finalResult.state.world.reserve.fund - beforeFinal.world.reserve.fund, 0, "第10章完成不再把终章拨款算进这一次结算");
 assert(GOAL_BALANCE.chapterFundReward[10] >= 1200, "终章拨款必须保证零基金玩家回到Lv.5安全线");
 assert(guardianUnlock && guardianUnlock.appearance && guardianUnlock.title && guardianUnlock.shareCard, "长线100%必须真正解锁外观、称号和分享卡");
 assert.strictEqual(finalResult.state.world.goals.claims["long:guardian_journey:4"], "cosmetic", "10/10才解锁长线终奖");

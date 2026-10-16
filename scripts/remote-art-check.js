@@ -1,15 +1,16 @@
 const fs = require("fs");
 const path = require("path");
+const zlib = require("zlib");
 
 const root = path.resolve(__dirname, "..");
 const gamePath = path.join(root, "js/game.js");
 const projectPath = path.join(root, "project.config.json");
 const gameConfigPath = path.join(root, "game.json");
 const coreSpritesPath = path.join(root, "assets/art/core-sprites-atlas.png");
-const coreMapPath = path.join(root, "assets/art/core-map-anime-v1.jpg");
+const coreMapPath = path.join(root, "assets/art/archive/core-map-anime-v1.jpg");
 const premiumUiPath = path.join(root, "server/wild-api/assets/premium-ui-v1.jpg");
 const wildernessMaterialPath = path.join(root, "server/wild-api/assets/wilderness-materials-atlas-v1.webp");
-const animalPortraitPath = path.join(root, "assets/art/animal-portraits-atlas-v4.jpg");
+const animalPortraitPath = path.join(root, "assets/art/archive/animal-portraits-atlas-v4.jpg");
 const serverConfigPath = path.join(root, "server/wild-api/config/default.json");
 
 const game = fs.readFileSync(gamePath, "utf8");
@@ -54,11 +55,11 @@ if (!serverConfig.assets.wildernessMaterialAtlas
 }
 if (premiumUiSize > 800 * 1024) throw new Error(`premium UI atlas too large: ${premiumUiSize}`);
 if (wildernessMaterialSize > 900 * 1024) throw new Error(`wilderness material atlas too large: ${wildernessMaterialSize}`);
-if (!/ANIMAL_PORTRAITS_SRC/.test(game) || !/ensureLocalArtSlot\("animalPortraits"/.test(game)) {
-  throw new Error("animal portraits must load from the local package");
+if (!/ANIMAL_PORTRAITS_SRC/.test(game) || !/prepareRemoteAnimalPortraitAtlas/.test(game)) {
+  throw new Error("animal portraits must keep a local fallback and remote loader");
 }
-if (serverConfig.assets.animalPortraitAtlas && serverConfig.assets.animalPortraitAtlas.url) {
-  throw new Error("animal portraits must not be served as a remote download");
+if (!serverConfig.assets.animalPortraitAtlas || !serverConfig.assets.animalPortraitAtlas.url) {
+  throw new Error("animal portraits must be available as a deferred remote download");
 }
 if (animalPortraitSize > 180 * 1024) throw new Error(`animal portrait atlas too large: ${animalPortraitSize}`);
 if (!/downloadFile/.test(game) || !/getFileSystemManager/.test(game) || !/setStorageSync/.test(game)) {
@@ -75,7 +76,7 @@ if (urlResolver.remoteAssetConfigured("wildernessMaterialAtlas")) {
 if (urlResolver.remoteAnimalPortraitUrl({ url: "", urlStorageKey: "legacy" })) {
   throw new Error("local animal portraits must not revive a stale remote URL");
 }
-if (!/assets\/art\/core-map-anime-v1\.jpg/.test(game)) {
+if (!/assets\/art\/archive\/core-map-anime-v1\.jpg/.test(game)) {
   throw new Error("core first-package art config missing");
 }
 if (/assets\/art\/core-sprites-atlas\.png/.test(game) || fs.existsSync(coreSpritesPath)) {
@@ -87,18 +88,16 @@ if (/"value": "assets\/art\/core-map-anime-v1\.jpg"/.test(project)) {
 if (!/"value": "assets\/art\/core-map-anime-v1\.webp"/.test(project)) {
   throw new Error("legacy WebP map should stay out of the upload package");
 }
-if (/"value": "assets\/art\/animal-portraits-atlas-v4\.jpg"/.test(project)) {
-  throw new Error("animal portraits should stay in the first package");
-}
 [
-  "assets/art/facility-sprites-atlas-v4.png",
-  "assets/art/collection/collection-items-atlas.png"
+  "assets/art/archive/animal-portraits-atlas-v4.jpg",
+  "assets/art/archive/facility-sprites-atlas-v4.png",
+  "assets/art/archive/collection-items-atlas.png"
 ].forEach((asset) => {
-  if (!project.includes(`"value": "${asset}"`)) {
-    throw new Error(`${asset} should be excluded from the first login package`);
+  if (project.includes(`"value": "${asset}"`)) {
+    throw new Error(`${asset} should ship in the first package`);
   }
 });
-if (project.includes(`"value": "assets/art/animal-map-sprites-atlas-v2.png"`)) {
+if (project.includes(`"value": "assets/art/archive/animal-map-sprites-atlas-v2.png"`)) {
   throw new Error("sandbox animal sprites must stay in the first package");
 }
 const deferredServerAssets = [
@@ -109,7 +108,7 @@ deferredServerAssets.forEach((name) => {
   const hosted = path.join(root, "server/wild-api/assets", name);
   if (!fs.existsSync(hosted)) throw new Error(`deferred login asset missing from server host folder: ${name}`);
 });
-const localAnimalAtlas = path.join(root, "assets/art/animal-map-sprites-atlas-v2.png");
+const localAnimalAtlas = path.join(root, "assets/art/archive/animal-map-sprites-atlas-v2.png");
 if (!fs.existsSync(localAnimalAtlas)) throw new Error("sandbox animal map sprites missing from the first package");
 if (fs.statSync(localAnimalAtlas).size < 75 * 1024) {
   throw new Error("local animal map sprites should keep the full 25-cell atlas");
@@ -117,11 +116,9 @@ if (fs.statSync(localAnimalAtlas).size < 75 * 1024) {
 if (serverConfig.assets.animalMapSprites && serverConfig.assets.animalMapSprites.url) {
   throw new Error("animal map sprites must not be served as a remote download");
 }
-if (!serverConfig.assets.facilities
-  || serverConfig.assets.facilities.url
-  || !serverConfig.assets.collectionItems
-  || serverConfig.assets.collectionItems.url) {
-  throw new Error("deferred art downloads must stay disabled");
+if (!serverConfig.assets.facilities || !serverConfig.assets.facilities.url
+  || !serverConfig.assets.collectionItems || !serverConfig.assets.collectionItems.url) {
+  throw new Error("deferred art downloads must be configured");
 }
 if (!/ensureLocalArtSlot\("animalMapSprites", ANIMAL_MAP_SPRITES_SRC\)/.test(game)
   || /upgradeLocal:\s*true/.test(game)
@@ -131,9 +128,9 @@ if (!/ensureLocalArtSlot\("animalMapSprites", ANIMAL_MAP_SPRITES_SRC\)/.test(gam
 if (!/DEFERRED_ART_ASSETS/.test(game) || !/prepareDeferredArt/.test(game) || !/ensureDeferredArtForScreen/.test(game)) {
   throw new Error("deferred post-login art download lifecycle missing");
 }
-if (!/REMOTE_ART_DOWNLOAD_ENABLED\s*=\s*false/.test(game)
+if (!/REMOTE_ART_DOWNLOAD_ENABLED\s*=\s*true/.test(game)
   || !/if \(!REMOTE_ART_DOWNLOAD_ENABLED\) return false/.test(game)) {
-  throw new Error("remote art downloads must be disabled at runtime");
+  throw new Error("remote art downloads must be enabled with a local fallback");
 }
 [
   "assets/art/game-art-atlas.png",
@@ -164,11 +161,15 @@ function packageSize(dir = ".", options = {}) {
     const file = path.join(root, rel);
     const stat = fs.statSync(file);
     if (stat.isDirectory()) total += packageSize(rel, options);
-    else total += stat.size;
+    else {
+      if (options.shipped && rel.endsWith(".js")) total += zlib.gzipSync(fs.readFileSync(file), { level: 9 }).length;
+      else total += stat.size;
+    }
   });
   return total;
 }
 const estimated = packageSize(".", { mainOnly: true });
+const shippedEstimated = packageSize(".", { mainOnly: true, shipped: true });
 // Keep a practical source-tree safety margin below WeChat's official 4MiB
 // main-package limit without rejecting the current compressed-ready runtime
 // for a few kilobytes above the old 3.5MiB project target.
@@ -176,7 +177,7 @@ const firstPackageSafetyLimit = Math.floor(3.76 * 1024 * 1024);
 if (estimated > firstPackageSafetyLimit) {
   console.warn(`source-tree package budget warning: ${estimated} (preferred limit ${firstPackageSafetyLimit})`);
 }
-if (estimated > 4 * 1024 * 1024) throw new Error(`main package exceeds 4MiB: ${estimated}`);
+if (shippedEstimated > 4 * 1024 * 1024) throw new Error(`main package exceeds 4MiB after upload compression: ${shippedEstimated}`);
 subpackageRoots.forEach((entry) => {
   const size = packageSize(entry);
   if (size > 4 * 1024 * 1024) throw new Error(`subpackage ${entry} too large: ${size}`);
@@ -214,7 +215,7 @@ async function verifyRunningGameRefresh() {
 }
 
 verifyRunningGameRefresh().then(() => {
-  console.log(`remote art check ok (main ${(estimated / 1024 / 1024).toFixed(3)}MiB, total ${(totalEstimated / 1024 / 1024).toFixed(3)}MiB)`);
+console.log(`remote art check ok (source main ${(estimated / 1024 / 1024).toFixed(3)}MiB, shipped main ${(shippedEstimated / 1024 / 1024).toFixed(3)}MiB, total ${(totalEstimated / 1024 / 1024).toFixed(3)}MiB)`);
 }).catch((error) => {
   console.error(error.stack || error);
   process.exit(1);

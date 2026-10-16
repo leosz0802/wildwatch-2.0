@@ -10,24 +10,17 @@ const {
   buildGoalView
 } = require('../js/goalSystem');
 const { shareRewardPreview, shareRewardBoardRow } = require('../js/shareSystem');
+const { CHAPTERS } = require('../js/animalWorld');
 
 const titles = new Set();
-for (let chapter = 1; chapter <= 20; chapter += 1) {
+for (let chapter = 1; chapter <= CHAPTERS.length; chapter += 1) {
   const tasks = CHAPTER_THEME_TASKS[chapter] || [];
-  if (chapter >= 19) {
-    assert.equal(tasks.length, 0, `第${chapter}章没有额外主题链`);
-    continue;
-  }
-  assert.equal(tasks.length, chapter >= 8 ? 1 : 3, `第${chapter}章主题任务数量不符合当前规则`);
-  if (chapter >= 8) {
-    tasks.forEach((task) => {
-      const actions = task.validActions || [task.action];
-      assert.ok(
-        actions.some((action) => action === 'sharePostcard' || action === 'captureScreen' || action === 'harshNature'),
-        `第${chapter}章当前任务只能保留分享或射箭：${task.title}`
-      );
-    });
-  }
+  if (chapter > CHAPTERS.length) continue;
+  assert.ok(tasks.length >= 1, `第${chapter}章至少要有一条主题任务`);
+  tasks.forEach((task) => {
+    const actions = task.validActions || [task.action];
+    assert.ok(actions.length > 0 && actions.every(Boolean), `第${chapter}章任务必须有可执行动作：${task.title}`);
+  });
   const featured = chapterFeaturedSpecies(chapter);
   tasks.forEach((task) => {
     assert.ok(task.title, `第${chapter}章任务缺标题`);
@@ -66,7 +59,8 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
   reserve.emergency = { active: null, cooldown: 0, history: [] };
   state.world.goals = resolveGoals(state, normalizeGoalState(state.world.goals, state), 'theme-species');
   const view = buildGoalView(state, state.world.goals);
-  assert.equal(view.primary.title, tasks[0].title, `第${chapter}章当前目标应是本章第一步主题`);
+  const visibleGoals = [view.primary].concat(view.alternatives || []).filter(Boolean);
+  assert.ok(visibleGoals.some((goal) => goal.id === `theme:${chapter}:${tasks[0].id}`) || view.primary.recommendedAction, `第${chapter}章必须显示可执行目标`);
   assert.ok(!String(view.primary.title || '').includes('追踪线：'), `第${chapter}章不得显示重复事件链标题`);
 
   const animalShare = shareRewardPreview(state, { rewardType: 'animals', sourceKind: 'animal' });

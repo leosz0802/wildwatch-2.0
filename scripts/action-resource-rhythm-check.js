@@ -53,11 +53,9 @@ goalState.world.reserve.supplies.fieldKit = 3;
 const visitor = applyGoalProgress(goalState, goalState, { action: "viewVisitors" });
 goalState.world.goals = visitor.goals;
 ["actionPoints", "intel", "fieldPermits"].forEach((key) => assert(!Object.prototype.hasOwnProperty.call(goalState.world.reserve, key), `废弃字段${key}不得重新进入核心循环`));
-assert(visitor.completions.some((item) => item.type === "daily_objective" && item.id === "daily_visitor"), "招募游客必须进入统一结算数据");
-assert(!visitor.completions.some((item) => item.type === "daily_core"), "只完成1/2项不能提前发放每日全清奖励");
+assert(!visitor.completions.some((item) => String(item.type || "").startsWith("daily_")), "招募游客不得再结算每日任务");
 const ecologyGoal = withRandom(.05, () => simulateDay("修复水源和草场", goalState));
-assert(((ecologyGoal.visual.goalResult || {}).completions || []).some((item) => item.type === "daily_objective" && item.id === "daily_ecology"), "水草修复必须进入统一结算数据");
-assert(((ecologyGoal.visual.goalResult || {}).completions || []).some((item) => item.type === "daily_core"), "完成2/2项后必须结算每日全清奖励");
+assert(!((ecologyGoal.visual.goalResult || {}).completions || []).some((item) => String(item.type || "").startsWith("daily_")), "水草修复不得再结算每日任务");
 
 const zeroState = createCharacter(null, "零资源测试");
 quietGoal(zeroState);

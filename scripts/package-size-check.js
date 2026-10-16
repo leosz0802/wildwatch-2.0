@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const zlib = require("zlib");
 
 const root = path.resolve(__dirname, "..");
 const config = JSON.parse(fs.readFileSync(path.join(root, "project.config.json"), "utf8"));
@@ -29,15 +30,27 @@ function walk(directory, relative = "") {
 
 const files = walk(root);
 const isSubpackage = (file) => Array.from(subpackageRoots).some((folder) => file.path === folder || file.path.startsWith(`${folder}/`));
-const mainBytes = files.filter((file) => !isSubpackage(file)).reduce((sum, file) => sum + file.bytes, 0);
+const mainFiles = files.filter((file) => !isSubpackage(file));
+const mainBytes = mainFiles.reduce((sum, file) => sum + file.bytes, 0);
 const totalBytes = files.reduce((sum, file) => sum + file.bytes, 0);
+// WeChat's upload setting minified=true compresses JavaScript before it is
+// placed in the first package. Use gzip for JS in the gate so this check
+// reflects the shipped package while still counting images and data at their
+// actual size. Raw source bytes remain visible in the diagnostic output.
+function shippedBytes(file) {
+  if (!file.path.endsWith(".js")) return file.bytes;
+  return zlib.gzipSync(fs.readFileSync(path.join(root, file.path)), { level: 9 }).length;
+}
+const shippedMainBytes = mainFiles.reduce((sum, file) => sum + shippedBytes(file), 0);
+const shippedTotalBytes = files.reduce((sum, file) => sum + shippedBytes(file), 0);
 // Match wechat-release-preflight-check: keep the 4MiB main-package gate,
 // and use the conservative 20MiB total gate for configured subpackages.
 // The project's tighter total-size budget remains visible as a warning.
 const mainLimit = 4 * 1024 * 1024;
 const totalLimit = subpackageRoots.size ? 20 * 1024 * 1024 : mainLimit;
-if (mainBytes > mainLimit) throw new Error(`main package exceeds 4MiB: ${(mainBytes / 1048576).toFixed(3)}MiB`);
-if (totalBytes > totalLimit) throw new Error(`upload total exceeds ${totalLimit / 1048576}MiB: ${(totalBytes / 1048576).toFixed(3)}MiB`);
-if (totalBytes >= mainLimit) console.warn(`package budget warning: total ${(totalBytes / 1048576).toFixed(3)}MiB exceeds the optional 4MiB project budget`);
+if (mainBytes > mainLimit) throw new Error(`main package source exceeds 4MiB: ${(mainBytes / 1048576).toFixed(3)}MiB (${mainBytes} bytes); WeChat rejects source above 4096KB`);
+if (shippedMainBytes > mainLimit) throw new Error(`main package exceeds 4MiB after upload compression: ${(shippedMainBytes / 1048576).toFixed(3)}MiB`);
+if (shippedTotalBytes > totalLimit) throw new Error(`upload total exceeds ${totalLimit / 1048576}MiB after upload compression: ${(shippedTotalBytes / 1048576).toFixed(3)}MiB`);
+if (shippedTotalBytes >= mainLimit) console.warn(`package budget warning: shipped total ${(shippedTotalBytes / 1048576).toFixed(3)}MiB exceeds the optional 4MiB project budget`);
 
-console.log(`package size check ok (main ${(mainBytes / 1048576).toFixed(3)}MiB, total ${(totalBytes / 1048576).toFixed(3)}MiB)`);
+console.log(`package size check ok (source main ${(mainBytes / 1048576).toFixed(3)}MiB, shipped main ${(shippedMainBytes / 1048576).toFixed(3)}MiB; source total ${(totalBytes / 1048576).toFixed(3)}MiB, shipped total ${(shippedTotalBytes / 1048576).toFixed(3)}MiB)`);

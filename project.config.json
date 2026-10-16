@@ -75,11 +75,7 @@
         "type": "file"
       },
       {
-        "value": "assets/art/facility-sprites-atlas-v4.png",
-        "type": "file"
-      },
-      {
-        "value": "assets/art/collection/collection-items-atlas.png",
+        "value": "assets/art/prologue/opening-field-v1.jpg",
         "type": "file"
       },
       {
@@ -113,6 +109,14 @@
       {
         "value": "docs",
         "type": "folder"
+      },
+      {
+        "value": "js/collectionSystem.js",
+        "type": "file"
+      },
+      {
+        "value": "js/wildernessKnowledge.js",
+        "type": "file"
       }
     ],
     "include": []

@@ -54,7 +54,7 @@ const { Game } = require("../js/game");
 const day = new Date(2026, 8, 22, 10, 0, 0).getTime();
 const nextDay = new Date(2026, 8, 23, 0, 10, 0).getTime();
 
-assert.deepEqual(chapterTargets(1), { species: 7, animals: 70, visitors: 114, expectedMinutes: 4 });
+assert.deepEqual(chapterTargets(1), { species: 7, animals: 12, visitors: 50, expectedMinutes: 4 });
 assert.deepEqual(chapterTargets(2), { species: 7, animals: 84, visitors: 174, expectedMinutes: 9 });
 assert.equal(chapterTargets(3).visitors, 378);
 assert.ok(chapterTargets(20).visitors > chapterTargets(3).visitors, "late chapter visitor gates keep rising");
@@ -63,7 +63,7 @@ const chapterOnePlan = visitorReceptionPlan(1);
 assert.equal(chapterOnePlan.budget, Math.floor(chapterTargets(1).visitors * 0.15));
 assert.ok(chapterOnePlan.uses >= 2 && chapterOnePlan.uses <= 6);
 const chapterTwentyPlan = visitorReceptionPlan(20);
-assert.equal(chapterTwentyPlan.uses, 6, "a chapter can host at most 6 receptions");
+assert.equal(chapterTwentyPlan.uses, 4, "a chapter can host at most 4 receptions");
 const lateVisitors = chapterTargets(20).visitors;
 assert.equal(chapterTwentyPlan.budget, Math.floor(lateVisitors * 0.15));
 assert.ok(chapterTwentyPlan.budget / lateVisitors <= 0.15);

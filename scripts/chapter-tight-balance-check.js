@@ -26,6 +26,7 @@ const { CORE_METRIC_AMOUNTS, REAL_NATURE_CHAPTER_QUOTA } = require("../js/realNa
 const { FACILITY_USE_PROFILES, FACILITY_USE_LIMIT, facilityAnimalGain } = require("../js/reserveFacilities");
 const { BALANCE_V2, PACE_ECONOMY } = require("../js/balanceConfig");
 const { BUILDING_MAX_LEVEL, BUILDING_LEVEL_CHAPTER } = require("../js/progressionGates");
+const { CHAPTERS } = require("../js/animalWorld");
 
 function expectedSessions(chapter) {
   return Math.max(1, Math.round(Number((BALANCE_V2.progression[chapter] || {}).expectedSessions) || 1));
@@ -139,7 +140,7 @@ function recruitBand(chapter) {
   };
 }
 
-for (let chapter = 1; chapter <= 20; chapter += 1) {
+for (let chapter = 1; chapter <= CHAPTERS.length; chapter += 1) {
   const gate = chapterTargets(chapter);
   const sessions = expectedSessions(chapter);
   const restores = Math.max(chapter <= 2 ? 1 : 0, playtimeRestores(gate.expectedMinutes));
@@ -177,7 +178,11 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
   completeRescues(reserve, chapter);
   const afterRescue = chapterAnimalTotal(reserve);
   const afterSpecies = liveSpeciesCount(reserve);
-  assert.ok(afterRescue < gate.animals, `chapter ${chapter} rescue alone must not finish animals: ${afterRescue}/${gate.animals}`);
+  if (chapter === 1) {
+    assert.ok(afterRescue >= gate.animals, `chapter 1 rescue alone must reach animals: ${afterRescue}/${gate.animals}`);
+  } else {
+    assert.ok(afterRescue < gate.animals, `chapter ${chapter} rescue alone must not finish animals: ${afterRescue}/${gate.animals}`);
+  }
   assert.ok(afterSpecies >= gate.species, `chapter ${chapter} required rescues must meet the species gate: ${afterSpecies}/${gate.species}`);
 
   const special = chapterSpecialDef(chapter).success || {};
@@ -218,10 +223,17 @@ for (let chapter = 1; chapter <= 20; chapter += 1) {
     + building * Math.max(0, sessions - 1)
     + realVisitors;
 
-  assert.ok(band.twoMax + specialVisitors < need, `chapter ${chapter} two free max + special must not clear +${need}`);
-  assert.ok(sameDayTyp < gate.visitors, `chapter ${chapter} typical same-day operate must stay under visitors: ${sameDayTyp}/${gate.visitors}`);
+  if (chapter === 1) {
+    assert.ok(band.twoTyp >= need, `chapter 1 two free recruits must be able to clear +${need}, got typical ${band.twoTyp}`);
+    assert.ok(recruitmentYieldBand(1, 0).max < need, `chapter 1 one recruit must stay under +${need}`);
+  } else {
+    assert.ok(band.twoMax + specialVisitors < need, `chapter ${chapter} two free max + special must not clear +${need}`);
+    assert.ok(sameDayTyp < gate.visitors, `chapter ${chapter} typical same-day operate must stay under visitors: ${sameDayTyp}/${gate.visitors}`);
+  }
   assert.ok(slowTyp >= gate.visitors || fullTyp >= gate.visitors, `chapter ${chapter} waiting/restoring or finishing all chapter days must pass visitors`);
-  if (chapter <= 2) {
+  if (chapter === 1) {
+    assert.ok(band.twoTyp >= gate.visitors, `chapter 1 two free recruits must reach ${gate.visitors} visitors`);
+  } else if (chapter <= 2) {
     assert.ok(inherit + band.twoMax + band.laterMax >= gate.visitors, `chapter ${chapter} one extra recruit must be able to finish visitors`);
   } else {
     assert.ok(inherit + band.twoMax + band.laterMax + specialVisitors + reception < gate.visitors, `chapter ${chapter} three same-day recruits plus reception must still leave a visitor gap`);

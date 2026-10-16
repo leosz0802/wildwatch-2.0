@@ -1,6 +1,6 @@
 "use strict";
 const { recordIncrease, recordDecrease } = require("./animalSourceLedger");
-const { speciesPopulationGroup } = require("./animalWorld");
+const { speciesPopulationGroup, CHAPTERS } = require("./animalWorld");
 const { recordFundChange } = require("./fundLedger");
 const { recordEcologyFlow } = require("./ledgerConsistency");
 const RARE_AUCTION_START_CHAPTER = 6;
@@ -262,6 +262,10 @@ function normalizeRareAnimalState(reserve = {}) {
       return entry;
     })
     .filter((entry, index, list) => list.findIndex((candidate) => candidate.speciesId === entry.speciesId) === index);
+  if (state.collection.length && state.status === "migrating" && state.collection[0].status !== "migrating") {
+    state.collection[0].status = "migrating";
+    state.collection[0].health = state.health || state.collection[0].health;
+  }
   if (!state.collection.length && legacyResident) {
     state.collection.push({ id: "rare_cub_legacy", speciesId: RARE_SPECIES_ID, speciesName: RARE_SPECIES_NAME,
       variantName: RARE_VARIANT_NAME, source: "legacy", status: state.status, health: state.health || DEFAULT_HEALTH,
@@ -359,8 +363,10 @@ function addRareCub(reserve = {}, options = {}) {
     acquiredDay: entry.acquiredDay
   };
   addRareAnimalToPopulation(reserve, 1, entry.speciesId);
-  const ledgerKey = entry.source === "auction" ? "rareAuction" : entry.source === "patrol" ? "rarePatrol" : entry.source === "migration" ? "rareMigratedIn" : "rareBirth";
-  recordIncrease(reserve, ledgerKey, 1, { speciesId: entry.speciesId });
+  if (entry.source !== "auction") {
+    const ledgerKey = entry.source === "patrol" ? "rarePatrol" : entry.source === "migration" ? "rareMigratedIn" : "rareBirth";
+    recordIncrease(reserve, ledgerKey, 1, { speciesId: entry.speciesId });
+  }
   appendHistory(state, { type: entry.source, variantName: entry.variantName, speciesId: entry.speciesId, animalDelta: 1 });
   return { ok: true, entry, count: rareAnimalCount(reserve) };
 }
@@ -423,10 +429,10 @@ function availableFund(reserve = {}) {
   return Math.max(0, number(reserve.fund));
 }
 function rareAuctionHoldAmount(baseBid = 0) {
-  return Math.max(0, number(baseBid)) * RARE_AUCTION_BUDGET_DIVISOR;
+  return Math.max(0, number(baseBid)) * RARE_BID_FUND_DIVISOR;
 }
 function maxBaseBid(reserve = {}) {
-  return Math.floor(availableFund(reserve) / RARE_AUCTION_BUDGET_DIVISOR);
+  return Math.floor(availableFund(reserve) / RARE_BID_FUND_DIVISOR);
 }
 function rareAuctionFinalBid(baseBid = 0, arrowScore = 1) {
   const base = Math.max(0, number(baseBid));
@@ -435,6 +441,8 @@ function rareAuctionFinalBid(baseBid = 0, arrowScore = 1) {
 }
 function preferredAuctionVariant(state) {
   const owned = ownedRareSpecies(state);
+  const flagship = RARE_CUB_VARIANTS.find((candidate) => candidate.speciesId === RARE_SPECIES_ID);
+  if (flagship && !owned.has(flagship.speciesId)) return flagship;
   const missing = RARE_CUB_VARIANTS.filter((candidate) => !owned.has(candidate.speciesId));
   if (missing.length) return missing[0];
   return RARE_CUB_VARIANTS[(Math.max(0, number(state.auction && state.auction.chapter, 1) - 1)) % RARE_CUB_VARIANTS.length];
@@ -444,6 +452,9 @@ function auctionForChapter(reserve = {}, chapter = currentChapter(reserve)) {
   const targetChapter = Math.max(RARE_AUCTION_START_CHAPTER, number(chapter, currentChapter(reserve)));
   const auction = state.auction;
   if (auction.status === "submitted") return auction;
+  // A settled result for a later chapter stays visible when progression is
+  // clamped back. Only a real chapter advance replaces it with a new auction.
+  if (auction.status === "settled" && auction.chapter > targetChapter) return auction;
   if (auction.chapter !== targetChapter || auction.status === "closed") {
     auction.id = `rare_${targetChapter}`;
     auction.chapter = targetChapter;
@@ -619,8 +630,12 @@ function withAuctionChapterLedger(reserve = {}, chapter, action) {
     else progression.storyChapter = previous.storyChapter;
   }
 }
+function playableLedgerChapter(reserve = {}, chapter) {
+  const raw = Math.max(1, number(chapter, currentChapter(reserve)));
+  return Math.min(CHAPTERS.length, raw);
+}
 function recordRareAuctionLedger(reserve = {}, chapter, amount = 1) {
-  return withAuctionChapterLedger(reserve, chapter, () => recordIncrease(
+  return withAuctionChapterLedger(reserve, playableLedgerChapter(reserve, chapter), () => recordIncrease(
     reserve,
     "rareAuction",
     amount,
@@ -769,7 +784,7 @@ function settleRareAuctionForProgression(reserve = {}, options = {}) {
   }
   const populationAdded = ensureRareAnimalPopulation(reserve);
   let ledgerRepaired = 0;
-  const auctionChapter = auction.chapter || currentChapter(reserve);
+  const auctionChapter = playableLedgerChapter(reserve, auction.chapter || currentChapter(reserve));
   const auctionLedger = (((reserve.animalSourceLedger || {}).chapters || {})[auctionChapter]) || {};
   if (winnerSettled
       && Math.max(0, number(auctionLedger.rareAuction)) <= 0) {
@@ -916,6 +931,10 @@ function rareAnimalBreedingCondition(reserve = {}) {
   if (state.health < 40) return 0;
   return 0;
 }
+function rareAuctionWinName(notice = {}) {
+  if (notice.variantName === RARE_VARIANT_NAME || notice.speciesId === RARE_SPECIES_ID || notice.speciesName === RARE_SPECIES_NAME) return "鳞芽";
+  return notice.variantName || "幼崽";
+}
 function rareAnimalMapMarker(reserve = {}, context = {}) {
   const chapter = currentChapter(reserve);
   const view = rareAuctionView(reserve, chapter);
@@ -950,7 +969,7 @@ function rareAnimalMapMarker(reserve = {}, context = {}) {
       regionId: RESIDENCE_REGION_ID,
       kind: "rareAuction",
       type: "rareAuction",
-      title: notice.winner ? `你获得了${notice.variantName}` : "这次没有获得幼崽",
+      title: notice.winner ? `你获得了${rareAuctionWinName(notice)}` : "这次没有获得幼崽",
       label: "拍卖结果",
       dialogue: notice.winner
         ? `世界排名第${notice.rank}，${notice.variantName}的护照已经写好。`
@@ -1032,7 +1051,19 @@ function rareAnimalMapMarker(reserve = {}, context = {}) {
 }
 function rareAnimalChapterGate(reserve = {}, chapter = currentChapter(reserve)) {
   const count = rareAnimalCount(reserve);
-  return { required: false, met: true, count, label: count ? `已收集${count}/${RARE_CUB_MAX}只珍稀幼崽，持续提升游客吸引力` : "珍稀幼崽会影响游客与生态收益，不直接决定章节进阶" };
+  const current = Math.max(1, Math.round(Number(chapter) || currentChapter(reserve)));
+  const required = current >= 10;
+  const met = !required || count > 0;
+  return {
+    required,
+    met,
+    count,
+    label: count
+      ? `已收集${count}/${RARE_CUB_MAX}只珍稀幼崽，持续提升游客吸引力`
+      : required
+        ? "第10章需要一只已入住的珍稀幼崽"
+        : "珍稀幼崽会影响游客与生态收益，不直接决定章节进阶"
+  };
 }
 module.exports = {
   RARE_AUCTION_START_CHAPTER,
@@ -1045,6 +1076,7 @@ module.exports = {
   PASSPORT_LOCATION,
   normalizeAuctionNotice,
   auctionResultNotice,
+  rareAuctionWinName,
   isAuctionNoticeUnseen,
   acknowledgeAuctionNotice,
   auctionWinnerBoard,

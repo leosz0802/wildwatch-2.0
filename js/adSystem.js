@@ -177,9 +177,8 @@ function applyAnimalTotalAdReward(reserve, random = Math.random, now = Date.now(
   const span = Math.max(0, status.maxPercent - status.minPercent);
   const roll = Math.max(0, Math.min(0.999999, Number(typeof random === "function" ? random() : random) || 0));
   const percent = status.minPercent + Math.floor(roll * (span + 1));
-  const rewardScale = Math.max(0.1, Math.min(2, safeNumber(PACE_ECONOMY.animalAdRewardScale, 1)));
-  const exactMax = before * status.maxPercent / 100 * rewardScale;
-  const exactMin = before * status.minPercent / 100 * rewardScale;
+  const exactMax = before * status.maxPercent / 100;
+  const exactMin = before * status.minPercent / 100;
   const maxGain = exactMax < 1 ? 1 : Math.floor(exactMax);
   const minGain = exactMax < 1 ? 1 : Math.max(1, Math.round(exactMin));
   const wanted = before > 0
